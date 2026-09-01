@@ -10,7 +10,6 @@ import (
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/logger"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

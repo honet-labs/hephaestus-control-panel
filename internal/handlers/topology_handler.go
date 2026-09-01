@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -10,7 +9,6 @@ import (
 	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type TopologyHandler struct {

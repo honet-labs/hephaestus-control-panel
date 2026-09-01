@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"go-hephaestus/internal/services"
 

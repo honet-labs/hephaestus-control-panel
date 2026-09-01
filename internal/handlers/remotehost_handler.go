@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
@@ -13,7 +12,6 @@ import (
 	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 

@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"

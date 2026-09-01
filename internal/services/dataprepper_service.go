@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
-	"go-hephaestus/internal/database"
 
 	"gopkg.in/yaml.v3"
 )

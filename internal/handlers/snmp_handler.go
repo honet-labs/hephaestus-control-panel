@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"io"
 	"net/http"
 
 	"go-hephaestus/internal/repository"
