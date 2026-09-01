@@ -173,6 +173,9 @@ HTTP_PORT=80
 DB_EXTERNAL_PORT=5432
 APP_ENV=production
 
+# Registry Mirror (Uses Amazon ECR Public mirror to avoid Docker Hub TLS proxy blocks)
+REGISTRY_MIRROR=public.ecr.aws/docker/library/
+
 # Database Credentials
 DB_USER=hephaestus
 DB_PASSWORD=${RANDOM_DB_PASSWORD}

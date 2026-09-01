@@ -1,7 +1,8 @@
 # ==========================================
 # Backend Build Stage
 # ==========================================
-FROM golang:1.22-alpine AS builder
+ARG REGISTRY_MIRROR=""
+FROM ${REGISTRY_MIRROR}golang:1.22-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/hephaestus ./cmd/
 # ==========================================
 # Backend Production Runtime Stage
 # ==========================================
-FROM alpine:3.20
+FROM ${REGISTRY_MIRROR}alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata postgresql16-client mysql-client openssh-client iputils curl
 
