@@ -120,6 +120,23 @@ install_dependencies() {
 
 install_dependencies
 
+# Configure Docker Daemon DNS & Mirror settings
+configure_docker_daemon() {
+    echo -e "\n${BLUE}[Setup] Configuring Docker Daemon DNS (IPv4) & Registry Mirrors...${NC}"
+    mkdir -p /etc/docker
+    if [ ! -f /etc/docker/daemon.json ]; then
+        cat <<EOF > /etc/docker/daemon.json
+{
+  "dns": ["8.8.8.8", "1.1.1.1"],
+  "insecure-registries": ["registry-1.docker.io", "docker.io", "public.ecr.aws"]
+}
+EOF
+        systemctl restart docker || true
+    fi
+}
+
+configure_docker_daemon
+
 # If script is run via curl pipe (outside of cloned repo), clone repository to /opt/hephaestus-control-panel
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then

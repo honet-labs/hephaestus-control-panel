@@ -6,8 +6,10 @@ FROM ${REGISTRY_MIRROR}node:20-alpine AS builder
 
 WORKDIR /app
 
+RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf 2>/dev/null || true
+
 COPY web/package*.json ./
-RUN npm ci || npm install --legacy-peer-deps
+RUN npm ci --fetch-retries=5 || npm install --legacy-peer-deps
 
 COPY web/ ./
 RUN npm run build
