@@ -105,4 +105,6 @@ Detailed technical documentation is available in [`docs/`](./docs):
 ---
 
 ## 📜 License
-MIT License. Developed for HONET Infrastructure Operations.
+
+This project is open-source software licensed under the [MIT License](./LICENSE).  
+Copyright (c) 2026 HONET Labs & Hephaestus Contributors.
