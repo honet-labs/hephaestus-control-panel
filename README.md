@@ -55,6 +55,18 @@ Access the Web UI at **`http://<SERVER_IP>`** or **`http://localhost`**.
 
 ---
 
+## Updating to Latest Version (`update-version.sh`)
+
+To update an existing installation to the latest release:
+
+```bash
+cd /opt/hephaestus-control-panel # or your installation folder
+chmod +x update-version.sh
+sudo ./update-version.sh
+```
+
+---
+
 ## Project Structure
 
 ```
