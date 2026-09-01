@@ -1,0 +1,94 @@
+name: Hephaestus CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # =============================================================
+  # Job 1: Test & Build Go Backend
+  # =============================================================
+  backend:
+    name: Backend Lint & Build (Go 1.22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Download Go Dependencies
+        run: go mod download
+
+      - name: Go Vet & Lint
+        run: go vet ./...
+
+      - name: Compile Backend Binary
+        run: CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/hephaestus ./cmd/server
+
+  # =============================================================
+  # Job 2: Test & Build Vue 3 Frontend
+  # =============================================================
+  frontend:
+    name: Frontend Lint & Build (Vue 3 + Vite)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Compile Vue 3 SPA Bundle
+        working-directory: ./web
+        run: npm run build
+
+  # =============================================================
+  # Job 3: Docker Multi-Arch Build (Backend & Frontend)
+  # =============================================================
+  docker:
+    name: Build Multi-Arch Docker Images
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU for Multi-Arch
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Backend Image (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.backend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: hephaestus-backend:latest
+
+      - name: Build Docker Frontend Image (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: hephaestus-frontend:latest

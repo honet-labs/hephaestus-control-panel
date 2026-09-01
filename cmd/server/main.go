@@ -115,16 +115,17 @@ func main() {
 		setupGroup.POST("/complete", setupHandler.CompleteSetup)
 	}
 
-	// Public Auth routes
-	r.POST("/api/v1/auth/login", authHandler.Login)
+	// Public Auth routes (with brute-force protection)
+	r.POST("/api/v1/auth/login", middleware.AuthRateLimitMiddleware(), authHandler.Login)
 	r.POST("/api/v1/auth/logout", authHandler.Logout)
 
 	// WebSocket Endpoints (WebSocket handles auth via handshake message)
 	r.GET("/ws/remote-host", remoteHostHandler.HandleWebSocketTerminal)
 	r.GET("/ws/logs", logsHandler.StreamLogsWebSocket)
 
-	// Protected API Routes
+	// Protected API Routes (with general rate limiting)
 	api := r.Group("/api/v1")
+	api.Use(middleware.GeneralRateLimitMiddleware())
 	api.Use(middleware.AuthMiddleware(authService))
 	{
 		// User & Profile

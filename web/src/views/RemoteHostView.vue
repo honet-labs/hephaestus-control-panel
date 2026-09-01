@@ -14,9 +14,12 @@ import {
   X, 
   RefreshCw, 
   Trash2, 
-  Key, 
-  Lock,
-  ExternalLink
+  Radio, 
+  Maximize2,
+  Grid2X2,
+  Columns2,
+  Rows2,
+  Square
 } from 'lucide-vue-next';
 
 interface RemoteHost {
@@ -30,7 +33,7 @@ interface RemoteHost {
   tags: string[];
 }
 
-interface TerminalTab {
+interface TerminalSession {
   id: string;
   hostId: string;
   title: string;
@@ -39,9 +42,16 @@ interface TerminalTab {
   ws?: WebSocket;
 }
 
+type SplitLayout = 'single' | 'split-h' | 'split-v' | 'grid-4';
+
 const hosts = ref<RemoteHost[]>([]);
-const tabs = ref<TerminalTab[]>([]);
-const activeTabId = ref<string>('');
+const layout = ref<SplitLayout>('single');
+const activePaneIndex = ref<number>(0);
+const broadcastMode = ref<boolean>(false);
+
+// Active terminal session per pane (max 4 panes)
+const paneSessions = ref<(TerminalSession | null)[]>([null, null, null, null]);
+
 const isHostModalOpen = ref(false);
 const isSftpModalOpen = ref(false);
 const selectedHostForSftp = ref<RemoteHost | null>(null);
@@ -72,40 +82,33 @@ const fetchHosts = async () => {
   }
 };
 
-const openTerminal = async (host: RemoteHost) => {
-  const tabId = `tab-${Date.now()}`;
-  const newTab: TerminalTab = {
-    id: tabId,
+const connectHostToPane = async (host: RemoteHost, paneIdx: number) => {
+  // Close existing session on this pane if any
+  closeSession(paneIdx);
+
+  const sessionId = `session-${paneIdx}-${Date.now()}`;
+  const session: TerminalSession = {
+    id: sessionId,
     hostId: host.id,
     title: `${host.name} (${host.host})`,
   };
 
-  tabs.value.push(newTab);
-  activeTabId.value = tabId;
+  paneSessions.value[paneIdx] = session;
+  activePaneIndex.value = paneIdx;
 
   await nextTick();
-  initXterm(newTab, host);
+  initXterm(session, host, paneIdx);
 };
 
-const closeTab = (tabId: string) => {
-  const tab = tabs.value.find(t => t.id === tabId);
-  if (tab) {
-    tab.ws?.close();
-    tab.term?.dispose();
-  }
-  tabs.value = tabs.value.filter(t => t.id !== tabId);
-  if (activeTabId.value === tabId && tabs.value.length > 0) {
-    activeTabId.value = tabs.value[tabs.value.length - 1].id;
-  }
-};
-
-const initXterm = (tab: TerminalTab, host: RemoteHost) => {
-  const container = document.getElementById(`terminal-container-${tab.id}`);
+const initXterm = (session: TerminalSession, host: RemoteHost, paneIdx: number) => {
+  const container = document.getElementById(`terminal-pane-${paneIdx}`);
   if (!container) return;
+
+  container.innerHTML = ''; // Clear container
 
   const term = new Terminal({
     fontFamily: 'JetBrains Mono, monospace',
-    fontSize: 13,
+    fontSize: 12,
     theme: {
       background: '#090d16',
       foreground: '#e2e8f0',
@@ -119,21 +122,21 @@ const initXterm = (tab: TerminalTab, host: RemoteHost) => {
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
   term.open(container);
-  fitAddon.fit();
+  
+  setTimeout(() => fitAddon.fit(), 100);
 
-  tab.term = term;
-  tab.fitAddon = fitAddon;
+  session.term = term;
+  session.fitAddon = fitAddon;
 
   // Connect WebSocket
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?cols=${term.cols}&rows=${term.rows}`;
   const ws = new WebSocket(wsUrl);
-  tab.ws = ws;
+  session.ws = ws;
 
   const token = localStorage.getItem('hephaestus_token') || '';
 
   ws.onopen = () => {
-    // Send auth message
     ws.send(JSON.stringify({
       type: 'auth',
       token,
@@ -157,8 +160,18 @@ const initXterm = (tab: TerminalTab, host: RemoteHost) => {
   };
 
   term.onData((data) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data }));
+    if (broadcastMode.value) {
+      // Send input to all open active pane WebSocket connections
+      paneSessions.value.forEach(s => {
+        if (s?.ws && s.ws.readyState === WebSocket.OPEN) {
+          s.ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      });
+    } else {
+      // Send only to this pane
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+      }
     }
   });
 
@@ -167,8 +180,32 @@ const initXterm = (tab: TerminalTab, host: RemoteHost) => {
       ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
     }
   });
+};
 
-  window.addEventListener('resize', () => fitAddon.fit());
+const closeSession = (paneIdx: number) => {
+  const session = paneSessions.value[paneIdx];
+  if (session) {
+    session.ws?.close();
+    session.term?.dispose();
+    paneSessions.value[paneIdx] = null;
+  }
+};
+
+const changeLayout = (newLayout: SplitLayout) => {
+  layout.value = newLayout;
+  nextTick(() => {
+    // Re-fit all active terminals
+    paneSessions.value.forEach(s => s?.fitAddon?.fit());
+  });
+};
+
+const getVisiblePanesCount = () => {
+  switch (layout.value) {
+    case 'single': return 1;
+    case 'split-h': return 2;
+    case 'split-v': return 2;
+    case 'grid-4': return 4;
+  }
 };
 
 // SFTP Functions
@@ -213,40 +250,95 @@ const deleteHost = async (id: string) => {
   }
 };
 
+const handleWindowResize = () => {
+  paneSessions.value.forEach(s => s?.fitAddon?.fit());
+};
+
 onMounted(() => {
   fetchHosts();
+  window.addEventListener('resize', handleWindowResize);
 });
 
 onUnmounted(() => {
-  tabs.value.forEach(t => {
-    t.ws?.close();
-    t.term?.dispose();
-  });
+  window.removeEventListener('resize', handleWindowResize);
+  paneSessions.value.forEach((_, idx) => closeSession(idx));
 });
 </script>
 
 <template>
-  <div class="h-full flex flex-col space-y-4">
-    <!-- Header -->
+  <div class="h-full flex flex-col space-y-4 font-sans">
+    <!-- Header with Split-Screen & Multi-Cast Controls -->
     <div class="flex items-center justify-between shrink-0">
       <div>
         <h2 class="text-xl font-bold text-white tracking-tight">Remote Server Terminal</h2>
-        <p class="text-xs text-slate-400">Interactive SSH terminal and SFTP browser</p>
+        <p class="text-xs text-slate-400">Interactive SSH terminal with Split-Screen multi-view and Broadcast mode</p>
       </div>
-      <button
-        @click="isHostModalOpen = true"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20 transition"
-      >
-        <Plus class="w-4 h-4" />
-        Add Server
-      </button>
+
+      <div class="flex items-center gap-3">
+        <!-- Broadcast Mode Toggle -->
+        <button
+          @click="broadcastMode = !broadcastMode"
+          :class="[
+            broadcastMode ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse font-bold' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white',
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition'
+          ]"
+          title="Send keystrokes simultaneously to all open terminal panes"
+        >
+          <Radio class="w-3.5 h-3.5" />
+          {{ broadcastMode ? 'Broadcast ON (All Panes)' : 'Broadcast OFF' }}
+        </button>
+
+        <!-- Split Layout Controls -->
+        <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+          <button
+            @click="changeLayout('single')"
+            :class="[layout === 'single' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
+            title="Single Pane (1x1)"
+          >
+            <Square class="w-3.5 h-3.5" />
+          </button>
+          <button
+            @click="changeLayout('split-h')"
+            :class="[layout === 'split-h' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
+            title="2 Columns (Side-by-side)"
+          >
+            <Columns2 class="w-3.5 h-3.5" />
+          </button>
+          <button
+            @click="changeLayout('split-v')"
+            :class="[layout === 'split-v' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
+            title="2 Rows (Top & Bottom)"
+          >
+            <Rows2 class="w-3.5 h-3.5" />
+          </button>
+          <button
+            @click="changeLayout('grid-4')"
+            :class="[layout === 'grid-4' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
+            title="4 Grid (2x2)"
+          >
+            <Grid2X2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <button
+          @click="isHostModalOpen = true"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20 transition"
+        >
+          <Plus class="w-4 h-4" />
+          Add Server
+        </button>
+      </div>
     </div>
 
     <!-- Main Workspace -->
     <div class="flex-1 flex gap-4 min-h-0">
       <!-- Hosts List Sidebar -->
       <div class="w-72 bg-slate-900/60 border border-slate-800/80 rounded-xl p-3 flex flex-col shrink-0">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 mb-2">Saved Servers</h3>
+        <div class="flex items-center justify-between px-2 mb-2">
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Saved Servers</h3>
+          <span class="text-[10px] text-slate-500">Target Pane: #{{ activePaneIndex + 1 }}</span>
+        </div>
+
         <div class="flex-1 overflow-y-auto space-y-1.5">
           <div
             v-for="host in hosts"
@@ -275,51 +367,76 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+
+            <!-- Connect to Active Pane Button -->
             <button
-              @click="openTerminal(host)"
+              @click="connectHostToPane(host, activePaneIndex)"
               class="mt-2 w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[11px] font-medium bg-slate-700/60 hover:bg-brand-500 hover:text-white text-slate-300 rounded transition"
             >
-              <Terminal class="w-3 h-3" />
-              Connect Terminal
+              <Server class="w-3 h-3" />
+              Connect to Pane #{{ activePaneIndex + 1 }}
             </button>
           </div>
+
           <div v-if="hosts.length === 0" class="text-center py-8 text-xs text-slate-500">
             No servers configured
           </div>
         </div>
       </div>
 
-      <!-- Tabbed Terminal Area -->
-      <div class="flex-1 bg-slate-950 border border-slate-800/80 rounded-xl flex flex-col min-w-0 overflow-hidden shadow-2xl">
-        <!-- Terminal Tabs -->
-        <div class="h-10 bg-slate-900 border-b border-slate-800 flex items-center px-2 gap-1 overflow-x-auto shrink-0">
-          <div
-            v-for="tab in tabs"
-            :key="tab.id"
-            :class="[
-              activeTabId === tab.id ? 'bg-slate-950 text-white border-t-2 border-brand-500' : 'text-slate-400 hover:bg-slate-800/60',
-              'flex items-center gap-2 px-3 py-1.5 text-xs rounded-t-lg transition cursor-pointer'
-            ]"
-            @click="activeTabId = tab.id"
-          >
-            <span class="truncate max-w-[150px]">{{ tab.title }}</span>
-            <button @click.stop="closeTab(tab.id)" class="hover:text-red-400">
-              <X class="w-3 h-3" />
-            </button>
-          </div>
-          <div v-if="tabs.length === 0" class="text-xs text-slate-500 px-3 py-1.5">
-            Select a server from the left to open a terminal session
-          </div>
-        </div>
+      <!-- Split-Screen Terminal Grid -->
+      <div
+        :class="[
+          layout === 'single' ? 'grid-cols-1 grid-rows-1' :
+          layout === 'split-h' ? 'grid-cols-2 grid-rows-1' :
+          layout === 'split-v' ? 'grid-cols-1 grid-rows-2' :
+          'grid-cols-2 grid-rows-2',
+          'flex-1 grid gap-2 min-w-0 min-h-0'
+        ]"
+      >
+        <div
+          v-for="paneIdx in getVisiblePanesCount()"
+          :key="paneIdx - 1"
+          @click="activePaneIndex = paneIdx - 1"
+          :class="[
+            activePaneIndex === paneIdx - 1 ? 'border-brand-500/80 ring-1 ring-brand-500/30' : 'border-slate-800/80',
+            'bg-slate-950 border rounded-xl flex flex-col min-h-0 overflow-hidden shadow-2xl transition-all'
+          ]"
+        >
+          <!-- Pane Header Bar -->
+          <div class="h-8 bg-slate-900/90 border-b border-slate-800 px-3 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <span class="w-2 h-2 rounded-full" :class="paneSessions[paneIdx - 1] ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'"></span>
+              <span class="text-xs font-medium text-slate-300 truncate">
+                Pane #{{ paneIdx }}: {{ paneSessions[paneIdx - 1]?.title || 'Disconnected (Click server to connect)' }}
+              </span>
+            </div>
 
-        <!-- Terminal Containers -->
-        <div class="flex-1 relative min-h-0 bg-[#090d16] p-2">
-          <div
-            v-for="tab in tabs"
-            :key="tab.id"
-            :id="`terminal-container-${tab.id}`"
-            :class="[activeTabId === tab.id ? 'block' : 'hidden', 'w-full h-full']"
-          ></div>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="paneSessions[paneIdx - 1]"
+                @click.stop="closeSession(paneIdx - 1)"
+                title="Disconnect"
+                class="text-slate-500 hover:text-red-400 transition"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Terminal Container for this Pane -->
+          <div class="flex-1 relative bg-[#090d16] p-1.5 min-h-0 overflow-hidden">
+            <div :id="`terminal-pane-${paneIdx - 1}`" class="w-full h-full"></div>
+            
+            <!-- Empty Placeholder -->
+            <div
+              v-if="!paneSessions[paneIdx - 1]"
+              class="absolute inset-0 flex flex-col items-center justify-center text-slate-600 text-xs space-y-1"
+            >
+              <Server class="w-6 h-6 text-slate-700" />
+              <span>Select a server from the sidebar to connect Pane #{{ paneIdx }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
