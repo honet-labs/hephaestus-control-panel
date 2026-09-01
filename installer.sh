@@ -209,7 +209,10 @@ deploy_containers() {
     fi
 
     echo "Executing: $COMPOSE_CMD up -d --build"
-    $COMPOSE_CMD up -d --build
+    if ! $COMPOSE_CMD up -d --build; then
+        echo -e "\n${YELLOW}[WARN] Standard build encountered a network/TLS issue. Retrying with legacy Docker builder (DOCKER_BUILDKIT=0)...${NC}"
+        DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 $COMPOSE_CMD up -d --build
+    fi
 
     echo -e "\n${BLUE}[6/6] Verifying Service Health...${NC}"
     sleep 5

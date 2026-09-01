@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # -------------------------------------------------------------
   # Frontend Web UI (Vue 3 + Vite + Tailwind CSS on Nginx Alpine)
