@@ -95,6 +95,7 @@ go-hephaestus/
 ## Documentation
 
 Detailed technical documentation is available in [`docs/`](./docs):
+- [Product Requirement Document (PRD)](./docs/PRD.md)
 - [01 - Architecture & System Design](./docs/01-architecture.md)
 - [02 - Database Schema (24 Tables)](./docs/02-database-schema.md)
 - [03 - REST API & WebSocket Protocol Reference](./docs/03-api-reference.md)
