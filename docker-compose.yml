@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------
+  # Frontend Web UI (Vue 3 + Vite + Tailwind CSS on Nginx Alpine)
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: hephaestus-frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - hephaestus_net
+
+  # -------------------------------------------------------------
+  # Backend API & WebSocket Engine (Go 1.22 + Clean Architecture)
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: hephaestus-backend
+    restart: unless-stopped
+    expose:
+      - "5000"
+    environment:
+      - PORT=5000
+      - APP_ENV=production
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-hephaestus}
+      - DB_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
+      - DB_NAME=${DB_NAME:-hephaestus}
+      - DB_SSL=false
+      - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      - LOGS_DIR=/app/logs
+      - DATA_DIR=/app/data
+    volumes:
+      - app_data:/app/data
+      - app_logs:/app/logs
+      - app_backups:/app/backups
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - hephaestus_net
+
+  # -------------------------------------------------------------
+  # Database (PostgreSQL 16 Enterprise Storage)
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: hephaestus-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-hephaestus}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
+      - POSTGRES_DB=${DB_NAME:-hephaestus}
+    ports:
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hephaestus} -d ${DB_NAME:-hephaestus}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hephaestus_net
+
+networks:
+  hephaestus_net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  app_data:
+  app_logs:
+  app_backups:

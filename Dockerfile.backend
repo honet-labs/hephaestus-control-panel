@@ -1,0 +1,38 @@
+# ==========================================
+# Backend Build Stage
+# ==========================================
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . ./
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server
+
+# ==========================================
+# Backend Production Runtime Stage
+# ==========================================
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata postgresql16-client mysql-client openssh-client iputils curl
+
+WORKDIR /app
+
+COPY --from=builder /app/hephaestus /app/hephaestus
+COPY internal/database/migrations /app/internal/database/migrations
+
+# Create storage directories
+RUN mkdir -p /app/data/mibs /app/logs /app/backups
+
+ENV PORT=5000 \
+    APP_ENV=production \
+    LOGS_DIR=/app/logs \
+    DATA_DIR=/app/data
+
+EXPOSE 5000
+
+ENTRYPOINT ["/app/hephaestus"]

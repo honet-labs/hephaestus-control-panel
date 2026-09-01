@@ -1,0 +1,35 @@
+# Binaries & Builds
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Node / Frontend
+node_modules/
+web/node_modules/
+web/dist/
+.npm
+npm-debug.log*
+
+# Environment & Sensitive files
+.env
+db_config.json
+
+# Logs
+logs/*.log
+logs/*.gz
+*.log
+
+# Data persistence (except structure)
+data/*
+!data/mibs/
+!data/mibs/.gitkeep
+backups/*
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
