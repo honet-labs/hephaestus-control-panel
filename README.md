@@ -36,8 +36,8 @@ Compatible with **Ubuntu, Debian, Rocky Linux, RHEL, and AlmaLinux**:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/honet-labs/hephaestus.git
-cd hephaestus
+git clone https://github.com/honet-labs/hephaestus-control-panel.git
+cd hephaestus-control-panel
 
 # 2. Make installer executable and run as root
 chmod +x install.sh

@@ -21,8 +21,8 @@ Hephaestus includes an automated universal installer for Linux servers.
 ### Quick Installation Command
 ```bash
 # Clone and run installer
-git clone https://github.com/honet-labs/hephaestus.git
-cd hephaestus
+git clone https://github.com/honet-labs/hephaestus-control-panel.git
+cd hephaestus-control-panel
 chmod +x install.sh
 sudo ./install.sh
 ```
