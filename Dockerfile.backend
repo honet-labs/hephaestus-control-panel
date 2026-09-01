@@ -11,13 +11,11 @@ ENV GOPROXY=https://proxy.golang.org,direct \
     CGO_ENABLED=0 \
     GOOS=linux
 
-# Copy go.mod (and go.sum if present without failing)
-COPY go.mod go.sum* ./
-RUN go mod download || true
-
-# Copy all source files and compile statically linked binary
+# Copy all source code into build context
 COPY . ./
-RUN go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server
+
+# Tidy dependencies and build statically linked binary
+RUN go mod tidy && go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server
 
 # ==========================================
 # Backend Production Runtime Stage
