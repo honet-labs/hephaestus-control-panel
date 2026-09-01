@@ -216,7 +216,7 @@ fi
 
 # Final Output
 echo -e "\n${GREEN}==============================================================================${NC}"
-echo -e "${BOLD}${GREEN}✔ HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
+echo -e "${BOLD}${GREEN}[OK] HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
 echo -e "Architecture         : Multi-Container (Frontend Nginx, Backend Go, PostgreSQL 16)"

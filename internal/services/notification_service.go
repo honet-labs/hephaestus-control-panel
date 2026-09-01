@@ -53,17 +53,17 @@ func (s *NotificationService) SendAlert(ctx context.Context, payload domain.Noti
 
 func (s *NotificationService) sendTelegram(ctx context.Context, botToken, chatID string, p domain.NotificationPayload) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
-	icon := "ℹ️"
+	prefix := "[INFO]"
 	if p.Level == "error" {
-		icon = "🚨"
+		prefix = "[ERROR]"
 	} else if p.Level == "warning" {
-		icon = "⚠️"
+		prefix = "[WARN]"
 	} else if p.Level == "success" {
-		icon = "✅"
+		prefix = "[SUCCESS]"
 	}
 
 	text := fmt.Sprintf("%s *[%s] %s*\n\n%s\n\n_Time: %s_",
-		icon, p.Module, p.Title, p.Message, p.Timestamp.Format("2006-01-02 15:04:05"))
+		prefix, p.Module, p.Title, p.Message, p.Timestamp.Format("2006-01-02 15:04:05"))
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"chat_id":    chatID,

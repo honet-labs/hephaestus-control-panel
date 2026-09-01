@@ -5,20 +5,20 @@
 
 ---
 
-## 🚀 Key Features
+## Features
 
-- **💻 Multi-Tab SSH Terminal & SFTP Browser**: Seamless interactive browser terminal (`xterm.js` over WebSockets) with native SFTP file upload/download/management.
-- **🌐 Network Topology & Auto-Discovery**: Interactive visual network graph with Prometheus scrape target synchronization and concurrent ICMP subnet sweeps.
-- **🗄️ Multi-Database Automated Backups**: Periodic and on-demand dumps for PostgreSQL, MySQL, MariaDB, and SQL Server with gzip compression and Cloudflare R2 / AWS S3 / NAS uploaders.
-- **⚡ In-Memory Background Job & Worker Pool**: Built-in Go concurrency queue with live progress percentage updates, retry mechanisms, and cancellation.
-- **📡 SNMP & MIB Registry**: OID browser, automated MIB file parser, and live SNMP walk/get queries.
-- **🔍 Observability Hub**: OpenSearch cluster telemetry, Prometheus PromQL querying, and Data Prepper pipeline manager.
-- **📋 In-App Live Log Viewer**: Structured logging (Zerolog + Lumberjack rotation) streamed live via WebSockets to the web interface.
-- **🛡️ Enterprise Security**: AES-256-GCM encrypted credentials, Bcrypt user authentication, session guards, and role-based access control.
+- **Multi-Tab SSH Terminal & SFTP Browser**: Seamless interactive browser terminal (`xterm.js` over WebSockets) with native SFTP file upload/download/management, split-screen layouts (1x1, 1x2, 2x1, 2x2), and multi-cast broadcast mode.
+- **Network Topology & Auto-Discovery**: Interactive visual network graph with Prometheus scrape target synchronization and concurrent ICMP subnet sweeps.
+- **Multi-Database Automated Backups**: Periodic and on-demand dumps for PostgreSQL, MySQL, MariaDB, and SQL Server with gzip compression and Cloudflare R2 / AWS S3 / NAS uploaders.
+- **In-Memory Background Job & Worker Pool**: Built-in Go concurrency queue with live progress percentage updates, retry mechanisms, and cancellation.
+- **SNMP & MIB Registry**: OID browser, automated MIB file parser, and live SNMP walk/get queries.
+- **Observability Hub**: OpenSearch cluster telemetry, Prometheus PromQL querying, and Data Prepper pipeline manager.
+- **In-App Live Log Viewer**: Structured logging (Zerolog + Lumberjack rotation) streamed live via WebSockets to the web interface.
+- **Enterprise Security**: Token-bucket API rate limiting, login brute-force lockout, AES-256-GCM encrypted credentials, Bcrypt user authentication, session guards, and role-based access control.
 
 ---
 
-## 🏗️ Multi-Container Architecture
+## Multi-Container Architecture
 
 Each core component runs in its own dedicated, isolated Docker container:
 
@@ -30,7 +30,7 @@ Each core component runs in its own dedicated, isolated Docker container:
 
 ---
 
-## ⚡ Quick Start: Automated Linux Installer (`install.sh`)
+## Quick Start: Automated Linux Installer (`install.sh`)
 
 Compatible with **Ubuntu, Debian, Rocky Linux, RHEL, and AlmaLinux**:
 
@@ -55,7 +55,7 @@ Access the Web UI at **`http://<SERVER_IP>`** or **`http://localhost`**.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 go-hephaestus/
@@ -92,7 +92,7 @@ go-hephaestus/
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 Detailed technical documentation is available in [`docs/`](./docs):
 - [01 - Architecture & System Design](./docs/01-architecture.md)
@@ -104,7 +104,7 @@ Detailed technical documentation is available in [`docs/`](./docs):
 
 ---
 
-## 📜 License
+## License
 
 This project is open-source software licensed under the [MIT License](./LICENSE).  
 Copyright (c) 2026 HONET Labs & Hephaestus Contributors.
