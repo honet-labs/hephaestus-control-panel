@@ -24,8 +24,7 @@ echo "██╔══██║██╔══╝  ██╔═══╝ ██�
 echo "██║  ██║███████╗██║     ██║  ██║██║  ██║███████╗███████║   ██║   ╚██████╔╝███████║"
 echo "╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝    ╚═════╝ ╚══════╝"
 echo -e "${NC}"
-echo -e "${BOLD}Hephaestus Control Panel (HCP) - Universal Auto-Installer v2.0${NC}"
-echo -e "Target Stack: Go 1.22 + PostgreSQL 16 + Vue 3 / Nginx (Multi-Container)"
+echo -e "${BOLD}Hephaestus Control Panel (HCP)${NC}"
 echo "------------------------------------------------------------------------------"
 
 # Check Root Privileges
