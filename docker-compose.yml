@@ -6,6 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      network: host
       args:
         REGISTRY_MIRROR: ${REGISTRY_MIRROR:-public.ecr.aws/docker/library/}
     container_name: hephaestus-frontend
@@ -25,6 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      network: host
       args:
         REGISTRY_MIRROR: ${REGISTRY_MIRROR:-public.ecr.aws/docker/library/}
     container_name: hephaestus-backend

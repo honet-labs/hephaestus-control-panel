@@ -120,19 +120,16 @@ install_dependencies() {
 
 install_dependencies
 
-# Configure Docker Daemon DNS & Mirror settings
+# Configure Docker Daemon (Uses host VPC DNS naturally)
 configure_docker_daemon() {
-    echo -e "\n${BLUE}[Setup] Configuring Docker Daemon DNS (IPv4) & Registry Mirrors...${NC}"
+    echo -e "\n${BLUE}[Setup] Configuring Docker Daemon Registry Mirrors...${NC}"
     mkdir -p /etc/docker
-    if [ ! -f /etc/docker/daemon.json ]; then
-        cat <<EOF > /etc/docker/daemon.json
+    cat <<EOF > /etc/docker/daemon.json
 {
-  "dns": ["8.8.8.8", "1.1.1.1"],
   "insecure-registries": ["registry-1.docker.io", "docker.io", "public.ecr.aws"]
 }
 EOF
-        systemctl restart docker || true
-    fi
+    systemctl restart docker || true
 }
 
 configure_docker_daemon
@@ -228,11 +225,11 @@ deploy_containers() {
         exit 1
     fi
 
-    echo "Executing: $COMPOSE_CMD up -d --build"
-    if ! $COMPOSE_CMD up -d --build; then
-        echo -e "\n${YELLOW}[WARN] Standard build encountered a network/TLS issue. Retrying with legacy Docker builder (DOCKER_BUILDKIT=0)...${NC}"
-        DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 $COMPOSE_CMD up -d --build
-    fi
+    echo "Building container images with host networking..."
+    $COMPOSE_CMD build
+    
+    echo "Starting container stack..."
+    $COMPOSE_CMD up -d
 
     echo -e "\n${BLUE}[6/6] Verifying Service Health...${NC}"
     sleep 5

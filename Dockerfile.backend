@@ -6,11 +6,7 @@ FROM ${REGISTRY_MIRROR}golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Ensure IPv4 DNS resolution and Go pure Go resolver
-RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf 2>/dev/null || true
-
 ENV GOPROXY=https://proxy.golang.org,https://goproxy.io,direct \
-    GODEBUG=netdns=go \
     CGO_ENABLED=0 \
     GOOS=linux
 
@@ -25,8 +21,7 @@ RUN go mod tidy && go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server
 # ==========================================
 FROM ${REGISTRY_MIRROR}alpine:3.20
 
-RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf 2>/dev/null || true && \
-    (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/repositories 2>/dev/null || true) && \
+RUN (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/repositories 2>/dev/null || true) && \
     (apk add --no-cache ca-certificates tzdata postgresql16-client mysql-client openssh-client iputils curl 2>/dev/null || \
      apk add --no-cache ca-certificates tzdata curl 2>/dev/null || true)
 
