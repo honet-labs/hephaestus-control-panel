@@ -116,7 +116,7 @@ onMounted(() => {
     <div v-if="activeTab === 'general'" class="max-w-xl p-5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-4">
       <h3 class="text-xs font-bold text-white uppercase tracking-wider">System Information</h3>
       <div class="space-y-2 text-xs text-slate-300">
-        <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-500">Service</span><span class="font-medium">Hephaestus DevOps Control Plane</span></div>
+        <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-500">Service</span><span class="font-medium text-white">Hephaestus Control Panel (HCP)</span></div>
         <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-500">Version</span><span class="font-mono text-brand-400">v2.0.0 (Go Edition)</span></div>
         <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-500">Backend Engine</span><span class="font-mono">Go 1.22 + Gin</span></div>
         <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-500">Frontend Engine</span><span class="font-mono">Vue 3 + Vite + Tailwind CSS</span></div>

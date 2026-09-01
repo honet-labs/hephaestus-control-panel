@@ -326,7 +326,7 @@ ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO app_config (key, value) VALUES 
     ('setup_completed', 'false'),
-    ('system_name', 'Hephaestus DevOps Control Plane'),
+    ('system_name', 'Hephaestus Control Panel (HCP)'),
     ('alert_telegram_enabled', 'false'),
     ('alert_discord_enabled', 'false')
 ON CONFLICT (key) DO NOTHING;

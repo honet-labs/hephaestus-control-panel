@@ -50,11 +50,11 @@ onMounted(() => {
     <div class="w-full max-w-sm space-y-6">
       <!-- Logo Brand -->
       <div class="text-center space-y-2">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20">
-          <ShieldCheck class="w-7 h-7 text-white" />
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20 font-mono font-black text-sm text-white tracking-tight">
+          HCP
         </div>
         <h1 class="text-xl font-bold text-white tracking-tight">HEPHAESTUS</h1>
-        <p class="text-xs text-slate-400">Sign in to your DevOps control plane</p>
+        <p class="text-xs text-brand-400 font-medium">Control Panel (HCP) — Sign In</p>
       </div>
 
       <!-- Login Form Card -->

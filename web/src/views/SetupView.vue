@@ -46,10 +46,10 @@ const handleSetup = async () => {
   <div class="min-h-screen flex items-center justify-center bg-[#090d16] p-4 font-sans">
     <div class="w-full max-w-md space-y-6">
       <div class="text-center space-y-2">
-        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20">
-          <Sparkles class="w-6 h-6 text-white" />
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20 font-mono font-black text-sm text-white tracking-tight">
+          HCP
         </div>
-        <h1 class="text-xl font-bold text-white tracking-tight">Welcome to Hephaestus</h1>
+        <h1 class="text-xl font-bold text-white tracking-tight">Hephaestus Control Panel (HCP)</h1>
         <p class="text-xs text-slate-400">Initialize your master administrator account to get started</p>
       </div>
 

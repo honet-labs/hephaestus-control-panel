@@ -1,7 +1,7 @@
-# Hephaestus Architecture & System Design
+# Hephaestus Control Panel (HCP) - Architecture & System Design
 
 ## 1. Overview
-**Hephaestus** is a modern, unified DevOps and Network Infrastructure Control Plane. It provides centralized management for remote server access (SSH/SFTP), network topology visualization, automated multi-database backups (S3/R2/NAS), SNMP telemetry, and observability integration (Prometheus, OpenSearch, Data Prepper).
+**Hephaestus Control Panel (HCP)** is a modern, unified DevOps, Database, and Network Infrastructure Control Panel. It provides centralized management for remote server access (SSH/SFTP), network topology visualization, automated multi-database backups (S3/R2/NAS), SNMP telemetry, and observability integration (Prometheus, OpenSearch, Data Prepper).
 
 ### Core Stack
 - **Backend**: Go 1.22+ (Gin Web Framework, `pgx/v5` PostgreSQL driver, `gorilla/websocket`, `gosnmp`, `robfig/cron/v3`, `zerolog`, `lumberjack`)

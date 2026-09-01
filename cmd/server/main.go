@@ -30,7 +30,7 @@ func main() {
 
 	// 2. Initialize Structured Logger with file rotation
 	logger.InitLogger(cfg.LogsDir)
-	logger.Info("Server", fmt.Sprintf("Starting Hephaestus Control Plane v2.0.0 (Go Refactor) on port %d...", cfg.Port))
+	logger.Info("Server", fmt.Sprintf("Starting Hephaestus Control Panel (HCP) v2.0.0 on port %d...", cfg.Port))
 
 	// 3. Initialize PostgreSQL Connection Pool & Run Migrations
 	dbCtx, cancelDB := context.WithTimeout(context.Background(), 15*time.Second)
@@ -102,7 +102,7 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":    "UP",
-			"service":   "Hephaestus DevOps Control Plane (Go)",
+			"service":   "Hephaestus Control Panel (HCP)",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 			"database":  database.IsConnected(),
 		})

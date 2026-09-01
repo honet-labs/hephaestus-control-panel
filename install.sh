@@ -24,7 +24,7 @@ echo "██╔══██║██╔══╝  ██╔═══╝ ██�
 echo "██║  ██║███████╗██║     ██║  ██║██║  ██║███████╗███████║   ██║   ╚██████╔╝███████║"
 echo "╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝    ╚═════╝ ╚══════╝"
 echo -e "${NC}"
-echo -e "${BOLD}Hephaestus DevOps Control Plane - Universal Auto-Installer v2.0${NC}"
+echo -e "${BOLD}Hephaestus Control Panel (HCP) - Universal Auto-Installer v2.0${NC}"
 echo -e "Target Stack: Go 1.22 + PostgreSQL 16 + Vue 3 / Nginx (Multi-Container)"
 echo "------------------------------------------------------------------------------"
 
@@ -216,7 +216,7 @@ fi
 
 # Final Output
 echo -e "\n${GREEN}==============================================================================${NC}"
-echo -e "${BOLD}${GREEN}✔ HEPHAESTUS DEVOPS CONTROL PLANE DEPLOYED SUCCESSFULLY!${NC}"
+echo -e "${BOLD}${GREEN}✔ HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
 echo -e "Architecture         : Multi-Container (Frontend Nginx, Backend Go, PostgreSQL 16)"

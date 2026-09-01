@@ -57,13 +57,13 @@ onMounted(() => {
     <aside class="w-64 border-r border-slate-800/80 bg-slate-950/60 flex flex-col justify-between backdrop-blur-xl">
       <div>
         <!-- App Brand Header -->
-        <div class="h-16 flex items-center px-6 border-b border-slate-800/80 gap-3">
-          <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
-            <ShieldCheck class="w-5 h-5 text-white" />
+        <div class="h-16 flex items-center px-5 border-b border-slate-800/80 gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20 font-mono font-black text-xs text-white tracking-tighter">
+            HCP
           </div>
           <div>
             <h1 class="font-bold text-sm tracking-wide text-white leading-tight">HEPHAESTUS</h1>
-            <span class="text-[10px] text-slate-400 font-mono tracking-wider">CONTROL PLANE</span>
+            <span class="text-[10px] text-brand-400 font-mono font-semibold tracking-wider">CONTROL PANEL</span>
           </div>
         </div>
 

@@ -1,6 +1,6 @@
-# Hephaestus (Go + Vue 3 Edition)
+# Hephaestus Control Panel (HCP)
 
-> **Next-Generation DevOps & Network Infrastructure Control Plane**  
+> **Unified DevOps, Server, Database & Network Infrastructure Control Panel**  
 > High-performance Go backend, PostgreSQL ACID persistence, native in-memory worker pool, and sleek modern Vue 3 + Tailwind CSS web interface.
 
 ---
