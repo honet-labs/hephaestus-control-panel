@@ -594,8 +594,58 @@ const groupedSessions = computed(() => {
   return groups;
 });
 
+// Telemetry & Linux Subsystem Observability
+const processSearch = ref('');
+const processSort = ref<'cpu' | 'mem' | 'pid'>('cpu');
+const serviceSearch = ref('');
+const isTelemetryLoading = ref(false);
+
+const filteredProcesses = computed(() => {
+  if (!activeSession.value?.processes) return [];
+  let list = [...activeSession.value.processes];
+  if (processSearch.value) {
+    const q = processSearch.value.toLowerCase();
+    list = list.filter((p) => p.command?.toLowerCase().includes(q) || p.user?.toLowerCase().includes(q) || String(p.pid).includes(q));
+  }
+  list.sort((a, b) => {
+    if (processSort.value === 'cpu') return (b.cpu || 0) - (a.cpu || 0);
+    if (processSort.value === 'mem') return (b.mem || 0) - (a.mem || 0);
+    return (a.pid || 0) - (b.pid || 0);
+  });
+  return list;
+});
+
+const filteredServices = computed(() => {
+  if (!activeSession.value?.services) return [];
+  let list = [...activeSession.value.services];
+  if (serviceSearch.value) {
+    const q = serviceSearch.value.toLowerCase();
+    list = list.filter((s) => s.name?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q) || s.activeState?.toLowerCase().includes(q));
+  }
+  return list;
+});
+
+const filteredListeningPorts = computed(() => {
+  return activeSession.value?.networkInfo?.listeningPorts || [];
+});
+
+const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp') => {
+  if (viewName === 'sftp') {
+    openSftpModal(session.host.id);
+    return;
+  }
+  session.activeView = viewName;
+  if (viewName === 'terminal') {
+    await ensureTerminalReady(session);
+  } else {
+    await fetchHostTelemetry(session);
+  }
+};
+
 // Fetch Host Telemetry
 const fetchHostTelemetry = async (session: OpenSession) => {
+  if (!session || !session.host?.id) return;
+  isTelemetryLoading.value = true;
   try {
     const [metricsRes, procRes, srvRes, netRes] = await Promise.all([
       axios.get(`/api/v1/remote-host/${session.host.id}/metrics`).catch(() => ({ data: { success: false } })),
@@ -604,12 +654,38 @@ const fetchHostTelemetry = async (session: OpenSession) => {
       axios.get(`/api/v1/remote-host/${session.host.id}/network`).catch(() => ({ data: { success: false } })),
     ]);
 
-    if (metricsRes.data?.success) session.metrics = metricsRes.data.data;
-    if (procRes.data?.success) session.processes = procRes.data.data;
-    if (srvRes.data?.success) session.services = srvRes.data.data;
-    if (netRes.data?.success) session.networkInfo = netRes.data.data;
+    if (metricsRes.data?.success && metricsRes.data.data) session.metrics = metricsRes.data.data;
+    if (procRes.data?.success && Array.isArray(procRes.data.data)) session.processes = procRes.data.data;
+    if (srvRes.data?.success && Array.isArray(srvRes.data.data)) session.services = srvRes.data.data;
+    if (netRes.data?.success && netRes.data.data) session.networkInfo = netRes.data.data;
   } catch (err) {
     console.warn('Telemetry poll error:', err);
+  } finally {
+    isTelemetryLoading.value = false;
+  }
+};
+
+const handleKillProcess = async (pid: number) => {
+  if (!activeSession.value) return;
+  if (!confirm(`Are you sure you want to terminate process PID ${pid}?`)) return;
+  try {
+    await axios.delete(`/api/v1/remote-host/${activeSession.value.host.id}/processes/${pid}`);
+    await fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to kill process');
+  }
+};
+
+const handleControlService = async (serviceName: string, action: string) => {
+  if (!activeSession.value) return;
+  try {
+    await axios.post(`/api/v1/remote-host/${activeSession.value.host.id}/services/control`, {
+      serviceName,
+      action,
+    });
+    await fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || `Failed to ${action} service`);
   }
 };
 
@@ -1316,7 +1392,7 @@ onUnmounted(() => {
             </button>
 
             <button
-              @click="session.activeView = 'dashboard'"
+              @click="switchActiveView(session, 'dashboard')"
               title="Host Dashboard & Metrics"
               :class="[
                 'p-2.5 rounded-lg transition',
@@ -1329,7 +1405,7 @@ onUnmounted(() => {
             </button>
 
             <button
-              @click="session.activeView = 'processes'"
+              @click="switchActiveView(session, 'processes')"
               title="Process Manager"
               :class="[
                 'p-2.5 rounded-lg transition',
@@ -1342,7 +1418,7 @@ onUnmounted(() => {
             </button>
 
             <button
-              @click="session.activeView = 'services'"
+              @click="switchActiveView(session, 'services')"
               title="System Services"
               :class="[
                 'p-2.5 rounded-lg transition',
@@ -1355,7 +1431,7 @@ onUnmounted(() => {
             </button>
 
             <button
-              @click="session.activeView = 'network'"
+              @click="switchActiveView(session, 'network')"
               title="Network & Ports"
               :class="[
                 'p-2.5 rounded-lg transition',
@@ -1368,7 +1444,7 @@ onUnmounted(() => {
             </button>
 
             <button
-              @click="openSftpModal(session.host.id)"
+              @click="switchActiveView(session, 'sftp')"
               title="FileZilla Dual-Pane SFTP Transfer"
               class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             >
@@ -1409,18 +1485,29 @@ onUnmounted(() => {
             <!-- 2. DASHBOARD VIEW -->
             <div v-if="session.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
               <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h2 class="text-sm font-bold text-white tracking-wide">Dashboard</h2>
-                <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
+                <div>
+                  <h2 class="text-sm font-bold text-white tracking-wide">Dashboard & System Telemetry</h2>
+                  <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
+                </div>
+
+                <button
+                  @click="fetchHostTelemetry(session)"
+                  :disabled="isTelemetryLoading"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1b1e26] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition shadow"
+                >
+                  <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                  <span>Refresh Stats</span>
+                </button>
               </div>
 
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
                   <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
                   <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.cpuUsage || 0 }}%</p>
                   <p class="text-[10px] text-slate-500">{{ session.metrics?.cpuCores || 1 }} cores</p>
                 </div>
 
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2">
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2 shadow-lg">
                   <div class="flex justify-between items-center">
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
                     <span class="text-xs font-mono text-slate-300">{{ session.metrics?.memUsed || '0 B' }} / {{ session.metrics?.memTotal || '0 B' }}</span>
@@ -1431,12 +1518,12 @@ onUnmounted(() => {
                   </div>
                 </div>
 
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
                   <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
                   <p class="text-xl font-bold text-white font-mono mt-1">{{ session.metrics?.loadAverage || '0.00 / 0.00 / 0.00' }}</p>
                 </div>
 
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
                   <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
                   <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.disksCount || 0 }}</p>
                   <p class="text-[10px] text-slate-500">mounted</p>
@@ -1446,13 +1533,24 @@ onUnmounted(() => {
 
             <!-- 3. PROCESSES VIEW -->
             <div v-if="session.activeView === 'processes'" class="flex-1 p-6 overflow-y-auto space-y-4">
-              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h2 class="text-sm font-bold text-white tracking-wide">Processes ({{ filteredProcesses.length }})</h2>
+              <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-3">
+                <div class="flex items-center gap-3">
+                  <h2 class="text-sm font-bold text-white tracking-wide">Processes ({{ filteredProcesses.length }})</h2>
+                  <button
+                    @click="fetchHostTelemetry(session)"
+                    :disabled="isTelemetryLoading"
+                    class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                    title="Refresh Processes"
+                  >
+                    <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                  </button>
+                </div>
+
                 <div class="flex items-center gap-2">
                   <input
                     v-model="processSearch"
                     placeholder="Search process..."
-                    class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white"
+                    class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500"
                   />
                   <select v-model="processSort" class="bg-[#1b1e26] border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300">
                     <option value="cpu">Sort by CPU</option>
@@ -1461,24 +1559,40 @@ onUnmounted(() => {
                   </select>
                 </div>
               </div>
+
               <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
                 <table class="w-full text-left text-xs font-mono">
                   <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
                     <tr>
-                      <th class="p-3">PID</th>
-                      <th class="p-3">User</th>
-                      <th class="p-3">CPU %</th>
-                      <th class="p-3">MEM %</th>
+                      <th class="p-3 w-20">PID</th>
+                      <th class="p-3 w-28">User</th>
+                      <th class="p-3 w-20 text-right">CPU %</th>
+                      <th class="p-3 w-20 text-right">MEM %</th>
                       <th class="p-3">Command</th>
+                      <th class="p-3 w-24 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-800/60 text-slate-300">
                     <tr v-for="p in filteredProcesses" :key="p.pid" class="hover:bg-slate-800/30">
-                      <td class="p-3 text-slate-400">{{ p.pid }}</td>
+                      <td class="p-3 text-slate-400 font-bold">{{ p.pid }}</td>
                       <td class="p-3 text-slate-300">{{ p.user }}</td>
-                      <td class="p-3 text-emerald-400 font-bold">{{ p.cpu }}%</td>
-                      <td class="p-3 text-sky-400">{{ p.mem }}%</td>
+                      <td class="p-3 text-emerald-400 font-bold text-right">{{ p.cpu }}%</td>
+                      <td class="p-3 text-sky-400 text-right">{{ p.mem }}%</td>
                       <td class="p-3 text-white truncate max-w-md">{{ p.command }}</td>
+                      <td class="p-3 text-right">
+                        <button
+                          @click="handleKillProcess(p.pid)"
+                          class="px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-semibold transition"
+                          title="Terminate Process"
+                        >
+                          Kill
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="filteredProcesses.length === 0">
+                      <td colspan="6" class="p-12 text-center text-slate-500 text-xs">
+                        {{ isTelemetryLoading ? 'Polling active processes...' : 'No processes found.' }}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -1487,22 +1601,35 @@ onUnmounted(() => {
 
             <!-- 4. SERVICES VIEW -->
             <div v-if="session.activeView === 'services'" class="flex-1 p-6 overflow-y-auto space-y-4">
-              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h2 class="text-sm font-bold text-white tracking-wide">System Services ({{ filteredServices.length }})</h2>
+              <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-3">
+                <div class="flex items-center gap-3">
+                  <h2 class="text-sm font-bold text-white tracking-wide">System Services ({{ filteredServices.length }})</h2>
+                  <button
+                    @click="fetchHostTelemetry(session)"
+                    :disabled="isTelemetryLoading"
+                    class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                    title="Refresh Services"
+                  >
+                    <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                  </button>
+                </div>
+
                 <input
                   v-model="serviceSearch"
                   placeholder="Search systemd service..."
-                  class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white"
+                  class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500"
                 />
               </div>
+
               <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
                 <table class="w-full text-left text-xs font-mono">
                   <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
                     <tr>
                       <th class="p-3">Service Name</th>
-                      <th class="p-3">State</th>
-                      <th class="p-3">Status</th>
+                      <th class="p-3 w-28">State</th>
+                      <th class="p-3 w-28">Status</th>
                       <th class="p-3">Description</th>
+                      <th class="p-3 w-32 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-800/60 text-slate-300">
@@ -1511,6 +1638,28 @@ onUnmounted(() => {
                       <td class="p-3 font-semibold" :class="s.activeState === 'active' ? 'text-emerald-400' : 'text-slate-500'">{{ s.activeState }}</td>
                       <td class="p-3 text-slate-400">{{ s.subState }}</td>
                       <td class="p-3 text-slate-400 truncate max-w-md">{{ s.description }}</td>
+                      <td class="p-3 text-right space-x-1 whitespace-nowrap">
+                        <button
+                          @click="handleControlService(s.name, 'restart')"
+                          class="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 text-sky-400 border border-sky-500/30 text-[10px] font-semibold transition"
+                          title="Restart Service"
+                        >
+                          Restart
+                        </button>
+                        <button
+                          v-if="s.activeState === 'active'"
+                          @click="handleControlService(s.name, 'stop')"
+                          class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 border border-amber-500/30 text-[10px] font-semibold transition"
+                          title="Stop Service"
+                        >
+                          Stop
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="filteredServices.length === 0">
+                      <td colspan="5" class="p-12 text-center text-slate-500 text-xs">
+                        {{ isTelemetryLoading ? 'Polling system services...' : 'No services found.' }}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -1520,15 +1669,26 @@ onUnmounted(() => {
             <!-- 5. NETWORK & PORTS VIEW -->
             <div v-if="session.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-6">
               <div class="space-y-3">
-                <h3 class="text-xs font-bold text-white uppercase tracking-wider">Listening Ports</h3>
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 class="text-xs font-bold text-white uppercase tracking-wider">Listening Ports ({{ filteredListeningPorts.length }})</h3>
+                  <button
+                    @click="fetchHostTelemetry(session)"
+                    :disabled="isTelemetryLoading"
+                    class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                    title="Refresh Listening Ports"
+                  >
+                    <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                  </button>
+                </div>
+
                 <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
                   <table class="w-full text-left text-xs font-mono">
                     <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
                       <tr>
-                        <th class="p-3">Proto</th>
+                        <th class="p-3 w-24">Proto</th>
                         <th class="p-3">Local Address : Port</th>
                         <th class="p-3">Process</th>
-                        <th class="p-3">PID</th>
+                        <th class="p-3 w-28">PID</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60 text-slate-300">
@@ -1537,6 +1697,11 @@ onUnmounted(() => {
                         <td class="p-3 text-white font-bold">{{ p.localAddr || '*' }}:{{ p.port }}</td>
                         <td class="p-3 text-brand-400">{{ p.process || '-' }}</td>
                         <td class="p-3 text-slate-400">{{ p.pid || '-' }}</td>
+                      </tr>
+                      <tr v-if="filteredListeningPorts.length === 0">
+                        <td colspan="4" class="p-12 text-center text-slate-500 text-xs">
+                          {{ isTelemetryLoading ? 'Polling open network ports...' : 'No listening ports detected.' }}
+                        </td>
                       </tr>
                     </tbody>
                   </table>

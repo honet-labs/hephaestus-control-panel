@@ -80,7 +80,7 @@ func main() {
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	setupHandler := handlers.NewSetupHandler(authService)
-	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService)
+	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService, vpsService)
 	topologyHandler := handlers.NewTopologyHandler(topologyRepo, topologyService, icmpService)
 	backupHandler := handlers.NewBackupHandler(backupRepo, backupService, cronSched)
 	snmpHandler := handlers.NewSnmpHandler(snmpRepo, snmpService)
@@ -155,6 +155,12 @@ func main() {
 		api.POST("/remote-host/:id/sftp/upload", remoteHostHandler.SftpUpload)
 		api.GET("/remote-host/:id/sftp/download", remoteHostHandler.SftpDownload)
 		api.POST("/remote-host/sftp/transfer-remote", remoteHostHandler.SftpTransferRemote)
+		api.GET("/remote-host/:id/metrics", remoteHostHandler.GetMetrics)
+		api.GET("/remote-host/:id/processes", remoteHostHandler.GetProcesses)
+		api.DELETE("/remote-host/:id/processes/:pid", remoteHostHandler.KillProcess)
+		api.GET("/remote-host/:id/services", remoteHostHandler.GetServices)
+		api.POST("/remote-host/:id/services/control", remoteHostHandler.ControlService)
+		api.GET("/remote-host/:id/network", remoteHostHandler.GetNetworkInfo)
 
 		// Topology
 		api.GET("/topology", topologyHandler.GetGraph)

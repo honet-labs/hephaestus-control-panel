@@ -31,6 +31,7 @@ type RemoteHostHandler struct {
 	sshService  *services.SSHService
 	wsService   *services.WsTerminalService
 	authService *services.AuthService
+	vpsService  *services.VpsService
 }
 
 func NewRemoteHostHandler(
@@ -38,12 +39,14 @@ func NewRemoteHostHandler(
 	sshService *services.SSHService,
 	wsService *services.WsTerminalService,
 	authService *services.AuthService,
+	vpsService *services.VpsService,
 ) *RemoteHostHandler {
 	return &RemoteHostHandler{
 		remoteRepo:  remoteRepo,
 		sshService:  sshService,
 		wsService:   wsService,
 		authService: authService,
+		vpsService:  vpsService,
 	}
 }
 
@@ -270,4 +273,81 @@ func (h *RemoteHostHandler) SftpTransferRemote(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Server-to-Server file transfer completed successfully."})
 }
+
+// Telemetry & Linux System Monitoring Endpoints
+func (h *RemoteHostHandler) GetMetrics(c *gin.Context) {
+	hostID := c.Param("id")
+	metrics, err := h.vpsService.GetMetrics(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": metrics})
+}
+
+func (h *RemoteHostHandler) GetProcesses(c *gin.Context) {
+	hostID := c.Param("id")
+	procs, err := h.vpsService.GetProcesses(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": procs})
+}
+
+func (h *RemoteHostHandler) KillProcess(c *gin.Context) {
+	hostID := c.Param("id")
+	pidStr := c.Param("pid")
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid PID"})
+		return
+	}
+
+	if err := h.vpsService.KillProcess(c.Request.Context(), hostID, pid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Process terminated successfully."})
+}
+
+func (h *RemoteHostHandler) GetServices(c *gin.Context) {
+	hostID := c.Param("id")
+	svcs, err := h.vpsService.GetServices(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": svcs})
+}
+
+func (h *RemoteHostHandler) ControlService(c *gin.Context) {
+	hostID := c.Param("id")
+	var req struct {
+		ServiceName string `json:"serviceName" binding:"required"`
+		Action      string `json:"action" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "serviceName and action required"})
+		return
+	}
+
+	out, err := h.vpsService.ControlService(c.Request.Context(), hostID, req.ServiceName, req.Action)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error(), "output": out})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "output": out})
+}
+
+func (h *RemoteHostHandler) GetNetworkInfo(c *gin.Context) {
+	hostID := c.Param("id")
+	netInfo, err := h.vpsService.GetNetworkInfo(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": netInfo})
+}
+
 
