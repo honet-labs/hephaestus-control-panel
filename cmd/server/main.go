@@ -67,7 +67,7 @@ func main() {
 	wsService := services.NewWsTerminalService(sshService)
 	backupService := services.NewBackupService(backupRepo, sshService)
 	snmpService := services.NewSnmpService(snmpRepo, cfg.DataDir)
-	_ = services.NewIcmpPingService(topologyRepo) // Registers ICMP worker
+	icmpService := services.NewIcmpPingService(topologyRepo) // Registers ICMP worker
 	topologyService := services.NewTopologyService(topologyRepo, configRepo)
 	openSearchService := services.NewOpenSearchService()
 	openSearchService.RegisterWorker(workerPool)
@@ -81,7 +81,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	setupHandler := handlers.NewSetupHandler(authService)
 	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService)
-	topologyHandler := handlers.NewTopologyHandler(topologyRepo, topologyService)
+	topologyHandler := handlers.NewTopologyHandler(topologyRepo, topologyService, icmpService)
 	backupHandler := handlers.NewBackupHandler(backupRepo, backupService, cronSched)
 	snmpHandler := handlers.NewSnmpHandler(snmpRepo, snmpService)
 	openSearchHandler := handlers.NewOpenSearchHandler(openSearchService)
@@ -168,6 +168,7 @@ func main() {
 		api.DELETE("/topology/edges/:id", topologyHandler.DeleteEdge)
 		api.GET("/topology/discover/prometheus", topologyHandler.DiscoverPrometheus)
 		api.GET("/topology/discover/subnet", topologyHandler.ScanSubnet)
+		api.GET("/topology/ping", topologyHandler.PingDevice)
 
 		// Backups
 		api.GET("/backup/databases", backupHandler.ListDBConfigs)

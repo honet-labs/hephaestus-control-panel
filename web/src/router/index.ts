@@ -35,6 +35,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/network-topology',
+      name: 'network-topology',
+      component: () => import('../views/TopologyView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },

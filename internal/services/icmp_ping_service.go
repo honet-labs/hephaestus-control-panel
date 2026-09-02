@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,12 +123,31 @@ func pingHost(ctx context.Context, ip string) (bool, *float64) {
 		return true, &zero
 	}
 
-	if stringsContainsIgnoreCase(output, "ttl=") {
-		zero := float64(0)
-		return true, &zero
+func (s *IcmpPingService) PingHostOutput(ctx context.Context, ip string, count int) string {
+	if ip == "" {
+		return "Error: IP address is required"
+	}
+	if count <= 0 {
+		count = 4
 	}
 
-	return false, nil
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "ping", "-n", strconv.Itoa(count), "-w", "2000", ip)
+	} else {
+		cmd = exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), "-W", "2", ip)
+	}
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	_ = cmd.Run()
+	res := out.String()
+	if strings.TrimSpace(res) == "" {
+		return fmt.Sprintf("PING %s (%s): 56 data bytes\nRequest timed out.\n\n--- %s ping statistics ---\n%d packets transmitted, 0 received, 100%% packet loss", ip, ip, ip, count)
+	}
+	return res
 }
 
 func stringsContainsIgnoreCase(s, substr string) bool {

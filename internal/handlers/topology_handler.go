@@ -16,13 +16,25 @@ import (
 type TopologyHandler struct {
 	topologyRepo *repository.TopologyRepository
 	topoService  *services.TopologyService
+	icmpService  *services.IcmpPingService
 }
 
-func NewTopologyHandler(topologyRepo *repository.TopologyRepository, topoService *services.TopologyService) *TopologyHandler {
+func NewTopologyHandler(topologyRepo *repository.TopologyRepository, topoService *services.TopologyService, icmpService *services.IcmpPingService) *TopologyHandler {
 	return &TopologyHandler{
 		topologyRepo: topologyRepo,
 		topoService:  topoService,
+		icmpService:  icmpService,
 	}
+}
+
+func (h *TopologyHandler) PingDevice(c *gin.Context) {
+	ip := c.Query("ip")
+	if ip == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Query param 'ip' is required"})
+		return
+	}
+	output := h.icmpService.PingHostOutput(c.Request.Context(), ip, 4)
+	c.JSON(http.StatusOK, gin.H{"success": true, "output": output})
 }
 
 func (h *TopologyHandler) GetGraph(c *gin.Context) {
