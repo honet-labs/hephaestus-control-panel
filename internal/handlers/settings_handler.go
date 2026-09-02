@@ -1,17 +1,21 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
+	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
 	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type SettingsHandler struct {

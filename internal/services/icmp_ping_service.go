@@ -13,6 +13,7 @@ import (
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
+	"go-hephaestus/internal/queue"
 	"go-hephaestus/internal/repository"
 )
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
 
 	"github.com/gosnmp/gosnmp"

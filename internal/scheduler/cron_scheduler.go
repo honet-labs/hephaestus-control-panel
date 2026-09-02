@@ -2,9 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
-	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
 	"go-hephaestus/internal/repository"

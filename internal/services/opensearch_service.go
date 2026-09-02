@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/database"
 )
 
 type OpenSearchService struct {
