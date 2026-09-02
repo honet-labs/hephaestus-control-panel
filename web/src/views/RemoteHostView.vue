@@ -122,14 +122,14 @@ interface RemoteHost {
   tags: string[];
 }
 
-export interface TabGroup {
+interface TabGroup {
   id: string;
   name: string;
   color: string;
   collapsed: boolean;
 }
 
-export const CHROME_COLORS = [
+const CHROME_COLORS = [
   { name: 'Grey', hex: '#64748b' },
   { name: 'Blue', hex: '#3b82f6' },
   { name: 'Red', hex: '#ef4444' },
