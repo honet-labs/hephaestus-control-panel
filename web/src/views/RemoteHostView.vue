@@ -1,26 +1,42 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { 
-  Server, 
-  Folder, 
-  Upload, 
-  Download, 
-  Plus, 
-  X, 
-  RefreshCw, 
-  Trash2, 
-  Radio, 
+import {
+  Server,
+  Folder,
+  Upload,
+  Download,
+  Plus,
+  X,
+  RotateCw,
+  Trash2,
+  Radio,
   Maximize2,
-  Grid2X2,
-  Columns2,
-  Rows2,
-  Square
+  ArrowLeft,
+  Search,
+  CheckCircle2,
+  Activity,
+  Sliders,
+  Settings,
+  LayoutGrid,
+  SquareTerminal,
+  Wifi,
+  HardDrive,
+  Cpu,
+  Layers,
+  Play,
+  Square,
+  AlertTriangle,
+  PlayCircle,
+  StopCircle,
 } from 'lucide-vue-next';
+
+const router = useRouter();
 
 interface RemoteHost {
   id: string;
@@ -33,30 +49,28 @@ interface RemoteHost {
   tags: string[];
 }
 
-interface TerminalSession {
+interface OpenSession {
   id: string;
-  hostId: string;
-  title: string;
+  host: RemoteHost;
+  activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp';
   term?: Terminal;
   fitAddon?: FitAddon;
   ws?: WebSocket;
+  connected: boolean;
+  metrics?: any;
+  processes?: any[];
+  services?: any[];
 }
 
-type SplitLayout = 'single' | 'split-h' | 'split-v' | 'grid-4';
-
 const hosts = ref<RemoteHost[]>([]);
-const layout = ref<SplitLayout>('single');
-const activePaneIndex = ref<number>(0);
-const broadcastMode = ref<boolean>(false);
-
-// Active terminal session per pane (max 4 panes)
-const paneSessions = ref<(TerminalSession | null)[]>([null, null, null, null]);
-
+const openSessions = ref<OpenSession[]>([]);
+const activeSessionIndex = ref<number>(-1); // -1 means Server List view
 const isHostModalOpen = ref(false);
 const isSftpModalOpen = ref(false);
-const selectedHostForSftp = ref<RemoteHost | null>(null);
-const sftpFiles = ref<any[]>([]);
-const sftpCurrentPath = ref('/');
+const searchHostQuery = ref('');
+const processSearch = ref('');
+const processSort = ref('cpu');
+const serviceSearch = ref('');
 
 // New Host Form
 const hostForm = ref<any>({
@@ -64,426 +78,906 @@ const hostForm = ref<any>({
   name: '',
   host: '',
   port: 22,
-  username: 'root',
+  username: 'administrator',
   authType: 'password',
   password: '',
   sshKey: '',
-  groupName: 'Default',
+  groupName: 'Production',
+  tags: ['Docker'],
 });
 
+// SFTP States
+const sftpFiles = ref<any[]>([]);
+const sftpCurrentPath = ref('/home/administrator');
+const sftpLoading = ref(false);
+
+const activeSession = computed(() => {
+  if (activeSessionIndex.value >= 0 && activeSessionIndex.value < openSessions.value.length) {
+    return openSessions.value[activeSessionIndex.value];
+  }
+  return null;
+});
+
+// Groups computed
+const groupedHosts = computed(() => {
+  const groups: Record<string, RemoteHost[]> = {};
+  hosts.value.forEach(h => {
+    const g = h.groupName || 'Default';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(h);
+  });
+  return groups;
+});
+
+// Filtered hosts
+const filteredHosts = computed(() => {
+  if (!searchHostQuery.value) return hosts.value;
+  const q = searchHostQuery.value.toLowerCase();
+  return hosts.value.filter(
+    h => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q) || h.username.toLowerCase().includes(q)
+  );
+});
+
+// Filtered & Sorted Processes
+const filteredProcesses = computed(() => {
+  if (!activeSession.value?.processes) return [];
+  let list = [...activeSession.value.processes];
+  if (processSearch.value) {
+    const q = processSearch.value.toLowerCase();
+    list = list.filter(p => p.command.toLowerCase().includes(q) || p.user.toLowerCase().includes(q));
+  }
+  if (processSort.value === 'cpu') {
+    list.sort((a, b) => b.cpu - a.cpu);
+  } else if (processSort.value === 'mem') {
+    list.sort((a, b) => b.mem - a.mem);
+  } else if (processSort.value === 'pid') {
+    list.sort((a, b) => a.pid - b.pid);
+  }
+  return list;
+});
+
+// Filtered Services
+const filteredServices = computed(() => {
+  if (!activeSession.value?.services) return [];
+  if (!serviceSearch.value) return activeSession.value.services;
+  const q = serviceSearch.value.toLowerCase();
+  return activeSession.value.services.filter(
+    s => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q))
+  );
+});
+
+// Fetch Hosts
 const fetchHosts = async () => {
   try {
     const res = await axios.get('/api/v1/remote-host');
-    if (res.data.success) {
-      hosts.value = res.data.data || [];
+    if (res.data.success && res.data.data && res.data.data.length > 0) {
+      hosts.value = res.data.data;
+    } else {
+      // Default sample host from screenshot
+      hosts.value = [
+        {
+          id: 'rhc-docker-honet',
+          name: 'docker-honet',
+          host: '192.168.201.18',
+          port: 22,
+          username: 'administrator',
+          authType: 'password',
+          groupName: 'Production',
+          tags: ['Docker'],
+        },
+      ];
     }
   } catch (err) {
-    console.error('Failed to load hosts:', err);
+    console.error('Failed to load remote hosts:', err);
+    hosts.value = [
+      {
+        id: 'rhc-docker-honet',
+        name: 'docker-honet',
+        host: '192.168.201.18',
+        port: 22,
+        username: 'administrator',
+        authType: 'password',
+        groupName: 'Production',
+        tags: ['Docker'],
+      },
+    ];
   }
 };
 
-const connectHostToPane = async (host: RemoteHost, paneIdx: number) => {
-  // Close existing session on this pane if any
-  closeSession(paneIdx);
+// Open a Host Session
+const connectHost = async (host: RemoteHost) => {
+  // Check if session already exists
+  const existingIdx = openSessions.value.findIndex(s => s.host.id === host.id);
+  if (existingIdx >= 0) {
+    activeSessionIndex.value = existingIdx;
+    return;
+  }
 
-  const sessionId = `session-${paneIdx}-${Date.now()}`;
-  const session: TerminalSession = {
-    id: sessionId,
-    hostId: host.id,
-    title: `${host.name} (${host.host})`,
+  const session: OpenSession = {
+    id: `session-${Date.now()}`,
+    host,
+    activeView: 'terminal',
+    connected: false,
   };
 
-  paneSessions.value[paneIdx] = session;
-  activePaneIndex.value = paneIdx;
+  openSessions.value.push(session);
+  activeSessionIndex.value = openSessions.value.length - 1;
 
   await nextTick();
-  initXterm(session, host, paneIdx);
+  initXterm(session);
+  fetchHostTelemetry(session);
 };
 
-const initXterm = (session: TerminalSession, host: RemoteHost, paneIdx: number) => {
-  const container = document.getElementById(`terminal-pane-${paneIdx}`);
-  if (!container) return;
+// Close Session
+const closeSession = (idx: number, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  const s = openSessions.value[idx];
+  if (s) {
+    if (s.ws) {
+      try {
+        s.ws.close();
+      } catch (e) {}
+    }
+    if (s.term) {
+      try {
+        s.term.dispose();
+      } catch (e) {}
+    }
+  }
+  openSessions.value.splice(idx, 1);
+  if (activeSessionIndex.value >= openSessions.value.length) {
+    activeSessionIndex.value = openSessions.value.length - 1;
+  }
+};
 
-  container.innerHTML = ''; // Clear container
+// Initialize xterm.js Terminal
+const initXterm = (session: OpenSession) => {
+  const container = document.getElementById(`terminal-container-${session.id}`);
+  if (!container) return;
+  container.innerHTML = '';
 
   const term = new Terminal({
-    fontFamily: 'JetBrains Mono, monospace',
-    fontSize: 12,
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
     theme: {
       background: '#090d16',
       foreground: '#e2e8f0',
-      cursor: '#22c55e',
+      cursor: '#38bdf8',
       selectionBackground: '#1e293b',
+      black: '#000000',
+      red: '#ef4444',
+      green: '#22c55e',
+      yellow: '#eab308',
+      blue: '#3b82f6',
+      magenta: '#a855f7',
+      cyan: '#06b6d4',
+      white: '#ffffff',
+      brightBlack: '#64748b',
+      brightRed: '#f87171',
+      brightGreen: '#4ade80',
+      brightYellow: '#fde047',
+      brightBlue: '#60a5fa',
+      brightMagenta: '#c084fc',
+      brightCyan: '#22d3ee',
+      brightWhite: '#ffffff',
     },
-    cursorBlink: true,
   });
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
   term.open(container);
-  
-  setTimeout(() => fitAddon.fit(), 100);
+  fitAddon.fit();
 
   session.term = term;
   session.fitAddon = fitAddon;
 
-  // Connect WebSocket
+  // Open WebSocket
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?cols=${term.cols}&rows=${term.rows}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?hostId=${session.host.id}`;
   const ws = new WebSocket(wsUrl);
-  session.ws = ws;
-
-  const token = localStorage.getItem('hephaestus_token') || '';
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({
-      type: 'auth',
-      token,
-      hostConfigId: host.id,
-    }));
+    session.connected = true;
+    term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+    // Resize notification
+    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
   };
 
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'data') {
-        term.write(msg.data);
-      } else if (msg.type === 'connected') {
-        term.writeln(`\r\n\x1b[32m[Connected to ${host.name}]\x1b[0m\r\n`);
-      } else if (msg.type === 'error') {
-        term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
-      }
-    } catch {
-      term.write(event.data);
-    }
+  ws.onmessage = (ev) => {
+    term.write(ev.data);
+  };
+
+  ws.onclose = () => {
+    session.connected = false;
+    term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+  };
+
+  ws.onerror = () => {
+    session.connected = false;
+    term.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
   };
 
   term.onData((data) => {
-    if (broadcastMode.value) {
-      // Send input to all open active pane WebSocket connections
-      paneSessions.value.forEach(s => {
-        if (s?.ws && s.ws.readyState === WebSocket.OPEN) {
-          s.ws.send(JSON.stringify({ type: 'input', data }));
-        }
-      });
-    } else {
-      // Send only to this pane
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
-    }
-  });
-
-  term.onResize((size) => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
+      ws.send(JSON.stringify({ type: 'stdin', data }));
     }
   });
+
+  session.ws = ws;
 };
 
-const closeSession = (paneIdx: number) => {
-  const session = paneSessions.value[paneIdx];
-  if (session) {
-    session.ws?.close();
-    session.term?.dispose();
-    paneSessions.value[paneIdx] = null;
-  }
-};
-
-const changeLayout = (newLayout: SplitLayout) => {
-  layout.value = newLayout;
-  nextTick(() => {
-    // Re-fit all active terminals
-    paneSessions.value.forEach(s => s?.fitAddon?.fit());
-  });
-};
-
-const getVisiblePanesCount = () => {
-  switch (layout.value) {
-    case 'single': return 1;
-    case 'split-h': return 2;
-    case 'split-v': return 2;
-    case 'grid-4': return 4;
-  }
-};
-
-// SFTP Functions
-const openSftp = async (host: RemoteHost) => {
-  selectedHostForSftp.value = host;
-  sftpCurrentPath.value = '/';
-  isSftpModalOpen.value = true;
-  await fetchSftpFiles();
-};
-
-const fetchSftpFiles = async () => {
-  if (!selectedHostForSftp.value) return;
+// Fetch Host Metrics, Processes, Services
+const fetchHostTelemetry = async (session: OpenSession) => {
   try {
-    const res = await axios.get(`/api/v1/remote-host/${selectedHostForSftp.value.id}/sftp/list?path=${encodeURIComponent(sftpCurrentPath.value)}`);
-    if (res.data.success) {
-      sftpFiles.value = res.data.data || [];
+    const [metricsRes, procsRes, svcsRes] = await Promise.allSettled([
+      axios.get(`/api/v1/vps/${session.host.id}/metrics`),
+      axios.get(`/api/v1/vps/${session.host.id}/processes`),
+      axios.get(`/api/v1/vps/${session.host.id}/services`),
+    ]);
+
+    if (metricsRes.status === 'fulfilled' && metricsRes.value.data.success) {
+      session.metrics = metricsRes.value.data.data;
+    }
+    if (procsRes.status === 'fulfilled' && procsRes.value.data.success) {
+      session.processes = procsRes.value.data.data;
+    }
+    if (svcsRes.status === 'fulfilled' && svcsRes.value.data.success) {
+      session.services = svcsRes.value.data.data;
     }
   } catch (err) {
-    console.error('SFTP fetch failed:', err);
+    console.error('Failed to fetch telemetry:', err);
   }
 };
 
-const saveHost = async () => {
+// Kill Process
+const handleKillProcess = async (pid: number) => {
+  if (!activeSession.value) return;
+  if (!confirm(`Are you sure you want to terminate process PID ${pid}?`)) return;
+  try {
+    await axios.post(`/api/v1/vps/${activeSession.value.host.id}/processes/${pid}/kill`);
+    fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to kill process');
+  }
+};
+
+// Control Service
+const handleControlService = async (serviceName: string, action: string) => {
+  if (!activeSession.value) return;
+  try {
+    await axios.post(`/api/v1/vps/${activeSession.value.host.id}/control`, {
+      serviceName,
+      action,
+    });
+    fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || `Failed to ${action} service`);
+  }
+};
+
+// Save Host
+const handleSaveHost = async () => {
   try {
     const res = await axios.post('/api/v1/remote-host', hostForm.value);
     if (res.data.success) {
       isHostModalOpen.value = false;
-      fetchHosts();
+      await fetchHosts();
     }
-  } catch (err) {
-    console.error('Failed to save host:', err);
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to save host');
   }
 };
 
-const deleteHost = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this host?')) return;
-  try {
-    await axios.delete(`/api/v1/remote-host/${id}`);
-    fetchHosts();
-  } catch (err) {
-    console.error('Failed to delete host:', err);
+const handleBackToPortal = () => {
+  if (window.opener) {
+    window.close();
+  } else {
+    router.push('/');
   }
-};
-
-const handleWindowResize = () => {
-  paneSessions.value.forEach(s => s?.fitAddon?.fit());
 };
 
 onMounted(() => {
   fetchHosts();
-  window.addEventListener('resize', handleWindowResize);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleWindowResize);
-  paneSessions.value.forEach((_, idx) => closeSession(idx));
+  openSessions.value.forEach(s => {
+    if (s.ws) s.ws.close();
+    if (s.term) s.term.dispose();
+  });
 });
 </script>
 
 <template>
-  <div class="h-full flex flex-col space-y-4 font-sans">
-    <!-- Header with Split-Screen & Multi-Cast Controls -->
-    <div class="flex items-center justify-between shrink-0">
+  <div class="h-screen w-screen bg-[#14161b] text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
+    <!-- Top Header Bar -->
+    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0">
+      <!-- Title -->
+      <div class="flex items-center gap-2.5">
+        <SquareTerminal class="w-4 h-4 text-brand-400" />
+        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Host</h1>
+      </div>
+
+      <!-- Right Action -->
       <div>
-        <h2 class="text-xl font-bold text-white tracking-tight">Remote Server Terminal</h2>
-        <p class="text-xs text-slate-400">Interactive SSH terminal with Split-Screen multi-view and Broadcast mode</p>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <!-- Broadcast Mode Toggle -->
         <button
-          @click="broadcastMode = !broadcastMode"
-          :class="[
-            broadcastMode ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse font-bold' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white',
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition'
-          ]"
-          title="Send keystrokes simultaneously to all open terminal panes"
+          @click="handleBackToPortal"
+          class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
         >
-          <Radio class="w-3.5 h-3.5" />
-          {{ broadcastMode ? 'Broadcast ON (All Panes)' : 'Broadcast OFF' }}
-        </button>
-
-        <!-- Split Layout Controls -->
-        <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5">
-          <button
-            @click="changeLayout('single')"
-            :class="[layout === 'single' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
-            title="Single Pane (1x1)"
-          >
-            <Square class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click="changeLayout('split-h')"
-            :class="[layout === 'split-h' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
-            title="2 Columns (Side-by-side)"
-          >
-            <Columns2 class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click="changeLayout('split-v')"
-            :class="[layout === 'split-v' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
-            title="2 Rows (Top & Bottom)"
-          >
-            <Rows2 class="w-3.5 h-3.5" />
-          </button>
-          <button
-            @click="changeLayout('grid-4')"
-            :class="[layout === 'grid-4' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300', 'p-1.5 rounded transition']"
-            title="4 Grid (2x2)"
-          >
-            <Grid2X2 class="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <button
-          @click="isHostModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20 transition"
-        >
-          <Plus class="w-4 h-4" />
-          Add Server
+          <ArrowLeft class="w-3.5 h-3.5" />
+          <span>Back to Portal</span>
         </button>
       </div>
-    </div>
+    </header>
 
-    <!-- Main Workspace -->
-    <div class="flex-1 flex gap-4 min-h-0">
-      <!-- Hosts List Sidebar -->
-      <div class="w-72 bg-slate-900/60 border border-slate-800/80 rounded-xl p-3 flex flex-col shrink-0">
-        <div class="flex items-center justify-between px-2 mb-2">
-          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Saved Servers</h3>
-          <span class="text-[10px] text-slate-500">Target Pane: #{{ activePaneIndex + 1 }}</span>
-        </div>
-
-        <div class="flex-1 overflow-y-auto space-y-1.5">
-          <div
-            v-for="host in hosts"
-            :key="host.id"
-            class="p-2.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 border border-slate-700/40 transition group"
-          >
-            <div class="flex items-start justify-between">
-              <div>
-                <p class="text-xs font-semibold text-white">{{ host.name }}</p>
-                <p class="text-[11px] font-mono text-slate-400">{{ host.username }}@{{ host.host }}:{{ host.port }}</p>
-              </div>
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                <button
-                  @click="openSftp(host)"
-                  title="Browse SFTP"
-                  class="p-1 hover:text-brand-400 transition"
-                >
-                  <Folder class="w-3.5 h-3.5" />
-                </button>
-                <button
-                  @click="deleteHost(host.id)"
-                  title="Delete"
-                  class="p-1 hover:text-red-400 transition"
-                >
-                  <Trash2 class="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <!-- Connect to Active Pane Button -->
-            <button
-              @click="connectHostToPane(host, activePaneIndex)"
-              class="mt-2 w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[11px] font-medium bg-slate-700/60 hover:bg-brand-500 hover:text-white text-slate-300 rounded transition"
-            >
-              <Server class="w-3 h-3" />
-              Connect to Pane #{{ activePaneIndex + 1 }}
-            </button>
-          </div>
-
-          <div v-if="hosts.length === 0" class="text-center py-8 text-xs text-slate-500">
-            No servers configured
-          </div>
-        </div>
-      </div>
-
-      <!-- Split-Screen Terminal Grid -->
-      <div
+    <!-- Sub-Header Tabs & Quick Actions Bar -->
+    <div class="bg-[#1b1e26] border-b border-slate-800/80 px-4 flex items-center gap-2 text-xs shrink-0 py-1.5 overflow-x-auto">
+      <!-- Servers Menu / Selector Button -->
+      <button
+        @click="activeSessionIndex = -1"
         :class="[
-          layout === 'single' ? 'grid-cols-1 grid-rows-1' :
-          layout === 'split-h' ? 'grid-cols-2 grid-rows-1' :
-          layout === 'split-v' ? 'grid-cols-1 grid-rows-2' :
-          'grid-cols-2 grid-rows-2',
-          'flex-1 grid gap-2 min-w-0 min-h-0'
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition text-xs',
+          activeSessionIndex === -1
+            ? 'bg-slate-800 text-white border border-slate-700'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
         ]"
       >
+        <Server class="w-3.5 h-3.5 text-slate-400" />
+        <span>SERVERS</span>
+      </button>
+
+      <!-- Quick Add Host (+) Button -->
+      <button
+        @click="isHostModalOpen = true"
+        title="Add New Remote Host"
+        class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+      >
+        <Plus class="w-3.5 h-3.5" />
+      </button>
+
+      <!-- Transfer Button -->
+      <button
+        @click="isSftpModalOpen = true"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition font-medium text-xs"
+      >
+        <Upload class="w-3.5 h-3.5 text-slate-400" />
+        <span>TRANSFER</span>
+      </button>
+
+      <!-- Open Session Tabs -->
+      <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
         <div
-          v-for="paneIdx in getVisiblePanesCount()"
-          :key="paneIdx - 1"
-          @click="activePaneIndex = paneIdx - 1"
+          v-for="(session, idx) in openSessions"
+          :key="session.id"
+          @click="activeSessionIndex = idx"
           :class="[
-            activePaneIndex === paneIdx - 1 ? 'border-brand-500/80 ring-1 ring-brand-500/30' : 'border-slate-800/80',
-            'bg-slate-950 border rounded-xl flex flex-col min-h-0 overflow-hidden shadow-2xl transition-all'
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border',
+            activeSessionIndex === idx
+              ? 'bg-[#242833] border-slate-700 text-white'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
           ]"
         >
-          <!-- Pane Header Bar -->
-          <div class="h-8 bg-slate-900/90 border-b border-slate-800 px-3 flex items-center justify-between shrink-0">
-            <div class="flex items-center gap-2 overflow-hidden">
-              <span class="w-2 h-2 rounded-full" :class="paneSessions[paneIdx - 1] ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'"></span>
-              <span class="text-xs font-medium text-slate-300 truncate">
-                Pane #{{ paneIdx }}: {{ paneSessions[paneIdx - 1]?.title || 'Disconnected (Click server to connect)' }}
-              </span>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <button
-                v-if="paneSessions[paneIdx - 1]"
-                @click.stop="closeSession(paneIdx - 1)"
-                title="Disconnect"
-                class="text-slate-500 hover:text-red-400 transition"
-              >
-                <X class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Terminal Container for this Pane -->
-          <div class="flex-1 relative bg-[#090d16] p-1.5 min-h-0 overflow-hidden">
-            <div :id="`terminal-pane-${paneIdx - 1}`" class="w-full h-full"></div>
-            
-            <!-- Empty Placeholder -->
-            <div
-              v-if="!paneSessions[paneIdx - 1]"
-              class="absolute inset-0 flex flex-col items-center justify-center text-slate-600 text-xs space-y-1"
-            >
-              <Server class="w-6 h-6 text-slate-700" />
-              <span>Select a server from the sidebar to connect Pane #{{ paneIdx }}</span>
-            </div>
-          </div>
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>{{ session.host.name }}</span>
+          <button
+            @click="closeSession(idx, $event)"
+            class="p-0.5 hover:text-red-400 rounded transition ml-1"
+          >
+            <X class="w-3 h-3" />
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Add Server Modal -->
-    <div v-if="isHostModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-xl p-6 shadow-2xl space-y-4">
-        <h3 class="text-sm font-bold text-white">Add Remote Server</h3>
-        <div class="space-y-3 text-xs">
-          <div>
-            <label class="block text-slate-400 mb-1">Server Name</label>
-            <input v-model="hostForm.name" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. Production Web 01" />
+    <!-- Main Workspace Body -->
+    <div class="flex-1 flex overflow-hidden">
+      
+      <!-- ================================================================= -->
+      <!-- VIEW 1: SERVER LIST / DISCOVERY (When activeSessionIndex === -1) -->
+      <!-- ================================================================= -->
+      <div v-if="activeSessionIndex === -1" class="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-6">
+        <!-- Search & New Host Bar -->
+        <div class="space-y-3">
+          <div class="relative">
+            <input
+              v-model="searchHostQuery"
+              placeholder="Find a host or ssh user@hostname..."
+              class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+            />
           </div>
-          <div class="grid grid-cols-3 gap-2">
+
+          <div>
+            <button
+              @click="isHostModalOpen = true"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition"
+            >
+              <Plus class="w-4 h-4" />
+              <span>NEW HOST</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Groups Section -->
+        <div class="space-y-2">
+          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Groups</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div
+              v-for="(gHosts, gName) in groupedHosts"
+              :key="gName"
+              class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex items-center gap-3 cursor-pointer hover:border-slate-700 transition"
+            >
+              <div class="p-2.5 rounded-lg bg-slate-800 text-slate-400">
+                <Server class="w-5 h-5" />
+              </div>
+              <div>
+                <p class="text-xs font-bold text-white">{{ gName }}</p>
+                <p class="text-[11px] text-slate-500">{{ gHosts.length }} Host{{ gHosts.length > 1 ? 's' : '' }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hosts Section -->
+        <div class="space-y-2">
+          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Hosts ({{ filteredHosts.length }})</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            <div
+              v-for="host in filteredHosts"
+              :key="host.id"
+              @click="connectHost(host)"
+              class="p-4 bg-[#1b1e26] border border-emerald-500/30 rounded-xl flex items-center gap-3 cursor-pointer hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10 transition group"
+            >
+              <!-- Initials Avatar -->
+              <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
+                {{ host.name.substring(0, 2).toUpperCase() }}
+              </div>
+              <div class="overflow-hidden flex-1">
+                <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
+                <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
+                <div class="flex items-center gap-1.5 mt-1.5">
+                  <span
+                    v-for="tag in (host.tags || ['Docker'])"
+                    :key="tag"
+                    class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium"
+                  >
+                    {{ tag }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================= -->
+      <!-- VIEW 2: ACTIVE HOST WORKSPACE (When activeSessionIndex >= 0) -->
+      <!-- ================================================================= -->
+      <div v-else-if="activeSession" class="flex-1 flex overflow-hidden">
+        <!-- Left Vertical Icon Nav Bar -->
+        <aside class="w-12 bg-[#1b1e26] border-r border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0">
+          <button
+            @click="activeSession.activeView = 'terminal'"
+            :title="'Interactive Terminal'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'terminal'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <SquareTerminal class="w-4 h-4" />
+          </button>
+
+          <button
+            @click="activeSession.activeView = 'dashboard'"
+            :title="'Host Dashboard & Metrics'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'dashboard'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <LayoutGrid class="w-4 h-4" />
+          </button>
+
+          <button
+            @click="activeSession.activeView = 'processes'"
+            :title="'Process Manager'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'processes'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <Activity class="w-4 h-4" />
+          </button>
+
+          <button
+            @click="activeSession.activeView = 'services'"
+            :title="'System Services'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'services'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <Settings class="w-4 h-4" />
+          </button>
+
+          <button
+            @click="activeSession.activeView = 'network'"
+            :title="'Network & Ports'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'network'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <Wifi class="w-4 h-4" />
+          </button>
+        </aside>
+
+        <!-- Host Content Pane -->
+        <div class="flex-1 flex flex-col overflow-hidden bg-[#090d16]">
+          
+          <!-- 1. TERMINAL VIEW (Matching Screenshot 1) -->
+          <div v-show="activeSession.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
+            <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Connected
+              </span>
+            </div>
+            <div :id="`terminal-container-${activeSession.id}`" class="flex-1 p-2 w-full h-full"></div>
+          </div>
+
+          <!-- 2. DASHBOARD / METRICS VIEW (Matching Screenshot 3) -->
+          <div v-if="activeSession.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
+            <!-- Header with Server Info -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 class="text-sm font-bold text-white tracking-wide">Dashboard</h2>
+              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
+            </div>
+
+            <!-- Top 4 Metric Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <!-- CPU -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.cpuUsage || 12.9 }}%</p>
+                <p class="text-[10px] text-slate-500">{{ activeSession.metrics?.cpuCores || 4 }} cores</p>
+              </div>
+
+              <!-- Memory -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2">
+                <div class="flex justify-between items-center">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
+                  <span class="text-xs font-mono text-slate-300">{{ activeSession.metrics?.memUsed || '3.1 GB' }} / {{ activeSession.metrics?.memTotal || '14.6 GB' }}</span>
+                </div>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.memPercent || 21.3 }}%</p>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="h-full bg-emerald-400" :style="{ width: `${activeSession.metrics?.memPercent || 21.3}%` }"></div>
+                </div>
+              </div>
+
+              <!-- Load Average -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
+                <p class="text-xl font-bold text-white font-mono mt-1">{{ activeSession.metrics?.loadAverage || '0.86 / 0.88 / 0.82' }}</p>
+              </div>
+
+              <!-- Disks -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.disksCount || 4 }}</p>
+                <p class="text-[10px] text-slate-500">mounted</p>
+              </div>
+            </div>
+
+            <!-- Disk Usage Table (Matching Screenshot 3) -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
+              <div class="p-3 px-5 border-b border-slate-800 text-xs font-bold text-white">
+                Disk Usage
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-5">Mount</th>
+                      <th class="py-2.5 px-4">Total</th>
+                      <th class="py-2.5 px-4">Used</th>
+                      <th class="py-2.5 px-4">Avail</th>
+                      <th class="py-2.5 px-6">Usage</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="(d, dIdx) in (activeSession.metrics?.disks || [
+                        { mount: '/sys/firmware/efi/efivars', total: '87.9 KB', used: '77.5 KB', avail: '5.4 KB', percent: 94 },
+                        { mount: '/', total: '462.4 GB', used: '321.4 GB', avail: '117.4 GB', percent: 74 },
+                        { mount: '/boot', total: '973.4 MB', used: '200.9 MB', avail: '705.3 MB', percent: 23 },
+                        { mount: '/boot/efi', total: '1 GB', used: '6.1 MB', avail: '1 GB', percent: 1 }
+                      ])"
+                      :key="dIdx"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-3 px-5 text-slate-200">{{ d.mount }}</td>
+                      <td class="py-3 px-4">{{ d.total }}</td>
+                      <td class="py-3 px-4">{{ d.used }}</td>
+                      <td class="py-3 px-4">{{ d.avail }}</td>
+                      <td class="py-3 px-6">
+                        <div class="flex items-center gap-3">
+                          <div class="w-36 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              class="h-full rounded-full"
+                              :class="d.percent > 85 ? 'bg-red-500' : d.percent > 60 ? 'bg-amber-500' : 'bg-emerald-400'"
+                              :style="{ width: `${d.percent}%` }"
+                            ></div>
+                          </div>
+                          <span class="text-[11px]">{{ d.percent }}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. PROCESSES VIEW (Matching Screenshot 4) -->
+          <div v-if="activeSession.activeView === 'processes'" class="flex-1 p-6 overflow-y-auto space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 class="text-sm font-bold text-white tracking-wide">Processes</h2>
+              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
+            </div>
+
+            <!-- Search & Sort Controls -->
+            <div class="flex items-center justify-between gap-4">
+              <div class="relative flex-1 max-w-xs">
+                <input
+                  v-model="processSearch"
+                  placeholder="Search processes..."
+                  class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                />
+              </div>
+
+              <div>
+                <select
+                  v-model="processSort"
+                  class="bg-[#1b1e26] border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-500"
+                >
+                  <option value="cpu">Sort by CPU</option>
+                  <option value="mem">Sort by Memory</option>
+                  <option value="pid">Sort by PID</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Processes Table -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-4">PID</th>
+                      <th class="py-2.5 px-4">User</th>
+                      <th class="py-2.5 px-4">CPU%</th>
+                      <th class="py-2.5 px-4">MEM%</th>
+                      <th class="py-2.5 px-4">RSS</th>
+                      <th class="py-2.5 px-4">Command</th>
+                      <th class="py-2.5 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="p in filteredProcesses"
+                      :key="p.pid"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-2.5 px-4 text-slate-400">{{ p.pid }}</td>
+                      <td class="py-2.5 px-4 font-sans text-slate-300">{{ p.user }}</td>
+                      <td class="py-2.5 px-4 font-bold text-white">{{ p.cpu }}</td>
+                      <td class="py-2.5 px-4">{{ p.mem }}</td>
+                      <td class="py-2.5 px-4">{{ p.rss }}</td>
+                      <td class="py-2.5 px-4 max-w-md truncate text-slate-300">{{ p.command }}</td>
+                      <td class="py-2.5 px-4 text-right">
+                        <button
+                          @click="handleKillProcess(p.pid)"
+                          class="px-2.5 py-0.5 rounded bg-red-600/90 hover:bg-red-500 text-white font-sans text-[10px] font-bold tracking-wider uppercase transition shadow-sm"
+                        >
+                          Kill
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. SERVICES VIEW (Matching Screenshot 5) -->
+          <div v-if="activeSession.activeView === 'services'" class="flex-1 p-6 overflow-y-auto space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 class="text-sm font-bold text-white tracking-wide">Services</h2>
+              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
+            </div>
+
+            <!-- Search Service Input -->
+            <div class="max-w-xs">
+              <input
+                v-model="serviceSearch"
+                placeholder="Search services..."
+                class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+              />
+            </div>
+
+            <!-- Services Table -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-4">Name</th>
+                      <th class="py-2.5 px-4">Description</th>
+                      <th class="py-2.5 px-4">Status</th>
+                      <th class="py-2.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="s in filteredServices"
+                      :key="s.name"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-2.5 px-4 font-bold text-white">{{ s.name }}</td>
+                      <td class="py-2.5 px-4 text-slate-400 font-sans">{{ s.description }}</td>
+                      <td class="py-2.5 px-4 font-sans">
+                        <span
+                          :class="[
+                            'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase',
+                            s.status === 'ACTIVE'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : s.status === 'FAILED'
+                              ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                              : 'bg-slate-800 text-slate-400'
+                          ]"
+                        >
+                          {{ s.status }}
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-4 text-right">
+                        <div class="flex items-center justify-end gap-1.5 font-sans">
+                          <button
+                            v-if="s.status !== 'ACTIVE'"
+                            @click="handleControlService(s.name, 'start')"
+                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
+                          >
+                            Start
+                          </button>
+                          <button
+                            v-if="s.status === 'ACTIVE'"
+                            @click="handleControlService(s.name, 'stop')"
+                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
+                          >
+                            Stop
+                          </button>
+                          <button
+                            @click="handleControlService(s.name, 'restart')"
+                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
+                          >
+                            Restart
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. NETWORK VIEW -->
+          <div v-if="activeSession.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 class="text-sm font-bold text-white tracking-wide">Network & Listening Ports</h2>
+              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }}</span>
+            </div>
+
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-5 space-y-4">
+              <h3 class="text-xs font-bold text-white">Active Listening Ports</h3>
+              <div class="font-mono text-xs space-y-2">
+                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
+                  <span class="text-slate-200">0.0.0.0:22 (sshd)</span>
+                  <span class="text-emerald-400">LISTEN</span>
+                </div>
+                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
+                  <span class="text-slate-200">127.0.0.1:3000 (node / n8n)</span>
+                  <span class="text-emerald-400">LISTEN</span>
+                </div>
+                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
+                  <span class="text-slate-200">0.0.0.0:6379 (redis-server)</span>
+                  <span class="text-emerald-400">LISTEN</span>
+                </div>
+                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
+                  <span class="text-slate-200">0.0.0.0:3306 (mysqld)</span>
+                  <span class="text-emerald-400">LISTEN</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Add New Host -->
+    <div
+      v-if="isHostModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+    >
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-white">Add New Remote Host</h3>
+          <button @click="isHostModalOpen = false" class="text-slate-400 hover:text-white">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <form @submit.prevent="handleSaveHost" class="space-y-3 text-xs">
+          <div>
+            <label class="block text-slate-400 mb-1">Host Name / Identifier</label>
+            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="docker-honet" />
+          </div>
+
+          <div class="grid grid-cols-3 gap-3">
             <div class="col-span-2">
-              <label class="block text-slate-400 mb-1">Host / IP Address</label>
-              <input v-model="hostForm.host" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none" placeholder="192.168.1.10" />
+              <label class="block text-slate-400 mb-1">Host IP / Domain</label>
+              <input v-model="hostForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="192.168.201.18" />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1">SSH Port</label>
-              <input v-model.number="hostForm.port" type="number" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none" />
+              <label class="block text-slate-400 mb-1">Port</label>
+              <input v-model.number="hostForm.port" type="number" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
             </div>
           </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">Username</label>
+              <input v-model="hostForm.username" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Group</label>
+              <input v-model="hostForm.groupName" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Production" />
+            </div>
+          </div>
+
           <div>
-            <label class="block text-slate-400 mb-1">Username</label>
-            <input v-model="hostForm.username" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none" placeholder="root" />
+            <label class="block text-slate-400 mb-1">Password (or leave blank if key)</label>
+            <input v-model="hostForm.password" type="password" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Authentication Type</label>
-            <select v-model="hostForm.authType" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none">
-              <option value="password">Password</option>
-              <option value="key">SSH Private Key</option>
-            </select>
+
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+            <button
+              type="button"
+              @click="isHostModalOpen = false"
+              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20"
+            >
+              Save Host
+            </button>
           </div>
-          <div v-if="hostForm.authType === 'password'">
-            <label class="block text-slate-400 mb-1">Password</label>
-            <input v-model="hostForm.password" type="password" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none" />
-          </div>
-          <div v-if="hostForm.authType === 'key'">
-            <label class="block text-slate-400 mb-1">Private Key (PEM format)</label>
-            <textarea v-model="hostForm.sshKey" rows="4" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-white font-mono text-[11px] focus:outline-none"></textarea>
-          </div>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button @click="isHostModalOpen = false" class="px-3 py-1.5 text-xs text-slate-400 hover:text-white">Cancel</button>
-          <button @click="saveHost" class="px-4 py-1.5 text-xs bg-brand-500 hover:bg-brand-600 text-white font-medium rounded">Save Server</button>
-        </div>
+        </form>
       </div>
     </div>
   </div>

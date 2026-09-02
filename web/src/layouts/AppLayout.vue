@@ -27,7 +27,7 @@ const authStore = useAuthStore();
 
 const navigation = [
   { name: 'Dashboard', icon: LayoutDashboard, route: '/' },
-  { name: 'Terminal (SSH)', icon: Terminal, route: '/terminal' },
+  { name: 'Remote Server', icon: Terminal, route: '/remote-host', newTab: true },
   { name: 'Network Topology', icon: Network, route: '/topology' },
   { name: 'Backup Manager', icon: Database, route: '/backup' },
   { name: 'SNMP Browser', icon: Radio, route: '/snmp' },

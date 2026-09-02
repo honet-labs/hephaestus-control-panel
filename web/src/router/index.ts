@@ -23,6 +23,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/remote-host',
+      name: 'remote-host',
+      component: () => import('../views/RemoteHostView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/remote-server',
+      name: 'remote-server',
+      component: () => import('../views/RemoteHostView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },

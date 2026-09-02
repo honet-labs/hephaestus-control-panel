@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"go-hephaestus/internal/services"
 
@@ -24,6 +25,42 @@ func (h *VpsHandler) GetMetrics(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": metrics})
+}
+
+func (h *VpsHandler) GetProcesses(c *gin.Context) {
+	hostID := c.Param("id")
+	procs, err := h.vpsService.GetProcesses(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": procs})
+}
+
+func (h *VpsHandler) KillProcess(c *gin.Context) {
+	hostID := c.Param("id")
+	pidStr := c.Param("pid")
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid PID"})
+		return
+	}
+
+	if err := h.vpsService.KillProcess(c.Request.Context(), hostID, pid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Process terminated successfully."})
+}
+
+func (h *VpsHandler) GetServices(c *gin.Context) {
+	hostID := c.Param("id")
+	svcs, err := h.vpsService.GetServices(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": svcs})
 }
 
 func (h *VpsHandler) ControlService(c *gin.Context) {
