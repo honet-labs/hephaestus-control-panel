@@ -73,6 +73,6 @@ echo -e "\n${GREEN}=============================================================
 echo -e "${BOLD}${GREEN}[OK] HEPHAESTUS CONTROL PANEL (HCP) UPDATED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC}"
-echo -e "Active Containers    : Frontend (Nginx), Backend (Go), PostgreSQL 16"
+echo -e "Active Containers    : hephaestus-panel, hephaestus-engine, hephaestus-database"
 echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
 echo "=============================================================================="

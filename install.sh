@@ -248,7 +248,7 @@ echo -e "\n${GREEN}=============================================================
 echo -e "${BOLD}${GREEN}[OK] HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
-echo -e "Architecture         : Multi-Container (Frontend Nginx, Backend Go, PostgreSQL 16)"
+echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database)"
 echo -e "PostgreSQL Database  : hephaestus (Port 5432)"
 echo -e "Installation Path    : ${INSTALL_DIR}"
 echo -e "Configuration File   : ${INSTALL_DIR}/.env"

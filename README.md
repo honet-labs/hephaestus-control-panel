@@ -24,9 +24,9 @@ Each core component runs in its own dedicated, isolated Docker container:
 
 | Service | Container Name | Image / Base | Role |
 |---|---|---|---|
-| **Frontend** | `hephaestus-frontend` | `nginx:1.27-alpine` | Serves Vue 3 SPA + Gzip + Reverse Proxy (`/api`, `/ws`) |
-| **Backend** | `hephaestus-backend` | `alpine:3.20` + Go 1.22 binary | REST API, Worker Pool, Scheduler, SSH/SFTP engine |
-| **Database** | `hephaestus-postgres` | `postgres:16-alpine` | PostgreSQL 16 transactional database (24 tables) |
+| **Panel** | `hephaestus-panel` | `nginx:1.27-alpine` | Serves Vue 3 SPA + Gzip + Reverse Proxy (`/api`, `/ws`) |
+| **Engine** | `hephaestus-engine` | `alpine:3.20` + Go 1.22 binary | REST/WebSocket API, Worker Pool, Scheduler, SSH/SFTP engine |
+| **Database** | `hephaestus-database` | `postgres:16-alpine` | PostgreSQL 16 transactional database (24 tables) |
 
 ---
 
