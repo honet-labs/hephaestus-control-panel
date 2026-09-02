@@ -46,6 +46,9 @@ const indicesList = ref<any[]>([]);
 const shardsList = ref<any[]>([]);
 const logsList = ref<any[]>([]);
 
+// Selected Index Detail Modal
+const selectedIndexModal = ref<any | null>(null);
+
 // Connection Config State
 const configForm = ref({
   id: '',
@@ -66,7 +69,7 @@ const isSavingConfig = ref(false);
 const indexSearch = ref('');
 const shardSearch = ref('');
 
-// Hover Tooltip State for Shards
+// Hover Tooltip State for Shards (Matching Screenshot)
 const hoveredShard = ref<any | null>(null);
 const tooltipPosition = ref({ x: 0, y: 0 });
 
@@ -78,15 +81,49 @@ const totalDocumentsCount = computed(() => {
 
 const totalStoreSizeBytes = computed(() => {
   if (indicesList.value.length > 0) {
+    // If store.size is already human string (e.g. 3.9mb)
+    const first = indicesList.value[0]['store.size'] || indicesList.value[0].storeSize;
+    if (typeof first === 'string' && (first.endsWith('b') || first.endsWith('B') || first.endsWith('kb') || first.endsWith('mb') || first.endsWith('gb'))) {
+      return `${indicesList.value.length} active indices`;
+    }
     const bytes = indicesList.value.reduce((acc, idx) => acc + (parseInt(idx['store.size'] || idx.storeSize || 0) || 0), 0);
     return formatBytes(bytes);
   }
   return '0 B';
 });
 
-const greenIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'green').length);
-const yellowIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'yellow').length);
-const redIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'red').length);
+// All Distinct Node Names (from nodes stats or discovered shards)
+const clusterNodes = computed(() => {
+  const map: Record<string, { name: string; ip: string; primaryCount: number; replicaCount: number }> = {};
+  
+  nodesList.value.forEach(n => {
+    map[n.name] = {
+      name: n.name,
+      ip: n.ip || '-',
+      primaryCount: 0,
+      replicaCount: 0,
+    };
+  });
+
+  shardsList.value.forEach(s => {
+    const nodeName = s.node || s.nodeName || 'unassigned';
+    if (!map[nodeName]) {
+      map[nodeName] = {
+        name: nodeName,
+        ip: s.ip || '-',
+        primaryCount: 0,
+        replicaCount: 0,
+      };
+    }
+    if (s.prirep === 'p' || s.type === 'Primary') {
+      map[nodeName].primaryCount++;
+    } else if (s.prirep === 'r' || s.type === 'Replica') {
+      map[nodeName].replicaCount++;
+    }
+  });
+
+  return Object.values(map);
+});
 
 // Filtered indices
 const filteredIndices = computed(() => {
@@ -95,20 +132,39 @@ const filteredIndices = computed(() => {
   return indicesList.value.filter(idx => (idx.index || idx.name || '').toLowerCase().includes(q));
 });
 
+// Filtered shards for All Shards table
+const filteredShards = computed(() => {
+  if (!shardSearch.value) return shardsList.value;
+  const q = shardSearch.value.toLowerCase();
+  return shardsList.value.filter(
+    s => (s.index || '').toLowerCase().includes(q) || (s.node || '').toLowerCase().includes(q) || (s.ip || '').toLowerCase().includes(q)
+  );
+});
+
 // Grouped shards per node
 const shardsByNode = computed(() => {
   const map: Record<string, any[]> = {};
-  nodesList.value.forEach(n => {
+  clusterNodes.value.forEach(n => {
     map[n.name] = [];
   });
+  if (clusterNodes.value.length === 0) {
+    map['cluster-node'] = [];
+  }
 
   shardsList.value.forEach(shard => {
-    const nodeName = shard.node || shard.nodeName || (nodesList.value[0]?.name || 'unknown');
+    const nodeName = shard.node || shard.nodeName || (clusterNodes.value[0]?.name || 'cluster-node');
     if (!map[nodeName]) map[nodeName] = [];
     map[nodeName].push(shard);
   });
 
   return map;
+});
+
+// Shards belonging to the modal-selected index
+const selectedIndexShards = computed(() => {
+  if (!selectedIndexModal.value) return [];
+  const idxName = selectedIndexModal.value.index || selectedIndexModal.value.name;
+  return shardsList.value.filter(s => s.index === idxName);
 });
 
 function formatBytes(bytes: number, decimals = 1) {
@@ -120,8 +176,9 @@ function formatBytes(bytes: number, decimals = 1) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
-function formatNumber(num: number) {
-  return new Intl.NumberFormat('en-US').format(num);
+function formatNumber(num: any) {
+  const n = parseInt(num) || 0;
+  return new Intl.NumberFormat('en-US').format(n);
 }
 
 // Fetch all cluster telemetry from actual backend
@@ -232,14 +289,14 @@ function formatUptime(ms: number) {
   return `${days}d ${hours}h`;
 }
 
-// Hover Tooltip Handlers
+// Hover Tooltip Handlers for Shard Blocks (Matching Screenshot)
 const showTooltip = (event: MouseEvent, shard: any) => {
   hoveredShard.value = shard;
   const target = event.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
   tooltipPosition.value = {
-    x: Math.min(rect.left - 80, window.innerWidth - 320),
-    y: rect.bottom + 8,
+    x: Math.min(Math.max(rect.left - 100, 10), window.innerWidth - 340),
+    y: rect.bottom + 10,
   };
 };
 
@@ -248,14 +305,25 @@ const hideTooltip = () => {
 };
 
 // Configuration Methods
-const loadConfig = async () => {
+const fetchActiveConfig = async () => {
   try {
     const res = await axios.get('/api/v1/opensearch/config');
     if (res.data.success && res.data.data) {
-      configForm.value = { ...configForm.value, ...res.data.data };
+      const c = res.data.data;
+      configForm.value = {
+        id: c.id || '',
+        name: c.name || '',
+        host: c.host || '',
+        port: c.port || 9200,
+        username: c.username || '',
+        password: '',
+        useSsl: c.useSsl || false,
+        verifySsl: c.verifySsl || false,
+        isActive: c.isActive !== false,
+      };
     }
   } catch (err) {
-    console.error('Failed to load OpenSearch config', err);
+    console.error('Failed to load OpenSearch config:', err);
   }
 };
 
@@ -265,18 +333,18 @@ const handleTestConnection = async () => {
   try {
     const res = await axios.post('/api/v1/opensearch/test', {
       host: configForm.value.host,
-      port: Number(configForm.value.port),
+      port: configForm.value.port,
       username: configForm.value.username,
       password: configForm.value.password,
       useSsl: configForm.value.useSsl,
     });
     if (res.data.success) {
       testSuccess.value = true;
-      testResult.value = `Connected successfully! Cluster: ${res.data.data?.cluster_name || 'OpenSearch'}`;
+      testResult.value = `Success: Cluster "${res.data.data?.cluster_name || 'OpenSearch'}" status is ${res.data.data?.status || 'green'}.`;
     }
   } catch (err: any) {
     testSuccess.value = false;
-    testResult.value = err.response?.data?.error || 'Connection failed: Host unreachable or bad credentials.';
+    testResult.value = `Failed: ${err.response?.data?.error || err.message}`;
   }
 };
 
@@ -285,21 +353,37 @@ const handleSaveConfig = async () => {
   try {
     const res = await axios.post('/api/v1/opensearch/config', configForm.value);
     if (res.data.success) {
-      await fetchClusterData();
+      alert('OpenSearch configuration saved successfully!');
       activeTab.value = 'overview';
+      fetchClusterData();
     }
   } catch (err: any) {
-    error.value = err.response?.data?.error || 'Failed to save configuration';
+    alert(`Failed to save config: ${err.response?.data?.error || err.message}`);
   } finally {
     isSavingConfig.value = false;
   }
 };
 
+// Timer Management
+const startTimer = () => {
+  if (timer.value) clearInterval(timer.value);
+  if (refreshIntervalSec.value <= 0) return;
+
+  timer.value = setInterval(() => {
+    if (countdown.value > 1) {
+      countdown.value--;
+    } else {
+      fetchClusterData();
+    }
+  }, 1000);
+};
+
 const setRefreshInterval = (sec: number) => {
   refreshIntervalSec.value = sec;
   countdown.value = sec;
-  localStorage.setItem('hcp_opensearch_refresh_sec', String(sec));
+  localStorage.setItem('opensearch_refresh_sec', sec.toString());
   isSettingsModalOpen.value = false;
+  startTimer();
 };
 
 const handleBackToPortal = () => {
@@ -310,28 +394,16 @@ const handleBackToPortal = () => {
   }
 };
 
-// Timer Tick
-const startAutoRefresh = () => {
-  const savedSec = localStorage.getItem('hcp_opensearch_refresh_sec');
-  if (savedSec) {
+onMounted(() => {
+  const savedSec = localStorage.getItem('opensearch_refresh_sec');
+  if (savedSec !== null) {
     refreshIntervalSec.value = parseInt(savedSec);
     countdown.value = refreshIntervalSec.value;
   }
 
-  timer.value = setInterval(() => {
-    if (refreshIntervalSec.value <= 0) return;
-    if (countdown.value > 1) {
-      countdown.value--;
-    } else {
-      fetchClusterData();
-    }
-  }, 1000);
-};
-
-onMounted(() => {
-  loadConfig();
+  fetchActiveConfig();
   fetchClusterData();
-  startAutoRefresh();
+  startTimer();
 });
 
 onUnmounted(() => {
@@ -340,42 +412,49 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#14161b] text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
+  <div class="h-screen w-screen bg-[#14161b] text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
     <!-- Top Header Bar -->
-    <header class="h-14 bg-[#1b1e26] border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0">
-      <!-- Title with OpenSearch Icon -->
+    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0 z-20">
+      <!-- Left: Title and Status -->
       <div class="flex items-center gap-3">
-        <div class="w-6 h-6 rounded flex items-center justify-center text-slate-300">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-          </svg>
+        <div class="flex items-center gap-2">
+          <Database class="w-4 h-4 text-brand-400" />
+          <h1 class="text-xs font-semibold text-white tracking-wide">OpenSearch Cluster Monitor</h1>
         </div>
-        <h1 class="text-sm font-semibold text-white tracking-wide">OpenSearch Cluster Monitor</h1>
+
+        <!-- Connection Status Pill -->
+        <div
+          v-if="clusterHealth"
+          class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono border"
+          :class="clusterHealth.status === 'green' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-red-500/10 border-red-500/30 text-red-400'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-400 animate-pulse' : clusterHealth.status === 'yellow' ? 'bg-amber-400' : 'bg-red-400'"></span>
+          <span class="uppercase font-bold">{{ clusterHealth.status }}</span>
+        </div>
       </div>
 
-      <!-- Right Header Actions -->
+      <!-- Right Actions: Refresh, Countdown, Gear, Back to Portal -->
       <div class="flex items-center gap-3">
-        <!-- Auto Refresh Indicator -->
-        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 font-mono">
-          <Clock class="w-3.5 h-3.5 text-slate-400" />
-          <span>{{ refreshIntervalSec > 0 ? `${countdown} s` : 'Manual' }}</span>
+        <!-- Countdown indicator -->
+        <div v-if="refreshIntervalSec > 0" class="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
+          <Clock class="w-3.5 h-3.5 text-slate-500" />
+          <span>{{ countdown }}s</span>
         </div>
 
-        <!-- Manual Refresh Button -->
+        <!-- Refresh Button -->
         <button
           @click="fetchClusterData"
-          :disabled="isRefreshing"
-          title="Refresh Now"
-          class="p-1.5 rounded bg-[#242833] border border-slate-700/60 text-slate-300 hover:text-white hover:border-slate-600 transition disabled:opacity-50"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          title="Refresh Data Now"
         >
           <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-brand-400' : '']" />
         </button>
 
-        <!-- Settings Gear Modal Trigger -->
+        <!-- Settings Gear Modal Button -->
         <button
           @click="isSettingsModalOpen = true"
-          title="Auto Refresh & Display Settings"
-          class="p-1.5 rounded bg-[#242833] border border-slate-700/60 text-slate-300 hover:text-white hover:border-slate-600 transition"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          title="Auto-Refresh Settings"
         >
           <Settings class="w-4 h-4" />
         </button>
@@ -383,7 +462,7 @@ onUnmounted(() => {
         <!-- Back to Portal Button -->
         <button
           @click="handleBackToPortal"
-          class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition ml-1 font-medium"
+          class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>Back to Portal</span>
@@ -391,14 +470,14 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- Sub-Header Navigation Tabs -->
-    <div class="bg-[#1b1e26] border-b border-slate-800/80 px-6 flex items-center gap-8 text-xs font-medium shrink-0">
+    <!-- Navigation Tabs Bar -->
+    <div class="bg-[#1b1e26] border-b border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0">
       <button
         v-for="tab in [
           { id: 'overview', label: 'Overview' },
           { id: 'nodes', label: 'Nodes' },
           { id: 'indices', label: 'Indices' },
-          { id: 'shards', label: 'Shards' },
+          { id: 'shards', label: 'Shards & Allocation' },
           { id: 'connection', label: 'Connection' },
           { id: 'logs', label: 'Logs' }
         ]"
@@ -442,12 +521,11 @@ onUnmounted(() => {
         <!-- Metric Cards Row (4 cards) -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <!-- Card 1: Cluster Health -->
-          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl relative overflow-hidden flex flex-col justify-between h-32">
+          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl relative overflow-hidden flex flex-col justify-between h-32 shadow-lg">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cluster Health</span>
             <div class="text-2xl font-black tracking-tight uppercase" :class="clusterHealth?.status === 'green' ? 'text-emerald-400' : clusterHealth?.status === 'yellow' ? 'text-amber-400' : clusterHealth?.status === 'red' ? 'text-red-400' : 'text-slate-500'">
               {{ clusterHealth?.status || 'NOT CONNECTED' }}
             </div>
-            <!-- Bottom glowing indicator line -->
             <div
               class="w-full h-1 rounded-full shadow-sm"
               :class="clusterHealth?.status === 'green' ? 'bg-emerald-500 shadow-emerald-500/50' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : clusterHealth?.status === 'red' ? 'bg-red-500' : 'bg-slate-700'"
@@ -455,7 +533,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Card 2: Total Indices -->
-          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32">
+          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32 shadow-lg">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Indices</span>
             <div class="text-3xl font-bold text-white tracking-tight">
               {{ formatNumber(totalIndicesCount) }}
@@ -464,7 +542,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Card 3: Total Documents -->
-          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32">
+          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32 shadow-lg">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Documents</span>
             <div class="text-3xl font-bold text-white tracking-tight">
               {{ formatNumber(totalDocumentsCount) }}
@@ -473,7 +551,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Card 4: Store Size -->
-          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32">
+          <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex flex-col justify-between h-32 shadow-lg">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Store Size</span>
             <div class="text-3xl font-bold text-white tracking-tight">
               {{ totalStoreSizeBytes }}
@@ -482,122 +560,118 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Middle Section: Index & Shards + Node Load (2 Cards) -->
+        <!-- Middle Section: Index & Shards + Node Stats -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <!-- Left: Index & Shards -->
-          <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6">
-            <h3 class="text-xs font-bold text-white tracking-wide">Index & Shards</h3>
-            <div class="grid grid-cols-2 gap-y-6 text-xs">
+          <!-- Left: Index & Shards Breakdown -->
+          <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6 shadow-xl">
+            <h3 class="text-xs font-bold text-white tracking-wide">Index & Shards Summary</h3>
+            <div class="grid grid-cols-2 gap-y-6 text-xs font-sans">
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Shards</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth?.active_primary_shards ?? 0 }}</p>
+                <p class="text-xl font-bold text-emerald-400 font-mono">{{ clusterHealth?.active_primary_shards ?? 0 }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Replica Shards</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth ? (clusterHealth.active_shards - clusterHealth.active_primary_shards) : 0 }}</p>
+                <p class="text-xl font-bold text-sky-400 font-mono">{{ clusterHealth ? (clusterHealth.active_shards - clusterHealth.active_primary_shards) : 0 }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Shards</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth?.active_shards ?? 0 }}</p>
+                <p class="text-xl font-bold text-white font-mono">{{ clusterHealth?.active_shards ?? 0 }}</p>
               </div>
               <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned</p>
-                <p class="text-xl font-bold text-emerald-400">{{ clusterHealth?.unassigned_shards ?? 0 }}</p>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned Shards</p>
+                <p class="text-xl font-bold font-mono" :class="clusterHealth?.unassigned_shards > 0 ? 'text-amber-400' : 'text-slate-300'">
+                  {{ clusterHealth?.unassigned_shards ?? 0 }}
+                </p>
               </div>
             </div>
           </div>
 
-          <!-- Right: Node Load -->
-          <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6">
-            <h3 class="text-xs font-bold text-white tracking-wide">Node Load</h3>
-            <div class="grid grid-cols-2 gap-y-6 text-xs">
-              <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Nodes</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
-              </div>
-              <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Data Nodes</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth?.number_of_data_nodes ?? nodesList.length }}</p>
-              </div>
-              <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Cluster Manager</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
-              </div>
-              <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Ingest Nodes</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
+          <!-- Right: Cluster Nodes Status -->
+          <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-4 shadow-xl">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold text-white tracking-wide">Cluster Nodes ({{ clusterNodes.length }})</h3>
+              <span class="text-xs font-mono text-slate-400">{{ clusterHealth?.cluster_name || 'OpenSearch' }}</span>
+            </div>
+
+            <div v-if="clusterNodes.length > 0" class="space-y-2">
+              <div
+                v-for="node in clusterNodes"
+                :key="node.name"
+                class="p-3 bg-[#14161b] border border-slate-800 rounded-lg flex items-center justify-between text-xs"
+              >
+                <div class="flex items-center gap-2.5">
+                  <Server class="w-4 h-4 text-brand-400" />
+                  <div>
+                    <p class="font-bold text-slate-200">{{ node.name }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono">{{ node.ip }}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-3 font-mono text-[11px]">
+                  <span class="text-emerald-400 font-semibold">P: {{ node.primaryCount }}</span>
+                  <span class="text-sky-400 font-semibold">R: {{ node.replicaCount }}</span>
+                </div>
               </div>
             </div>
+            <p v-else class="text-xs text-slate-500 italic py-4 text-center">No nodes registered.</p>
           </div>
         </div>
 
-        <!-- Bottom: Index Health Overview Table -->
-        <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-          <div class="p-4 px-6 border-b border-slate-800/80 flex items-center justify-between">
-            <h3 class="text-xs font-bold text-white tracking-wide">Index Health Overview</h3>
-            <div class="flex items-center gap-3 text-xs">
-              <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Green: {{ greenIndicesCount }}
-              </span>
-              <span class="px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                Yellow: {{ yellowIndicesCount }}
-              </span>
-              <span class="px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-medium flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-                Red: {{ redIndicesCount }}
-              </span>
+        <!-- ============================================================= -->
+        <!-- SHARD ALLOCATION BY NODE (MATCHING USER SCREENSHOT) -->
+        <!-- ============================================================= -->
+        <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
+            <!-- Mini Legend -->
+            <div class="flex items-center gap-4 text-xs font-mono">
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[8px] font-bold text-[#4ade80]">P</span>
+                <span class="text-slate-400">Primary</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded bg-[#132c4a] border border-[#1e4976] flex items-center justify-center text-[8px] font-bold text-[#60a5fa]">R</span>
+                <span class="text-slate-400">Replica</span>
+              </div>
             </div>
           </div>
 
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs">
-              <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                <tr>
-                  <th class="py-3 px-6">Health</th>
-                  <th class="py-3 px-4">Status</th>
-                  <th class="py-3 px-4">Index</th>
-                  <th class="py-3 px-4">Primary</th>
-                  <th class="py-3 px-4">Replica</th>
-                  <th class="py-3 px-4">Docs</th>
-                  <th class="py-3 px-4">Store Size</th>
-                  <th class="py-3 px-6">Primary Size</th>
-                </tr>
-              </thead>
-              <tbody v-if="indicesList.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
-                <tr
-                  v-for="idx in indicesList.slice(0, 20)"
-                  :key="idx.index || idx.name"
-                  class="hover:bg-slate-800/30 transition text-slate-300"
-                >
-                  <td class="py-3 px-6 font-sans">
-                    <span
-                      :class="[
-                        'px-2 py-0.5 rounded text-[10px] font-semibold lowercase',
-                        idx.health === 'green' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : idx.health === 'yellow' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : 'bg-red-500/10 text-red-400'
-                      ]"
-                    >
-                      {{ idx.health || 'green' }}
-                    </span>
-                  </td>
-                  <td class="py-3 px-4 text-slate-400 lowercase font-sans">{{ idx.status || 'open' }}</td>
-                  <td class="py-3 px-4 font-sans font-medium text-slate-200">{{ idx.index || idx.name }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx.pri || idx.primary || 1 }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx.rep || idx.replica || 0 }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ formatNumber(idx['docs.count'] || idx.docsCount || 0) }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '-' }}</td>
-                  <td class="py-3 px-6 text-slate-300">{{ idx['pri.store.size'] || idx.priStoreSize || '-' }}</td>
-                </tr>
-              </tbody>
-              <tbody v-else>
-                <tr>
-                  <td colspan="8" class="text-center py-8 text-slate-500 text-xs font-sans">
-                    No indices data available. Connect an OpenSearch cluster to display indices.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
+            No shard allocations discovered yet.
+          </div>
+
+          <!-- Node Rows with Matrix of Shard Tiles -->
+          <div v-for="node in clusterNodes" :key="node.name" class="space-y-2 border-b border-slate-800/80 pb-6 last:border-b-0 last:pb-0">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-white text-xs tracking-wide">{{ node.name }}</span>
+              <div class="flex items-center gap-4 text-slate-400 text-[11px] font-mono">
+                <span class="text-emerald-400 font-medium">Primary: {{ node.primaryCount }}</span>
+                <span class="text-sky-400 font-medium">Replica: {{ node.replicaCount }}</span>
+              </div>
+            </div>
+
+            <!-- Visual Shard Blocks Matrix -->
+            <div class="flex flex-wrap gap-1.5 p-3.5 bg-[#13161c] rounded-xl border border-slate-800/80 min-h-[50px] items-center">
+              <div
+                v-for="(shard, sIdx) in (shardsByNode[node.name] || [])"
+                :key="sIdx"
+                @mouseenter="showTooltip($event, shard)"
+                @mouseleave="hideTooltip"
+                :class="[
+                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all transform hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md',
+                  shard.prirep === 'p' || shard.type === 'Primary'
+                    ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80]'
+                    : shard.prirep === 'r' || shard.type === 'Replica'
+                    ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa]'
+                    : 'bg-[#3b1219] border border-[#822735] text-[#f87171]'
+                ]"
+              >
+                {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
+              </div>
+              <span v-if="(shardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-600 italic">
+                No active shards on this node.
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -607,7 +681,7 @@ onUnmounted(() => {
       <!-- ================================================================= -->
       <div v-if="activeTab === 'nodes'" class="space-y-4">
         <div v-if="nodesList.length === 0" class="p-8 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-2">
-          <p class="text-xs text-slate-400">No nodes discovered yet. Ensure OpenSearch cluster is reachable.</p>
+          <p class="text-xs text-slate-400">No node telemetry discovered. Ensure OpenSearch cluster is reachable.</p>
         </div>
 
         <div
@@ -623,13 +697,11 @@ onUnmounted(() => {
             </div>
             <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
               <span>{{ node.ip }}</span>
-              <span class="text-slate-600">v</span>
             </div>
           </div>
 
           <!-- Node Metrics Grid -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 text-xs font-sans">
-            <!-- CPU -->
             <div>
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">CPU</p>
               <p class="text-sm font-bold text-white font-mono">{{ node.cpu }}</p>
@@ -637,7 +709,6 @@ onUnmounted(() => {
               <div class="text-xs font-mono text-slate-300 mt-0.5">{{ node.load }}</div>
             </div>
 
-            <!-- Heap -->
             <div>
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Heap</p>
               <p class="text-sm font-bold text-white font-mono">{{ node.heapPercent }}</p>
@@ -645,7 +716,6 @@ onUnmounted(() => {
               <div class="text-xs font-mono text-slate-300 mt-0.5">{{ node.uptime }}</div>
             </div>
 
-            <!-- RAM -->
             <div>
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">RAM</p>
               <p class="text-sm font-bold text-white font-mono">{{ node.ram }}</p>
@@ -653,7 +723,6 @@ onUnmounted(() => {
               <div class="text-xs font-mono text-slate-300 mt-0.5">{{ node.jvmHeap }}</div>
             </div>
 
-            <!-- Disk -->
             <div>
               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Disk</p>
               <p class="text-sm font-bold text-white font-mono">{{ node.diskPercent }}</p>
@@ -702,7 +771,8 @@ onUnmounted(() => {
                 <tr
                   v-for="idx in filteredIndices"
                   :key="idx.index || idx.name"
-                  class="hover:bg-slate-800/30 transition text-slate-300"
+                  @click="selectedIndexModal = idx"
+                  class="hover:bg-slate-800/40 transition text-slate-300 cursor-pointer group"
                 >
                   <td class="py-3 px-6 font-sans">
                     <span
@@ -715,10 +785,10 @@ onUnmounted(() => {
                     </span>
                   </td>
                   <td class="py-3 px-4 text-slate-400 lowercase font-sans">{{ idx.status || 'open' }}</td>
-                  <td class="py-3 px-4 font-sans font-medium text-slate-200">{{ idx.index || idx.name }}</td>
+                  <td class="py-3 px-4 font-sans font-medium text-slate-200 group-hover:text-brand-400 transition">{{ idx.index || idx.name }}</td>
                   <td class="py-3 px-4 text-slate-500 truncate max-w-[140px]">{{ idx.uuid || '-' }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx.pri || idx.primary || 1 }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx.rep || idx.replica || 0 }}</td>
+                  <td class="py-3 px-4 text-emerald-400 font-bold">{{ idx.pri || idx.primary || 1 }}</td>
+                  <td class="py-3 px-4 text-sky-400 font-bold">{{ idx.rep || idx.replica || 0 }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ formatNumber(idx['docs.count'] || idx.docsCount || 0) }}</td>
                   <td class="py-3 px-4 text-slate-500">{{ formatNumber(idx['docs.deleted'] || idx.docsDeleted || 0) }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '-' }}</td>
@@ -738,77 +808,80 @@ onUnmounted(() => {
       </div>
 
       <!-- ================================================================= -->
-      <!-- TAB 4: SHARDS -->
+      <!-- TAB 4: SHARDS & ALLOCATION (MATCHING SCREENSHOT) -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'shards'" class="space-y-6">
         <!-- Legend Bar -->
-        <div class="flex items-center gap-6 text-xs bg-[#1b1e26] border border-slate-800/80 p-3 px-5 rounded-xl">
+        <div class="flex items-center gap-6 text-xs bg-[#1b1e26] border border-slate-800/80 p-3 px-5 rounded-xl shadow-lg">
           <div class="flex items-center gap-2">
-            <span class="w-3.5 h-3.5 rounded bg-emerald-500"></span>
-            <span class="text-slate-300">Primary</span>
+            <span class="w-4 h-4 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[9px] font-bold text-[#4ade80]">P</span>
+            <span class="text-slate-300 font-medium">Primary Shard</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-3.5 h-3.5 rounded bg-sky-500"></span>
-            <span class="text-slate-300">Replica</span>
+            <span class="w-4 h-4 rounded bg-[#132c4a] border border-[#1e4976] flex items-center justify-center text-[9px] font-bold text-[#60a5fa]">R</span>
+            <span class="text-slate-300 font-medium">Replica Shard</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-3.5 h-3.5 rounded bg-red-500"></span>
-            <span class="text-slate-300">Unassigned</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="w-3.5 h-3.5 rounded bg-amber-500"></span>
-            <span class="text-slate-300">Relocating</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="w-3.5 h-3.5 rounded bg-purple-500"></span>
-            <span class="text-slate-300">Initializing</span>
+            <span class="w-4 h-4 rounded bg-[#3b1219] border border-[#822735] flex items-center justify-center text-[9px] font-bold text-[#f87171]">U</span>
+            <span class="text-slate-300 font-medium">Unassigned</span>
           </div>
         </div>
 
-        <!-- Shard Allocation by Node Card -->
+        <!-- Shard Allocation by Node Card (Exact visual from screenshot) -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
-          <h3 class="text-xs font-bold text-white tracking-wide">Shard Allocation by Node</h3>
+          <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
 
-          <div v-if="nodesList.length === 0" class="text-center py-6 text-slate-500 text-xs">
+          <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
             No shard allocations discovered yet.
           </div>
 
-          <!-- Node Grids -->
-          <div v-for="node in nodesList" :key="node.name" class="space-y-2 border-b border-slate-800 pb-6 last:border-b-0 last:pb-0">
+          <!-- Node Rows with Matrix of Shard Tiles -->
+          <div v-for="node in clusterNodes" :key="node.name" class="space-y-2 border-b border-slate-800/80 pb-6 last:border-b-0 last:pb-0">
             <div class="flex items-center justify-between text-xs">
-              <span class="font-bold text-slate-200">{{ node.name }}</span>
+              <span class="font-bold text-white text-xs tracking-wide">{{ node.name }}</span>
               <div class="flex items-center gap-4 text-slate-400 text-[11px] font-mono">
-                <span class="text-emerald-400">Primary: {{ node.primaryShards }}</span>
-                <span class="text-sky-400">Replica: {{ node.replicaShards }}</span>
+                <span class="text-emerald-400 font-medium">Primary: {{ node.primaryCount }}</span>
+                <span class="text-sky-400 font-medium">Replica: {{ node.replicaCount }}</span>
               </div>
             </div>
 
             <!-- Visual Shard Blocks Matrix -->
-            <div class="flex flex-wrap gap-1.5 p-3 bg-[#14161b] rounded-lg border border-slate-800/80">
+            <div class="flex flex-wrap gap-1.5 p-3.5 bg-[#13161c] rounded-xl border border-slate-800/80 min-h-[50px] items-center">
               <div
                 v-for="(shard, sIdx) in (shardsByNode[node.name] || [])"
                 :key="sIdx"
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
                 :class="[
-                  'w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold cursor-pointer transition transform hover:scale-125 hover:z-20',
+                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all transform hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md',
                   shard.prirep === 'p' || shard.type === 'Primary'
-                    ? 'bg-emerald-600/90 text-white hover:bg-emerald-500 shadow-sm shadow-emerald-600/20'
+                    ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80]'
                     : shard.prirep === 'r' || shard.type === 'Replica'
-                    ? 'bg-sky-600/90 text-white hover:bg-sky-500 shadow-sm shadow-sky-600/20'
-                    : 'bg-red-600 text-white'
+                    ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa]'
+                    : 'bg-[#3b1219] border border-[#822735] text-[#f87171]'
                 ]"
               >
-                {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : 'R' }}
+                {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
               </div>
+              <span v-if="(shardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-600 italic">
+                No active shards on this node.
+              </span>
             </div>
           </div>
         </div>
 
         <!-- Bottom: All Shards Table -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-          <div class="p-4 px-6 border-b border-slate-800/80">
-            <h3 class="text-xs font-bold text-white tracking-wide">All Shards</h3>
+          <div class="p-4 px-6 border-b border-slate-800/80 flex items-center justify-between">
+            <h3 class="text-xs font-bold text-white tracking-wide">All Shards ({{ filteredShards.length }})</h3>
+            <div class="relative w-64">
+              <Search class="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-500" />
+              <input
+                v-model="shardSearch"
+                placeholder="Filter shards..."
+                class="w-full bg-[#14161b] border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+              />
+            </div>
           </div>
 
           <div class="overflow-x-auto">
@@ -825,9 +898,9 @@ onUnmounted(() => {
                   <th class="py-3 px-6">Node</th>
                 </tr>
               </thead>
-              <tbody v-if="shardsList.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
+              <tbody v-if="filteredShards.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
                 <tr
-                  v-for="(shard, idx) in shardsList"
+                  v-for="(shard, idx) in filteredShards"
                   :key="idx"
                   class="hover:bg-slate-800/30 transition text-slate-300"
                 >
@@ -862,27 +935,6 @@ onUnmounted(() => {
             </table>
           </div>
         </div>
-
-        <!-- Tooltip -->
-        <div
-          v-if="hoveredShard"
-          :style="{ left: `${tooltipPosition.x}px`, top: `${tooltipPosition.y}px` }"
-          class="fixed z-50 w-72 p-4 bg-[#1b2234] border border-blue-500/40 rounded-xl shadow-2xl backdrop-blur-md pointer-events-none text-xs space-y-2 animate-in fade-in zoom-in-95 duration-100"
-        >
-          <div class="font-bold text-white text-xs border-b border-slate-700/60 pb-1.5 truncate">
-            {{ hoveredShard.index }}
-          </div>
-          <div class="space-y-1 text-[11px] font-sans text-slate-300">
-            <div class="flex justify-between"><span class="text-slate-400">Index:</span> <span class="font-mono text-slate-200 truncate max-w-[170px]">{{ hoveredShard.index }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Size:</span> <span class="font-mono text-slate-200">{{ hoveredShard.store || '-' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Node:</span> <span class="text-slate-200">{{ hoveredShard.node || '-' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">IP:</span> <span class="font-mono text-slate-200">{{ hoveredShard.ip || '-' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Docs:</span> <span class="font-mono text-slate-200">{{ hoveredShard.docs || 0 }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Shard:</span> <span class="font-mono text-slate-200">{{ hoveredShard.shard || 0 }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Type:</span> <span :class="hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'text-emerald-400' : 'text-sky-400'">{{ hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'Primary' : 'Replica' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">State:</span> <span class="text-emerald-400 uppercase font-semibold">{{ hoveredShard.state || 'STARTED' }}</span></div>
-          </div>
-        </div>
       </div>
 
       <!-- ================================================================= -->
@@ -894,7 +946,7 @@ onUnmounted(() => {
             <Sliders class="w-5 h-5 text-brand-400" />
             <div>
               <h3 class="text-sm font-bold text-white">Cluster Connection Settings</h3>
-              <p class="text-xs text-slate-400">Configure connection endpoints to your OpenSearch / Elasticsearch cluster</p>
+              <p class="text-xs text-slate-400">Configure connection credentials to your OpenSearch cluster</p>
             </div>
           </div>
 
@@ -921,23 +973,23 @@ onUnmounted(() => {
                 <input v-model="configForm.username" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="admin" />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-medium">Password (Optional)</label>
-                <input v-model="configForm.password" type="password" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+                <label class="block text-slate-400 mb-1 font-medium">Password (Encrypted AES-256)</label>
+                <input v-model="configForm.password" type="password" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono" placeholder="••••••••" />
               </div>
             </div>
 
             <div class="flex items-center gap-6 pt-2">
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="configForm.useSsl" class="rounded border-slate-700 text-brand-500 focus:ring-0" />
-                <span class="text-slate-300">Use HTTPS / SSL</span>
+                <input v-model="configForm.useSsl" type="checkbox" class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0" />
+                <span class="text-slate-300">Use HTTPS (SSL/TLS)</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" v-model="configForm.verifySsl" class="rounded border-slate-700 text-brand-500 focus:ring-0" />
+                <input v-model="configForm.verifySsl" type="checkbox" class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0" />
                 <span class="text-slate-300">Verify SSL Certificate</span>
               </label>
             </div>
 
-            <div v-if="testResult" :class="['p-3 rounded-lg text-xs', testSuccess ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400']">
+            <div v-if="testResult" class="p-3 rounded-lg text-xs" :class="testSuccess ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'">
               {{ testResult }}
             </div>
 
@@ -953,7 +1005,7 @@ onUnmounted(() => {
               <button
                 type="submit"
                 :disabled="isSavingConfig"
-                class="px-5 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg shadow-brand-500/20 transition"
+                class="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-lg shadow-lg shadow-brand-500/20 transition disabled:opacity-50"
               >
                 {{ isSavingConfig ? 'Saving...' : 'Save Configuration' }}
               </button>
@@ -963,84 +1015,183 @@ onUnmounted(() => {
       </div>
 
       <!-- ================================================================= -->
-      <!-- TAB 6: CLUSTER LOGS -->
+      <!-- TAB 6: LOGS -->
       <!-- ================================================================= -->
-      <div v-if="activeTab === 'logs'" class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-4 shadow-xl">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-xs font-bold text-white tracking-wide flex items-center gap-2">
-            <Terminal class="w-4 h-4 text-brand-400" />
-            Cluster Event & Auto-Refresh Logs
-          </h3>
-          <span class="text-[11px] text-slate-500 font-mono">Real-time background polling & diagnostic stream</span>
-        </div>
+      <div v-if="activeTab === 'logs'" class="space-y-4">
+        <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
+          <div class="p-4 px-6 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="text-xs font-bold text-white tracking-wide">OpenSearch Background Job Logs</h3>
+            <span class="text-xs font-mono text-slate-400">{{ logsList.length }} entries</span>
+          </div>
 
-        <div v-if="logsList.length > 0" class="font-mono text-xs bg-[#14161b] p-4 rounded-lg border border-slate-800/80 space-y-2 text-slate-400">
-          <div v-for="(log, lIdx) in logsList" :key="lIdx" class="flex items-start gap-3">
-            <span class="text-slate-600">{{ new Date(log.timestamp || Date.now()).toLocaleTimeString() }}</span>
-            <span :class="['px-1.5 py-0.2 rounded font-semibold text-[10px]', log.level === 'error' ? 'bg-red-500/10 text-red-400' : log.level === 'warn' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400']">{{ log.level?.toUpperCase() || 'INFO' }}</span>
-            <span class="text-slate-300">{{ log.message }}</span>
+          <div class="p-4 max-h-[600px] overflow-y-auto font-mono text-xs space-y-2 bg-[#14161b]">
+            <div
+              v-for="(log, lIdx) in logsList"
+              :key="lIdx"
+              class="flex items-start gap-3 p-2 rounded hover:bg-slate-800/30 transition text-slate-300"
+            >
+              <span class="text-slate-500 shrink-0">{{ log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '-' }}</span>
+              <span
+                :class="[
+                  'px-1.5 py-0.2 rounded text-[10px] font-bold shrink-0',
+                  log.level === 'ERROR' ? 'bg-red-500/20 text-red-400' : log.level === 'WARN' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
+                ]"
+              >
+                {{ log.level || 'INFO' }}
+              </span>
+              <span class="flex-1 text-slate-300">{{ log.message }}</span>
+            </div>
+            <p v-if="logsList.length === 0" class="text-center py-8 text-slate-500 italic">No OpenSearch logs recorded.</p>
           </div>
         </div>
-        <div v-else class="text-center py-8 text-slate-500 text-xs">
-          No logs available. Connect an OpenSearch cluster to stream logs.
-        </div>
       </div>
+
     </main>
 
-    <!-- Modal: Auto-Refresh Settings (Triggered by Gear Icon ⚙) -->
+    <!-- ================================================================= -->
+    <!-- FLOATING SHARD TOOLTIP (MATCHING USER SCREENSHOT EXACTLY) -->
+    <!-- ================================================================= -->
+    <div
+      v-if="hoveredShard"
+      :style="{ left: `${tooltipPosition.x}px`, top: `${tooltipPosition.y}px` }"
+      class="fixed z-50 w-80 p-4 bg-[#141b2d] border border-blue-500/50 rounded-xl shadow-2xl backdrop-blur-md pointer-events-none text-xs space-y-2.5 animate-in fade-in zoom-in-95 duration-100"
+    >
+      <div class="font-bold text-[#60a5fa] text-xs pb-1.5 border-b border-slate-700/60 truncate">
+        {{ hoveredShard.index }}
+      </div>
+      <div class="space-y-1.5 text-[11px] font-sans text-slate-300">
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Index:</span> <span class="font-mono text-slate-200 truncate max-w-[180px]">{{ hoveredShard.index }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Size:</span> <span class="font-mono text-slate-200">{{ hoveredShard.store || hoveredShard['store.size'] || '-' }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Node:</span> <span class="text-slate-200 font-mono">{{ hoveredShard.node || '-' }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">IP:</span> <span class="font-mono text-slate-200">{{ hoveredShard.ip || '-' }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Docs:</span> <span class="font-mono text-slate-200">{{ formatNumber(hoveredShard.docs || 0) }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Shard:</span> <span class="font-mono text-slate-200">{{ hoveredShard.shard || 0 }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">Type:</span> <span :class="hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'text-emerald-400 font-bold' : 'text-sky-400 font-bold'">{{ hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'Primary' : 'Replica' }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-400 font-medium">State:</span> <span class="text-emerald-400 uppercase font-bold tracking-wider">{{ hoveredShard.state || 'STARTED' }}</span></div>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: INDEX DETAILS & SHARDS BREAKDOWN -->
+    <!-- ================================================================= -->
+    <div
+      v-if="selectedIndexModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+    >
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-2xl p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <Database class="w-4 h-4 text-brand-400" />
+            <h3 class="text-sm font-bold text-white">{{ selectedIndexModal.index || selectedIndexModal.name }}</h3>
+          </div>
+          <button @click="selectedIndexModal = null" class="text-slate-400 hover:text-white">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 text-xs font-sans">
+          <div class="p-3 rounded-lg bg-[#14161b] border border-slate-800">
+            <p class="text-[10px] text-slate-500 uppercase font-bold">Health</p>
+            <p class="text-sm font-bold text-emerald-400 uppercase">{{ selectedIndexModal.health || 'GREEN' }}</p>
+          </div>
+          <div class="p-3 rounded-lg bg-[#14161b] border border-slate-800">
+            <p class="text-[10px] text-slate-500 uppercase font-bold">Primary Shards</p>
+            <p class="text-sm font-bold text-white font-mono">{{ selectedIndexModal.pri || 1 }}</p>
+          </div>
+          <div class="p-3 rounded-lg bg-[#14161b] border border-slate-800">
+            <p class="text-[10px] text-slate-500 uppercase font-bold">Replica Shards</p>
+            <p class="text-sm font-bold text-sky-400 font-mono">{{ selectedIndexModal.rep || 0 }}</p>
+          </div>
+        </div>
+
+        <!-- Allocated Shards for this Index -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Allocated Shards</h4>
+          <div class="overflow-x-auto rounded-lg border border-slate-800">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase">
+                <tr>
+                  <th class="p-2.5 px-4">Shard #</th>
+                  <th class="p-2.5 px-4">Type</th>
+                  <th class="p-2.5 px-4">Node</th>
+                  <th class="p-2.5 px-4">IP</th>
+                  <th class="p-2.5 px-4">Docs</th>
+                  <th class="p-2.5 px-4">Size</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                <tr v-for="(s, sIdx) in selectedIndexShards" :key="sIdx" class="hover:bg-slate-800/30">
+                  <td class="p-2.5 px-4 text-white">{{ s.shard }}</td>
+                  <td class="p-2.5 px-4 font-sans">
+                    <span :class="s.prirep === 'p' || s.type === 'Primary' ? 'text-emerald-400 font-bold' : 'text-sky-400 font-bold'">
+                      {{ s.prirep === 'p' || s.type === 'Primary' ? 'Primary' : 'Replica' }}
+                    </span>
+                  </td>
+                  <td class="p-2.5 px-4 text-slate-200">{{ s.node }}</td>
+                  <td class="p-2.5 px-4 text-slate-400">{{ s.ip }}</td>
+                  <td class="p-2.5 px-4">{{ formatNumber(s.docs || 0) }}</td>
+                  <td class="p-2.5 px-4">{{ s.store || '-' }}</td>
+                </tr>
+                <tr v-if="selectedIndexShards.length === 0">
+                  <td colspan="6" class="p-4 text-center text-slate-500 font-sans">No shard allocations discovered.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-2">
+          <button @click="selectedIndexModal = null" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: AUTO-REFRESH SETTINGS (GEAR ICON) -->
+    <!-- ================================================================= -->
     <div
       v-if="isSettingsModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
     >
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-5 shadow-2xl">
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center gap-2">
             <Settings class="w-4 h-4 text-brand-400" />
-            <h3 class="text-sm font-bold text-white">Auto Refresh Settings</h3>
+            <h3 class="text-sm font-bold text-white">Auto-Refresh Interval</h3>
           </div>
           <button @click="isSettingsModalOpen = false" class="text-slate-400 hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="space-y-3">
-          <p class="text-xs text-slate-400">Select polling interval for live OpenSearch telemetry updates:</p>
-
-          <div class="space-y-2">
-            <button
-              v-for="opt in [
-                { sec: 0, label: 'Manual Refresh Only' },
-                { sec: 5, label: 'Every 5 Seconds' },
-                { sec: 10, label: 'Every 10 Seconds' },
-                { sec: 15, label: 'Every 15 Seconds' },
-                { sec: 30, label: 'Every 30 Seconds (Default)' },
-                { sec: 60, label: 'Every 1 Minute' },
-                { sec: 300, label: 'Every 5 Minutes' },
-              ]"
-              :key="opt.sec"
-              @click="setRefreshInterval(opt.sec)"
-              :class="[
-                'w-full flex items-center justify-between p-2.5 rounded-lg border text-xs font-medium transition',
-                refreshIntervalSec === opt.sec
-                  ? 'bg-brand-500/10 border-brand-500/40 text-brand-400 font-bold'
-                  : 'bg-[#14161b] border-slate-800 text-slate-300 hover:border-slate-700'
-              ]"
-            >
-              <span>{{ opt.label }}</span>
-              <CheckCircle2 v-if="refreshIntervalSec === opt.sec" class="w-4 h-4 text-brand-400" />
-            </button>
-          </div>
-        </div>
-
-        <div class="pt-2 border-t border-slate-800 flex justify-end">
+        <div class="space-y-2">
           <button
-            @click="isSettingsModalOpen = false"
-            class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+            v-for="opt in [
+              { label: 'Manual Refresh Only', sec: 0 },
+              { label: 'Every 5 Seconds', sec: 5 },
+              { label: 'Every 10 Seconds', sec: 10 },
+              { label: 'Every 15 Seconds', sec: 15 },
+              { label: 'Every 30 Seconds (Default)', sec: 30 },
+              { label: 'Every 60 Seconds (1 Min)', sec: 60 },
+              { label: 'Every 300 Seconds (5 Min)', sec: 300 }
+            ]"
+            :key="opt.sec"
+            @click="setRefreshInterval(opt.sec)"
+            :class="[
+              'w-full p-2.5 rounded-lg text-xs text-left transition flex items-center justify-between border',
+              refreshIntervalSec === opt.sec
+                ? 'bg-brand-500/10 border-brand-500/40 text-brand-400 font-bold'
+                : 'bg-[#14161b] border-slate-800 text-slate-300 hover:border-slate-700'
+            ]"
           >
-            Close
+            <span>{{ opt.label }}</span>
+            <CheckCircle2 v-if="refreshIntervalSec === opt.sec" class="w-3.5 h-3.5 text-brand-400" />
           </button>
         </div>
       </div>
     </div>
+
   </div>
 </template>

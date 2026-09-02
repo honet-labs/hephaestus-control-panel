@@ -204,7 +204,7 @@ func (s *OpenSearchService) GetNodesInfo(ctx context.Context) (map[string]interf
 }
 
 func (s *OpenSearchService) GetIndices(ctx context.Context) ([]map[string]interface{}, error) {
-	body, err := s.doRequest(ctx, "GET", "/_cat/indices?format=json&bytes=b")
+	body, err := s.doRequest(ctx, "GET", "/_cat/indices?format=json")
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *OpenSearchService) GetIndices(ctx context.Context) ([]map[string]interf
 }
 
 func (s *OpenSearchService) GetShards(ctx context.Context) ([]map[string]interface{}, error) {
-	body, err := s.doRequest(ctx, "GET", "/_cat/shards?format=json&bytes=b")
+	body, err := s.doRequest(ctx, "GET", "/_cat/shards?format=json")
 	if err != nil {
 		return nil, err
 	}
