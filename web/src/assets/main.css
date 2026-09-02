@@ -3,9 +3,17 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-navy: #293681;
+    --color-blue: #4274D9;
+    --color-cyan: #95CCDD;
+    --color-ice: #D0E7E6;
+  }
+
   body {
     background-color: #090d16;
     color: #f1f5f9;
+    font-family: "Google Sans", "Open Sans", Roboto, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   }
 }
 
@@ -20,18 +28,18 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #293681;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #4274D9;
 }
 
 /* Glassmorphism utility */
 .glass {
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(14, 17, 24, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(149, 204, 221, 0.15);
 }

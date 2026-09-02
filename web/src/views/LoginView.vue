@@ -50,16 +50,16 @@ onMounted(() => {
     <div class="w-full max-w-sm space-y-6">
       <!-- Logo Brand -->
       <div class="text-center space-y-2">
-        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20 font-mono font-black text-sm text-white tracking-tight">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#293681] to-[#4274D9] mx-auto flex items-center justify-center shadow-xl shadow-[#4274D9]/30 font-mono font-black text-sm text-white tracking-tight">
           HCP
         </div>
         <h1 class="text-xl font-bold text-white tracking-tight">HEPHAESTUS</h1>
-        <p class="text-xs text-brand-400 font-medium">Control Panel (HCP) — Sign In</p>
+        <p class="text-xs text-[#95CCDD] font-medium">Control Panel (HCP) — Sign In</p>
       </div>
 
       <!-- Login Form Card -->
-      <div class="p-6 bg-slate-900/60 border border-slate-800 rounded-2xl shadow-2xl backdrop-blur space-y-4">
-        <div v-if="error" class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+      <div class="p-6 bg-[#0e121c] border border-[#1b2234] rounded-2xl shadow-2xl backdrop-blur space-y-4">
+        <div v-if="error" class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
           <AlertCircle class="w-4 h-4 shrink-0" />
           <span>{{ error }}</span>
         </div>
@@ -68,12 +68,12 @@ onMounted(() => {
           <div>
             <label class="block text-slate-400 mb-1 font-medium">Username</label>
             <div class="relative">
-              <User class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+              <User class="w-4 h-4 absolute left-3 top-2.5 text-[#95CCDD]" />
               <input
                 v-model="username"
                 type="text"
                 required
-                class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                class="w-full bg-[#141824] border border-[#1b2234] rounded-lg pl-9 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] transition"
                 placeholder="admin"
               />
             </div>
@@ -82,12 +82,12 @@ onMounted(() => {
           <div>
             <label class="block text-slate-400 mb-1 font-medium">Password</label>
             <div class="relative">
-              <Lock class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+              <Lock class="w-4 h-4 absolute left-3 top-2.5 text-[#95CCDD]" />
               <input
                 v-model="password"
                 type="password"
                 required
-                class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                class="w-full bg-[#141824] border border-[#1b2234] rounded-lg pl-9 pr-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] transition"
                 placeholder="••••••••"
               />
             </div>
@@ -96,11 +96,18 @@ onMounted(() => {
           <button
             type="submit"
             :disabled="loading"
-            class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold rounded-lg shadow-lg shadow-brand-500/20 transition duration-150"
+            class="w-full py-2.5 bg-[#4274D9] hover:bg-[#3461c2] disabled:opacity-50 text-white font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition duration-150"
           >
             {{ loading ? 'Signing In...' : 'Sign In' }}
           </button>
         </form>
+      </div>
+
+      <div class="text-center">
+        <p class="text-[11px] text-[#95CCDD]/70 flex items-center justify-center gap-1.5 font-medium">
+          <ShieldCheck class="w-3.5 h-3.5 text-[#4274D9]" />
+          Protected by HCP End-to-End Vault Authentication
+        </p>
       </div>
     </div>
   </div>

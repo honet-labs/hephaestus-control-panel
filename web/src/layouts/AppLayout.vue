@@ -49,16 +49,16 @@ onMounted(() => {
     <CommandPalette />
 
     <!-- Sidebar -->
-    <aside class="w-64 border-r border-slate-800/80 bg-[#0e1118] flex flex-col justify-between backdrop-blur-xl shrink-0">
+    <aside class="w-64 border-r border-[#1b2234] bg-[#0c101a] flex flex-col justify-between backdrop-blur-xl shrink-0">
       <div class="flex-1 flex flex-col min-h-0">
         <!-- App Brand Header -->
-        <div class="h-16 flex items-center px-5 border-b border-slate-800/80 gap-3 shrink-0">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20 font-mono font-black text-xs text-white tracking-tighter">
+        <div class="h-16 flex items-center px-5 border-b border-[#1b2234] gap-3 shrink-0">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#293681] to-[#4274D9] flex items-center justify-center shadow-lg shadow-[#4274D9]/25 font-mono font-black text-xs text-white tracking-tighter">
             HCP
           </div>
           <div>
             <h1 class="font-bold text-sm tracking-wide text-white leading-tight">HEPHAESTUS</h1>
-            <span class="text-[10px] text-brand-400 font-mono font-semibold tracking-wider">CONTROL PANEL</span>
+            <span class="text-[10px] text-[#95CCDD] font-mono font-semibold tracking-wider">CONTROL PANEL</span>
           </div>
         </div>
 
@@ -66,19 +66,19 @@ onMounted(() => {
         <div class="px-4 py-3 shrink-0">
           <button
             @click="window?.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))"
-            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-[#141721] border border-slate-800 text-slate-400 rounded-lg hover:border-slate-700 transition"
+            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-[#121826] border border-[#1b2234] text-slate-400 rounded-lg hover:border-[#4274D9]/50 hover:text-white transition"
           >
             <span class="flex items-center gap-1.5">
-              <Command class="w-3.5 h-3.5" />
+              <Command class="w-3.5 h-3.5 text-[#95CCDD]" />
               Quick search...
             </span>
-            <kbd class="text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Ctrl+K</kbd>
+            <kbd class="text-[10px] font-mono bg-[#1a2336] text-[#D0E7E6] px-1.5 py-0.5 rounded border border-[#293681]">Ctrl+K</kbd>
           </button>
         </div>
 
         <!-- Section Label -->
         <div class="px-4 pt-1 pb-1">
-          <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">OPERATIONAL MODULES</p>
+          <p class="text-[10px] uppercase font-bold text-[#95CCDD]/70 tracking-wider">OPERATIONAL MODULES</p>
         </div>
 
         <!-- Navigation Links (With Sub-Menu Accordions) -->
@@ -89,8 +89,8 @@ onMounted(() => {
             to="/"
             :class="[
               route.path === '/'
-                ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-semibold'
-                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
+                ? 'bg-[#293681]/40 text-[#95CCDD] border-[#4274D9]/50 font-semibold shadow-sm'
+                : 'text-slate-400 hover:bg-[#121826] hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -103,8 +103,8 @@ onMounted(() => {
             to="/connections"
             :class="[
               route.path === '/connections'
-                ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-semibold'
-                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
+                ? 'bg-[#293681]/40 text-[#95CCDD] border-[#4274D9]/50 font-semibold shadow-sm'
+                : 'text-slate-400 hover:bg-[#121826] hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -116,20 +116,20 @@ onMounted(() => {
           <a
             href="/remote-server"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 group cursor-pointer"
+            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
             <div class="flex items-center gap-3">
-              <Terminal class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-brand-400 transition" />
+              <Terminal class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
               <span>Remote Server</span>
             </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition" />
+            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
           </a>
 
           <!-- 4. Remote Config (Accordion Parent) -->
           <div>
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200"
             >
               <div class="flex items-center gap-3">
                 <Sliders class="w-4 h-4 shrink-0 text-slate-400" />
@@ -139,17 +139,17 @@ onMounted(() => {
             </button>
 
             <!-- Remote Config Sub-Menu Items (Only Prometheus Config & Data Prepper Pipelines) -->
-            <div v-show="isRemoteConfigOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-800/80 ml-5 my-0.5">
+            <div v-show="isRemoteConfigOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-[#1b2234] ml-5 my-0.5">
               <router-link
                 to="/prometheus-config"
                 :class="[
                   route.path === '/prometheus-config'
-                    ? 'text-brand-400 font-semibold'
+                    ? 'text-[#95CCDD] font-semibold'
                     : 'text-slate-400 hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1 h-1 rounded-full" :class="route.path === '/prometheus-config' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/prometheus-config' ? 'bg-[#4274D9]' : 'bg-slate-600'"></span>
                 <span>Prometheus Config</span>
               </router-link>
 
@@ -157,12 +157,12 @@ onMounted(() => {
                 to="/dataprepper-config"
                 :class="[
                   route.path === '/dataprepper-config'
-                    ? 'text-brand-400 font-semibold'
+                    ? 'text-[#95CCDD] font-semibold'
                     : 'text-slate-400 hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1 h-1 rounded-full" :class="route.path === '/dataprepper-config' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/dataprepper-config' ? 'bg-[#4274D9]' : 'bg-slate-600'"></span>
                 <span>Data Prepper Pipelines</span>
               </router-link>
             </div>
@@ -172,26 +172,26 @@ onMounted(() => {
           <a
             href="/network-topology"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 group cursor-pointer"
+            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
             <div class="flex items-center gap-3">
-              <Network class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-brand-400 transition" />
+              <Network class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
               <span>Network Topology</span>
             </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition" />
+            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
           </a>
 
           <!-- 5. OpenSearch Cluster -->
           <a
             href="/opensearch-cluster"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 group cursor-pointer"
+            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
             <div class="flex items-center gap-3">
-              <Search class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-brand-400 transition" />
+              <Search class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
               <span>OpenSearch Cluster</span>
             </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition" />
+            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
           </a>
 
           <!-- 6. Backup Manager -->
@@ -199,8 +199,8 @@ onMounted(() => {
             to="/backup"
             :class="[
               route.path === '/backup'
-                ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-semibold'
-                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
+                ? 'bg-[#293681]/40 text-[#95CCDD] border-[#4274D9]/50 font-semibold shadow-sm'
+                : 'text-slate-400 hover:bg-[#121826] hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -212,7 +212,7 @@ onMounted(() => {
           <div>
             <button
               @click="isToolsOpen = !isToolsOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200"
             >
               <div class="flex items-center gap-3">
                 <Wrench class="w-4 h-4 shrink-0 text-slate-400" />
@@ -222,17 +222,17 @@ onMounted(() => {
             </button>
 
             <!-- Tools Sub-Menu Items -->
-            <div v-show="isToolsOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-800/80 ml-5 my-0.5">
+            <div v-show="isToolsOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-[#1b2234] ml-5 my-0.5">
               <router-link
                 to="/snmp"
                 :class="[
                   route.path === '/snmp'
-                    ? 'text-brand-400 font-semibold'
+                    ? 'text-[#95CCDD] font-semibold'
                     : 'text-slate-400 hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1 h-1 rounded-full" :class="route.path === '/snmp' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/snmp' ? 'bg-[#4274D9]' : 'bg-slate-600'"></span>
                 <span>SNMP Browser</span>
               </router-link>
 
@@ -240,12 +240,12 @@ onMounted(() => {
                 to="/grok-debugger"
                 :class="[
                   route.path === '/grok-debugger'
-                    ? 'text-brand-400 font-semibold'
+                    ? 'text-[#95CCDD] font-semibold'
                     : 'text-slate-400 hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1 h-1 rounded-full" :class="route.path === '/grok-debugger' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/grok-debugger' ? 'bg-[#4274D9]' : 'bg-slate-600'"></span>
                 <span>Grok Debugger</span>
               </router-link>
 
@@ -253,12 +253,12 @@ onMounted(() => {
                 to="/slideshow"
                 :class="[
                   route.path === '/slideshow'
-                    ? 'text-brand-400 font-semibold'
+                    ? 'text-[#95CCDD] font-semibold'
                     : 'text-slate-400 hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1 h-1 rounded-full" :class="route.path === '/slideshow' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/slideshow' ? 'bg-[#4274D9]' : 'bg-slate-600'"></span>
                 <span>Slide Show</span>
               </router-link>
             </div>
@@ -269,8 +269,8 @@ onMounted(() => {
             to="/settings"
             :class="[
               route.path === '/settings'
-                ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-semibold'
-                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
+                ? 'bg-[#293681]/40 text-[#95CCDD] border-[#4274D9]/50 font-semibold shadow-sm'
+                : 'text-slate-400 hover:bg-[#121826] hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -282,15 +282,15 @@ onMounted(() => {
       </div>
 
       <!-- User Profile & Logout -->
-      <div class="p-3 border-t border-slate-800/80 bg-[#0a0d14] shrink-0">
+      <div class="p-3 border-t border-[#1b2234] bg-[#090d16] shrink-0">
         <div class="flex items-center justify-between px-2 py-1.5 rounded-lg">
           <div class="flex items-center gap-2.5 overflow-hidden">
-            <div class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-brand-400 shrink-0">
+            <div class="w-7 h-7 rounded-lg bg-[#141b2d] border border-[#293681] flex items-center justify-center font-bold text-xs text-[#95CCDD] shrink-0">
               {{ authStore.user?.username?.charAt(0).toUpperCase() || 'A' }}
             </div>
             <div class="overflow-hidden">
-              <p class="text-xs font-semibold text-white truncate">{{ authStore.user?.username || 'sysadministrator' }}</p>
-              <p class="text-[10px] text-slate-500 uppercase tracking-wider font-mono">{{ authStore.user?.role || 'ADMIN' }}</p>
+              <p class="text-xs font-semibold text-[#D0E7E6] truncate">{{ authStore.user?.username || 'sysadministrator' }}</p>
+              <p class="text-[10px] text-[#95CCDD]/70 uppercase tracking-wider font-mono">{{ authStore.user?.role || 'ADMIN' }}</p>
             </div>
           </div>
 
@@ -306,7 +306,7 @@ onMounted(() => {
     </aside>
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#0e1118]">
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#090d16]">
       <main class="flex-1 overflow-y-auto p-6">
         <router-view />
       </main>
