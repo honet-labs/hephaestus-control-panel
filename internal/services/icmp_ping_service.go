@@ -123,6 +123,14 @@ func pingHost(ctx context.Context, ip string) (bool, *float64) {
 		return true, &zero
 	}
 
+	if stringsContainsIgnoreCase(output, "ttl=") {
+		zero := float64(0)
+		return true, &zero
+	}
+
+	return false, nil
+}
+
 func (s *IcmpPingService) PingHostOutput(ctx context.Context, ip string, count int) string {
 	if ip == "" {
 		return "Error: IP address is required"
