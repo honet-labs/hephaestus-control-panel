@@ -147,52 +147,155 @@ fi
 cd "$INSTALL_DIR"
 
 # Setup Firewall Rules
-configure_firewall() {
-    echo -e "\n${BLUE}[3/6] Checking Firewall Configuration...${NC}"
-    HTTP_PORT=${HTTP_PORT:-80}
-
-    # UFW (Ubuntu/Debian)
-    if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
-        echo "Opening port $HTTP_PORT in UFW..."
-        ufw allow $HTTP_PORT/tcp comment "Hephaestus Control Panel (HCP)" || true
-        ufw reload || true
+# Helper: Check if a port is currently occupied
+is_port_in_use() {
+    local port=$1
+    if command -v ss &> /dev/null; then
+        ss -tuln 2>/dev/null | grep -qE "(:${port}|\[::\]:${port})\b" && return 0
+    elif command -v netstat &> /dev/null; then
+        netstat -tuln 2>/dev/null | grep -qE "(:${port}|\[::\]:${port})\b" && return 0
+    elif command -v lsof &> /dev/null; then
+        lsof -i :${port} &> /dev/null && return 0
     fi
-
-    # Firewalld (RHEL/Rocky/AlmaLinux)
-    if command -v firewall-cmd &> /dev/null && systemctl is-active --quiet firewalld; then
-        echo "Opening port $HTTP_PORT in Firewalld..."
-        firewall-cmd --permanent --add-port=$HTTP_PORT/tcp || true
-        firewall-cmd --reload || true
-    fi
+    return 1
 }
 
-# Generate Cryptographic Keys and .env Configuration
+# Generate Cryptographic Keys and Interactive .env Configuration
 setup_configuration() {
-    echo -e "\n${BLUE}[4/6] Generating Secure Cryptographic Keys & Configuration...${NC}"
+    echo -e "\n${BLUE}[3/6] Configuring Ports & Database Parameters...${NC}"
 
-    # Generate 64-char Hex Encryption Key for AES-256-GCM
-    RANDOM_ENCRYPTION_KEY=$(openssl rand -hex 32)
-    RANDOM_DB_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
+    # Default values
+    DEF_HTTP_PORT=80
+    DEF_DB_PORT=5432
+    DEF_DB_USER="hephaestus"
+    DEF_DB_NAME="hephaestus"
+    
+    # Check for existing .env
+    RECONFIGURE="yes"
+    if [ -f .env ]; then
+        echo -e "${YELLOW}[INFO] An existing .env configuration file was found.${NC}"
+        if [ -t 0 ]; then
+            read -p "Do you want to keep existing configuration? [Y/n]: " KEEP_EXISTING
+            KEEP_EXISTING=${KEEP_EXISTING:-Y}
+            if [[ "$KEEP_EXISTING" =~ ^[Yy]$ ]]; then
+                RECONFIGURE="no"
+                source .env 2>/dev/null || true
+            fi
+        else
+            RECONFIGURE="no"
+            source .env 2>/dev/null || true
+        fi
+    fi
 
-    if [ ! -f .env ]; then
-        echo "Creating new .env file with generated credentials..."
+    if [ "$RECONFIGURE" = "yes" ]; then
+        echo -e "\nPlease specify installation parameters (press Enter to accept default):"
+
+        # 1. Web Panel Port
+        while true; do
+            if [ -t 0 ]; then
+                read -p "1. Web Panel HTTP Port [$DEF_HTTP_PORT]: " INPUT_HTTP_PORT
+            else
+                INPUT_HTTP_PORT=""
+            fi
+            INPUT_HTTP_PORT=${INPUT_HTTP_PORT:-$DEF_HTTP_PORT}
+            
+            if ! [[ "$INPUT_HTTP_PORT" =~ ^[0-9]+$ ]] || [ "$INPUT_HTTP_PORT" -lt 1 ] || [ "$INPUT_HTTP_PORT" -gt 65535 ]; then
+                echo -e "${RED}[WARN] Invalid port number. Please enter a value between 1 and 65535.${NC}"
+                continue
+            fi
+
+            if is_port_in_use "$INPUT_HTTP_PORT"; then
+                echo -e "${YELLOW}[WARNING] Port $INPUT_HTTP_PORT is already in use by another service on this host!${NC}"
+                if [ -t 0 ]; then
+                    read -p "Do you still want to proceed with port $INPUT_HTTP_PORT? [y/N]: " OVERRIDE_PORT
+                    if [[ "$OVERRIDE_PORT" =~ ^[Yy]$ ]]; then
+                        break
+                    fi
+                else
+                    break
+                fi
+            else
+                echo -e "${GREEN}[OK] Port $INPUT_HTTP_PORT is available.${NC}"
+                break
+            fi
+        done
+
+        # 2. Database External Port
+        while true; do
+            if [ -t 0 ]; then
+                read -p "2. PostgreSQL External Port [$DEF_DB_PORT]: " INPUT_DB_PORT
+            else
+                INPUT_DB_PORT=""
+            fi
+            INPUT_DB_PORT=${INPUT_DB_PORT:-$DEF_DB_PORT}
+
+            if ! [[ "$INPUT_DB_PORT" =~ ^[0-9]+$ ]] || [ "$INPUT_DB_PORT" -lt 1 ] || [ "$INPUT_DB_PORT" -gt 65535 ]; then
+                echo -e "${RED}[WARN] Invalid port number. Please enter a value between 1 and 65535.${NC}"
+                continue
+            fi
+
+            if is_port_in_use "$INPUT_DB_PORT"; then
+                echo -e "${YELLOW}[WARNING] Port $INPUT_DB_PORT is already in use (e.g. host Postgres/another container)!${NC}"
+                if [ -t 0 ]; then
+                    read -p "Do you still want to proceed with port $INPUT_DB_PORT? [y/N]: " OVERRIDE_DB_PORT
+                    if [[ "$OVERRIDE_DB_PORT" =~ ^[Yy]$ ]]; then
+                        break
+                    fi
+                else
+                    break
+                fi
+            else
+                echo -e "${GREEN}[OK] Port $INPUT_DB_PORT is available.${NC}"
+                break
+            fi
+        done
+
+        # 3. Database Username
+        if [ -t 0 ]; then
+            read -p "3. Database Username [$DEF_DB_USER]: " INPUT_DB_USER
+        else
+            INPUT_DB_USER=""
+        fi
+        INPUT_DB_USER=${INPUT_DB_USER:-$DEF_DB_USER}
+
+        # 4. Database Name
+        if [ -t 0 ]; then
+            read -p "4. Database Name [$DEF_DB_NAME]: " INPUT_DB_NAME
+        else
+            INPUT_DB_NAME=""
+        fi
+        INPUT_DB_NAME=${INPUT_DB_NAME:-$DEF_DB_NAME}
+
+        # 5. Database Password
+        RANDOM_DB_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
+        if [ -t 0 ]; then
+            read -p "5. Database Password (leave blank for random: $RANDOM_DB_PASSWORD): " INPUT_DB_PASS
+        else
+            INPUT_DB_PASS=""
+        fi
+        INPUT_DB_PASS=${INPUT_DB_PASS:-$RANDOM_DB_PASSWORD}
+
+        # 6. Generate 64-char Hex Encryption Key for AES-256-GCM
+        RANDOM_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+        echo -e "\nWriting configuration to .env..."
         cat <<EOF > .env
 # ==============================================================================
 # Hephaestus Control Panel (HCP) - Environment Configuration
 # ==============================================================================
 
 # Web & Server Ports
-HTTP_PORT=80
-DB_EXTERNAL_PORT=5432
+HTTP_PORT=${INPUT_HTTP_PORT}
+DB_EXTERNAL_PORT=${INPUT_DB_PORT}
 APP_ENV=production
 
 # Registry Mirror (Uses Amazon ECR Public mirror to avoid Docker Hub TLS proxy blocks)
 REGISTRY_MIRROR=public.ecr.aws/docker/library/
 
 # Database Credentials
-DB_USER=hephaestus
-DB_PASSWORD=${RANDOM_DB_PASSWORD}
-DB_NAME=hephaestus
+DB_USER=${INPUT_DB_USER}
+DB_PASSWORD=${INPUT_DB_PASS}
+DB_NAME=${INPUT_DB_NAME}
 
 # Security Key (64-character Hexadecimal for AES-256-GCM)
 APP_ENCRYPTION_KEY=${RANDOM_ENCRYPTION_KEY}
@@ -201,9 +304,31 @@ APP_ENCRYPTION_KEY=${RANDOM_ENCRYPTION_KEY}
 LOGS_DIR=/app/logs
 DATA_DIR=/app/data
 EOF
-        echo -e "${GREEN}[OK] Generated .env file successfully.${NC}"
-    else
-        echo -e "${YELLOW}[INFO] Existing .env file found. Preserving existing configuration.${NC}"
+        HTTP_PORT=${INPUT_HTTP_PORT}
+        DB_EXTERNAL_PORT=${INPUT_DB_PORT}
+        DB_USER=${INPUT_DB_USER}
+        DB_NAME=${INPUT_DB_NAME}
+        echo -e "${GREEN}[OK] Configuration generated successfully.${NC}"
+    fi
+}
+
+# Setup Firewall Rules
+configure_firewall() {
+    echo -e "\n${BLUE}[4/6] Checking Firewall Configuration...${NC}"
+    HTTP_PORT=${HTTP_PORT:-80}
+
+    # UFW (Ubuntu/Debian)
+    if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+        echo "Opening Web port $HTTP_PORT in UFW..."
+        ufw allow $HTTP_PORT/tcp comment "Hephaestus Control Panel (HCP) Web" || true
+        ufw reload || true
+    fi
+
+    # Firewalld (RHEL/Rocky/AlmaLinux)
+    if command -v firewall-cmd &> /dev/null && systemctl is-active --quiet firewalld; then
+        echo "Opening Web port $HTTP_PORT in Firewalld..."
+        firewall-cmd --permanent --add-port=$HTTP_PORT/tcp || true
+        firewall-cmd --reload || true
     fi
 }
 
@@ -212,7 +337,7 @@ configure_firewall
 
 # Build and Deploy Containers
 deploy_containers() {
-    echo -e "\n${BLUE}[5/6] Building & Starting Multi-Container Stack (Frontend, Backend, Postgres)...${NC}"
+    echo -e "\n${BLUE}[5/6] Building & Starting Multi-Container Stack (Panel, Engine, Database)...${NC}"
     
     # Check if docker compose or docker-compose is available
     if docker compose version &> /dev/null; then
@@ -247,16 +372,25 @@ fi
 echo -e "\n${GREEN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}[OK] HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
-echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
+if [ "$HTTP_PORT" = "80" ]; then
+    echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
+else
+    echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} (or http://localhost:${HTTP_PORT})"
+fi
 echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database)"
-echo -e "PostgreSQL Database  : hephaestus (Port 5432)"
+echo -e "PostgreSQL Database  : ${DB_NAME:-hephaestus} (External Port: ${DB_EXTERNAL_PORT:-5432})"
+echo -e "Database User        : ${DB_USER:-hephaestus}"
 echo -e "Installation Path    : ${INSTALL_DIR}"
 echo -e "Configuration File   : ${INSTALL_DIR}/.env"
 echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
 echo -e "Restart Stack        : ${CYAN}docker compose restart${NC}"
 echo "------------------------------------------------------------------------------"
 echo -e "${BOLD}Next Steps:${NC}"
-echo -e "1. Open ${CYAN}http://${SERVER_IP}${NC} in your web browser."
+if [ "$HTTP_PORT" = "80" ]; then
+    echo -e "1. Open ${CYAN}http://${SERVER_IP}${NC} in your web browser."
+else
+    echo -e "1. Open ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} in your web browser."
+fi
 echo -e "2. The initial ${BOLD}Setup Wizard${NC} will open automatically."
 echo -e "3. Create your Master Administrator credentials to start managing infrastructure."
 echo "=============================================================================="
