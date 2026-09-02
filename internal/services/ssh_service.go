@@ -264,6 +264,28 @@ func (s *SSHService) SftpDownload(ctx context.Context, hostID, remotePath string
 	return srcFile, stat.Size(), nil
 }
 
+func (s *SSHService) SftpDownloadWithConfig(cfg *domain.RemoteHostConfig, remotePath string) (io.ReadCloser, int64, error) {
+	sftpClient, _, err := s.getSftpClient(cfg)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	srcFile, err := sftpClient.Open(cleanPath)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	stat, err := srcFile.Stat()
+	if err != nil {
+		_ = srcFile.Close()
+		return nil, 0, err
+	}
+
+	return srcFile, stat.Size(), nil
+}
+
+
 func (s *SSHService) SftpTransferRemoteToRemote(ctx context.Context, srcHostID, srcPath, dstHostID, dstPath string) error {
 	srcCfg, err := s.remoteRepo.GetRawByID(ctx, srcHostID)
 	if err != nil {

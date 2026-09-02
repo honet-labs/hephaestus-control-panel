@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type BackupService struct {
@@ -153,9 +154,74 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if dbCfg.DBType == "postgresql" {
+			// Fallback to native pgx connection dump
+			return s.dumpPostgreSQLNative(ctx, dbCfg)
+		}
 		return nil, fmt.Errorf("%v: %s", err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+func (s *BackupService) dumpPostgreSQLNative(ctx context.Context, dbCfg *domain.BackupDbConfig) ([]byte, error) {
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		dbCfg.Username, dbCfg.Password, dbCfg.Host, dbCfg.Port, dbCfg.DatabaseName)
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("direct pg_dump CLI unavailable and native connection failed: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("-- Hephaestus PostgreSQL Native Backup Dump\n-- Database: %s\n-- Timestamp: %s\n\n", dbCfg.DatabaseName, time.Now().Format(time.RFC3339)))
+
+	rows, err := conn.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err == nil {
+			tables = append(tables, t)
+		}
+	}
+
+	for _, table := range tables {
+		buf.WriteString(fmt.Sprintf("\n-- Data for Name: %s\n", table))
+		dataRows, err := conn.Query(ctx, fmt.Sprintf(`SELECT * FROM "%s"`, table))
+		if err != nil {
+			continue
+		}
+
+		fieldDescs := dataRows.FieldDescriptions()
+		colNames := make([]string, len(fieldDescs))
+		for i, fd := range fieldDescs {
+			colNames[i] = fmt.Sprintf(`"%s"`, string(fd.Name))
+		}
+		colList := strings.Join(colNames, ", ")
+
+		for dataRows.Next() {
+			vals, err := dataRows.Values()
+			if err != nil {
+				continue
+			}
+			valStrs := make([]string, len(vals))
+			for i, v := range vals {
+				if v == nil {
+					valStrs[i] = "NULL"
+				} else {
+					valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''"))
+				}
+			}
+			buf.WriteString(fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s);\n", table, colList, strings.Join(valStrs, ", ")))
+		}
+		dataRows.Close()
+	}
+
+	return buf.Bytes(), nil
 }
 
 func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.BackupDbConfig, filename string) ([]byte, error) {
@@ -196,8 +262,8 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 		return nil, fmt.Errorf("remote dump command failed (exit %d): %s %s %v", exitCode, stdout, stderr, err)
 	}
 
-	// Download dump file via SFTP
-	reader, _, err := s.sshService.SftpDownload(ctx, remoteHostCfg.ID, remotePath)
+	// Download dump file via SFTP with config directly
+	reader, _, err := s.sshService.SftpDownloadWithConfig(remoteHostCfg, remotePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download remote dump: %w", err)
 	}
