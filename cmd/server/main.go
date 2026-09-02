@@ -154,6 +154,7 @@ func main() {
 		api.GET("/remote-host/:id/sftp/list", remoteHostHandler.SftpList)
 		api.POST("/remote-host/:id/sftp/upload", remoteHostHandler.SftpUpload)
 		api.GET("/remote-host/:id/sftp/download", remoteHostHandler.SftpDownload)
+		api.POST("/remote-host/sftp/transfer-remote", remoteHostHandler.SftpTransferRemote)
 
 		// Topology
 		api.GET("/topology", topologyHandler.GetGraph)

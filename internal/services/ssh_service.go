@@ -264,6 +264,48 @@ func (s *SSHService) SftpDownload(ctx context.Context, hostID, remotePath string
 	return srcFile, stat.Size(), nil
 }
 
+func (s *SSHService) SftpTransferRemoteToRemote(ctx context.Context, srcHostID, srcPath, dstHostID, dstPath string) error {
+	srcCfg, err := s.remoteRepo.GetRawByID(ctx, srcHostID)
+	if err != nil {
+		return fmt.Errorf("source host not found: %w", err)
+	}
+	dstCfg, err := s.remoteRepo.GetRawByID(ctx, dstHostID)
+	if err != nil {
+		return fmt.Errorf("destination host not found: %w", err)
+	}
+
+	srcSftp, _, err := s.getSftpClient(srcCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect to source SFTP: %w", err)
+	}
+	dstSftp, _, err := s.getSftpClient(dstCfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect to destination SFTP: %w", err)
+	}
+
+	cleanSrc := sanitizeRemotePath(srcPath)
+	cleanDst := sanitizeRemotePath(dstPath)
+
+	srcFile, err := srcSftp.Open(cleanSrc)
+	if err != nil {
+		return fmt.Errorf("failed to open source file '%s': %w", cleanSrc, err)
+	}
+	defer srcFile.Close()
+
+	dstDir := filepath.Dir(cleanDst)
+	_ = dstSftp.MkdirAll(dstDir)
+
+	dstFile, err := dstSftp.Create(cleanDst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file '%s': %w", cleanDst, err)
+	}
+	defer dstFile.Close()
+
+	buf := make([]byte, 128*1024)
+	_, err = io.CopyBuffer(dstFile, srcFile, buf)
+	return err
+}
+
 func (s *SSHService) idleConnectionCleaner() {
 	ticker := time.NewTicker(1 * time.Minute)
 	for range ticker.C {

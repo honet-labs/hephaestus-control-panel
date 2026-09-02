@@ -248,3 +248,26 @@ func (h *RemoteHostHandler) SftpDownload(c *gin.Context) {
 	c.Header("Content-Length", fmt.Sprintf("%d", size))
 	_, _ = io.Copy(c.Writer, reader)
 }
+
+type SftpRemoteTransferReq struct {
+	SrcHostID string `json:"srcHostId" binding:"required"`
+	SrcPath   string `json:"srcPath" binding:"required"`
+	DstHostID string `json:"dstHostId" binding:"required"`
+	DstPath   string `json:"dstPath" binding:"required"`
+}
+
+func (h *RemoteHostHandler) SftpTransferRemote(c *gin.Context) {
+	var req SftpRemoteTransferReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := h.sshService.SftpTransferRemoteToRemote(c.Request.Context(), req.SrcHostID, req.SrcPath, req.DstHostID, req.DstPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Server-to-Server file transfer completed successfully."})
+}
+
