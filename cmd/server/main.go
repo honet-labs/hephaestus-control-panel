@@ -189,9 +189,15 @@ func main() {
 		api.DELETE("/snmp/mibs/:name", snmpHandler.DeleteMib)
 		api.GET("/snmp/translate", snmpHandler.TranslateOID)
 
-		// OpenSearch
+		// OpenSearch Cluster Management
 		api.GET("/opensearch/health", openSearchHandler.GetHealth)
 		api.GET("/opensearch/nodes", openSearchHandler.GetNodesStats)
+		api.GET("/opensearch/nodes/info", openSearchHandler.GetNodesInfo)
+		api.GET("/opensearch/indices", openSearchHandler.GetIndices)
+		api.GET("/opensearch/shards", openSearchHandler.GetShards)
+		api.GET("/opensearch/config", openSearchHandler.GetConfig)
+		api.POST("/opensearch/config", openSearchHandler.SaveConfig)
+		api.POST("/opensearch/test", openSearchHandler.TestConnection)
 
 		// Prometheus & PromQL
 		api.GET("/prometheus/query", promHandler.Query)

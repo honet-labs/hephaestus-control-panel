@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { guestOnly: true },
     },
     {
+      path: '/opensearch-cluster',
+      name: 'opensearch-cluster',
+      component: () => import('../views/OpenSearchClusterView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
@@ -49,7 +55,7 @@ const router = createRouter({
         {
           path: 'opensearch',
           name: 'opensearch',
-          component: () => import('../views/OpenSearchView.vue'),
+          component: () => import('../views/OpenSearchClusterView.vue'),
         },
         {
           path: 'grok-debugger',

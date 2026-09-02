@@ -18,6 +18,7 @@ import {
   LogOut,
   Command,
   ShieldCheck,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -30,7 +31,7 @@ const navigation = [
   { name: 'Network Topology', icon: Network, route: '/topology' },
   { name: 'Backup Manager', icon: Database, route: '/backup' },
   { name: 'SNMP Browser', icon: Radio, route: '/snmp' },
-  { name: 'OpenSearch', icon: Search, route: '/opensearch' },
+  { name: 'OpenSearch Cluster', icon: Search, route: '/opensearch-cluster', newTab: true },
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger' },
   { name: 'VPS Control', icon: Server, route: '/vps-control' },
   { name: 'Live Logs', icon: FileText, route: '/logs' },
@@ -83,20 +84,34 @@ onMounted(() => {
 
         <!-- Navigation Links -->
         <nav class="px-3 space-y-1 overflow-y-auto max-h-[calc(100vh-210px)]">
-          <router-link
-            v-for="item in navigation"
-            :key="item.name"
-            :to="item.route"
-            :class="[
-              route.path === item.route
-                ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-medium'
-                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
-            ]"
-          >
-            <component :is="item.icon" class="w-4 h-4 shrink-0" />
-            <span>{{ item.name }}</span>
-          </router-link>
+          <template v-for="item in navigation" :key="item.name">
+            <a
+              v-if="item.newTab"
+              :href="item.route"
+              target="_blank"
+              class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 group cursor-pointer"
+            >
+              <div class="flex items-center gap-3">
+                <component :is="item.icon" class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-brand-400 transition" />
+                <span>{{ item.name }}</span>
+              </div>
+              <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition" />
+            </a>
+
+            <router-link
+              v-else
+              :to="item.route"
+              :class="[
+                route.path === item.route
+                  ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-medium'
+                  : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border-transparent',
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+              ]"
+            >
+              <component :is="item.icon" class="w-4 h-4 shrink-0" />
+              <span>{{ item.name }}</span>
+            </router-link>
+          </template>
         </nav>
       </div>
 
