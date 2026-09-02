@@ -21,6 +21,7 @@ import {
   Sliders,
   Terminal,
   ExternalLink,
+  AlertCircle,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -36,51 +37,8 @@ const timer = ref<any>(null);
 
 // Data states
 const error = ref('');
-const clusterHealth = ref<any>({
-  status: 'green',
-  cluster_name: 'opensearch-cluster',
-  number_of_nodes: 2,
-  number_of_data_nodes: 2,
-  active_primary_shards: 88,
-  active_shards: 150,
-  relocating_shards: 0,
-  initializing_shards: 0,
-  unassigned_shards: 0,
-});
-
-const nodesList = ref<any[]>([
-  {
-    name: 'olc-dev1',
-    ip: '10.10.5.89',
-    cpu: '1%',
-    load: '0.12 / 0.07 / 0.03',
-    heapPercent: '25%',
-    uptime: '13d 0h',
-    ram: '97%',
-    jvmHeap: '1.5 GB / 6.0 GB',
-    diskPercent: '16.08%',
-    diskUsage: '63.7 GB / 395.9 GB',
-    roles: ['cluster_manager', 'data', 'ingest'],
-    primaryShards: 119,
-    replicaShards: 1,
-  },
-  {
-    name: 'olc-dev2',
-    ip: '10.10.6.220',
-    cpu: '3%',
-    load: '0.07 / 0.11 / 0.17',
-    heapPercent: '27%',
-    uptime: '1d 0h',
-    ram: '94%',
-    jvmHeap: '1.1 GB / 4.0 GB',
-    diskPercent: '13.83%',
-    diskUsage: '53.9 GB / 389.4 GB',
-    roles: ['cluster_manager', 'data', 'ingest'],
-    primaryShards: 22,
-    replicaShards: 98,
-  },
-]);
-
+const clusterHealth = ref<any | null>(null);
+const nodesList = ref<any[]>([]);
 const indicesList = ref<any[]>([]);
 const shardsList = ref<any[]>([]);
 const logsList = ref<any[]>([]);
@@ -88,12 +46,12 @@ const logsList = ref<any[]>([]);
 // Connection Config State
 const configForm = ref({
   id: '',
-  name: 'Primary Cluster',
-  host: '10.10.5.89',
+  name: '',
+  host: '',
   port: 9200,
-  username: 'admin',
+  username: '',
   password: '',
-  useSsl: true,
+  useSsl: false,
   verifySsl: false,
   isActive: true,
 });
@@ -110,12 +68,9 @@ const hoveredShard = ref<any | null>(null);
 const tooltipPosition = ref({ x: 0, y: 0 });
 
 // Formatted Overview Computations
-const totalIndicesCount = computed(() => indicesList.value.length || 88);
+const totalIndicesCount = computed(() => indicesList.value.length);
 const totalDocumentsCount = computed(() => {
-  if (indicesList.value.length > 0) {
-    return indicesList.value.reduce((acc, idx) => acc + (parseInt(idx['docs.count'] || idx.docsCount || 0) || 0), 0);
-  }
-  return 347694102;
+  return indicesList.value.reduce((acc, idx) => acc + (parseInt(idx['docs.count'] || idx.docsCount || 0) || 0), 0);
 });
 
 const totalStoreSizeBytes = computed(() => {
@@ -123,12 +78,12 @@ const totalStoreSizeBytes = computed(() => {
     const bytes = indicesList.value.reduce((acc, idx) => acc + (parseInt(idx['store.size'] || idx.storeSize || 0) || 0), 0);
     return formatBytes(bytes);
   }
-  return '82.8 GB';
+  return '0 B';
 });
 
-const greenIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'green').length || totalIndicesCount.value);
-const yellowIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'yellow').length || 0);
-const redIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'red').length || 0);
+const greenIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'green').length);
+const yellowIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'yellow').length);
+const redIndicesCount = computed(() => indicesList.value.filter(i => (i.health || '').toLowerCase() === 'red').length);
 
 // Filtered indices
 const filteredIndices = computed(() => {
@@ -145,7 +100,7 @@ const shardsByNode = computed(() => {
   });
 
   shardsList.value.forEach(shard => {
-    const nodeName = shard.node || shard.nodeName || (nodesList.value[0]?.name || 'node-1');
+    const nodeName = shard.node || shard.nodeName || (nodesList.value[0]?.name || 'unknown');
     if (!map[nodeName]) map[nodeName] = [];
     map[nodeName].push(shard);
   });
@@ -166,7 +121,7 @@ function formatNumber(num: number) {
   return new Intl.NumberFormat('en-US').format(num);
 }
 
-// Fetch all cluster telemetry
+// Fetch all cluster telemetry from actual backend
 const fetchClusterData = async () => {
   isRefreshing.value = true;
   error.value = '';
@@ -181,23 +136,26 @@ const fetchClusterData = async () => {
 
     if (healthRes.status === 'fulfilled' && healthRes.value.data.success) {
       clusterHealth.value = healthRes.value.data.data;
+    } else {
+      clusterHealth.value = null;
     }
 
     if (indicesRes.status === 'fulfilled' && indicesRes.value.data.success && Array.isArray(indicesRes.value.data.data)) {
       indicesList.value = indicesRes.value.data.data;
-    } else if (indicesList.value.length === 0) {
-      // Populate sample telemetry from screenshot if cluster is not configured yet
-      indicesList.value = generateSampleIndices();
+    } else {
+      indicesList.value = [];
     }
 
     if (shardsRes.status === 'fulfilled' && shardsRes.value.data.success && Array.isArray(shardsRes.value.data.data)) {
       shardsList.value = shardsRes.value.data.data;
-    } else if (shardsList.value.length === 0) {
-      shardsList.value = generateSampleShards();
+    } else {
+      shardsList.value = [];
     }
 
     if (nodesStatsRes.status === 'fulfilled' && nodesStatsRes.value.data.success) {
       parseNodesData(nodesStatsRes.value.data.data, nodesInfoRes.status === 'fulfilled' ? nodesInfoRes.value.data.data : null);
+    } else {
+      nodesList.value = [];
     }
   } catch (err: any) {
     console.error('Error fetching OpenSearch data:', err);
@@ -208,7 +166,10 @@ const fetchClusterData = async () => {
 };
 
 const parseNodesData = (stats: any, info: any) => {
-  if (!stats?.nodes) return;
+  if (!stats?.nodes) {
+    nodesList.value = [];
+    return;
+  }
   const nodesArr: any[] = [];
   const nodesMap = stats.nodes;
   const infoMap = info?.nodes || {};
@@ -229,9 +190,9 @@ const parseNodesData = (stats: any, info: any) => {
     const diskUsed = diskTotal - diskAvailable;
     const diskPct = ((diskUsed / diskTotal) * 100).toFixed(2);
 
-    const load1 = os.cpu?.load_average?.['1m'] ?? '0.10';
-    const load5 = os.cpu?.load_average?.['5m'] ?? '0.08';
-    const load15 = os.cpu?.load_average?.['15m'] ?? '0.05';
+    const load1 = os.cpu?.load_average?.['1m'] ?? '0.00';
+    const load5 = os.cpu?.load_average?.['5m'] ?? '0.00';
+    const load15 = os.cpu?.load_average?.['15m'] ?? '0.00';
 
     // Count shards on this node
     const nodeShards = shardsList.value.filter(s => (s.node === n.name || s.nodeName === n.name));
@@ -240,26 +201,25 @@ const parseNodesData = (stats: any, info: any) => {
 
     nodesArr.push({
       name: n.name || nodeId,
-      ip: n.ip || inf.ip || '10.10.5.89',
-      cpu: `${os.cpu?.percent ?? 2}%`,
+      ip: n.ip || inf.ip || '-',
+      cpu: `${os.cpu?.percent ?? 0}%`,
       load: `${load1} / ${load5} / ${load15}`,
       heapPercent: `${heapPct}%`,
-      uptime: formatUptime(jvm.uptime_in_millis || 86400000),
-      ram: `${os.mem?.used_percent ?? 95}%`,
+      uptime: formatUptime(jvm.uptime_in_millis || 0),
+      ram: `${os.mem?.used_percent ?? 0}%`,
       jvmHeap: `${formatBytes(jvmHeapUsed)} / ${formatBytes(jvmHeapMax)}`,
       diskPercent: `${diskPct}%`,
       diskUsage: `${formatBytes(diskUsed)} / ${formatBytes(diskTotal)}`,
-      primaryShards: priCount || (n.name === 'olc-dev1' ? 119 : 22),
-      replicaShards: repCount || (n.name === 'olc-dev1' ? 1 : 98),
+      primaryShards: priCount,
+      replicaShards: repCount,
     });
   });
 
-  if (nodesArr.length > 0) {
-    nodesList.value = nodesArr;
-  }
+  nodesList.value = nodesArr;
 };
 
 function formatUptime(ms: number) {
+  if (!ms || ms <= 0) return '0h';
   const days = Math.floor(ms / (1000 * 60 * 60 * 24));
   const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   return `${days}d ${hours}h`;
@@ -356,71 +316,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer.value) clearInterval(timer.value);
 });
-
-// Sample Data Generators for authentic look
-function generateSampleIndices() {
-  return [
-    { health: 'green', status: 'open', index: 'kibana_1', uuid: 'y-1guf1x1Qgk2t--KoH0mEQ', pri: 1, rep: 1, 'docs.count': 682, 'docs.deleted': 69, 'store.size': '557.3kb', 'pri.store.size': '257.3kb' },
-    { health: 'green', status: 'open', index: '.opendistro_job_scheduler_lock', uuid: '2Ojad0boyRa6GI1NlynqTmQ', pri: 1, rep: 1, 'docs.count': 28, 'docs.deleted': 2768, 'store.size': '451.8kb', 'pri.store.size': '225.9kb' },
-    { health: 'green', status: 'open', index: '.opendistro_security', uuid: 'Vm-k20Dy9Ty0dZxGFPOnIQ', pri: 1, rep: 1, 'docs.count': 9, 'docs.deleted': 0, 'store.size': '172.3kb', 'pri.store.size': '86.1kb' },
-    { health: 'green', status: 'open', index: '.opensearch-observability', uuid: 'ayq3LTnkRit6moFuPQ_A', pri: 1, rep: 1, 'docs.count': 2, 'docs.deleted': 0, 'store.size': '13.7kb', 'pri.store.size': '6.8kb' },
-    { health: 'green', status: 'open', index: '.opensearch_dashboards_dynamic_config_1', uuid: 'KAMSZwJu3Qu-t85x4pG6Tg', pri: 1, rep: 0, 'docs.count': 0, 'docs.deleted': 0, 'store.size': '208b', 'pri.store.size': '208b' },
-    { health: 'green', status: 'open', index: '.plugins-flow-framework-config', uuid: '0msb6gETSW5aGeJ3z7d4MA', pri: 1, rep: 1, 'docs.count': 1, 'docs.deleted': 0, 'store.size': '9kb', 'pri.store.size': '4.5kb' },
-    { health: 'green', status: 'open', index: '.plugins_flow_framework_state', uuid: 'VZ0MGeACIGKiA1aHN-Jcsw', pri: 1, rep: 1, 'docs.count': 2, 'docs.deleted': 0, 'store.size': '15.5kb', 'pri.store.size': '7.7kb' },
-    { health: 'green', status: 'open', index: '.plugins-flow-framework-templates', uuid: '8hgrzCf6TSab3PP3GKIoMA', pri: 1, rep: 1, 'docs.count': 3, 'docs.deleted': 0, 'store.size': '18.6kb', 'pri.store.size': '9.3kb' },
-    { health: 'green', status: 'open', index: '.plugins-ml-config', uuid: 'anSjKTkARZT3uW1cRPp04g', pri: 1, rep: 1, 'docs.count': 1, 'docs.deleted': 0, 'store.size': '9kb', 'pri.store.size': '4.5kb' },
-    { health: 'green', status: 'open', index: '.ql-datasources', uuid: 'IIIsMYC3-WQCcs1LY5QLYw', pri: 1, rep: 1, 'docs.count': 3, 'docs.deleted': 0, 'store.size': '36.8kb', 'pri.store.size': '18.4kb' },
-    { health: 'green', status: 'open', index: '.tasks', uuid: 'SubOcbkNS4CS2C7bMKiHWA', pri: 1, rep: 1, 'docs.count': 9, 'docs.deleted': 0, 'store.size': '132.4kb', 'pri.store.size': '66.2kb' },
-    { health: 'green', status: 'open', index: 'log-wordpress-2026.09.01', uuid: 'hoDeVQPRR-paNWwL700_aw', pri: 1, rep: 1, 'docs.count': 0, 'docs.deleted': 0, 'store.size': '416b', 'pri.store.size': '208b' },
-    { health: 'green', status: 'open', index: 'logs-network-mikrotik-2026.09.01', uuid: 'XOzF5YULSZFMbNnadH-gw', pri: 1, rep: 1, 'docs.count': 0, 'docs.deleted': 0, 'store.size': '416b', 'pri.store.size': '208b' },
-    { health: 'green', status: 'open', index: 'logs-secure-linux-2026.09.01', uuid: '2bGFYL-oSF-pIHbkgdl_A', pri: 1, rep: 1, 'docs.count': 16003, 'docs.deleted': 0, 'store.size': '10.1mb', 'pri.store.size': '5mb' },
-    { health: 'green', status: 'open', index: 'logs-secure-linux-2026.09.02', uuid: '6qSZLWsSR3i81m-nZtZqEQ', pri: 1, rep: 1, 'docs.count': 3853, 'docs.deleted': 0, 'store.size': '2.8mb', 'pri.store.size': '1.4mb' },
-    { health: 'green', status: 'open', index: 'logs-security-audit-2026.09.01', uuid: 'E1NSQnwSTFypLc3DhTKTDw', pri: 1, rep: 1, 'docs.count': 26011, 'docs.deleted': 0, 'store.size': '23.3mb', 'pri.store.size': '11.5mb' },
-    { health: 'green', status: 'open', index: 'logs-security-audit-2026.09.02', uuid: 'VXbOY133SKyJAtSbVaAMLQ', pri: 1, rep: 1, 'docs.count': 5988, 'docs.deleted': 0, 'store.size': '6.4mb', 'pri.store.size': '3.2mb' },
-    { health: 'green', status: 'open', index: 'logs-security-linux-2026.09.01', uuid: '-LSKrodvSaSh-dgtoZTpyA', pri: 1, rep: 1, 'docs.count': 517, 'docs.deleted': 0, 'store.size': '780.4kb', 'pri.store.size': '394.3kb' },
-    { health: 'green', status: 'open', index: 'logs-services-obdp-000001', uuid: '11NhFITkT3ePS-gHhsadsg', pri: 1, rep: 1, 'docs.count': 264765, 'docs.deleted': 165, 'store.size': '173.6mb', 'pri.store.size': '86.7mb' },
-    { health: 'green', status: 'open', index: 'logs-services-odoo-000001', uuid: 'qEkx3_7dSMeqMTYIvs-Fpw', pri: 1, rep: 0, 'docs.count': 11188342, 'docs.deleted': 0, 'store.size': '2gb', 'pri.store.size': '2gb' },
-    { health: 'green', status: 'open', index: 'logs-services-odoo-000002', uuid: '73n0h0tVTr-SFn2CFO8TaQ', pri: 1, rep: 0, 'docs.count': 10652666, 'docs.deleted': 0, 'store.size': '2gb', 'pri.store.size': '2gb' },
-    { health: 'green', status: 'open', index: 'logs-services-odoo-000003', uuid: '10nS0241416-dsa-sdffgg', pri: 1, rep: 0, 'docs.count': 10502414, 'docs.deleted': 0, 'store.size': '2gb', 'pri.store.size': '2gb' },
-  ];
-}
-
-function generateSampleShards() {
-  const shards: any[] = [];
-  const indices = generateSampleIndices();
-
-  indices.forEach((idx, i) => {
-    // Primary Shard
-    shards.push({
-      index: idx.index,
-      shard: '0',
-      prirep: 'p',
-      type: 'Primary',
-      state: 'STARTED',
-      docs: idx['docs.count'],
-      store: idx['pri.store.size'] || idx['store.size'],
-      ip: i % 2 === 0 ? '10.10.5.89' : '10.10.6.220',
-      node: i % 2 === 0 ? 'olc-dev1' : 'olc-dev2',
-    });
-
-    // Replica Shard
-    if (idx.rep > 0) {
-      shards.push({
-        index: idx.index,
-        shard: '0',
-        prirep: 'r',
-        type: 'Replica',
-        state: 'STARTED',
-        docs: idx['docs.count'],
-        store: idx['pri.store.size'] || idx['store.size'],
-        ip: i % 2 === 0 ? '10.10.6.220' : '10.10.5.89',
-        node: i % 2 === 0 ? 'olc-dev2' : 'olc-dev1',
-      });
-    }
-  });
-
-  return shards;
-}
 </script>
 
 <template>
@@ -511,16 +406,36 @@ function generateSampleShards() {
       <!-- TAB 1: OVERVIEW -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'overview'" class="space-y-6">
+        <!-- Not Connected Notice -->
+        <div v-if="!clusterHealth" class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
+          <div class="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+            <AlertCircle class="w-5 h-5" />
+          </div>
+          <h3 class="text-sm font-bold text-white">No OpenSearch Cluster Connected</h3>
+          <p class="text-xs text-slate-400 max-w-md mx-auto">
+            Configure your OpenSearch endpoint host and credentials in the Connection tab to start monitoring cluster telemetry.
+          </p>
+          <button
+            @click="activeTab = 'connection'"
+            class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg shadow-lg shadow-brand-500/20 transition"
+          >
+            Configure Connection
+          </button>
+        </div>
+
         <!-- Metric Cards Row (4 cards) -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <!-- Card 1: Cluster Health -->
           <div class="p-5 bg-[#1b1e26] border border-slate-800/80 rounded-xl relative overflow-hidden flex flex-col justify-between h-32">
             <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Cluster Health</span>
-            <div class="text-2xl font-black tracking-tight uppercase" :class="clusterHealth.status === 'green' ? 'text-emerald-400' : clusterHealth.status === 'yellow' ? 'text-amber-400' : 'text-red-400'">
-              {{ clusterHealth.status || 'GREEN' }}
+            <div class="text-2xl font-black tracking-tight uppercase" :class="clusterHealth?.status === 'green' ? 'text-emerald-400' : clusterHealth?.status === 'yellow' ? 'text-amber-400' : clusterHealth?.status === 'red' ? 'text-red-400' : 'text-slate-500'">
+              {{ clusterHealth?.status || 'NOT CONNECTED' }}
             </div>
-            <!-- Bottom green glowing indicator line -->
-            <div class="w-full h-1 bg-emerald-500 rounded-full shadow-sm shadow-emerald-500/50"></div>
+            <!-- Bottom glowing indicator line -->
+            <div
+              class="w-full h-1 rounded-full shadow-sm"
+              :class="clusterHealth?.status === 'green' ? 'bg-emerald-500 shadow-emerald-500/50' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : clusterHealth?.status === 'red' ? 'bg-red-500' : 'bg-slate-700'"
+            ></div>
           </div>
 
           <!-- Card 2: Total Indices -->
@@ -559,19 +474,19 @@ function generateSampleShards() {
             <div class="grid grid-cols-2 gap-y-6 text-xs">
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Shards</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth.active_primary_shards || 88 }}</p>
+                <p class="text-xl font-bold text-white">{{ clusterHealth?.active_primary_shards ?? 0 }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Replica Shards</p>
-                <p class="text-xl font-bold text-white">{{ (clusterHealth.active_shards - clusterHealth.active_primary_shards) || 62 }}</p>
+                <p class="text-xl font-bold text-white">{{ clusterHealth ? (clusterHealth.active_shards - clusterHealth.active_primary_shards) : 0 }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Shards</p>
-                <p class="text-xl font-bold text-white">{{ clusterHealth.active_shards || 150 }}</p>
+                <p class="text-xl font-bold text-white">{{ clusterHealth?.active_shards ?? 0 }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned</p>
-                <p class="text-xl font-bold text-emerald-400">{{ clusterHealth.unassigned_shards || 0 }}</p>
+                <p class="text-xl font-bold text-emerald-400">{{ clusterHealth?.unassigned_shards ?? 0 }}</p>
               </div>
             </div>
           </div>
@@ -582,19 +497,19 @@ function generateSampleShards() {
             <div class="grid grid-cols-2 gap-y-6 text-xs">
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Nodes</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length || 2 }}</p>
+                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Data Nodes</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length || 2 }}</p>
+                <p class="text-xl font-bold text-white">{{ clusterHealth?.number_of_data_nodes ?? nodesList.length }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Cluster Manager</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length || 2 }}</p>
+                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Ingest Nodes</p>
-                <p class="text-xl font-bold text-white">{{ nodesList.length || 2 }}</p>
+                <p class="text-xl font-bold text-white">{{ nodesList.length }}</p>
               </div>
             </div>
           </div>
@@ -634,14 +549,19 @@ function generateSampleShards() {
                   <th class="py-3 px-6">Primary Size</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/60 font-mono text-[11px]">
+              <tbody v-if="indicesList.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
                 <tr
-                  v-for="idx in indicesList.slice(0, 15)"
+                  v-for="idx in indicesList.slice(0, 20)"
                   :key="idx.index || idx.name"
                   class="hover:bg-slate-800/30 transition text-slate-300"
                 >
                   <td class="py-3 px-6 font-sans">
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold lowercase">
+                    <span
+                      :class="[
+                        'px-2 py-0.5 rounded text-[10px] font-semibold lowercase',
+                        idx.health === 'green' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : idx.health === 'yellow' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : 'bg-red-500/10 text-red-400'
+                      ]"
+                    >
                       {{ idx.health || 'green' }}
                     </span>
                   </td>
@@ -650,8 +570,15 @@ function generateSampleShards() {
                   <td class="py-3 px-4 text-slate-300">{{ idx.pri || idx.primary || 1 }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ idx.rep || idx.replica || 0 }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ formatNumber(idx['docs.count'] || idx.docsCount || 0) }}</td>
-                  <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '416b' }}</td>
-                  <td class="py-3 px-6 text-slate-300">{{ idx['pri.store.size'] || idx.priStoreSize || '208b' }}</td>
+                  <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '-' }}</td>
+                  <td class="py-3 px-6 text-slate-300">{{ idx['pri.store.size'] || idx.priStoreSize || '-' }}</td>
+                </tr>
+              </tbody>
+              <tbody v-else>
+                <tr>
+                  <td colspan="8" class="text-center py-8 text-slate-500 text-xs font-sans">
+                    No indices data available. Connect an OpenSearch cluster to display indices.
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -663,6 +590,10 @@ function generateSampleShards() {
       <!-- TAB 2: NODES -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'nodes'" class="space-y-4">
+        <div v-if="nodesList.length === 0" class="p-8 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-2">
+          <p class="text-xs text-slate-400">No nodes discovered yet. Ensure OpenSearch cluster is reachable.</p>
+        </div>
+
         <div
           v-for="node in nodesList"
           :key="node.name"
@@ -751,14 +682,19 @@ function generateSampleShards() {
                   <th class="py-3 px-6">Primary Size</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/60 font-mono text-[11px]">
+              <tbody v-if="filteredIndices.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
                 <tr
                   v-for="idx in filteredIndices"
                   :key="idx.index || idx.name"
                   class="hover:bg-slate-800/30 transition text-slate-300"
                 >
                   <td class="py-3 px-6 font-sans">
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold lowercase">
+                    <span
+                      :class="[
+                        'px-2 py-0.5 rounded text-[10px] font-semibold lowercase',
+                        idx.health === 'green' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : idx.health === 'yellow' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : 'bg-red-500/10 text-red-400'
+                      ]"
+                    >
                       {{ idx.health || 'green' }}
                     </span>
                   </td>
@@ -771,6 +707,13 @@ function generateSampleShards() {
                   <td class="py-3 px-4 text-slate-500">{{ formatNumber(idx['docs.deleted'] || idx.docsDeleted || 0) }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '-' }}</td>
                   <td class="py-3 px-6 text-slate-300">{{ idx['pri.store.size'] || idx.priStoreSize || '-' }}</td>
+                </tr>
+              </tbody>
+              <tbody v-else>
+                <tr>
+                  <td colspan="10" class="text-center py-8 text-slate-500 text-xs font-sans">
+                    No indices found.
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -810,7 +753,11 @@ function generateSampleShards() {
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
           <h3 class="text-xs font-bold text-white tracking-wide">Shard Allocation by Node</h3>
 
-          <!-- Node 1 Grid -->
+          <div v-if="nodesList.length === 0" class="text-center py-6 text-slate-500 text-xs">
+            No shard allocations discovered yet.
+          </div>
+
+          <!-- Node Grids -->
           <div v-for="node in nodesList" :key="node.name" class="space-y-2 border-b border-slate-800 pb-6 last:border-b-0 last:pb-0">
             <div class="flex items-center justify-between text-xs">
               <span class="font-bold text-slate-200">{{ node.name }}</span>
@@ -823,7 +770,7 @@ function generateSampleShards() {
             <!-- Visual Shard Blocks Matrix -->
             <div class="flex flex-wrap gap-1.5 p-3 bg-[#14161b] rounded-lg border border-slate-800/80">
               <div
-                v-for="(shard, sIdx) in (shardsByNode[node.name] || shardsList.slice(0, 120))"
+                v-for="(shard, sIdx) in (shardsByNode[node.name] || [])"
                 :key="sIdx"
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
@@ -862,7 +809,7 @@ function generateSampleShards() {
                   <th class="py-3 px-6">Node</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/60 font-mono text-[11px]">
+              <tbody v-if="shardsList.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
                 <tr
                   v-for="(shard, idx) in shardsList"
                   :key="idx"
@@ -885,8 +832,15 @@ function generateSampleShards() {
                   <td class="py-3 px-4 font-sans text-emerald-400 uppercase font-semibold text-[10px]">{{ shard.state || 'STARTED' }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ formatNumber(shard.docs || 0) }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ shard.store || '-' }}</td>
-                  <td class="py-3 px-4 text-slate-400">{{ shard.ip || '10.10.5.89' }}</td>
-                  <td class="py-3 px-6 text-slate-300 font-sans">{{ shard.node || 'olc-dev1' }}</td>
+                  <td class="py-3 px-4 text-slate-400">{{ shard.ip || '-' }}</td>
+                  <td class="py-3 px-6 text-slate-300 font-sans">{{ shard.node || '-' }}</td>
+                </tr>
+              </tbody>
+              <tbody v-else>
+                <tr>
+                  <td colspan="8" class="text-center py-8 text-slate-500 text-xs font-sans">
+                    No shard telemetry available.
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -904,10 +858,10 @@ function generateSampleShards() {
           </div>
           <div class="space-y-1 text-[11px] font-sans text-slate-300">
             <div class="flex justify-between"><span class="text-slate-400">Index:</span> <span class="font-mono text-slate-200 truncate max-w-[170px]">{{ hoveredShard.index }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Size:</span> <span class="font-mono text-slate-200">{{ hoveredShard.store || '310.5kb' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Node:</span> <span class="text-slate-200">{{ hoveredShard.node || 'olc-dev1' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">IP:</span> <span class="font-mono text-slate-200">{{ hoveredShard.ip || '10.10.5.89' }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-400">Docs:</span> <span class="font-mono text-slate-200">{{ hoveredShard.docs || 111 }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Size:</span> <span class="font-mono text-slate-200">{{ hoveredShard.store || '-' }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Node:</span> <span class="text-slate-200">{{ hoveredShard.node || '-' }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">IP:</span> <span class="font-mono text-slate-200">{{ hoveredShard.ip || '-' }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Docs:</span> <span class="font-mono text-slate-200">{{ hoveredShard.docs || 0 }}</span></div>
             <div class="flex justify-between"><span class="text-slate-400">Shard:</span> <span class="font-mono text-slate-200">{{ hoveredShard.shard || 0 }}</span></div>
             <div class="flex justify-between"><span class="text-slate-400">Type:</span> <span :class="hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'text-emerald-400' : 'text-sky-400'">{{ hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'Primary' : 'Replica' }}</span></div>
             <div class="flex justify-between"><span class="text-slate-400">State:</span> <span class="text-emerald-400 uppercase font-semibold">{{ hoveredShard.state || 'STARTED' }}</span></div>
@@ -931,13 +885,13 @@ function generateSampleShards() {
           <form @submit.prevent="handleSaveConfig" class="space-y-4 text-xs">
             <div>
               <label class="block text-slate-400 mb-1 font-medium">Cluster Name</label>
-              <input v-model="configForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+              <input v-model="configForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. Production Cluster" />
             </div>
 
             <div class="grid grid-cols-3 gap-4">
               <div class="col-span-2">
                 <label class="block text-slate-400 mb-1 font-medium">OpenSearch Host / IP</label>
-                <input v-model="configForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+                <input v-model="configForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. 192.168.1.50 or search.example.com" />
               </div>
               <div>
                 <label class="block text-slate-400 mb-1 font-medium">HTTP Port</label>
@@ -948,7 +902,7 @@ function generateSampleShards() {
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="block text-slate-400 mb-1 font-medium">Username (Optional)</label>
-                <input v-model="configForm.username" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+                <input v-model="configForm.username" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="admin" />
               </div>
               <div>
                 <label class="block text-slate-400 mb-1 font-medium">Password (Optional)</label>
@@ -1004,27 +958,15 @@ function generateSampleShards() {
           <span class="text-[11px] text-slate-500 font-mono">Real-time OpenSearch diagnostic stream</span>
         </div>
 
-        <div class="font-mono text-xs bg-[#14161b] p-4 rounded-lg border border-slate-800/80 space-y-2 text-slate-400">
-          <div class="flex items-start gap-3">
-            <span class="text-slate-600">03:59:33</span>
-            <span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-semibold text-[10px]">INFO</span>
-            <span class="text-slate-300">[olc-dev1] Cluster state updated to version 152. Active nodes: 2, Shards: 150</span>
+        <div v-if="logsList.length > 0" class="font-mono text-xs bg-[#14161b] p-4 rounded-lg border border-slate-800/80 space-y-2 text-slate-400">
+          <div v-for="(log, lIdx) in logsList" :key="lIdx" class="flex items-start gap-3">
+            <span class="text-slate-600">{{ log.time }}</span>
+            <span :class="['px-1.5 py-0.2 rounded font-semibold text-[10px]', log.level === 'ERROR' ? 'bg-red-500/10 text-red-400' : log.level === 'WARN' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400']">{{ log.level }}</span>
+            <span class="text-slate-300">{{ log.message }}</span>
           </div>
-          <div class="flex items-start gap-3">
-            <span class="text-slate-600">04:00:15</span>
-            <span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-semibold text-[10px]">INFO</span>
-            <span class="text-slate-300">[olc-dev2] Disk watermarks normal. Free space: 335.5 GB (86.17% available)</span>
-          </div>
-          <div class="flex items-start gap-3">
-            <span class="text-slate-600">04:01:00</span>
-            <span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-semibold text-[10px]">INFO</span>
-            <span class="text-slate-300">[olc-dev1] Index [logs-secure-linux-2026.09.02] flush finished successfully.</span>
-          </div>
-          <div class="flex items-start gap-3">
-            <span class="text-slate-600">04:02:45</span>
-            <span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-semibold text-[10px]">INFO</span>
-            <span class="text-slate-300">[olc-dev1] Garbage collection: young generation 120ms total pause, healthy JVM heap.</span>
-          </div>
+        </div>
+        <div v-else class="text-center py-8 text-slate-500 text-xs">
+          No logs available. Connect an OpenSearch cluster to stream logs.
         </div>
       </div>
     </main>

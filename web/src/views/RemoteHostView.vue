@@ -78,17 +78,17 @@ const hostForm = ref<any>({
   name: '',
   host: '',
   port: 22,
-  username: 'administrator',
+  username: '',
   authType: 'password',
   password: '',
   sshKey: '',
-  groupName: 'Production',
-  tags: ['Docker'],
+  groupName: 'Default',
+  tags: [],
 });
 
 // SFTP States
 const sftpFiles = ref<any[]>([]);
-const sftpCurrentPath = ref('/home/administrator');
+const sftpCurrentPath = ref('/');
 const sftpLoading = ref(false);
 
 const activeSession = computed(() => {
@@ -150,37 +150,14 @@ const filteredServices = computed(() => {
 const fetchHosts = async () => {
   try {
     const res = await axios.get('/api/v1/remote-host');
-    if (res.data.success && res.data.data && res.data.data.length > 0) {
+    if (res.data.success && res.data.data) {
       hosts.value = res.data.data;
     } else {
-      // Default sample host from screenshot
-      hosts.value = [
-        {
-          id: 'rhc-docker-honet',
-          name: 'docker-honet',
-          host: '192.168.201.18',
-          port: 22,
-          username: 'administrator',
-          authType: 'password',
-          groupName: 'Production',
-          tags: ['Docker'],
-        },
-      ];
+      hosts.value = [];
     }
   } catch (err) {
     console.error('Failed to load remote hosts:', err);
-    hosts.value = [
-      {
-        id: 'rhc-docker-honet',
-        name: 'docker-honet',
-        host: '192.168.201.18',
-        port: 22,
-        username: 'administrator',
-        authType: 'password',
-        groupName: 'Production',
-        tags: ['Docker'],
-      },
-    ];
+    hosts.value = [];
   }
 };
 
@@ -499,8 +476,25 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Empty State -->
+        <div v-if="hosts.length === 0" class="p-12 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
+          <div class="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+            <Server class="w-6 h-6" />
+          </div>
+          <h3 class="text-sm font-bold text-white">No Remote Servers Configured</h3>
+          <p class="text-xs text-slate-400 max-w-sm mx-auto">
+            Add your first SSH server or VPS to manage interactive terminal sessions, telemetry metrics, and system services.
+          </p>
+          <button
+            @click="isHostModalOpen = true"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition"
+          >
+            + Add New Server
+          </button>
+        </div>
+
         <!-- Groups Section -->
-        <div class="space-y-2">
+        <div v-if="hosts.length > 0" class="space-y-2">
           <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Groups</h3>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div
@@ -520,7 +514,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Hosts Section -->
-        <div class="space-y-2">
+        <div v-if="hosts.length > 0" class="space-y-2">
           <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Hosts ({{ filteredHosts.length }})</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div
@@ -538,7 +532,7 @@ onUnmounted(() => {
                 <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
                 <div class="flex items-center gap-1.5 mt-1.5">
                   <span
-                    v-for="tag in (host.tags || ['Docker'])"
+                    v-for="tag in (host.tags || [])"
                     :key="tag"
                     class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium"
                   >
