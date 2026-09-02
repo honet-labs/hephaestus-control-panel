@@ -292,7 +292,21 @@ const initXterm = (session: OpenSession) => {
   };
 
   ws.onmessage = (ev) => {
-    term.write(ev.data);
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'data' && msg.data) {
+        term.write(msg.data);
+      } else if (msg.type === 'connected') {
+        session.connected = true;
+      } else if (msg.type === 'error') {
+        term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
+      } else if (msg.type === 'disconnected') {
+        session.connected = false;
+        term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+      }
+    } catch (e) {
+      term.write(ev.data);
+    }
   };
 
   ws.onclose = () => {
@@ -307,8 +321,20 @@ const initXterm = (session: OpenSession) => {
 
   term.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'stdin', data }));
+      ws.send(JSON.stringify({ type: 'input', data }));
     }
+  });
+
+  term.onResize(({ cols, rows }) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    try {
+      fitAddon.fit();
+    } catch (e) {}
   });
 
   session.ws = ws;

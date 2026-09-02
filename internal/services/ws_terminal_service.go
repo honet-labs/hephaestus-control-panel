@@ -148,7 +148,7 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 		var msg domain.WsTerminalMessage
 		if err := json.Unmarshal(message, &msg); err == nil {
 			switch msg.Type {
-			case "input":
+			case "input", "stdin":
 				_, _ = io.WriteString(stdinPipe, msg.Data)
 			case "resize":
 				if msg.Cols > 0 && msg.Rows > 0 {
