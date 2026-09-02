@@ -79,15 +79,15 @@ onMounted(() => {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <router-link
         to="/settings?tab=services"
-        class="p-4 rounded-xl bg-[#0e121c] border transition group space-y-2 block"
+        class="p-4 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] transition group space-y-2 block"
         :class="[
           serviceStats.running === serviceStats.total
-            ? 'border-[#1b2234] hover:border-emerald-600/60'
-            : 'border-amber-600/50 hover:border-amber-600'
+            ? 'hover:border-emerald-500/60'
+            : 'border-amber-400 dark:border-amber-600/50 hover:border-amber-600'
         ]"
       >
-        <div class="flex items-center justify-between text-slate-400">
-          <span class="text-xs font-semibold text-[#D0E7E6]">Status Service</span>
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
+          <span class="text-xs font-semibold text-slate-700 dark:text-[#D0E7E6]">Status Service</span>
           <CheckCircle2
             v-if="serviceStats.running === serviceStats.total"
             class="w-4 h-4 text-emerald-500"
@@ -113,7 +113,7 @@ onMounted(() => {
           </span>
         </div>
 
-        <p class="text-[11px] text-slate-400">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">
           {{ serviceStats.running === serviceStats.total
             ? 'Normal telemetry heartbeat verified'
             : `${serviceStats.total - serviceStats.running} service(s) stopped or degraded`
@@ -124,30 +124,30 @@ onMounted(() => {
 
     <!-- QUICK ACTIONS (3 Dedicated Options) -->
     <div class="space-y-3">
-      <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">Quick Actions</h2>
+      <h2 class="text-xs font-bold text-blue-800 dark:text-[#95CCDD] uppercase tracking-wider">Quick Actions</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         
         <!-- Action 1: Remote Server -->
         <a
           href="/remote-server"
           target="_blank"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
+          class="p-5 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] hover:border-blue-400 dark:hover:border-[#4274D9]/60 hover:bg-slate-50 dark:hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#95CCDD] group-hover:text-white transition">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-[#141b2d] border border-blue-200 dark:border-[#293681] flex items-center justify-center text-blue-600 dark:text-[#95CCDD] group-hover:text-blue-700 dark:group-hover:text-white transition">
               <Terminal class="w-5 h-5" />
             </div>
             <div>
-              <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                 <span>Remote Server</span>
-                <ExternalLink class="w-3.5 h-3.5 text-slate-500 group-hover:text-[#95CCDD] transition" />
+                <ExternalLink class="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
               </h3>
-              <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+              <p class="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
                 SSH remote terminal, system resource telemetry, and bidirectional SFTP file transfer.
               </p>
             </div>
           </div>
-          <div class="pt-4 mt-2 border-t border-[#1b2234] flex items-center justify-between text-xs font-semibold text-[#95CCDD]">
+          <div class="pt-4 mt-2 border-t border-slate-200 dark:border-[#1b2234] flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-[#95CCDD]">
             <span>Launch Remote Console</span>
             <ArrowRight class="w-3.5 h-3.5 group-hover:translate-x-1 transition" />
           </div>
@@ -156,20 +156,20 @@ onMounted(() => {
         <!-- Action 2: Add Connections -->
         <router-link
           to="/connections"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
+          class="p-5 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] hover:border-blue-400 dark:hover:border-[#4274D9]/60 hover:bg-slate-50 dark:hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#4274D9] group-hover:text-[#95CCDD] transition">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-[#141b2d] border border-blue-200 dark:border-[#293681] flex items-center justify-center text-blue-600 dark:text-[#4274D9] group-hover:text-blue-700 dark:group-hover:text-[#95CCDD] transition">
               <Link2 class="w-5 h-5" />
             </div>
             <div>
-              <h3 class="text-sm font-bold text-white">Add Connections</h3>
-              <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Connections</h3>
+              <p class="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
                 Register Grafana Core API, Prometheus SSH servers, and OpenSearch cluster endpoints.
               </p>
             </div>
           </div>
-          <div class="pt-4 mt-2 border-t border-[#1b2234] flex items-center justify-between text-xs font-semibold text-[#95CCDD]">
+          <div class="pt-4 mt-2 border-t border-slate-200 dark:border-[#1b2234] flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-[#95CCDD]">
             <span>Manage Integrations</span>
             <ArrowRight class="w-3.5 h-3.5 group-hover:translate-x-1 transition" />
           </div>
@@ -178,20 +178,20 @@ onMounted(() => {
         <!-- Action 3: Backup Manager -->
         <router-link
           to="/backup"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
+          class="p-5 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] hover:border-blue-400 dark:hover:border-[#4274D9]/60 hover:bg-slate-50 dark:hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#D0E7E6] group-hover:text-white transition">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-[#141b2d] border border-blue-200 dark:border-[#293681] flex items-center justify-center text-blue-600 dark:text-[#D0E7E6] group-hover:text-blue-700 dark:group-hover:text-white transition">
               <Database class="w-5 h-5" />
             </div>
             <div>
-              <h3 class="text-sm font-bold text-white">Backup Manager</h3>
-              <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Backup Manager</h3>
+              <p class="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
                 Schedule automated PostgreSQL/MySQL dumps to NAS (SMB/SSH), S3, and Cloudflare R2.
               </p>
             </div>
           </div>
-          <div class="pt-4 mt-2 border-t border-[#1b2234] flex items-center justify-between text-xs font-semibold text-[#95CCDD]">
+          <div class="pt-4 mt-2 border-t border-slate-200 dark:border-[#1b2234] flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-[#95CCDD]">
             <span>Open Backup Manager</span>
             <ArrowRight class="w-3.5 h-3.5 group-hover:translate-x-1 transition" />
           </div>
@@ -201,17 +201,17 @@ onMounted(() => {
     </div>
 
     <!-- 3. TABLE RECENT BACKUPS MANAGER -->
-    <div class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] space-y-4">
-      <div class="flex items-center justify-between border-b border-[#1b2234] pb-3">
+    <div class="p-5 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
         <div>
-          <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">Recent Database Backups</h2>
-          <p class="text-[11px] text-slate-400">Execution log of database dumps and cloud storage synchronization</p>
+          <h2 class="text-xs font-bold text-blue-800 dark:text-[#95CCDD] uppercase tracking-wider">Recent Database Backups</h2>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Execution log of database dumps and cloud storage synchronization</p>
         </div>
         <div class="flex items-center gap-3">
-          <button @click="fetchDashboardData" class="p-1.5 text-slate-400 hover:text-white transition" title="Refresh Backup History">
+          <button @click="fetchDashboardData" class="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white transition" title="Refresh Backup History">
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
           </button>
-          <router-link to="/backup" class="text-xs text-[#95CCDD] font-semibold hover:underline">
+          <router-link to="/backup" class="text-xs text-blue-700 dark:text-[#95CCDD] font-semibold hover:underline">
             View All in Backup Manager &rarr;
           </router-link>
         </div>
@@ -220,7 +220,7 @@ onMounted(() => {
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
           <thead>
-            <tr class="border-b border-[#1b2234] text-[#95CCDD]/80 font-bold uppercase text-[10px] tracking-wider">
+            <tr class="border-b border-slate-200 dark:border-[#1b2234] text-slate-600 dark:text-[#95CCDD]/80 font-bold uppercase text-[10px] tracking-wider">
               <th class="pb-2.5">Database</th>
               <th class="pb-2.5">Destination</th>
               <th class="pb-2.5">File Size</th>
@@ -228,24 +228,24 @@ onMounted(() => {
               <th class="pb-2.5">Executed Time</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-[#1b2234]/60 text-slate-300">
-            <tr v-for="h in backupHistory" :key="h.id" class="hover:bg-[#121724] transition">
-              <td class="py-3 font-bold text-white">{{ h.dbName }} <span class="text-slate-500 font-normal">({{ h.dbType }})</span></td>
-              <td class="py-3 uppercase font-mono text-[10px] text-[#95CCDD] font-semibold">{{ h.destType }}</td>
-              <td class="py-3 font-mono text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
+          <tbody class="divide-y divide-slate-200 dark:divide-[#1b2234]/60 text-slate-700 dark:text-slate-300">
+            <tr v-for="h in backupHistory" :key="h.id" class="hover:bg-slate-50 dark:hover:bg-[#121724] transition">
+              <td class="py-3 font-bold text-slate-900 dark:text-white">{{ h.dbName }} <span class="text-slate-500 font-normal">({{ h.dbType }})</span></td>
+              <td class="py-3 uppercase font-mono text-[10px] text-blue-700 dark:text-[#95CCDD] font-semibold">{{ h.destType }}</td>
+              <td class="py-3 font-mono text-slate-500 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
               <td class="py-3">
                 <span :class="[
-                  h.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/20' : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/20',
                   'px-2 py-0.5 rounded text-[10px] font-bold uppercase border'
                 ]">
                   {{ h.status }}
                 </span>
               </td>
-              <td class="py-3 text-slate-400 font-mono text-[11px]">{{ new Date(h.startedAt).toLocaleString() }}</td>
+              <td class="py-3 text-slate-500 dark:text-slate-400 font-mono text-[11px]">{{ new Date(h.startedAt).toLocaleString() }}</td>
             </tr>
             <tr v-if="backupHistory.length === 0 && !loading">
               <td colspan="5" class="py-8 text-center text-slate-500 space-y-1">
-                <Database class="w-6 h-6 text-slate-600 mx-auto mb-1" />
+                <Database class="w-6 h-6 text-slate-400 dark:text-slate-600 mx-auto mb-1" />
                 <p>No database backup records found yet.</p>
               </td>
             </tr>

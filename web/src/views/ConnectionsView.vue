@@ -339,9 +339,9 @@ onMounted(() => {
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
-    <div class="border-b border-[#1b2234] pb-4">
-      <h1 class="text-xl font-bold text-white tracking-tight">Add Connections</h1>
-      <p class="text-xs text-[#95CCDD]/80 mt-0.5">
+    <div class="border-b border-slate-200 dark:border-[#1b2234] pb-4">
+      <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Add Connections</h1>
+      <p class="text-xs text-blue-700 dark:text-[#95CCDD]/80 mt-0.5">
         Manage API and service endpoint connections for Grafana, Prometheus, Data Prepper, and OpenSearch.
       </p>
     </div>
@@ -352,15 +352,15 @@ onMounted(() => {
       <!-- ============================================================= -->
       <!-- LEFT COLUMN: REGISTER / EDIT SERVICE ENDPOINT FORM -->
       <!-- ============================================================= -->
-      <div class="lg:col-span-5 p-5 bg-[#0e121c] border border-[#1b2234] rounded-xl space-y-4 shadow-xl">
-        <div class="flex items-center justify-between border-b border-[#1b2234] pb-3">
-          <h2 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <Pencil v-if="editingId" class="w-3.5 h-3.5 text-[#95CCDD]" />
-            <Plus v-else class="w-3.5 h-3.5 text-[#95CCDD]" />
+      <div class="lg:col-span-5 p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-4 shadow-sm">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+            <Pencil v-if="editingId" class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
+            <Plus v-else class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
             <span>{{ editingId ? `Edit Connection: ${form.name}` : 'Register Service Endpoint' }}</span>
           </h2>
 
-          <span v-if="editingId" class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-mono font-bold uppercase">
+          <span v-if="editingId" class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-[10px] font-mono font-bold uppercase">
             EDIT MODE
           </span>
         </div>
@@ -640,13 +640,13 @@ onMounted(() => {
       <div class="lg:col-span-7 space-y-4">
         <!-- Section Header -->
         <div class="flex items-center justify-between">
-          <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">
+          <h2 class="text-xs font-bold text-blue-800 dark:text-[#95CCDD] uppercase tracking-wider">
             Active Registry ({{ registry.length }})
           </h2>
 
           <button
             @click="cancelEdit(); form.type = 'Grafana Core API'"
-            class="flex items-center gap-1 text-xs text-[#95CCDD] hover:text-white font-bold uppercase transition"
+            class="flex items-center gap-1 text-xs text-blue-700 dark:text-[#95CCDD] hover:text-blue-900 dark:hover:text-white font-bold uppercase transition"
           >
             <Plus class="w-3.5 h-3.5" />
             <span>Add Server</span>
@@ -659,19 +659,19 @@ onMounted(() => {
             v-for="item in registry"
             :key="item.id"
             :class="[
-              'p-4 bg-[#0e121c] border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg transition group',
-              editingId === item.id ? 'border-[#4274D9] ring-1 ring-[#4274D9]/40' : 'border-[#1b2234] hover:border-slate-700'
+              'p-4 bg-white dark:bg-[#0e121c] border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm transition group',
+              editingId === item.id ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-slate-200 dark:border-[#1b2234] hover:border-slate-400 dark:hover:border-slate-700'
             ]"
           >
             <!-- Left Card Info -->
             <div class="flex items-center gap-3 overflow-hidden">
-              <div class="w-9 h-9 rounded-lg bg-[#141b2d] border border-[#293681] flex items-center justify-center text-slate-300 shrink-0">
-                <Server class="w-4 h-4 text-[#95CCDD]" />
+              <div class="w-9 h-9 rounded-lg bg-blue-50 dark:bg-[#141b2d] border border-blue-200 dark:border-[#293681] flex items-center justify-center text-slate-700 dark:text-slate-300 shrink-0">
+                <Server class="w-4 h-4 text-blue-600 dark:text-[#95CCDD]" />
               </div>
 
               <div class="overflow-hidden space-y-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs font-bold text-white">{{ item.name }}</span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white">{{ item.name }}</span>
 
                   <!-- Type Badge -->
                   <span
