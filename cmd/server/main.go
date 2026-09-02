@@ -68,7 +68,7 @@ func main() {
 	backupService := services.NewBackupService(backupRepo, sshService)
 	snmpService := services.NewSnmpService(snmpRepo, cfg.DataDir)
 	icmpService := services.NewIcmpPingService(topologyRepo) // Registers ICMP worker
-	topologyService := services.NewTopologyService(topologyRepo, configRepo)
+	topologyService := services.NewTopologyService(topologyRepo, configRepo, remoteRepo)
 	openSearchService := services.NewOpenSearchService()
 	openSearchService.RegisterWorker(workerPool)
 	promService := services.NewPrometheusService(configRepo, sshService)
@@ -175,6 +175,8 @@ func main() {
 		api.DELETE("/topology/edges/:id", topologyHandler.DeleteEdge)
 		api.GET("/topology/discover/prometheus", topologyHandler.DiscoverPrometheus)
 		api.GET("/topology/discover/subnet", topologyHandler.ScanSubnet)
+		api.POST("/topology/sync/remote-server", topologyHandler.SyncRemoteServers)
+		api.GET("/topology/sync/remote-server", topologyHandler.SyncRemoteServers)
 		api.GET("/topology/ping", topologyHandler.PingDevice)
 
 		// Backups

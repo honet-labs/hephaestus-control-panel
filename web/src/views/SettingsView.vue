@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   Settings,
   Users,
@@ -464,14 +465,20 @@ onUnmounted(() => {
 <template>
   <div class="space-y-6 max-w-6xl mx-auto font-sans">
     <!-- Header -->
-    <div class="border-b border-slate-800 pb-4">
-      <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-        <Settings class="w-5 h-5 text-brand-400" />
-        <span>System Settings & Services</span>
-      </h1>
-      <p class="text-xs text-slate-400 mt-0.5">
-        Manage HCP system parameters, background service daemons, user access control, database connection, and audit trail.
-      </p>
+    <div class="border-b border-slate-800 pb-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          <Settings class="w-5 h-5 text-brand-400" />
+          <span>System Settings & Services</span>
+        </h1>
+        <p class="text-xs text-slate-400 mt-0.5">
+          Manage HCP system parameters, background service daemons, user access control, database connection, and audit trail.
+        </p>
+      </div>
+
+      <div>
+        <ThemeToggle variant="button" :showLabel="true" />
+      </div>
     </div>
 
     <!-- Navigation Tabs -->

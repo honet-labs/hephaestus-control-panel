@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
+import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   LayoutDashboard,
   Link2,
@@ -284,13 +285,16 @@ onMounted(() => {
             </div>
           </div>
 
-          <button
-            @click="handleLogout"
-            class="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition"
-            title="Sign Out"
-          >
-            <LogOut class="w-4 h-4" />
-          </button>
+          <div class="flex items-center gap-1">
+            <ThemeToggle variant="compact" />
+            <button
+              @click="handleLogout"
+              class="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition"
+              title="Sign Out"
+            >
+              <LogOut class="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </aside>

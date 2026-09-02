@@ -19,13 +19,15 @@ import (
 type TopologyService struct {
 	topologyRepo *repository.TopologyRepository
 	configRepo   *repository.ConfigRepository
+	remoteRepo   *repository.RemoteHostRepository
 	httpClient   *http.Client
 }
 
-func NewTopologyService(topologyRepo *repository.TopologyRepository, configRepo *repository.ConfigRepository) *TopologyService {
+func NewTopologyService(topologyRepo *repository.TopologyRepository, configRepo *repository.ConfigRepository, remoteRepo *repository.RemoteHostRepository) *TopologyService {
 	return &TopologyService{
 		topologyRepo: topologyRepo,
 		configRepo:   configRepo,
+		remoteRepo:   remoteRepo,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -230,3 +232,82 @@ func incIP(ip net.IP) {
 		}
 	}
 }
+
+// SyncFromRemoteServers imports and synchronizes registered remote hosts into topology devices
+func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *int) ([]domain.TopologyDevice, error) {
+	if s.remoteRepo == nil {
+		return nil, fmt.Errorf("remote host repository not configured")
+	}
+
+	hosts, err := s.remoteRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list remote hosts: %w", err)
+	}
+
+	existingDevices, _ := s.topologyRepo.ListDevices(ctx, sheetID)
+	existingMap := make(map[string]domain.TopologyDevice)
+	for _, ed := range existingDevices {
+		existingMap[ed.ID] = ed
+		if ed.IPAddress != "" {
+			existingMap[ed.IPAddress] = ed
+		}
+	}
+
+	var synced []domain.TopologyDevice
+	baseX := 220.0
+	baseY := 130.0
+	idx := len(existingDevices)
+
+	for _, host := range hosts {
+		devID := fmt.Sprintf("remote-%s", host.ID)
+
+		var posX, posY *float64
+		if ex, exists := existingMap[devID]; exists {
+			posX = ex.X
+			posY = ex.Y
+		} else if ex, exists := existingMap[host.Host]; exists {
+			devID = ex.ID
+			posX = ex.X
+			posY = ex.Y
+		} else {
+			x := baseX + float64((idx%4)*200)
+			y := baseY + float64((idx/4)*160)
+			posX = &x
+			posY = &y
+			idx++
+		}
+
+		labels := map[string]interface{}{
+			"remoteHostId": host.ID,
+			"port":         host.Port,
+			"username":     host.Username,
+			"groupName":    host.GroupName,
+			"tags":         host.Tags,
+			"authType":     host.AuthType,
+		}
+
+		dev := domain.TopologyDevice{
+			ID:         devID,
+			Name:       host.Name,
+			IPAddress:  host.Host,
+			DeviceType: "server",
+			Status:     "online",
+			Sources:    []string{"REMOTE", "SSH"},
+			Labels:     labels,
+			SheetID:    sheetID,
+			X:          posX,
+			Y:          posY,
+		}
+
+		if err := s.topologyRepo.SaveDevice(ctx, dev); err != nil {
+			logger.Warn("Topology", fmt.Sprintf("Failed to save synced remote server %s: %v", host.Name, err))
+			continue
+		}
+
+		synced = append(synced, dev)
+	}
+
+	logger.Info("Topology", fmt.Sprintf("Synced %d remote server(s) into topology sheet", len(synced)))
+	return synced, nil
+}
+

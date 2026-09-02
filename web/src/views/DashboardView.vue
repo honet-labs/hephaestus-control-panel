@@ -2,15 +2,14 @@
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { 
-  Activity, 
-  CheckCircle2, 
-  AlertTriangle, 
   Database, 
   Terminal, 
   Link2, 
   ExternalLink, 
-  ArrowRight,
-  RefreshCw
+  ArrowRight, 
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-vue-next';
 
 interface ServiceCount {
@@ -44,8 +43,23 @@ const fetchDashboardData = async () => {
   }
 };
 
+const fetchServiceStats = async () => {
+  try {
+    const res = await axios.get('/api/v1/services').catch(() => null);
+    if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
+      const list = res.data.data;
+      const total = list.length || 11;
+      const running = list.filter((s: any) => s.status === 'running').length;
+      const warning = list.filter((s: any) => s.status === 'warning').length;
+      const stopped = list.filter((s: any) => s.status === 'stopped').length;
+      serviceStats.value = { total, running, warning, stopped };
+    }
+  } catch (_) {}
+};
+
 onMounted(() => {
   fetchDashboardData();
+  fetchServiceStats();
 });
 </script>
 
@@ -57,84 +71,58 @@ onMounted(() => {
         <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
           <span>System Overview</span>
         </h1>
-        <p class="text-xs text-[#95CCDD]/80 mt-0.5">Real-time status of service subsystems, quick actions, and backup executions</p>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#293681]/30 text-[#95CCDD] border border-[#4274D9]/40">
-          <span class="w-2 h-2 rounded-full bg-[#4274D9] animate-pulse"></span>
-          Hephaestus Control Panel Active
-        </span>
+        <p class="text-xs text-[#95CCDD]/80 mt-0.5">Quick actions, background services health, and recent database backups</p>
       </div>
     </div>
 
-    <!-- 1. CARDS COUNT STATUS SERVICES -->
-    <div>
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">Status Services Overview</h2>
-        <router-link to="/settings?tab=services" class="text-[11px] text-slate-400 hover:text-[#95CCDD] transition flex items-center gap-1">
-          <span>View All 11 Services</span>
-          <ArrowRight class="w-3 h-3" />
-        </router-link>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Card 1: Total Services -->
-        <div class="p-4 rounded-xl bg-[#0e121c] border border-[#1b2234] shadow-lg space-y-2 hover:border-[#4274D9]/40 transition">
-          <div class="flex items-center justify-between text-slate-400">
-            <span class="text-xs font-semibold text-[#D0E7E6]">Total Subsystems</span>
-            <Activity class="w-4 h-4 text-[#95CCDD]" />
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-white">{{ serviceStats.total }}</span>
-            <span class="text-xs text-[#95CCDD] font-medium">Services</span>
-          </div>
-          <p class="text-[11px] text-slate-400">All HCP background daemons registered</p>
+    <!-- Status Service Summary Card -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <router-link
+        to="/settings?tab=services"
+        class="p-4 rounded-xl bg-[#0e121c] border transition group space-y-2 block"
+        :class="[
+          serviceStats.running === serviceStats.total
+            ? 'border-[#1b2234] hover:border-emerald-600/60'
+            : 'border-amber-600/50 hover:border-amber-600'
+        ]"
+      >
+        <div class="flex items-center justify-between text-slate-400">
+          <span class="text-xs font-semibold text-[#D0E7E6]">Status Service</span>
+          <CheckCircle2
+            v-if="serviceStats.running === serviceStats.total"
+            class="w-4 h-4 text-emerald-500"
+          />
+          <AlertTriangle
+            v-else
+            class="w-4 h-4 text-amber-500"
+          />
         </div>
 
-        <!-- Card 2: Running & Healthy -->
-        <div class="p-4 rounded-xl bg-[#0e121c] border border-[#1b2234] shadow-lg space-y-2 hover:border-emerald-500/40 transition">
-          <div class="flex items-center justify-between text-slate-400">
-            <span class="text-xs font-semibold text-[#D0E7E6]">Running & Healthy</span>
-            <CheckCircle2 class="w-4 h-4 text-emerald-400" />
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-emerald-400">{{ serviceStats.running }}</span>
-            <span class="text-xs text-emerald-400/80 font-medium">Active (100%)</span>
-          </div>
-          <p class="text-[11px] text-slate-400">Normal telemetry heartbeat verified</p>
+        <div class="flex items-baseline gap-2">
+          <span
+            class="text-2xl font-bold font-mono tracking-tight"
+            :class="serviceStats.running === serviceStats.total ? 'text-emerald-500' : 'text-amber-500'"
+          >
+            {{ serviceStats.running }}/{{ serviceStats.total }}
+          </span>
+          <span
+            class="text-xs font-medium"
+            :class="serviceStats.running === serviceStats.total ? 'text-emerald-500' : 'text-amber-500'"
+          >
+            {{ serviceStats.running === serviceStats.total ? 'Active (100%)' : `${serviceStats.total - serviceStats.running} Inactive` }}
+          </span>
         </div>
 
-        <!-- Card 3: Issues / Stopped -->
-        <div class="p-4 rounded-xl bg-[#0e121c] border border-[#1b2234] shadow-lg space-y-2 hover:border-[#1b2234] transition">
-          <div class="flex items-center justify-between text-slate-400">
-            <span class="text-xs font-semibold text-[#D0E7E6]">Stopped / Warning</span>
-            <AlertTriangle class="w-4 h-4 text-slate-500" />
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-white">{{ serviceStats.stopped + serviceStats.warning }}</span>
-            <span class="text-xs text-slate-500 font-medium">Issues</span>
-          </div>
-          <p class="text-[11px] text-slate-400">0 anomalies or failure alerts detected</p>
-        </div>
-
-        <!-- Card 4: Database Engine -->
-        <div class="p-4 rounded-xl bg-[#0e121c] border border-[#1b2234] shadow-lg space-y-2 hover:border-[#4274D9]/40 transition">
-          <div class="flex items-center justify-between text-slate-400">
-            <span class="text-xs font-semibold text-[#D0E7E6]">Database Engine</span>
-            <Database class="w-4 h-4 text-[#4274D9]" />
-          </div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-white">PostgreSQL 16</span>
-          </div>
-          <p class="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Pool Active & Synchronized
-          </p>
-        </div>
-      </div>
+        <p class="text-[11px] text-slate-400">
+          {{ serviceStats.running === serviceStats.total
+            ? 'Normal telemetry heartbeat verified'
+            : `${serviceStats.total - serviceStats.running} service(s) stopped or degraded`
+          }}
+        </p>
+      </router-link>
     </div>
 
-    <!-- 2. QUICK ACTIONS (3 Dedicated Options) -->
+    <!-- QUICK ACTIONS (3 Dedicated Options) -->
     <div class="space-y-3">
       <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">Quick Actions</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -143,10 +131,10 @@ onMounted(() => {
         <a
           href="/remote-server"
           target="_blank"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group shadow-lg flex flex-col justify-between"
+          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#95CCDD] group-hover:scale-110 group-hover:text-white transition">
+            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#95CCDD] group-hover:text-white transition">
               <Terminal class="w-5 h-5" />
             </div>
             <div>
@@ -168,10 +156,10 @@ onMounted(() => {
         <!-- Action 2: Add Connections -->
         <router-link
           to="/connections"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group shadow-lg flex flex-col justify-between"
+          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#4274D9] group-hover:scale-110 group-hover:text-[#95CCDD] transition">
+            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#4274D9] group-hover:text-[#95CCDD] transition">
               <Link2 class="w-5 h-5" />
             </div>
             <div>
@@ -190,10 +178,10 @@ onMounted(() => {
         <!-- Action 3: Backup Manager -->
         <router-link
           to="/backup"
-          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group shadow-lg flex flex-col justify-between"
+          class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] hover:border-[#4274D9]/60 hover:bg-[#121724] transition group flex flex-col justify-between"
         >
           <div class="space-y-3">
-            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#D0E7E6] group-hover:scale-110 group-hover:text-white transition">
+            <div class="w-10 h-10 rounded-xl bg-[#141b2d] border border-[#293681] flex items-center justify-center text-[#D0E7E6] group-hover:text-white transition">
               <Database class="w-5 h-5" />
             </div>
             <div>
@@ -213,7 +201,7 @@ onMounted(() => {
     </div>
 
     <!-- 3. TABLE RECENT BACKUPS MANAGER -->
-    <div class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] space-y-4 shadow-lg">
+    <div class="p-5 rounded-xl bg-[#0e121c] border border-[#1b2234] space-y-4">
       <div class="flex items-center justify-between border-b border-[#1b2234] pb-3">
         <div>
           <h2 class="text-xs font-bold text-[#95CCDD] uppercase tracking-wider">Recent Database Backups</h2>

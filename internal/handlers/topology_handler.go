@@ -202,3 +202,26 @@ func (h *TopologyHandler) ScanSubnet(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": devices})
 }
+
+// SyncRemoteServers synchronizes registered Remote Hosts into Topology devices
+func (h *TopologyHandler) SyncRemoteServers(c *gin.Context) {
+	var sheetID *int
+	if sheetParam := c.Query("sheetId"); sheetParam != "" {
+		if id, err := strconv.Atoi(sheetParam); err == nil {
+			sheetID = &id
+		}
+	}
+
+	devices, err := h.topoService.SyncFromRemoteServers(c.Request.Context(), sheetID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Successfully synced %d remote server(s) into topology.", len(devices)),
+		"data":    devices,
+	})
+}
+

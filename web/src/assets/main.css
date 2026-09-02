@@ -8,38 +8,172 @@
     --color-blue: #4274D9;
     --color-cyan: #95CCDD;
     --color-ice: #D0E7E6;
+
+    /* Light mode variables */
+    --bg-app: #f4f7fb;
+    --bg-card: #ffffff;
+    --bg-header: #ffffff;
+    --bg-subtle: #edf3f9;
+    --bg-hover: #e2ecf7;
+    --border-color: #d1dfed;
+    --text-primary: #151b2e;
+    --text-secondary: #4a5c78;
+    --text-muted: #71839e;
+  }
+
+  html.dark {
+    /* Dark mode variables */
+    --bg-app: #090d16;
+    --bg-card: #0e1118;
+    --bg-header: #14161f;
+    --bg-subtle: #171b26;
+    --bg-hover: #202433;
+    --border-color: #1e2842;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
   }
 
   body {
-    background-color: #090d16;
-    color: #f1f5f9;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
     font-family: "Google Sans", "Open Sans", Roboto, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 
-/* Custom modern scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ===================================================================
+   LIGHT MODE ADAPTATION (Palette: #293681, #4274D9, #95CCDD, #D0E7E6)
+   =================================================================== */
+html.light body {
+  background-color: #f4f7fb;
+  color: #151b2e;
 }
 
-::-webkit-scrollbar-track {
-  background: #090d16;
+html.light ::-webkit-scrollbar-track {
+  background: #eaf1f9;
 }
-
-::-webkit-scrollbar-thumb {
-  background: #293681;
+html.light ::-webkit-scrollbar-thumb {
+  background: #95CCDD;
   border-radius: 4px;
 }
-
-::-webkit-scrollbar-thumb:hover {
+html.light ::-webkit-scrollbar-thumb:hover {
   background: #4274D9;
 }
 
-/* Glassmorphism utility */
-.glass {
-  background: rgba(14, 17, 24, 0.85);
+/* Glassmorphism in light mode */
+html.light .glass {
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(149, 204, 221, 0.15);
+  border: 1px solid rgba(149, 204, 221, 0.45);
 }
+
+/* Dark mode scrollbars */
+html.dark ::-webkit-scrollbar-track {
+  background: #090d16;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #293681;
+  border-radius: 4px;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4274D9;
+}
+
+/* Common Dark-Surface to Light-Surface Adaptations */
+html.light .bg-\[\#090d16\],
+html.light .bg-\[\#0a0e17\] {
+  background-color: #f4f7fb !important;
+}
+
+html.light .bg-\[\#0c101a\],
+html.light .bg-\[\#0e1118\],
+html.light .bg-\[\#0b0e14\],
+html.light .bg-\[\#13161f\],
+html.light .bg-\[\#14161b\] {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-\[\#121826\],
+html.light .bg-\[\#171a23\],
+html.light .bg-\[\#1b1e26\],
+html.light .bg-\[\#1b2234\],
+html.light .bg-\[\#141b2d\] {
+  background-color: #edf3f9 !important;
+}
+
+html.light .bg-\[\#20242e\],
+html.light .bg-\[\#242833\] {
+  background-color: #e2ecf7 !important;
+}
+
+/* Borders in Light Mode */
+html.light .border-\[\#1b2234\],
+html.light .border-slate-800,
+html.light .border-slate-800\/80,
+html.light .border-slate-800\/60 {
+  border-color: #d1dfed !important;
+}
+
+html.light .border-slate-700,
+html.light .border-slate-700\/80,
+html.light .border-slate-700\/60 {
+  border-color: #c2d4e7 !important;
+}
+
+/* Typography Contrast in Light Mode */
+html.light .text-white {
+  color: #151b2e !important;
+}
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #202945 !important;
+}
+html.light .text-slate-300 {
+  color: #384867 !important;
+}
+html.light .text-slate-400 {
+  color: #556784 !important;
+}
+html.light .text-slate-500 {
+  color: #72849f !important;
+}
+
+/* Accent Palette Colors in Light Mode */
+html.light .text-\[\#95CCDD\] {
+  color: #293681 !important;
+}
+html.light .text-\[\#D0E7E6\] {
+  color: #1a2253 !important;
+}
+html.light .bg-\[\#D0E7E6\] {
+  background-color: #D0E7E6 !important;
+  color: #293681 !important;
+}
+
+/* Preserve White text on active saturated buttons */
+html.light .bg-blue-600,
+html.light .bg-blue-600 *,
+html.light .bg-emerald-600,
+html.light .bg-emerald-600 *,
+html.light .bg-rose-600,
+html.light .bg-rose-600 *,
+html.light .bg-gradient-to-tr .text-white,
+html.light .bg-gradient-to-r .text-white {
+  color: #ffffff !important;
+}
+
+/* ===================================================================
+   NO-GLOW / CLEAN SOLID AESTHETICS (Disable colored neon glows)
+   =================================================================== */
+[class*="shadow-blue"],
+[class*="shadow-emerald"],
+[class*="shadow-brand"],
+[class*="shadow-rose"],
+[class*="shadow-amber"],
+[class*="shadow-[#"] {
+  --tw-shadow-color: transparent !important;
+  box-shadow: none !important;
+}
+

@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import { useThemeStore } from '../stores/theme';
+import ThemeToggle from '../components/ThemeToggle.vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -52,11 +54,62 @@ import {
   Cloud,
   Check,
   RefreshCw,
+  Minimize2,
+  ChevronDown,
+  Palette,
+  GripVertical,
 } from 'lucide-vue-next';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const themeStore = useThemeStore();
+
+const darkTerminalTheme = {
+  background: '#090d16',
+  foreground: '#e2e8f0',
+  cursor: '#38bdf8',
+  selectionBackground: '#1e293b',
+  black: '#000000',
+  red: '#ef4444',
+  green: '#22c55e',
+  yellow: '#eab308',
+  blue: '#3b82f6',
+  magenta: '#a855f7',
+  cyan: '#06b6d4',
+  white: '#ffffff',
+  brightBlack: '#64748b',
+  brightRed: '#f87171',
+  brightGreen: '#4ade80',
+  brightYellow: '#fde047',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#c084fc',
+  brightCyan: '#22d3ee',
+  brightWhite: '#ffffff',
+};
+
+const lightTerminalTheme = {
+  background: '#f8fafc',
+  foreground: '#1e293b',
+  cursor: '#293681',
+  selectionBackground: '#D0E7E6',
+  black: '#0f172a',
+  red: '#dc2626',
+  green: '#16a34a',
+  yellow: '#ca8a04',
+  blue: '#2563eb',
+  magenta: '#9333ea',
+  cyan: '#0891b2',
+  white: '#ffffff',
+  brightBlack: '#94a3b8',
+  brightRed: '#ef4444',
+  brightGreen: '#22c55e',
+  brightYellow: '#eab308',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#a855f7',
+  brightCyan: '#06b6d4',
+  brightWhite: '#f1f5f9',
+};
 
 interface RemoteHost {
   id: string;
@@ -68,6 +121,25 @@ interface RemoteHost {
   groupName: string;
   tags: string[];
 }
+
+export interface TabGroup {
+  id: string;
+  name: string;
+  color: string;
+  collapsed: boolean;
+}
+
+export const CHROME_COLORS = [
+  { name: 'Grey', hex: '#64748b' },
+  { name: 'Blue', hex: '#3b82f6' },
+  { name: 'Red', hex: '#ef4444' },
+  { name: 'Yellow', hex: '#eab308' },
+  { name: 'Green', hex: '#10b981' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Purple', hex: '#8b5cf6' },
+  { name: 'Cyan', hex: '#06b6d4' },
+  { name: 'Orange', hex: '#f97316' },
+];
 
 interface OpenSession {
   id: string;
@@ -87,7 +159,11 @@ interface OpenSession {
     listeningPorts?: any[];
     connections?: any[];
   };
+  groupId?: string;
 }
+
+const tabGroups = ref<TabGroup[]>([]);
+const isSftpFullScreen = ref(true);
 
 const hosts = ref<RemoteHost[]>([]);
 const openSessions = ref<OpenSession[]>([]);
@@ -233,7 +309,9 @@ const saveSessionsState = () => {
         hostId: s.host.id,
         displayName: s.displayName,
         activeView: s.activeView || 'terminal',
+        groupId: s.groupId,
       })),
+      groups: tabGroups.value,
       activeSessionIndex: activeSessionIndex.value,
     };
     localStorage.setItem('hcp_remote_sessions_state', JSON.stringify(state));
@@ -254,7 +332,13 @@ const restorePersistedSessions = async () => {
   if (!saved) return;
   try {
     const parsed = JSON.parse(saved);
-    if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return;
+    if (!parsed) return;
+
+    if (Array.isArray(parsed.groups)) {
+      tabGroups.value = parsed.groups;
+    }
+
+    if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return;
 
     for (const sInfo of parsed.sessions) {
       const host = hosts.value.find((h) => h.id === sInfo.hostId);
@@ -265,6 +349,7 @@ const restorePersistedSessions = async () => {
           displayName: sInfo.displayName || host.name,
           activeView: sInfo.activeView || 'terminal',
           connected: false,
+          groupId: sInfo.groupId,
         };
         openSessions.value.push(session);
       }
@@ -311,7 +396,7 @@ const fetchHosts = async () => {
 // =================================================================
 // MULTI-SESSION & DUPLICATE TABS SUPPORT
 // =================================================================
-const connectHost = async (host: RemoteHost, forceNew = false) => {
+const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: string) => {
   if (!forceNew) {
     const existingIdx = openSessions.value.findIndex((s) => s.host.id === host.id);
     if (existingIdx >= 0) {
@@ -332,6 +417,7 @@ const connectHost = async (host: RemoteHost, forceNew = false) => {
     displayName: tabName,
     activeView: 'terminal',
     connected: false,
+    groupId: defaultGroupId,
   };
 
   openSessions.value.push(session);
@@ -344,7 +430,7 @@ const connectHost = async (host: RemoteHost, forceNew = false) => {
 
 const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
   if (event) event.stopPropagation();
-  await connectHost(session.host, true);
+  await connectHost(session.host, true, session.groupId);
 };
 
 const ensureTerminalReady = async (session: OpenSession) => {
@@ -419,28 +505,7 @@ const initXterm = (session: OpenSession) => {
     cursorBlink: true,
     fontSize: 13,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: {
-      background: '#090d16',
-      foreground: '#e2e8f0',
-      cursor: '#38bdf8',
-      selectionBackground: '#1e293b',
-      black: '#000000',
-      red: '#ef4444',
-      green: '#22c55e',
-      yellow: '#eab308',
-      blue: '#3b82f6',
-      magenta: '#a855f7',
-      cyan: '#06b6d4',
-      white: '#ffffff',
-      brightBlack: '#64748b',
-      brightRed: '#f87171',
-      brightGreen: '#4ade80',
-      brightYellow: '#fde047',
-      brightBlue: '#60a5fa',
-      brightMagenta: '#c084fc',
-      brightCyan: '#22d3ee',
-      brightWhite: '#ffffff',
-    },
+    theme: themeStore.isDark ? darkTerminalTheme : lightTerminalTheme,
   });
 
   const fitAddon = new FitAddon();
@@ -540,32 +605,357 @@ watch(
   }
 );
 
-// Tab Groups: Optional user toggle (disabled by default)
-const isGroupTabsEnabled = ref(false);
+// Watch theme changes to update xterm.js theme in real-time
+watch(
+  () => themeStore.currentTheme,
+  (newTheme) => {
+    const activeTheme = newTheme === 'light' ? lightTerminalTheme : darkTerminalTheme;
+    openSessions.value.forEach((s) => {
+      if (s.term) {
+        s.term.options.theme = activeTheme;
+      }
+    });
+  }
+);
+
+// =================================================================
+// CHROME-STYLE TAB GROUPS & DRAG-AND-DROP REORDERING
+// =================================================================
 const splitLayout = ref<'single' | 'vertical' | 'horizontal'>('single');
 
-const groupedSessions = computed(() => {
-  const groups: {
-    hostId: string;
-    hostName: string;
-    sessions: { session: OpenSession; globalIndex: number }[];
-  }[] = [];
+// Drag and drop states
+const draggedGlobalIndex = ref<number | null>(null);
+const dragOverGlobalIndex = ref<number | null>(null);
+const dragOverGroupId = ref<string | null>(null);
+const dragDropPosition = ref<'left' | 'right' | null>(null);
+
+// Context menus state
+const tabContextMenu = ref<{
+  show: boolean;
+  x: number;
+  y: number;
+  globalIndex: number;
+  session: OpenSession | null;
+}>({
+  show: false,
+  x: 0,
+  y: 0,
+  globalIndex: -1,
+  session: null,
+});
+
+const groupMenu = ref<{
+  show: boolean;
+  x: number;
+  y: number;
+  group: TabGroup | null;
+  editingName: string;
+}>({
+  show: false,
+  x: 0,
+  y: 0,
+  group: null,
+  editingName: '',
+});
+
+interface TabItemCluster {
+  type: 'group';
+  group: TabGroup;
+  sessions: { session: OpenSession; globalIndex: number }[];
+}
+
+interface UngroupedCluster {
+  type: 'ungrouped';
+  session: OpenSession;
+  globalIndex: number;
+}
+
+type TabCluster = TabItemCluster | UngroupedCluster;
+
+// Clusters for rendering tabs seamlessly like Google Chrome
+const tabClusters = computed<TabCluster[]>(() => {
+  const result: TabCluster[] = [];
+  const processedGroupIds = new Set<string>();
 
   openSessions.value.forEach((session, idx) => {
-    let grp = groups.find((g) => g.hostId === session.host.id);
-    if (!grp) {
-      grp = {
-        hostId: session.host.id,
-        hostName: session.host.name,
-        sessions: [],
-      };
-      groups.push(grp);
+    if (session.groupId) {
+      if (processedGroupIds.has(session.groupId)) return;
+      processedGroupIds.add(session.groupId);
+      const grp = tabGroups.value.find((g) => g.id === session.groupId);
+      if (grp) {
+        const memberSessions: { session: OpenSession; globalIndex: number }[] = [];
+        openSessions.value.forEach((s, sIdx) => {
+          if (s.groupId === grp.id) {
+            memberSessions.push({ session: s, globalIndex: sIdx });
+          }
+        });
+        result.push({
+          type: 'group',
+          group: grp,
+          sessions: memberSessions,
+        });
+      } else {
+        result.push({
+          type: 'ungrouped',
+          session,
+          globalIndex: idx,
+        });
+      }
+    } else {
+      result.push({
+        type: 'ungrouped',
+        session,
+        globalIndex: idx,
+      });
     }
-    grp.sessions.push({ session, globalIndex: idx });
   });
 
-  return groups;
+  return result;
 });
+
+// Drag and drop handlers
+const handleTabDragStart = (e: DragEvent, globalIndex: number) => {
+  draggedGlobalIndex.value = globalIndex;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(globalIndex));
+  }
+};
+
+const handleTabDragOver = (e: DragEvent, targetGlobalIndex: number) => {
+  e.preventDefault();
+  if (draggedGlobalIndex.value === null || draggedGlobalIndex.value === targetGlobalIndex) return;
+  dragOverGlobalIndex.value = targetGlobalIndex;
+  dragOverGroupId.value = null;
+  const targetEl = e.currentTarget as HTMLElement;
+  const rect = targetEl.getBoundingClientRect();
+  dragDropPosition.value = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right';
+};
+
+const handleTabDrop = (e: DragEvent, targetGlobalIndex: number) => {
+  e.preventDefault();
+  if (draggedGlobalIndex.value === null) {
+    resetDrag();
+    return;
+  }
+  const srcIdx = draggedGlobalIndex.value;
+  if (srcIdx === targetGlobalIndex) {
+    resetDrag();
+    return;
+  }
+
+  const dragged = openSessions.value[srcIdx];
+  const target = openSessions.value[targetGlobalIndex];
+
+  // If dropped on a grouped tab, inherit the target's group
+  dragged.groupId = target.groupId;
+
+  // Move in array
+  openSessions.value.splice(srcIdx, 1);
+  let insertIdx = targetGlobalIndex;
+  if (dragDropPosition.value === 'right') {
+    insertIdx = srcIdx < targetGlobalIndex ? targetGlobalIndex : targetGlobalIndex + 1;
+  } else {
+    insertIdx = srcIdx < targetGlobalIndex ? targetGlobalIndex - 1 : targetGlobalIndex;
+  }
+  if (insertIdx < 0) insertIdx = 0;
+  if (insertIdx > openSessions.value.length) insertIdx = openSessions.value.length;
+
+  openSessions.value.splice(insertIdx, 0, dragged);
+  activeSessionIndex.value = insertIdx;
+
+  saveSessionsState();
+  resetDrag();
+};
+
+const handleGroupPillDragOver = (e: DragEvent, groupId: string) => {
+  e.preventDefault();
+  dragOverGroupId.value = groupId;
+  dragOverGlobalIndex.value = null;
+};
+
+const handleGroupPillDrop = (e: DragEvent, group: TabGroup) => {
+  e.preventDefault();
+  if (draggedGlobalIndex.value === null) {
+    resetDrag();
+    return;
+  }
+  const dragged = openSessions.value[draggedGlobalIndex.value];
+  if (dragged) {
+    dragged.groupId = group.id;
+    group.collapsed = false;
+    saveSessionsState();
+  }
+  resetDrag();
+};
+
+const handleTabBarDrop = (e: DragEvent) => {
+  if (draggedGlobalIndex.value === null) return;
+  const dragged = openSessions.value[draggedGlobalIndex.value];
+  if (dragged && dragged.groupId) {
+    dragged.groupId = undefined;
+    saveSessionsState();
+  }
+  resetDrag();
+};
+
+const resetDrag = () => {
+  draggedGlobalIndex.value = null;
+  dragOverGlobalIndex.value = null;
+  dragOverGroupId.value = null;
+  dragDropPosition.value = null;
+};
+
+// Group actions
+const createGroupForSession = (session: OpenSession, name?: string) => {
+  const color = CHROME_COLORS[(tabGroups.value.length) % CHROME_COLORS.length].hex;
+  const groupName = name || session.host.name;
+  const newGroup: TabGroup = {
+    id: `tg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    name: groupName,
+    color,
+    collapsed: false,
+  };
+  tabGroups.value.push(newGroup);
+  session.groupId = newGroup.id;
+  saveSessionsState();
+  return newGroup;
+};
+
+const addSessionToGroup = (session: OpenSession, groupId: string) => {
+  session.groupId = groupId;
+  const grp = tabGroups.value.find((g) => g.id === groupId);
+  if (grp) grp.collapsed = false;
+  saveSessionsState();
+};
+
+const removeSessionFromGroup = (session: OpenSession) => {
+  const oldGroupId = session.groupId;
+  session.groupId = undefined;
+  if (oldGroupId) {
+    const remaining = openSessions.value.filter((s) => s.groupId === oldGroupId);
+    if (remaining.length === 0) {
+      tabGroups.value = tabGroups.value.filter((g) => g.id !== oldGroupId);
+    }
+  }
+  saveSessionsState();
+};
+
+const ungroupTabs = (groupId: string) => {
+  openSessions.value.forEach((s) => {
+    if (s.groupId === groupId) {
+      s.groupId = undefined;
+    }
+  });
+  tabGroups.value = tabGroups.value.filter((g) => g.id !== groupId);
+  saveSessionsState();
+};
+
+const closeGroupTabs = (groupId: string) => {
+  const toRemoveIndices: number[] = [];
+  openSessions.value.forEach((s, idx) => {
+    if (s.groupId === groupId) toRemoveIndices.push(idx);
+  });
+  for (let i = toRemoveIndices.length - 1; i >= 0; i--) {
+    closeSession(toRemoveIndices[i]);
+  }
+  tabGroups.value = tabGroups.value.filter((g) => g.id !== groupId);
+  saveSessionsState();
+};
+
+const autoGroupByHost = () => {
+  let colorIdx = 0;
+  const hostGroupMap = new Map<string, string>();
+  tabGroups.value = [];
+
+  openSessions.value.forEach((s) => {
+    let gId = hostGroupMap.get(s.host.id);
+    if (!gId) {
+      const color = CHROME_COLORS[colorIdx % CHROME_COLORS.length].hex;
+      colorIdx++;
+      const newGroup: TabGroup = {
+        id: `tg-${s.host.id}-${Date.now()}`,
+        name: s.host.name,
+        color,
+        collapsed: false,
+      };
+      tabGroups.value.push(newGroup);
+      gId = newGroup.id;
+      hostGroupMap.set(s.host.id, gId);
+    }
+    s.groupId = gId;
+  });
+  saveSessionsState();
+};
+
+const toggleGroupCollapse = (groupId: string) => {
+  const g = tabGroups.value.find((item) => item.id === groupId);
+  if (g) {
+    g.collapsed = !g.collapsed;
+    saveSessionsState();
+  }
+};
+
+const openTabContextMenu = (e: MouseEvent, session: OpenSession, globalIndex: number) => {
+  e.preventDefault();
+  closeAllContextMenus();
+  tabContextMenu.value = {
+    show: true,
+    x: Math.min(e.clientX, window.innerWidth - 220),
+    y: Math.min(e.clientY, window.innerHeight - 250),
+    globalIndex,
+    session,
+  };
+};
+
+const openGroupContextMenu = (e: MouseEvent, group: TabGroup) => {
+  e.preventDefault();
+  e.stopPropagation();
+  closeAllContextMenus();
+  groupMenu.value = {
+    show: true,
+    x: Math.min(e.clientX, window.innerWidth - 240),
+    y: Math.min(e.clientY, window.innerHeight - 250),
+    group,
+    editingName: group.name,
+  };
+};
+
+const setGroupColor = (group: TabGroup, colorHex: string) => {
+  group.color = colorHex;
+  saveSessionsState();
+};
+
+const saveGroupName = () => {
+  if (groupMenu.value.group && groupMenu.value.editingName.trim()) {
+    groupMenu.value.group.name = groupMenu.value.editingName.trim();
+    saveSessionsState();
+  }
+  groupMenu.value.show = false;
+};
+
+const closeOtherSessions = (keepGlobalIndex: number) => {
+  const keepSession = openSessions.value[keepGlobalIndex];
+  if (!keepSession) return;
+  for (let i = openSessions.value.length - 1; i >= 0; i--) {
+    if (i !== keepGlobalIndex) {
+      closeSession(i);
+    }
+  }
+  activeSessionIndex.value = 0;
+  saveSessionsState();
+};
+
+const closeAllContextMenus = () => {
+  tabContextMenu.value.show = false;
+  groupMenu.value.show = false;
+};
+
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    closeAllContextMenus();
+  }
+};
 
 const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp') => {
   if (viewName === 'sftp') {
@@ -1018,9 +1408,13 @@ const handleCreateGroup = () => {
 
 onMounted(() => {
   fetchHosts();
+  window.addEventListener('click', closeAllContextMenus);
+  window.addEventListener('keydown', handleGlobalKeydown);
 });
 
 onUnmounted(() => {
+  window.removeEventListener('click', closeAllContextMenus);
+  window.removeEventListener('keydown', handleGlobalKeydown);
   openSessions.value.forEach((s) => {
     if (s.ws) s.ws.close();
     if (s.term) s.term.dispose();
@@ -1038,7 +1432,8 @@ onUnmounted(() => {
         <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server (SSH & SFTP)</h1>
       </div>
 
-      <div>
+      <div class="flex items-center gap-2">
+        <ThemeToggle variant="button" />
         <button
           @click="handleBackToPortal"
           class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
@@ -1084,114 +1479,162 @@ onUnmounted(() => {
         <span>SFTP TRANSFER</span>
       </button>
 
-      <!-- Open Session Tabs (Default Flat Tabs vs Optional Group Tabs) -->
-      <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
-        
-        <!-- Toggle Grouping Button (Only shown when 2+ sessions open) -->
-        <button
-          v-if="openSessions.length > 1"
-          @click="isGroupTabsEnabled = !isGroupTabsEnabled"
-          :class="[
-            'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono border transition mr-1',
-            isGroupTabsEnabled
-              ? 'bg-brand-500/20 text-brand-400 border-brand-500/40 font-bold'
-              : 'bg-[#20242e] text-slate-400 border-slate-700/60 hover:text-slate-200'
-          ]"
-          :title="isGroupTabsEnabled ? 'Ungroup tabs (Flat view)' : 'Group tabs by Host'"
-        >
-          <Layers class="w-3 h-3" />
-          <span>{{ isGroupTabsEnabled ? 'Grouped' : 'Group Tabs' }}</span>
-        </button>
-
-        <!-- MODE 1: OPTIONAL GROUP TABS (When User Enables It) -->
-        <template v-if="isGroupTabsEnabled">
+      <!-- Open Session Tabs Strip (Google Chrome-style Groups & Drag n Drop) -->
+      <div
+        class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3 flex-1 overflow-x-auto select-none py-0.5"
+        @dragover.prevent
+        @drop.prevent="handleTabBarDrop"
+      >
+        <template v-for="cluster in tabClusters" :key="cluster.type === 'group' ? cluster.group.id : cluster.session.id">
+          
+          <!-- CHROME TAB GROUP -->
           <div
-            v-for="grp in groupedSessions"
-            :key="grp.hostId"
-            class="flex items-center gap-1 p-0.5 rounded-xl bg-[#171a23] border border-slate-800/80 shadow-sm"
+            v-if="cluster.type === 'group'"
+            class="flex items-center gap-1 p-0.5 rounded-xl border transition"
+            :style="{
+              borderColor: cluster.group.color + '55',
+              backgroundColor: cluster.group.color + '10'
+            }"
           >
-            <!-- Group Tag / Host Label -->
-            <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold text-slate-400 font-mono">
-              <Server class="w-3 h-3 text-brand-400" />
-              <span>{{ grp.hostName }}</span>
-              <span v-if="grp.sessions.length > 1" class="px-1.5 py-0.2 rounded bg-slate-800 text-brand-400 text-[10px] font-bold">
-                {{ grp.sessions.length }} tabs
-              </span>
-            </div>
-
-            <!-- Child Session Tabs within this Group -->
+            <!-- Group Header Pill -->
             <div
-              v-for="sItem in grp.sessions"
-              :key="sItem.session.id"
-              @click="activeSessionIndex = sItem.globalIndex"
+              @click="toggleGroupCollapse(cluster.group.id)"
+              @contextmenu.prevent="openGroupContextMenu($event, cluster.group)"
+              @dragover.prevent="handleGroupPillDragOver($event, cluster.group.id)"
+              @drop.prevent="handleGroupPillDrop($event, cluster.group)"
               :class="[
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer border',
-                activeSessionIndex === sItem.globalIndex
-                  ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer select-none group/grp',
+                dragOverGroupId === cluster.group.id ? 'ring-2 ring-white scale-105' : ''
               ]"
+              :style="{
+                backgroundColor: cluster.group.color + '25',
+                color: cluster.group.color,
+                border: '1.5px solid ' + cluster.group.color + '70'
+              }"
+              :title="'Click to ' + (cluster.group.collapsed ? 'expand' : 'collapse') + ' | Right click to configure group'"
             >
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
-              <span>#{{ sItem.session.instanceNumber || 1 }}</span>
-
-              <!-- Duplicate Button -->
-              <button
-                @click.stop="duplicateSession(sItem.session)"
-                title="Duplicate tab in this group"
-                class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+              <span class="w-2 h-2 rounded-full shadow-sm" :style="{ backgroundColor: cluster.group.color }"></span>
+              <span>{{ cluster.group.name }}</span>
+              <span
+                v-if="cluster.group.collapsed"
+                class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-900/80 text-white"
               >
-                <Copy class="w-2.5 h-2.5" />
-              </button>
-
-              <!-- Close Tab Button -->
-              <button
-                @click.stop="closeSession(sItem.globalIndex)"
-                title="Close Tab"
-                class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
-              >
-                <X class="w-2.5 h-2.5" />
-              </button>
+                {{ cluster.sessions.length }}
+              </span>
+              <ChevronDown
+                v-else
+                class="w-3 h-3 opacity-60 group-hover/grp:opacity-100 transition"
+              />
             </div>
-          </div>
-        </template>
 
-        <!-- MODE 2: DEFAULT FLAT TABS (Normal Individual Tabs) -->
-        <template v-else>
+            <!-- Member Tabs (Hidden when group is collapsed) -->
+            <template v-if="!cluster.group.collapsed">
+              <div
+                v-for="sItem in cluster.sessions"
+                :key="sItem.session.id"
+                draggable="true"
+                @dragstart="handleTabDragStart($event, sItem.globalIndex)"
+                @dragover.prevent="handleTabDragOver($event, sItem.globalIndex)"
+                @drop.prevent="handleTabDrop($event, sItem.globalIndex)"
+                @dragend="resetDrag"
+                @click="activeSessionIndex = sItem.globalIndex"
+                @contextmenu.prevent="openTabContextMenu($event, sItem.session, sItem.globalIndex)"
+                :class="[
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border',
+                  draggedGlobalIndex === sItem.globalIndex ? 'opacity-40 scale-95' : '',
+                  dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-white' : '',
+                  dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-white' : '',
+                  activeSessionIndex === sItem.globalIndex
+                    ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                ]"
+                :style="{
+                  borderLeftColor: activeSessionIndex === sItem.globalIndex ? cluster.group.color : undefined,
+                  borderLeftWidth: activeSessionIndex === sItem.globalIndex ? '3px' : undefined
+                }"
+              >
+                <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
+                <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: cluster.group.color }" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
+                <span>{{ sItem.session.displayName || sItem.session.host.name }}</span>
+
+                <!-- Duplicate Tab Button -->
+                <button
+                  @click.stop="duplicateSession(sItem.session)"
+                  title="Duplicate tab in group"
+                  class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+                >
+                  <Copy class="w-2.5 h-2.5" />
+                </button>
+
+                <!-- Close Tab Button -->
+                <button
+                  @click.stop="closeSession(sItem.globalIndex)"
+                  title="Close Tab"
+                  class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+                >
+                  <X class="w-2.5 h-2.5" />
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- UNGROUPED TAB -->
           <div
-            v-for="(session, idx) in openSessions"
-            :key="session.id"
-            @click="activeSessionIndex = idx"
+            v-else
+            draggable="true"
+            @dragstart="handleTabDragStart($event, cluster.globalIndex)"
+            @dragover.prevent="handleTabDragOver($event, cluster.globalIndex)"
+            @drop.prevent="handleTabDrop($event, cluster.globalIndex)"
+            @dragend="resetDrag"
+            @click="activeSessionIndex = cluster.globalIndex"
+            @contextmenu.prevent="openTabContextMenu($event, cluster.session, cluster.globalIndex)"
             :class="[
-              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border group',
-              activeSessionIndex === idx
-                ? 'bg-[#242833] border-slate-700 text-white shadow-sm'
+              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border',
+              draggedGlobalIndex === cluster.globalIndex ? 'opacity-40 scale-95' : '',
+              dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-brand-400' : '',
+              dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-brand-400' : '',
+              activeSessionIndex === cluster.globalIndex
+                ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
                 : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             ]"
           >
+            <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{{ session.displayName || session.host.name }}</span>
+            <span>{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
-            <!-- DUPLICATE TAB BUTTON (+) -->
+            <!-- Duplicate Tab Button -->
             <button
-              @click.stop="duplicateSession(session)"
+              @click.stop="duplicateSession(cluster.session)"
               title="Duplicate Terminal Tab"
-              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-1"
+              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-0.5"
             >
               <Copy class="w-3 h-3" />
             </button>
 
             <!-- Close Tab Button -->
             <button
-              @click.stop="closeSession(idx)"
+              @click.stop="closeSession(cluster.globalIndex)"
               title="Close Tab"
               class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
             >
               <X class="w-3 h-3" />
             </button>
           </div>
+
         </template>
 
-        <!-- Global + Duplicate Active Tab -->
+        <!-- Auto Group Helper Button (shown when 2+ sessions open) -->
+        <button
+          v-if="openSessions.length > 1"
+          @click="autoGroupByHost"
+          title="Auto-organize tabs into Chrome groups by Host"
+          class="flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px] font-mono border border-slate-700/60 transition ml-1"
+        >
+          <Layers class="w-3 h-3 text-brand-400" />
+          <span>Auto Group</span>
+        </button>
+
+        <!-- Global New Tab Button -->
         <button
           v-if="activeSession"
           @click="duplicateSession(activeSession)"
@@ -1669,9 +2112,20 @@ onUnmounted(() => {
     <!-- ================================================================= -->
     <div
       v-if="isSftpModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 animate-in fade-in duration-150"
+      :class="[
+        isSftpFullScreen
+          ? 'fixed inset-0 z-50 flex flex-col bg-[#13161f] w-screen h-screen overflow-hidden font-sans'
+          : 'fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 font-sans'
+      ]"
+      class="animate-in fade-in duration-150"
     >
-      <div class="bg-[#13161f] border border-slate-700 rounded-2xl w-full max-w-7xl h-[92vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+      <div
+        :class="[
+          isSftpFullScreen
+            ? 'w-full h-full flex flex-col overflow-hidden bg-[#13161f]'
+            : 'bg-[#13161f] border border-slate-700 rounded-2xl w-full max-w-7xl h-[92vh] flex flex-col shadow-2xl overflow-hidden'
+        ]"
+      >
         
         <!-- 1. TOP QUICKCONNECT & SWAP BAR -->
         <div class="p-3 bg-[#1b1e26] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
@@ -1687,7 +2141,7 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <!-- Swap Source & Destination Button -->
+          <!-- Swap Source & Destination Button and Window Controls -->
           <div class="flex items-center gap-2">
             <button
               @click="swapSourceAndDest"
@@ -1696,6 +2150,16 @@ onUnmounted(() => {
             >
               <RotateCw class="w-3.5 h-3.5" />
               <span>🔀 SWAP SOURCE & DESTINATION</span>
+            </button>
+
+            <!-- Fullscreen / Window Toggle Button -->
+            <button
+              @click="isSftpFullScreen = !isSftpFullScreen"
+              class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              :title="isSftpFullScreen ? 'Restore Window (Exit Full Screen)' : 'Full Screen'"
+            >
+              <Minimize2 v-if="isSftpFullScreen" class="w-4 h-4" />
+              <Maximize2 v-else class="w-4 h-4" />
             </button>
 
             <button @click="isSftpModalOpen = false" class="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
@@ -2205,6 +2669,165 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- CHROME-STYLE CONTEXT MENUS (TAB & GROUP) -->
+    <!-- ================================================================= -->
+    
+    <!-- 1. TAB CONTEXT MENU -->
+    <div
+      v-if="tabContextMenu.show && tabContextMenu.session"
+      :style="{ top: `${tabContextMenu.y}px`, left: `${tabContextMenu.x}px` }"
+      class="fixed z-[100] bg-[#1a1d26] border border-slate-700/90 rounded-xl shadow-2xl py-1.5 min-w-[210px] text-xs font-sans text-slate-200 animate-in fade-in zoom-in-95 duration-100"
+      @click.stop
+    >
+      <div class="px-3 py-1.5 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-slate-800/80 mb-1 flex items-center gap-1.5">
+        <SquareTerminal class="w-3 h-3 text-brand-400" />
+        <span class="truncate max-w-[170px]">{{ tabContextMenu.session.displayName || tabContextMenu.session.host.name }}</span>
+      </div>
+
+      <!-- Add to New Group -->
+      <button
+        @click="createGroupForSession(tabContextMenu.session); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 hover:text-white transition"
+      >
+        <FolderPlus class="w-3.5 h-3.5 text-brand-400" />
+        <span>Add tab to new group</span>
+      </button>
+
+      <!-- Add to Existing Group submenu / list if any -->
+      <div v-if="tabGroups.length > 0" class="relative group/submenu">
+        <div class="px-3 py-1.5 flex items-center justify-between text-slate-300 hover:bg-slate-700/60 hover:text-white transition cursor-pointer">
+          <span class="flex items-center gap-2">
+            <Folder class="w-3.5 h-3.5 text-amber-400" />
+            <span>Add to group</span>
+          </span>
+          <ChevronRight class="w-3 h-3 text-slate-500" />
+        </div>
+        <!-- Submenu Flyout -->
+        <div class="hidden group-hover/submenu:block absolute left-full top-0 ml-1 bg-[#1a1d26] border border-slate-700 rounded-xl shadow-2xl py-1 min-w-[160px]">
+          <button
+            v-for="grp in tabGroups"
+            :key="grp.id"
+            @click="addSessionToGroup(tabContextMenu.session, grp.id); closeAllContextMenus()"
+            class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 hover:text-white transition text-xs"
+          >
+            <span class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: grp.color }"></span>
+            <span class="truncate">{{ grp.name }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Remove from group (if currently in a group) -->
+      <button
+        v-if="tabContextMenu.session.groupId"
+        @click="removeSessionFromGroup(tabContextMenu.session); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 text-amber-400 hover:text-amber-300 transition"
+      >
+        <X class="w-3.5 h-3.5" />
+        <span>Remove from group</span>
+      </button>
+
+      <div class="my-1 border-t border-slate-800/80"></div>
+
+      <!-- Duplicate Tab -->
+      <button
+        @click="duplicateSession(tabContextMenu.session); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 hover:text-white transition"
+      >
+        <Copy class="w-3.5 h-3.5 text-slate-400" />
+        <span>Duplicate tab</span>
+      </button>
+
+      <!-- Close Tab -->
+      <button
+        @click="closeSession(tabContextMenu.globalIndex); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition"
+      >
+        <X class="w-3.5 h-3.5" />
+        <span>Close tab</span>
+      </button>
+
+      <!-- Close Other Tabs -->
+      <button
+        v-if="openSessions.length > 1"
+        @click="closeOtherSessions(tabContextMenu.globalIndex); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 text-slate-400 hover:text-slate-200 transition"
+      >
+        <Square class="w-3.5 h-3.5" />
+        <span>Close other tabs</span>
+      </button>
+    </div>
+
+    <!-- 2. GROUP EDITOR MENU / POPOVER -->
+    <div
+      v-if="groupMenu.show && groupMenu.group"
+      :style="{ top: `${groupMenu.y}px`, left: `${groupMenu.x}px` }"
+      class="fixed z-[100] bg-[#1a1d26] border border-slate-700 rounded-xl shadow-2xl p-3 min-w-[240px] text-xs font-sans text-slate-200 animate-in fade-in zoom-in-95 duration-100 space-y-3"
+      @click.stop
+    >
+      <!-- Group Name Input -->
+      <div>
+        <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Group Name</label>
+        <input
+          v-model="groupMenu.editingName"
+          @keydown.enter="saveGroupName"
+          class="w-full bg-[#11141c] border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-medium"
+          placeholder="Name this group"
+          autofocus
+        />
+      </div>
+
+      <!-- Chrome Palette Preset Colors -->
+      <div>
+        <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5">Color</label>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button
+            v-for="c in CHROME_COLORS"
+            :key="c.name"
+            @click="setGroupColor(groupMenu.group, c.hex)"
+            class="w-5 h-5 rounded-full transition flex items-center justify-center relative hover:scale-110"
+            :style="{ backgroundColor: c.hex }"
+            :title="c.name"
+          >
+            <Check v-if="groupMenu.group.color === c.hex" class="w-3 h-3 text-white drop-shadow-md stroke-[3]" />
+          </button>
+        </div>
+      </div>
+
+      <div class="border-t border-slate-800/80 pt-2 space-y-1">
+        <!-- New Tab in Group -->
+        <button
+          @click="() => {
+            const firstSess = openSessions.find(s => s.groupId === groupMenu.group?.id);
+            if (firstSess) duplicateSession(firstSess);
+            closeAllContextMenus();
+          }"
+          class="w-full px-2 py-1.5 text-left rounded-lg flex items-center gap-2 hover:bg-slate-700/60 hover:text-white transition"
+        >
+          <Plus class="w-3.5 h-3.5 text-brand-400" />
+          <span>New tab in group</span>
+        </button>
+
+        <!-- Ungroup -->
+        <button
+          @click="ungroupTabs(groupMenu.group.id); closeAllContextMenus()"
+          class="w-full px-2 py-1.5 text-left rounded-lg flex items-center gap-2 hover:bg-slate-700/60 text-slate-300 hover:text-white transition"
+        >
+          <Layers class="w-3.5 h-3.5 text-slate-400" />
+          <span>Ungroup</span>
+        </button>
+
+        <!-- Close Group -->
+        <button
+          @click="closeGroupTabs(groupMenu.group.id); closeAllContextMenus()"
+          class="w-full px-2 py-1.5 text-left rounded-lg flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition"
+        >
+          <Trash2 class="w-3.5 h-3.5" />
+          <span>Close group</span>
+        </button>
       </div>
     </div>
 
