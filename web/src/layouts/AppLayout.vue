@@ -13,7 +13,6 @@ import {
   Wrench,
   Settings,
   LogOut,
-  ExternalLink,
   ChevronDown,
   ChevronRight,
   Terminal,
@@ -29,9 +28,9 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 
-// Accordion states
-const isRemoteConfigOpen = ref(true);
-const isToolsOpen = ref(true);
+// Accordion states - collapsed by default, open only if current route belongs to submenu
+const isRemoteConfigOpen = ref(['/prometheus-config', '/dataprepper-config'].includes(route.path));
+const isToolsOpen = ref(['/snmp', '/grok-debugger', '/slideshow'].includes(route.path));
 
 const handleLogout = async () => {
   await authStore.logout();
@@ -116,13 +115,10 @@ onMounted(() => {
           <a
             href="/remote-server"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
-            <div class="flex items-center gap-3">
-              <Terminal class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
-              <span>Remote Server</span>
-            </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
+            <Terminal class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
+            <span>Remote Server</span>
           </a>
 
           <!-- 4. Remote Config (Accordion Parent) -->
@@ -138,7 +134,7 @@ onMounted(() => {
               <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-500" />
             </button>
 
-            <!-- Remote Config Sub-Menu Items (Only Prometheus Config & Data Prepper Pipelines) -->
+            <!-- Remote Config Sub-Menu Items -->
             <div v-show="isRemoteConfigOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-[#1b2234] ml-5 my-0.5">
               <router-link
                 to="/prometheus-config"
@@ -172,26 +168,20 @@ onMounted(() => {
           <a
             href="/network-topology"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
-            <div class="flex items-center gap-3">
-              <Network class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
-              <span>Network Topology</span>
-            </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
+            <Network class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
+            <span>Network Topology</span>
           </a>
 
           <!-- 5. OpenSearch Cluster -->
           <a
             href="/opensearch-cluster"
             target="_blank"
-            class="flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-400 hover:bg-[#121826] hover:text-slate-200 group cursor-pointer"
           >
-            <div class="flex items-center gap-3">
-              <Search class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
-              <span>OpenSearch Cluster</span>
-            </div>
-            <ExternalLink class="w-3 h-3 text-slate-600 group-hover:text-[#95CCDD] transition" />
+            <Search class="w-4 h-4 shrink-0 text-slate-400 group-hover:text-[#95CCDD] transition" />
+            <span>OpenSearch Cluster</span>
           </a>
 
           <!-- 6. Backup Manager -->
