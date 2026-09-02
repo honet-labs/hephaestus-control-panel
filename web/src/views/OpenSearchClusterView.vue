@@ -446,9 +446,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-screen w-screen bg-[#14161b] text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
-    <!-- Top Header Bar -->
-    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0 z-20">
+  <div class="min-h-screen w-full bg-[#14161b] text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
+    <!-- Top Header Bar (Sticky at top) -->
+    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md">
       <!-- Left: Title and Status -->
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
@@ -504,8 +504,8 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- Navigation Tabs Bar -->
-    <div class="bg-[#1b1e26] border-b border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0">
+    <!-- Navigation Tabs Bar (Sticky below header) -->
+    <div class="bg-[#1b1e26]/95 border-b border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md">
       <button
         v-for="tab in [
           { id: 'overview', label: 'Overview' },
@@ -528,8 +528,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- Main Content Container -->
-    <main class="flex-1 p-6 overflow-y-auto space-y-6 max-w-[1600px] w-full mx-auto">
+    <!-- Main Content Container (Uses natural browser window scrolling) -->
+    <main class="flex-1 p-6 space-y-6 max-w-[1600px] w-full mx-auto">
       
       <!-- ================================================================= -->
       <!-- TAB 1: OVERVIEW -->

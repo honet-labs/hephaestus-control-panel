@@ -81,9 +81,9 @@ const router = createRouter({
           component: () => import('../views/GrokDebuggerView.vue'),
         },
         {
-          path: 'vps-control',
-          name: 'vps-control',
-          component: () => import('../views/VpsControlView.vue'),
+          path: 'remote-config',
+          name: 'remote-config',
+          component: () => import('../views/RemoteConfigView.vue'),
         },
         {
           path: 'logs',
