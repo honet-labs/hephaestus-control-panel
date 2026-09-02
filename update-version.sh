@@ -52,8 +52,8 @@ else
     exit 1
 fi
 
-echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack...${NC}"
-$COMPOSE_CMD build
+echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack (Clean Build)...${NC}"
+$COMPOSE_CMD build --no-cache
 $COMPOSE_CMD up -d
 
 echo -e "\n${BLUE}[3/4] Cleaning Up Dangling Docker Images...${NC}"
