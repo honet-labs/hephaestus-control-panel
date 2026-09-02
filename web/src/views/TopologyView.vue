@@ -35,6 +35,7 @@ import {
   Cable,
   Eye,
 } from 'lucide-vue-next';
+import ThemeToggle from '../components/ThemeToggle.vue';
 
 const router = useRouter();
 
@@ -743,24 +744,24 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-screen w-screen bg-[#111317] text-slate-200 font-sans flex flex-col overflow-hidden select-none">
+  <div class="h-screen w-screen bg-slate-100 dark:bg-[#111317] text-slate-800 dark:text-slate-200 font-sans flex flex-col overflow-hidden select-none">
     
     <!-- ================================================================= -->
     <!-- TOP TOOLBAR & HEADER -->
     <!-- ================================================================= -->
-    <header class="h-12 bg-[#171a21] border-b border-slate-800/90 px-4 flex items-center justify-between shrink-0 z-30">
+    <header class="h-12 bg-white dark:bg-[#171a21] border-b border-slate-200 dark:border-slate-800/90 px-4 flex items-center justify-between shrink-0 z-30">
       <!-- Left: Back & Title -->
       <div class="flex items-center gap-3">
         <button
           @click="router.push('/')"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#20242e] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-slate-400 transition font-medium"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>Portal</span>
         </button>
         <div class="flex items-center gap-2">
-          <Network class="w-4 h-4 text-emerald-400" />
-          <h1 class="text-xs font-semibold text-white tracking-wide">Network Topology</h1>
+          <Network class="w-4 h-4 text-emerald-500" />
+          <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">Network Topology</h1>
         </div>
       </div>
 
@@ -769,7 +770,7 @@ onUnmounted(() => {
         <!-- Sync Remote Server Button -->
         <button
           @click="openRemoteSyncModal"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/70 text-blue-400 hover:bg-blue-500/10 text-xs font-semibold tracking-wider transition"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/70 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 text-xs font-semibold tracking-wider transition"
           title="Sync registered Remote Server (SSH/SFTP) hosts into active Topology sheet"
         >
           <Terminal class="w-3.5 h-3.5" />
@@ -778,7 +779,7 @@ onUnmounted(() => {
 
         <button
           @click="isScanModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/80 text-emerald-400 hover:bg-emerald-500/10 text-xs font-semibold tracking-wider transition"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/80 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 text-xs font-semibold tracking-wider transition"
         >
           <Scan class="w-3.5 h-3.5" />
           <span>+ SCAN</span>
@@ -786,7 +787,7 @@ onUnmounted(() => {
 
         <button
           @click="isDeviceModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-[#282d3a] border border-slate-700 text-xs font-medium text-slate-200 hover:text-white transition"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>+ DEVICE</span>
@@ -794,7 +795,7 @@ onUnmounted(() => {
 
         <button
           @click="isLinkModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-[#282d3a] border border-slate-700 text-xs font-medium text-slate-200 hover:text-white transition"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition"
         >
           <Cable class="w-3.5 h-3.5" />
           <span>+ LINK</span>
@@ -802,11 +803,11 @@ onUnmounted(() => {
 
         <!-- Canvas Search Input -->
         <div class="relative w-48 ml-2">
-          <Search class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+          <Search class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-2.5 top-2.5" />
           <input
             v-model="searchCanvasQuery"
             placeholder="Search devices... (Ctrl+F)"
-            class="w-full bg-[#111317] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono"
+            class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono"
           />
         </div>
       </div>
@@ -819,7 +820,7 @@ onUnmounted(() => {
             'px-2.5 py-1.5 rounded-lg border text-xs font-mono transition flex items-center gap-1',
             isFlowLayout
               ? 'bg-blue-600 border-blue-500 text-white'
-              : 'bg-[#20242e] border-slate-700 text-slate-400 hover:text-white'
+              : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           ]"
           title="Auto Flow Layout"
         >
@@ -828,7 +829,7 @@ onUnmounted(() => {
 
         <button
           @click="handleFitCanvas"
-          class="p-1.5 rounded-lg bg-[#20242e] border border-slate-700 text-slate-400 hover:text-white transition"
+          class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition"
           title="Fit / Center View"
         >
           <Maximize2 class="w-3.5 h-3.5" />
@@ -838,7 +839,7 @@ onUnmounted(() => {
           @click="showLabels = !showLabels"
           :class="[
             'p-1.5 rounded-lg border transition',
-            showLabels ? 'bg-slate-700 border-slate-600 text-white' : 'bg-[#20242e] border-slate-700 text-slate-400'
+            showLabels ? 'bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white' : 'bg-slate-100 dark:bg-[#20242e] border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'
           ]"
           title="Toggle Labels"
         >
@@ -847,19 +848,22 @@ onUnmounted(() => {
 
         <button
           @click="fetchGraph"
-          class="p-1.5 rounded-lg bg-[#20242e] border border-slate-700 text-slate-400 hover:text-white transition"
+          class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition"
           title="Refresh Graph"
         >
           <RefreshCw :class="['w-3.5 h-3.5', loading ? 'animate-spin text-brand-400' : '']" />
         </button>
 
+        <!-- Theme Toggle -->
+        <ThemeToggle variant="compact" />
+
         <!-- Node & Edge Pill Badges -->
         <div class="flex items-center gap-1 text-[11px] font-mono ml-2">
-          <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60">
-            Nodes: <strong class="text-white">{{ activeNodes.length }}</strong>
+          <span class="px-2 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60">
+            Nodes: <strong class="text-slate-900 dark:text-white">{{ activeNodes.length }}</strong>
           </span>
-          <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60">
-            Edges: <strong class="text-white">{{ edges.length }}</strong>
+          <span class="px-2 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60">
+            Edges: <strong class="text-slate-900 dark:text-white">{{ edges.length }}</strong>
           </span>
         </div>
       </div>
@@ -868,7 +872,7 @@ onUnmounted(() => {
     <!-- ================================================================= -->
     <!-- SHEET TABS BAR -->
     <!-- ================================================================= -->
-    <div class="bg-[#171a21] border-b border-slate-800/80 px-4 flex items-center gap-1.5 text-xs shrink-0 py-1 overflow-x-auto z-20">
+    <div class="bg-slate-50 dark:bg-[#171a21] border-b border-slate-200 dark:border-slate-800/80 px-4 flex items-center gap-1.5 text-xs shrink-0 py-1 overflow-x-auto z-20">
       <div
         v-for="s in sheets"
         :key="s.id"
@@ -876,15 +880,15 @@ onUnmounted(() => {
         :class="[
           'flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium transition cursor-pointer border-t border-x',
           activeSheetId === s.id
-            ? 'bg-[#111317] border-slate-800 text-brand-400 font-semibold shadow-inner'
-            : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+            ? 'bg-white dark:bg-[#111317] border-slate-200 dark:border-slate-800 text-blue-600 dark:text-brand-400 font-bold shadow-sm'
+            : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30'
         ]"
       >
         <span>{{ s.name }}</span>
         <button
           v-if="sheets.length > 1"
           @click="handleDeleteSheet(s.id, $event)"
-          class="p-0.5 hover:text-red-400 rounded transition"
+          class="p-0.5 hover:text-red-500 rounded transition"
           title="Delete Sheet"
         >
           <X class="w-3 h-3" />
@@ -895,7 +899,7 @@ onUnmounted(() => {
       <button
         @click="isSheetModalOpen = true"
         title="Add New Topology Sheet"
-        class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+        class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
       >
         <Plus class="w-3.5 h-3.5" />
       </button>
@@ -909,38 +913,38 @@ onUnmounted(() => {
       <!-- 1. LEFT SIDEBAR: DISCOVERED DEVICES -->
       <aside
         :class="[
-          'bg-[#171a21] border-r border-slate-800 flex flex-col transition-all duration-300 z-20 shrink-0 select-none',
+          'bg-white dark:bg-[#171a21] border-r border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 z-20 shrink-0 select-none',
           isSidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
         ]"
       >
         <!-- Sidebar Header -->
-        <div class="p-3 border-b border-slate-800/80 flex items-center justify-between">
+        <div class="p-3 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-bold text-white tracking-wide">Discovered Devices</span>
-            <span class="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400 text-[10px] font-mono">
+            <span class="text-xs font-bold text-slate-900 dark:text-white tracking-wide">Discovered Devices</span>
+            <span class="px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-mono">
               {{ allDevices.length }}
             </span>
           </div>
         </div>
 
         <!-- Multi-select Action Buttons -->
-        <div class="p-2.5 bg-[#14161b] border-b border-slate-800 flex items-center gap-2">
+        <div class="p-2.5 bg-slate-50 dark:bg-[#14161b] border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
           <button
             @click="handleAddSelectedToCanvas"
             :disabled="selectedDiscoveredIds.length === 0"
-            class="flex-1 py-1.5 rounded bg-blue-600/90 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-[10px] tracking-wider uppercase transition shadow-sm"
+            class="flex-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-[10px] tracking-wider uppercase transition shadow-sm"
           >
             Add Selected
           </button>
           <button
             @click="handleSelectAllDiscovered"
-            class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium transition"
+            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium transition"
           >
             Select All
           </button>
           <button
             @click="handleClearSelectedDiscovered"
-            class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium transition"
+            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium transition"
           >
             Clear
           </button>
@@ -1041,7 +1045,7 @@ onUnmounted(() => {
 
       <!-- 2. CANVAS VIEW (SVG GRAPH) -->
       <main
-        class="flex-1 relative overflow-hidden bg-[#111317] cursor-grab active:cursor-grabbing"
+        class="flex-1 relative overflow-hidden bg-slate-50 dark:bg-[#111317] cursor-grab active:cursor-grabbing"
         @mousedown="handleCanvasMouseDown"
         @mousemove="handleCanvasMouseMove"
         @mouseup="handleCanvasMouseUp"
@@ -1056,7 +1060,7 @@ onUnmounted(() => {
 
         <!-- Center Status Pill -->
         <div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <div class="px-3 py-1 rounded-full bg-[#171a21]/90 border border-slate-800 text-[11px] font-mono text-slate-400 flex items-center gap-2 shadow-lg backdrop-blur-sm">
+          <div class="px-3 py-1 rounded-full bg-white/95 dark:bg-[#171a21]/90 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-700 dark:text-slate-400 flex items-center gap-2 shadow-sm backdrop-blur-sm">
             <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             <span>{{ activeNodes.length }} nodes, {{ edges.length }} edges</span>
           </div>
@@ -1082,7 +1086,7 @@ onUnmounted(() => {
                     ? 'stroke-emerald-500 stroke-2'
                     : (edge.edgeType || edge.label) === 'Wireless'
                     ? 'stroke-cyan-500 stroke-[1.5]'
-                    : 'stroke-slate-600 hover:stroke-slate-400 stroke-2'
+                    : 'stroke-slate-400 dark:stroke-slate-600 hover:stroke-blue-500 dark:hover:stroke-slate-400 stroke-2'
                 ]"
                 :stroke-dasharray="(edge.edgeType || edge.label) === 'VPN' ? '6,4' : (edge.edgeType || edge.label) === 'Wireless' ? '4,4' : 'none'"
                 fill="none"
@@ -1101,13 +1105,13 @@ onUnmounted(() => {
                   width="56"
                   height="18"
                   rx="9"
-                  class="fill-[#171a21] stroke-slate-700/80 stroke-1"
+                  class="fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1"
                 />
                 <text
                   x="0"
                   y="3.5"
                   text-anchor="middle"
-                  class="fill-slate-300 text-[9px] font-mono font-medium pointer-events-none"
+                  class="fill-slate-700 dark:fill-slate-300 text-[9px] font-mono font-medium pointer-events-none"
                 >
                   {{ edge.label || edge.edgeType }}
                 </text>
@@ -1132,10 +1136,10 @@ onUnmounted(() => {
                 :class="[
                   'transition-all duration-200',
                   dev.status === 'online'
-                    ? 'fill-[#121f18] stroke-emerald-600 stroke-2'
+                    ? 'fill-emerald-50 dark:fill-[#121f18] stroke-emerald-500 dark:stroke-emerald-600 stroke-2'
                     : dev.status === 'offline'
-                    ? 'fill-[#261517] stroke-rose-600 stroke-2'
-                    : 'fill-[#171a21] stroke-slate-700 stroke-2'
+                    ? 'fill-rose-50 dark:fill-[#261517] stroke-rose-500 dark:stroke-rose-600 stroke-2'
+                    : 'fill-slate-100 dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700 stroke-2'
                 ]"
               />
 
@@ -1148,7 +1152,7 @@ onUnmounted(() => {
                 height="24"
                 :class="[
                   'pointer-events-none',
-                  dev.status === 'online' ? 'text-emerald-300' : dev.status === 'offline' ? 'text-red-400' : 'text-slate-400'
+                  dev.status === 'online' ? 'text-emerald-600 dark:text-emerald-300' : dev.status === 'offline' ? 'text-rose-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'
                 ]"
               />
 
@@ -1159,7 +1163,7 @@ onUnmounted(() => {
                   x="0"
                   y="0"
                   text-anchor="middle"
-                  class="fill-white font-sans text-xs font-bold tracking-wide"
+                  class="fill-slate-900 dark:fill-white font-sans text-xs font-bold tracking-wide"
                 >
                   {{ dev.name }}
                 </text>
@@ -1168,7 +1172,7 @@ onUnmounted(() => {
                   x="0"
                   y="14"
                   text-anchor="middle"
-                  class="fill-slate-400 font-mono text-[10px]"
+                  class="fill-slate-500 dark:fill-slate-400 font-mono text-[10px]"
                 >
                   {{ dev.ipAddress }}
                 </text>
@@ -1179,18 +1183,18 @@ onUnmounted(() => {
 
         <!-- Bottom Status Legend -->
         <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-10">
-          <div class="px-4 py-1.5 rounded-full bg-[#171a21]/90 border border-slate-800 flex items-center gap-4 text-xs font-mono shadow-xl backdrop-blur-sm">
+          <div class="px-4 py-1.5 rounded-full bg-white/95 dark:bg-[#171a21]/90 border border-slate-200 dark:border-slate-800 flex items-center gap-4 text-xs font-mono shadow-sm backdrop-blur-sm">
             <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-              <span class="text-slate-300">Online</span>
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              <span class="text-slate-700 dark:text-slate-300">Online</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-              <span class="text-slate-300">Offline</span>
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <span class="text-slate-700 dark:text-slate-300">Offline</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-              <span class="text-slate-400">Unknown</span>
+              <span class="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+              <span class="text-slate-500 dark:text-slate-400">Unknown</span>
             </div>
           </div>
         </div>
@@ -1199,15 +1203,15 @@ onUnmounted(() => {
       <!-- 3. RIGHT DRAWER: SELECTED DEVICE DETAILS -->
       <aside
         v-if="selectedNode"
-        class="w-80 bg-[#171a21] border-l border-slate-800 flex flex-col z-20 shrink-0 shadow-2xl transition-all"
+        class="w-80 bg-white dark:bg-[#171a21] border-l border-slate-200 dark:border-slate-800 flex flex-col z-20 shrink-0 shadow-xl transition-all"
       >
         <!-- Drawer Header -->
-        <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-bold text-white tracking-wide">{{ selectedNode.name }}</h3>
-            <p class="text-xs font-mono text-slate-400">{{ selectedNode.ipAddress }}</p>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">{{ selectedNode.name }}</h3>
+            <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ selectedNode.ipAddress }}</p>
           </div>
-          <button @click="selectedNode = null" class="text-slate-400 hover:text-white">
+          <button @click="selectedNode = null" class="text-slate-400 hover:text-slate-900 dark:hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>

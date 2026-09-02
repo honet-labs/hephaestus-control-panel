@@ -341,7 +341,116 @@ html.light [class*="bg-purple-500/10"] * {
   color: #7e22ce !important;
 }
 
-/* 13. PRESERVE Saturated Primary Action Buttons & Solid White Text */
+/* 13. OpenSearch Shards Matrix in Light Mode */
+html.light [class*="bg-[#13161c]"] {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+html.light [class*="bg-[#0f3d28]"] {
+  background-color: #d1fae5 !important;
+  border-color: #6ee7b7 !important;
+  color: #065f46 !important;
+}
+html.light [class*="bg-[#132c4a]"] {
+  background-color: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1e40af !important;
+}
+html.light [class*="bg-[#3b1219]"] {
+  background-color: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #991b1b !important;
+}
+
+/* Dimmed Shards in Light Mode */
+html.light [class*="bg-[#0f3d28]/25"] {
+  background-color: rgba(209, 250, 229, 0.4) !important;
+  border-color: rgba(110, 231, 183, 0.3) !important;
+  color: rgba(6, 95, 70, 0.4) !important;
+}
+html.light [class*="bg-[#132c4a]/25"] {
+  background-color: rgba(219, 234, 254, 0.4) !important;
+  border-color: rgba(147, 197, 253, 0.3) !important;
+  color: rgba(30, 64, 175, 0.4) !important;
+}
+html.light [class*="bg-[#3b1219]/25"] {
+  background-color: rgba(254, 226, 226, 0.4) !important;
+  border-color: rgba(252, 165, 165, 0.3) !important;
+  color: rgba(153, 27, 27, 0.4) !important;
+}
+
+/* 14. Network Topology Canvas & Elements in Light Mode */
+html.light #topology-canvas-bg {
+  background-image: radial-gradient(circle, #cbd5e1 1.2px, transparent 1.2px) !important;
+}
+html.light main.bg-\[\#111317\],
+html.light [class*="bg-[#111317]"] {
+  background-color: #f8fafc !important;
+}
+
+/* Topology Node Circles in Light Mode */
+html.light .fill-\[\#121f18\],
+html.light circle[class*="fill-[#121f18]"] {
+  fill: #ecfdf5 !important;
+}
+html.light .fill-\[\#261517\],
+html.light circle[class*="fill-[#261517]"] {
+  fill: #fef2f2 !important;
+}
+html.light .fill-\[\#171a21\],
+html.light circle[class*="fill-[#171a21]"] {
+  fill: #f1f5f9 !important;
+}
+html.light circle.stroke-emerald-600 {
+  stroke: #10b981 !important;
+}
+html.light circle.stroke-rose-600 {
+  stroke: #f43f5e !important;
+}
+html.light circle.stroke-slate-700 {
+  stroke: #94a3b8 !important;
+}
+
+/* Topology Node Center Icons */
+html.light svg .text-emerald-300 {
+  color: #059669 !important;
+}
+html.light svg .text-red-400 {
+  color: #e11d48 !important;
+}
+
+/* Topology Node Labels (SVG <text>) */
+html.light svg text.fill-white,
+html.light svg text[class*="fill-white"] {
+  fill: #0f172a !important;
+}
+html.light svg text.fill-slate-400,
+html.light svg text[class*="fill-slate-400"] {
+  fill: #64748b !important;
+}
+html.light svg text.fill-slate-300,
+html.light svg text[class*="fill-slate-300"] {
+  fill: #334155 !important;
+}
+
+/* Topology Edge Badges */
+html.light rect.fill-\[\#171a21\],
+html.light rect[class*="fill-[#171a21]"] {
+  fill: #ffffff !important;
+  stroke: #cbd5e1 !important;
+}
+
+/* Topology Center Status & Bottom Legend Pills */
+html.light [class*="bg-[#171a21]/90"] {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+html.light [class*="bg-[#171a21]/90"] * {
+  color: #1e293b !important;
+}
+
+/* 15. PRESERVE Saturated Primary Action Buttons & Solid White Text */
 html.light [class*="bg-blue-600"],
 html.light [class*="bg-blue-500"],
 html.light [class*="bg-emerald-600"],

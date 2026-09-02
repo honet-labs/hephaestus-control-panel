@@ -25,6 +25,7 @@ import {
   X,
   Zap,
 } from 'lucide-vue-next';
+import ThemeToggle from '../components/ThemeToggle.vue';
 
 const router = useRouter();
 
@@ -447,39 +448,39 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full bg-[#14161b] text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
+  <div class="min-h-screen w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
     <!-- Top Header Bar (Sticky at top) -->
-    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md">
+    <header class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md">
       <!-- Left: Title and Status -->
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
-          <Database class="w-4 h-4 text-brand-400" />
-          <h1 class="text-xs font-semibold text-white tracking-wide">OpenSearch Cluster Monitor</h1>
+          <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+          <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">OpenSearch Cluster Monitor</h1>
         </div>
 
         <!-- Connection Status Pill -->
         <div
           v-if="clusterHealth"
           class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono border"
-          :class="clusterHealth.status === 'green' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-red-500/10 border-red-500/30 text-red-400'"
+          :class="clusterHealth.status === 'green' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30 text-amber-700 dark:text-amber-400' : 'bg-red-50 dark:bg-red-500/10 border-red-300 dark:border-red-500/30 text-red-700 dark:text-red-400'"
         >
-          <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-400' : 'bg-red-400'"></span>
+          <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-500 dark:bg-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-500 dark:bg-amber-400' : 'bg-red-500 dark:bg-red-400'"></span>
           <span class="uppercase font-bold">{{ clusterHealth.status }}</span>
         </div>
       </div>
 
-      <!-- Right Actions: Refresh, Countdown, Gear, Back to Portal -->
-      <div class="flex items-center gap-3">
+      <!-- Right Actions: Refresh, Countdown, Gear, ThemeToggle, Back to Portal -->
+      <div class="flex items-center gap-2.5">
         <!-- Countdown indicator -->
-        <div v-if="refreshIntervalSec > 0" class="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-          <Clock class="w-3.5 h-3.5 text-slate-500" />
+        <div v-if="refreshIntervalSec > 0" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono">
+          <Clock class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
           <span>{{ countdown }}s</span>
         </div>
 
         <!-- Refresh Button -->
         <button
           @click="fetchClusterData"
-          class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition"
           title="Refresh Data Now"
         >
           <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-brand-400' : '']" />
@@ -488,16 +489,19 @@ onUnmounted(() => {
         <!-- Settings Gear Modal Button -->
         <button
           @click="isSettingsModalOpen = true"
-          class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition"
           title="Auto-Refresh Settings"
         >
           <Settings class="w-4 h-4" />
         </button>
 
+        <!-- Theme Toggle Button -->
+        <ThemeToggle variant="compact" />
+
         <!-- Back to Portal Button -->
         <button
           @click="handleBackToPortal"
-          class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
+          class="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#242833] border border-slate-300 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition font-medium"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>Back to Portal</span>
@@ -506,7 +510,7 @@ onUnmounted(() => {
     </header>
 
     <!-- Navigation Tabs Bar (Sticky below header) -->
-    <div class="bg-[#1b1e26]/95 border-b border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md">
+    <div class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md">
       <button
         v-for="tab in [
           { id: 'overview', label: 'Overview' },
@@ -521,8 +525,8 @@ onUnmounted(() => {
         :class="[
           'py-3 transition border-b-2 -mb-[1px]',
           activeTab === tab.id
-            ? 'border-brand-500 text-brand-400 font-semibold'
-            : 'border-transparent text-slate-400 hover:text-slate-200'
+            ? 'border-blue-600 text-blue-600 dark:border-brand-500 dark:text-brand-400 font-bold'
+            : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
         ]"
       >
         {{ tab.label }}
