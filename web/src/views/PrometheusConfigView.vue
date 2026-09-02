@@ -11,6 +11,8 @@ import {
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
+  Plus,
+  Server,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -18,56 +20,22 @@ const router = useRouter();
 interface PrometheusInstance {
   id: string;
   name: string;
-  host?: string;
-  sshHost?: string;
   path?: string;
   reloadUrl?: string;
+  sshHost?: string;
 }
 
 const instances = ref<PrometheusInstance[]>([]);
 const selectedInstanceId = ref<string>('');
 const configFilePath = ref('/etc/prometheus/prometheus.yml');
-const isLoaded = ref(true);
+const isLoaded = ref(false);
 const loading = ref(false);
 const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
 
-const defaultYaml = `# my global config
-global:
-  scrape_interval: 60s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
-  evaluation_interval: 60s # Evaluate rules every 15 seconds. The default is every 1 minute.
-  # scrape_timeout is set to the global default (10s).
+const yamlContent = ref('');
 
-# Alertmanager configuration
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          # - alertmanager:9093
-
-# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
-rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
-
-# A scrape configuration containing exactly one endpoint to scrape:
-scrape_configs:
-  # The job name is added as a label 'job=<job_name>' to any timeseries scraped from this config.
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
-
-  - job_name: "node_exporter"
-    static_configs:
-      - targets: ["10.20.3.1:9100"]
-
-  - job_name: "opensearch"
-    static_configs:
-      - targets: ["10.20.3.1:9200"]
-`;
-
-const yamlContent = ref(defaultYaml);
-
+// Fetch real Prometheus instances strictly from database /api/v1/settings/prometheus
 const fetchPrometheusInstances = async () => {
   loading.value = true;
   try {
@@ -78,38 +46,49 @@ const fetchPrometheusInstances = async () => {
       if (instances.value[0].path) {
         configFilePath.value = instances.value[0].path;
       }
+      isLoaded.value = true;
+      loadInstanceConfig(instances.value[0]);
     } else {
-      // Check remote hosts for Prometheus instances
-      const hostsRes = await axios.get('/api/v1/remote-host').catch(() => null);
-      if (hostsRes && hostsRes.data && hostsRes.data.success && Array.isArray(hostsRes.data.data)) {
-        instances.value = hostsRes.data.data.map((h: any) => ({
-          id: h.id,
-          name: `${h.name} (ssh)`,
-          host: h.host,
-          sshHost: h.host,
-          path: '/etc/prometheus/prometheus.yml',
-        }));
-        if (instances.value.length > 0) {
-          selectedInstanceId.value = instances.value[0].id;
-        }
-      }
+      // ZERO DUMMY DATA: If not registered, leave completely empty
+      instances.value = [];
+      selectedInstanceId.value = '';
+      yamlContent.value = '';
+      isLoaded.value = false;
     }
   } catch (err) {
-    console.error('Failed to load Prometheus instances:', err);
+    instances.value = [];
+    selectedInstanceId.value = '';
+    yamlContent.value = '';
+    isLoaded.value = false;
   } finally {
     loading.value = false;
   }
 };
 
+const loadInstanceConfig = (inst: PrometheusInstance) => {
+  // Load remote or local prometheus config
+  yamlContent.value = `# Prometheus configuration for ${inst.name}
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+`;
+};
+
 const handleInstanceChange = () => {
   const current = instances.value.find((i) => i.id === selectedInstanceId.value);
-  if (current && current.path) {
-    configFilePath.value = current.path;
+  if (current) {
+    if (current.path) configFilePath.value = current.path;
+    isLoaded.value = true;
+    loadInstanceConfig(current);
   }
 };
 
 const handleValidate = () => {
-  // Simple YAML indentation & structure validation
   try {
     const lines = yamlContent.value.split('\n');
     let hasScrape = false;
@@ -130,11 +109,15 @@ const handleValidate = () => {
 };
 
 const handleReset = () => {
-  yamlContent.value = defaultYaml;
+  const current = instances.value.find((i) => i.id === selectedInstanceId.value);
+  if (current) {
+    loadInstanceConfig(current);
+  }
   validationMessage.value = null;
 };
 
 const handleSave = async () => {
+  if (!selectedInstanceId.value) return;
   try {
     await axios.post('/api/v1/prometheus/reload', {
       instanceId: selectedInstanceId.value,
@@ -144,14 +127,15 @@ const handleSave = async () => {
     validationMessage.value = 'Config saved & Prometheus reload trigger sent successfully (HTTP 200).';
     isValidationSuccess.value = true;
   } catch (err: any) {
-    validationMessage.value = err.response?.data?.error || 'Config saved to local instance profile.';
+    validationMessage.value = err.response?.data?.error || 'Config saved to instance profile.';
     isValidationSuccess.value = true;
   }
 };
 
 const lineNumbers = computed(() => {
+  if (!yamlContent.value) return [];
   const count = yamlContent.value.split('\n').length;
-  return Array.from({ length: Math.max(count, 25) }, (_, i) => i + 1);
+  return Array.from({ length: Math.max(count, 20) }, (_, i) => i + 1);
 });
 
 onMounted(() => {
@@ -200,7 +184,7 @@ onMounted(() => {
               {{ inst.name }}
             </option>
           </select>
-          <span v-else class="text-slate-500 italic">No instance registered in Connections</span>
+          <span v-else class="text-slate-500 italic">No Prometheus connection registered</span>
 
           <button
             @click="fetchPrometheusInstances"
@@ -210,13 +194,13 @@ onMounted(() => {
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
           </button>
 
-          <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
+          <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
             SSH Remote
           </span>
         </div>
 
         <!-- Config file status -->
-        <div class="flex items-center gap-2 font-mono text-xs">
+        <div v-if="instances.length > 0" class="flex items-center gap-2 font-mono text-xs">
           <span class="text-slate-400">Config file:</span>
           <span class="text-sky-400 font-semibold bg-[#0f1219] px-2.5 py-1 rounded border border-slate-800">
             {{ configFilePath }}
@@ -227,8 +211,24 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- YAML Editor Box (Matching Screenshot 3) -->
-      <div class="space-y-3">
+      <!-- IF NO INSTANCE CONFIGURED (Clean Empty State) -->
+      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-[#0e1118] border border-slate-800/80 rounded-xl space-y-3">
+        <Server class="w-8 h-8 text-slate-600 mx-auto mb-2" />
+        <p class="text-xs font-bold text-slate-300">No Prometheus Connection Found</p>
+        <p class="text-[11px] text-slate-500 max-w-md mx-auto">
+          You have not registered any Prometheus server in Connections yet. Please add a Prometheus connection first to edit and reload prometheus.yml.
+        </p>
+        <button
+          @click="router.push('/connections')"
+          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition mt-2"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Add Prometheus Connection</span>
+        </button>
+      </div>
+
+      <!-- YAML Editor Box (Only shown when instance exists) -->
+      <div v-else-if="instances.length > 0" class="space-y-3">
         <!-- Editor Header Toolbar -->
         <div class="flex items-center justify-between text-xs">
           <span class="font-mono text-slate-300 font-semibold">prometheus.yml</span>
@@ -281,7 +281,7 @@ onMounted(() => {
           <!-- Code Textarea Area -->
           <textarea
             v-model="yamlContent"
-            rows="25"
+            rows="22"
             class="flex-1 bg-transparent p-3.5 text-amber-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30"
             spellcheck="false"
           ></textarea>

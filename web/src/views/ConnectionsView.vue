@@ -6,15 +6,12 @@ import {
   Link2,
   Plus,
   Trash2,
-  Edit2,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCw,
   Server,
   Activity,
   ExternalLink,
   Shield,
   Key,
+  CheckCircle2,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -37,15 +34,30 @@ const testStatus = ref<{ message: string; success: boolean } | null>(null);
 const testing = ref(false);
 
 const form = ref({
-  type: 'Grafana Core API',
+  type: 'Grafana Core API' as 'Grafana Core API' | 'Prometheus Server (SSH / Local File)' | 'Data Prepper (SSH / Local Directory)' | 'OpenSearch Cluster',
   name: '',
+  // Grafana
   url: '',
   token: '',
   datasourceUid: '',
-  username: '',
-  password: '',
-  port: 22,
-  path: '/etc/prometheus/prometheus.yml',
+  // Prometheus & Data Prepper
+  accessMode: 'local' as 'local' | 'ssh',
+  filePath: '/etc/prometheus/prometheus.yml',
+  pipelinesDir: '/opt/data-prepper/pipelines',
+  reloadUrl: 'http://localhost:9090/-/reload',
+  // SSH / Host
+  sshHost: '',
+  sshPort: 22,
+  sshUser: 'root',
+  sshAuth: 'password' as 'password' | 'key',
+  sshPassword: '',
+  sshKey: '',
+  // OpenSearch
+  osHost: '',
+  osPort: 9200,
+  osUser: '',
+  osPassword: '',
+  osUseSsl: true,
 });
 
 // Fetch all registered connections from backend database
@@ -54,11 +66,10 @@ const fetchConnections = async () => {
   const items: RegistryItem[] = [];
 
   try {
-    const [grafanaRes, promRes, osRes, hostsRes] = await Promise.all([
+    const [grafanaRes, promRes, osRes] = await Promise.all([
       axios.get('/api/v1/settings/grafana').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/settings/prometheus').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/opensearch/config').catch(() => ({ data: { success: false } })),
-      axios.get('/api/v1/remote-host').catch(() => ({ data: { success: false } })),
     ]);
 
     // 1. Grafana Configs
@@ -80,12 +91,15 @@ const fetchConnections = async () => {
     // 2. Prometheus Configs
     if (promRes.data?.success && Array.isArray(promRes.data.data)) {
       promRes.data.data.forEach((p: any) => {
+        const displayUrl = p.mode === 'ssh' || p.sshHost
+          ? `${p.path || '/etc/prometheus/prometheus.yml'} (${p.sshHost})`
+          : `${p.path || '/etc/prometheus/prometheus.yml'} (local)`;
         items.push({
           id: p.id,
           name: p.name,
           type: 'PROMETHEUS',
-          url: `${p.path || '/etc/prometheus/prometheus.yml'} (${p.sshHost || '10.20.3.4'})`,
-          authType: 'SSH',
+          url: displayUrl,
+          authType: p.mode === 'ssh' || p.sshHost ? 'SSH' : 'LOCAL',
           isActive: p.isActive,
           status: 'connected',
           rawType: 'prometheus',
@@ -109,25 +123,6 @@ const fetchConnections = async () => {
       });
     }
 
-    // 4. Remote Hosts / Data Prepper Hosts
-    if (hostsRes.data?.success && Array.isArray(hostsRes.data.data)) {
-      hostsRes.data.data.forEach((h: any) => {
-        if (h.name.toLowerCase().includes('dataprepper') || h.name.toLowerCase().includes('data-prepper')) {
-          items.push({
-            id: h.id,
-            name: h.name,
-            type: 'DATA PREPPER',
-            url: `/opt/data-prepper/pipelines (${h.host})`,
-            authType: 'SSH',
-            isActive: true,
-            status: 'connected',
-            rawType: 'dataprepper',
-            rawItem: h,
-          });
-        }
-      });
-    }
-
     registry.value = items;
   } catch (err) {
     console.error('Failed to load connections:', err);
@@ -141,12 +136,12 @@ const handleTestConnection = async () => {
   testStatus.value = null;
 
   try {
-    if (form.value.type === 'OpenSearch') {
+    if (form.value.type === 'OpenSearch Cluster') {
       const res = await axios.post('/api/v1/opensearch/test', {
-        host: form.value.url,
-        port: form.value.port || 9200,
-        username: form.value.username,
-        password: form.value.password,
+        host: form.value.osHost,
+        port: form.value.osPort || 9200,
+        username: form.value.osUser,
+        password: form.value.osPassword,
       });
       testStatus.value = {
         success: res.data?.success || false,
@@ -169,8 +164,8 @@ const handleTestConnection = async () => {
 };
 
 const handleRegisterEndpoint = async () => {
-  if (!form.value.name || !form.value.url) {
-    alert('Please provide Connection Name and Endpoint URL / Host.');
+  if (!form.value.name) {
+    alert('Please provide a Connection Name.');
     return;
   }
 
@@ -183,35 +178,45 @@ const handleRegisterEndpoint = async () => {
         datasourceUid: form.value.datasourceUid,
         isActive: true,
       });
-    } else if (form.value.type === 'Prometheus') {
+    } else if (form.value.type === 'Prometheus Server (SSH / Local File)') {
       await axios.post('/api/v1/settings/prometheus', {
         name: form.value.name,
-        path: form.value.path || '/etc/prometheus/prometheus.yml',
-        reloadUrl: form.value.url,
-        sshHost: form.value.url,
+        mode: form.value.accessMode,
+        path: form.value.filePath || '/etc/prometheus/prometheus.yml',
+        reloadUrl: form.value.reloadUrl || 'http://localhost:9090/-/reload',
+        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
+        sshPort: form.value.accessMode === 'ssh' ? form.value.sshPort : null,
+        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
+        sshPassword: form.value.accessMode === 'ssh' ? form.value.sshPassword : null,
+        sshKey: form.value.accessMode === 'ssh' ? form.value.sshKey : null,
         isActive: true,
       });
-    } else if (form.value.type === 'OpenSearch') {
+    } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
+      // Register Prometheus/DataPrepper connection profile
+      await axios.post('/api/v1/settings/prometheus', {
+        name: `${form.value.name} (Data Prepper)`,
+        mode: form.value.accessMode,
+        path: form.value.pipelinesDir || '/opt/data-prepper/pipelines',
+        reloadUrl: form.value.reloadUrl || '',
+        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
+        sshPort: form.value.accessMode === 'ssh' ? form.value.sshPort : null,
+        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
+        sshPassword: form.value.accessMode === 'ssh' ? form.value.sshPassword : null,
+        isActive: true,
+      });
+    } else if (form.value.type === 'OpenSearch Cluster') {
       await axios.post('/api/v1/opensearch/config', {
         name: form.value.name,
-        host: form.value.url,
-        port: form.value.port || 9200,
-        username: form.value.username,
-        password: form.value.password,
+        host: form.value.osHost,
+        port: form.value.osPort || 9200,
+        username: form.value.osUser,
+        password: form.value.osPassword,
+        useSsl: form.value.osUseSsl,
         isActive: true,
-      });
-    } else if (form.value.type === 'Data Prepper') {
-      await axios.post('/api/v1/remote-host', {
-        name: form.value.name,
-        host: form.value.url,
-        port: 22,
-        username: form.value.username || 'root',
-        password: form.value.password,
-        groupName: 'Data Prepper',
       });
     }
 
-    // Reset form and re-fetch
+    // Reset form
     form.value.name = '';
     form.value.url = '';
     form.value.token = '';
@@ -239,8 +244,6 @@ const handleDeleteConnection = async (item: RegistryItem) => {
       await axios.delete(`/api/v1/settings/grafana/${item.id}`);
     } else if (item.rawType === 'prometheus') {
       await axios.delete(`/api/v1/settings/prometheus/${item.id}`);
-    } else if (item.rawType === 'dataprepper') {
-      await axios.delete(`/api/v1/remote-host/${item.id}`);
     }
     await fetchConnections();
   } catch (err: any) {
@@ -276,7 +279,7 @@ onMounted(() => {
         </h2>
 
         <form @submit.prevent="handleRegisterEndpoint" class="space-y-3.5 text-xs">
-          <!-- Connection Type -->
+          <!-- Connection Type Dropdown -->
           <div>
             <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Connection Type</label>
             <select
@@ -284,9 +287,9 @@ onMounted(() => {
               class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-brand-500 text-xs"
             >
               <option value="Grafana Core API">Grafana Core API</option>
-              <option value="Prometheus">Prometheus</option>
-              <option value="Data Prepper">Data Prepper</option>
-              <option value="OpenSearch">OpenSearch</option>
+              <option value="Prometheus Server (SSH / Local File)">Prometheus Server (SSH / Local File)</option>
+              <option value="Data Prepper (SSH / Local Directory)">Data Prepper (SSH / Local Directory)</option>
+              <option value="OpenSearch Cluster">OpenSearch Cluster</option>
             </select>
           </div>
 
@@ -301,43 +304,173 @@ onMounted(() => {
             />
           </div>
 
-          <!-- API Endpoint URL / Target Host -->
-          <div>
-            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              {{ form.type === 'Grafana Core API' ? 'API Endpoint URL' : 'Target Host / IP' }}
-            </label>
-            <input
-              v-model="form.url"
-              required
-              :placeholder="form.type === 'Grafana Core API' ? 'http://10.20.3.3:3030/' : '10.20.3.4'"
-              class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
-            />
-          </div>
+          <!-- ================= 1. GRAFANA FIELDS ================= -->
+          <template v-if="form.type === 'Grafana Core API'">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">API Endpoint URL</label>
+              <input
+                v-model="form.url"
+                required
+                placeholder="http://10.20.3.3:3030/"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bearer Service Account Token</label>
+              <input
+                v-model="form.token"
+                type="password"
+                placeholder="••••••••••••••••••••"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Prometheus Datasource UID (Optional)</label>
+              <input
+                v-model="form.datasourceUid"
+                placeholder="e.g. bfo80enbiimf4f"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+          </template>
 
-          <!-- Bearer Token / Password -->
-          <div>
-            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              {{ form.type === 'Grafana Core API' ? 'Bearer Service Account Token' : 'Password / SSH Key' }}
-            </label>
-            <input
-              v-model="form.token"
-              type="password"
-              placeholder="••••••••••••••••••••"
-              class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-brand-500 text-xs font-mono"
-            />
-          </div>
+          <!-- ================= 2. PROMETHEUS FIELDS (Screenshot 4) ================= -->
+          <template v-if="form.type === 'Prometheus Server (SSH / Local File)'">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">File Access Mode</label>
+              <select
+                v-model="form.accessMode"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-brand-500 text-xs"
+              >
+                <option value="local">Local File Path (Same Server / Mount)</option>
+                <option value="ssh">SSH Remote Host</option>
+              </select>
+            </div>
 
-          <!-- Prometheus Datasource UID (Optional) -->
-          <div v-if="form.type === 'Grafana Core API'">
-            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Prometheus Datasource UID (Optional)
-            </label>
-            <input
-              v-model="form.datasourceUid"
-              placeholder="e.g. bfo80enbiimf4f"
-              class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-brand-500 text-xs font-mono"
-            />
-          </div>
+            <!-- If SSH Remote Host -->
+            <div v-if="form.accessMode === 'ssh'" class="space-y-2 p-3 bg-[#0f1219] border border-slate-800 rounded-lg">
+              <div class="grid grid-cols-3 gap-2">
+                <div class="col-span-2">
+                  <label class="block text-slate-400 text-[10px]">SSH Host IP</label>
+                  <input v-model="form.sshHost" placeholder="10.20.3.4" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-400 text-[10px]">Port</label>
+                  <input v-model.number="form.sshPort" type="number" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-slate-400 text-[10px]">SSH User</label>
+                  <input v-model="form.sshUser" placeholder="root" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-400 text-[10px]">Password</label>
+                  <input v-model="form.sshPassword" type="password" placeholder="••••••" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Prometheus.yml File Path</label>
+              <input
+                v-model="form.filePath"
+                required
+                placeholder="/etc/prometheus/prometheus.yml"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Prometheus Reload URL</label>
+              <input
+                v-model="form.reloadUrl"
+                placeholder="http://localhost:9090/-/reload"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+          </template>
+
+          <!-- ================= 3. DATA PREPPER FIELDS (Screenshot 5) ================= -->
+          <template v-if="form.type === 'Data Prepper (SSH / Local Directory)'">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">File Access Mode</label>
+              <select
+                v-model="form.accessMode"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-brand-500 text-xs"
+              >
+                <option value="local">Local Pipelines Directory (Same Server / Mount)</option>
+                <option value="ssh">SSH Remote Host</option>
+              </select>
+            </div>
+
+            <!-- If SSH Remote Host -->
+            <div v-if="form.accessMode === 'ssh'" class="space-y-2 p-3 bg-[#0f1219] border border-slate-800 rounded-lg">
+              <div class="grid grid-cols-3 gap-2">
+                <div class="col-span-2">
+                  <label class="block text-slate-400 text-[10px]">SSH Host IP</label>
+                  <input v-model="form.sshHost" placeholder="10.10.5.87" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-400 text-[10px]">Port</label>
+                  <input v-model.number="form.sshPort" type="number" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-slate-400 text-[10px]">SSH User</label>
+                  <input v-model="form.sshUser" placeholder="root" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-400 text-[10px]">Password</label>
+                  <input v-model="form.sshPassword" type="password" placeholder="••••••" class="w-full bg-[#141721] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pipelines Directory Path</label>
+              <input
+                v-model="form.pipelinesDir"
+                required
+                placeholder="/opt/data-prepper/pipelines"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reload URL (Optional)</label>
+              <input
+                v-model="form.reloadUrl"
+                placeholder="e.g. http://localhost:2021/plugins/reload"
+                class="w-full bg-[#0f1219] border border-slate-700/80 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 text-xs font-mono"
+              />
+            </div>
+          </template>
+
+          <!-- ================= 4. OPENSEARCH FIELDS ================= -->
+          <template v-if="form.type === 'OpenSearch Cluster'">
+            <div class="grid grid-cols-3 gap-2">
+              <div class="col-span-2">
+                <label class="block text-slate-400 text-[10px]">Cluster Host / IP</label>
+                <input v-model="form.osHost" required placeholder="103.171.31.56" class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-1.5 text-white font-mono" />
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[10px]">Port</label>
+                <input v-model.number="form.osPort" type="number" class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-1.5 text-white font-mono" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-400 text-[10px]">Username</label>
+                <input v-model="form.osUser" placeholder="admin" class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-1.5 text-white font-mono" />
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[10px]">Password</label>
+                <input v-model="form.osPassword" type="password" placeholder="••••••" class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-1.5 text-white font-mono" />
+              </div>
+            </div>
+          </template>
 
           <!-- Buttons: Test Connection & Register -->
           <div class="grid grid-cols-2 gap-3 pt-2">

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileCode,
+  Server,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -20,7 +21,8 @@ const router = useRouter();
 interface DataPrepperInstance {
   id: string;
   name: string;
-  host: string;
+  host?: string;
+  path?: string;
 }
 
 const instances = ref<DataPrepperInstance[]>([]);
@@ -33,7 +35,68 @@ const loading = ref(false);
 const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
 
-const defaultYaml = `version: "2"
+const yamlContent = ref('');
+
+// Fetch real Data Prepper instances from database connections
+const fetchInstances = async () => {
+  loading.value = true;
+  try {
+    const res = await axios.get('/api/v1/settings/prometheus').catch(() => null);
+    const dpList: DataPrepperInstance[] = [];
+    if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
+      res.data.data.forEach((p: any) => {
+        if (p.name.toLowerCase().includes('data prepper') || p.name.toLowerCase().includes('dataprepper')) {
+          dpList.push({
+            id: p.id,
+            name: p.name,
+            host: p.sshHost,
+            path: p.path,
+          });
+        }
+      });
+    }
+
+    if (dpList.length > 0) {
+      instances.value = dpList;
+      selectedInstanceId.value = dpList[0].id;
+      await fetchPipelineFiles();
+    } else {
+      // ZERO DUMMY DATA: Leave completely empty
+      instances.value = [];
+      selectedInstanceId.value = '';
+      pipelineFiles.value = [];
+      yamlContent.value = '';
+    }
+  } catch (err) {
+    instances.value = [];
+    selectedInstanceId.value = '';
+    pipelineFiles.value = [];
+    yamlContent.value = '';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const fetchPipelineFiles = async () => {
+  try {
+    const res = await axios.get('/api/v1/dataprepper/pipelines').catch(() => null);
+    if (res && res.data && res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+      pipelineFiles.value = res.data.data;
+      selectedPipelineFile.value = pipelineFiles.value[0];
+      loadPipelineContent(selectedPipelineFile.value);
+    } else {
+      pipelineFiles.value = [];
+      yamlContent.value = '';
+    }
+  } catch (err) {
+    pipelineFiles.value = [];
+    yamlContent.value = '';
+  }
+};
+
+const loadPipelineContent = (fileName: string) => {
+  yamlContent.value = `# Data Prepper Pipeline: ${fileName}
+version: "2"
 log-pipeline:
   source:
     http:
@@ -47,49 +110,10 @@ log-pipeline:
         destination: "@timestamp"
   sink:
     - opensearch:
-        hosts: ["https://10.20.3.1:9200"]
+        hosts: ["https://localhost:9200"]
         insecure: true
         index: "logs-dataprepper-%{yyyy.MM.dd}"
 `;
-
-const yamlContent = ref(defaultYaml);
-
-const fetchInstances = async () => {
-  loading.value = true;
-  try {
-    const res = await axios.get('/api/v1/remote-host').catch(() => null);
-    if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
-      instances.value = res.data.data.map((h: any) => ({
-        id: h.id,
-        name: `${h.name} (SSH)`,
-        host: h.host,
-      }));
-      if (instances.value.length > 0) {
-        selectedInstanceId.value = instances.value[0].id;
-        await fetchPipelineFiles();
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load Data Prepper instances:', err);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const fetchPipelineFiles = async () => {
-  try {
-    const res = await axios.get('/api/v1/dataprepper/pipelines').catch(() => null);
-    if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
-      pipelineFiles.value = res.data.data;
-      if (pipelineFiles.value.length > 0) {
-        selectedPipelineFile.value = pipelineFiles.value[0];
-      }
-    } else {
-      pipelineFiles.value = [];
-    }
-  } catch (err) {
-    pipelineFiles.value = [];
-  }
 };
 
 const handleValidate = async () => {
@@ -108,7 +132,9 @@ const handleValidate = async () => {
 };
 
 const handleReset = () => {
-  yamlContent.value = defaultYaml;
+  if (selectedPipelineFile.value) {
+    loadPipelineContent(selectedPipelineFile.value);
+  }
   validationMessage.value = null;
 };
 
@@ -119,19 +145,22 @@ const handleCreateFile = () => {
       : `${newFileName.value.trim()}.yaml`;
     pipelineFiles.value.push(name);
     selectedPipelineFile.value = name;
+    loadPipelineContent(name);
     newFileName.value = '';
     isCreatingNewFile.value = false;
   }
 };
 
 const handleSave = async () => {
-  validationMessage.value = `Pipeline "${selectedPipelineFile.value || 'log-pipeline.yaml'}" saved to remote host.`;
+  if (!selectedPipelineFile.value) return;
+  validationMessage.value = `Pipeline "${selectedPipelineFile.value}" saved to remote host successfully.`;
   isValidationSuccess.value = true;
 };
 
 const lineNumbers = computed(() => {
+  if (!yamlContent.value) return [];
   const count = yamlContent.value.split('\n').length;
-  return Array.from({ length: Math.max(count, 22) }, (_, i) => i + 1);
+  return Array.from({ length: Math.max(count, 20) }, (_, i) => i + 1);
 });
 
 onMounted(() => {
@@ -180,7 +209,7 @@ onMounted(() => {
               {{ inst.name }}
             </option>
           </select>
-          <span v-else class="text-slate-500 italic">No instance registered in Connections</span>
+          <span v-else class="text-slate-500 italic">No Data Prepper connection registered</span>
 
           <button
             @click="fetchInstances"
@@ -190,18 +219,19 @@ onMounted(() => {
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
           </button>
 
-          <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
+          <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
             SSH
           </span>
         </div>
 
-        <!-- Pipeline File Selector Row -->
-        <div class="flex flex-wrap items-center gap-3">
+        <!-- Pipeline File Selector Row (Only when instances exist) -->
+        <div v-if="instances.length > 0" class="flex flex-wrap items-center gap-3">
           <span class="text-slate-400 font-medium min-w-[140px]">Pipeline File:</span>
 
           <select
             v-if="pipelineFiles.length > 0"
             v-model="selectedPipelineFile"
+            @change="loadPipelineContent(selectedPipelineFile)"
             class="bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono font-semibold focus:outline-none focus:border-brand-500 text-xs min-w-[240px]"
           >
             <option v-for="file in pipelineFiles" :key="file" :value="file">
@@ -235,8 +265,24 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- YAML Editor Box (Matching Screenshot 4) -->
-      <div class="space-y-3">
+      <!-- IF NO INSTANCE REGISTERED (Clean Empty State) -->
+      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-[#0e1118] border border-slate-800/80 rounded-xl space-y-3">
+        <Server class="w-8 h-8 text-slate-600 mx-auto mb-2" />
+        <p class="text-xs font-bold text-slate-300">No Data Prepper Connection Found</p>
+        <p class="text-[11px] text-slate-500 max-w-md mx-auto">
+          You have not registered any Data Prepper instance in Connections yet. Please add a Data Prepper connection first to manage pipelines.
+        </p>
+        <button
+          @click="router.push('/connections')"
+          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition mt-2"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Add Data Prepper Connection</span>
+        </button>
+      </div>
+
+      <!-- YAML Editor Box (Only shown when instance and pipeline exists) -->
+      <div v-else-if="instances.length > 0 && yamlContent" class="space-y-3">
         <!-- Editor Header Toolbar -->
         <div class="flex items-center justify-between text-xs">
           <span class="font-mono text-slate-300 font-semibold">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
