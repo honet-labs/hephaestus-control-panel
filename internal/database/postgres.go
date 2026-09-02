@@ -100,6 +100,13 @@ func GetPool() (*pgxpool.Pool, error) {
 	return activePool, nil
 }
 
+// GetDB returns the active pgxpool instance (or nil if not connected)
+func GetDB() *pgxpool.Pool {
+	poolLock.RLock()
+	defer poolLock.RUnlock()
+	return activePool
+}
+
 // IsConnected returns whether the database connection is active
 func IsConnected() bool {
 	poolLock.RLock()

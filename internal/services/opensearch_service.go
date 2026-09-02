@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/logger"
@@ -49,9 +50,9 @@ func (s *OpenSearchService) RegisterWorker(wp *queue.WorkerPool) {
 }
 
 func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSearchConfig, error) {
-	pool := database.GetDB()
-	if pool == nil {
-		return nil, fmt.Errorf("database connection unavailable")
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, fmt.Errorf("database connection unavailable: %w", err)
 	}
 
 	query := `
@@ -62,24 +63,40 @@ func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSe
 		LIMIT 1
 	`
 	var cfg domain.OpenSearchConfig
-	err := pool.QueryRow(ctx, query).Scan(
+	err = pool.QueryRow(ctx, query).Scan(
 		&cfg.ID, &cfg.Name, &cfg.Host, &cfg.Port, &cfg.Username,
 		&cfg.Password, &cfg.UseSSL, &cfg.VerifySSL, &cfg.IsActive, &cfg.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if cfg.Password != "" {
+		if decrypted, err := config.DecryptText(cfg.Password); err == nil {
+			cfg.Password = decrypted
+		}
+	}
+
 	return &cfg, nil
 }
 
 func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearchConfig) (*domain.OpenSearchConfig, error) {
-	pool := database.GetDB()
-	if pool == nil {
-		return nil, fmt.Errorf("database connection unavailable")
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, fmt.Errorf("database connection unavailable: %w", err)
 	}
 
 	if cfg.ID == "" {
 		cfg.ID = "osc-primary"
+	}
+
+	var encPassword string
+	if cfg.Password != "" && cfg.Password != "••••••••" && cfg.Password != "********" {
+		if enc, err := config.EncryptText(cfg.Password); err == nil {
+			encPassword = enc
+		} else {
+			encPassword = cfg.Password
+		}
 	}
 
 	query := `
@@ -90,12 +107,12 @@ func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearc
 			host = EXCLUDED.host,
 			port = EXCLUDED.port,
 			username = EXCLUDED.username,
-			password = EXCLUDED.password,
+			password = CASE WHEN $6 != '' THEN $6 ELSE opensearch_configs.password END,
 			use_ssl = EXCLUDED.use_ssl,
 			verify_ssl = EXCLUDED.verify_ssl,
 			is_active = EXCLUDED.is_active
 	`
-	_, err := pool.Exec(ctx, query, cfg.ID, cfg.Name, cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.UseSSL, cfg.VerifySSL, cfg.IsActive)
+	_, err = pool.Exec(ctx, query, cfg.ID, cfg.Name, cfg.Host, cfg.Port, cfg.Username, encPassword, cfg.UseSSL, cfg.VerifySSL, cfg.IsActive)
 	if err != nil {
 		return nil, err
 	}
