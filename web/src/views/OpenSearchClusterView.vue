@@ -304,6 +304,22 @@ const hideTooltip = () => {
   hoveredShard.value = null;
 };
 
+// Check if a shard belongs to the currently hovered index (Auto-detect Primary & Replica pairing)
+const isShardHighlighted = (shard: any) => {
+  if (!hoveredShard.value) return false;
+  const targetIndex = hoveredShard.value.index || hoveredShard.value.name;
+  const currentIndex = shard.index || shard.name;
+  return Boolean(targetIndex && currentIndex && targetIndex === currentIndex);
+};
+
+// Check if a shard should be dimmed because a different index is hovered
+const isShardDimmed = (shard: any) => {
+  if (!hoveredShard.value) return false;
+  const targetIndex = hoveredShard.value.index || hoveredShard.value.name;
+  const currentIndex = shard.index || shard.name;
+  return Boolean(targetIndex && currentIndex && targetIndex !== currentIndex);
+};
+
 // Configuration Methods
 const fetchActiveConfig = async () => {
   try {
@@ -658,12 +674,27 @@ onUnmounted(() => {
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
                 :class="[
-                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all transform hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md',
-                  shard.prirep === 'p' || shard.type === 'Primary'
-                    ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80]'
-                    : shard.prirep === 'r' || shard.type === 'Replica'
-                    ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa]'
-                    : 'bg-[#3b1219] border border-[#822735] text-[#f87171]'
+                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
+                  // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
+                  isShardHighlighted(shard)
+                    ? (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#10b981] text-white border-2 border-white ring-4 ring-emerald-500/40 scale-125 z-30 shadow-2xl font-black'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#3b82f6] text-white border-2 border-white ring-4 ring-blue-500/40 scale-125 z-30 shadow-2xl font-black'
+                        : 'bg-red-500 text-white border-2 border-white ring-4 ring-red-500/40 scale-125 z-30 shadow-2xl font-black')
+                    // 2. Dimmed state: other unrelated indices are dimmed
+                    : isShardDimmed(shard)
+                    ? (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#0f3d28]/25 border border-[#1c6b47]/20 text-[#4ade80]/30 opacity-20 scale-90'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#132c4a]/25 border border-[#1e4976]/20 text-[#60a5fa]/30 opacity-20 scale-90'
+                        : 'bg-[#3b1219]/25 border border-[#822735]/20 text-[#f87171]/30 opacity-20 scale-90')
+                    // 3. Normal idle state
+                    : (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
+                        : 'bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md')
                 ]"
               >
                 {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
@@ -853,12 +884,27 @@ onUnmounted(() => {
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
                 :class="[
-                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all transform hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md',
-                  shard.prirep === 'p' || shard.type === 'Primary'
-                    ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80]'
-                    : shard.prirep === 'r' || shard.type === 'Replica'
-                    ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa]'
-                    : 'bg-[#3b1219] border border-[#822735] text-[#f87171]'
+                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
+                  // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
+                  isShardHighlighted(shard)
+                    ? (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#10b981] text-white border-2 border-white ring-4 ring-emerald-500/40 scale-125 z-30 shadow-2xl font-black'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#3b82f6] text-white border-2 border-white ring-4 ring-blue-500/40 scale-125 z-30 shadow-2xl font-black'
+                        : 'bg-red-500 text-white border-2 border-white ring-4 ring-red-500/40 scale-125 z-30 shadow-2xl font-black')
+                    // 2. Dimmed state: other unrelated indices are dimmed
+                    : isShardDimmed(shard)
+                    ? (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#0f3d28]/25 border border-[#1c6b47]/20 text-[#4ade80]/30 opacity-20 scale-90'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#132c4a]/25 border border-[#1e4976]/20 text-[#60a5fa]/30 opacity-20 scale-90'
+                        : 'bg-[#3b1219]/25 border border-[#822735]/20 text-[#f87171]/30 opacity-20 scale-90')
+                    // 3. Normal idle state
+                    : (shard.prirep === 'p' || shard.type === 'Primary'
+                        ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
+                        : shard.prirep === 'r' || shard.type === 'Replica'
+                        ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
+                        : 'bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md')
                 ]"
               >
                 {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
