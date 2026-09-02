@@ -51,14 +51,19 @@ const router = createRouter({
           component: () => import('../views/DashboardView.vue'),
         },
         {
-          path: 'terminal',
-          name: 'terminal',
-          component: () => import('../views/RemoteHostView.vue'),
+          path: 'connections',
+          name: 'connections',
+          component: () => import('../views/ConnectionsView.vue'),
         },
         {
-          path: 'topology',
-          name: 'topology',
-          component: () => import('../views/TopologyView.vue'),
+          path: 'prometheus-config',
+          name: 'prometheus-config',
+          component: () => import('../views/PrometheusConfigView.vue'),
+        },
+        {
+          path: 'dataprepper-config',
+          name: 'dataprepper-config',
+          component: () => import('../views/DataPrepperConfigView.vue'),
         },
         {
           path: 'backup',
@@ -66,27 +71,18 @@ const router = createRouter({
           component: () => import('../views/BackupView.vue'),
         },
         {
-          path: 'tools',
-          name: 'tools',
-          component: () => import('../views/ToolsView.vue'),
-        },
-        {
           path: 'snmp',
-          redirect: '/tools?tab=snmp',
+          name: 'snmp',
+          component: () => import('../views/SnmpView.vue'),
         },
         {
           path: 'grok-debugger',
-          redirect: '/tools?tab=grok',
+          name: 'grok-debugger',
+          component: () => import('../views/GrokDebuggerView.vue'),
         },
         {
-          path: 'remote-config',
-          name: 'remote-config',
-          component: () => import('../views/RemoteConfigView.vue'),
-        },
-        {
-          path: 'logs',
-          name: 'logs',
-          component: () => import('../views/LogsView.vue'),
+          path: 'tools',
+          redirect: '/snmp',
         },
         {
           path: 'queue',

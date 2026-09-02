@@ -567,6 +567,32 @@ watch(
   }
 );
 
+// Tab Groups: Computed grouped sessions by Host
+const splitLayout = ref<'single' | 'vertical' | 'horizontal'>('single');
+
+const groupedSessions = computed(() => {
+  const groups: {
+    hostId: string;
+    hostName: string;
+    sessions: { session: OpenSession; globalIndex: number }[];
+  }[] = [];
+
+  openSessions.value.forEach((session, idx) => {
+    let grp = groups.find((g) => g.hostId === session.host.id);
+    if (!grp) {
+      grp = {
+        hostId: session.host.id,
+        hostName: session.host.name,
+        sessions: [],
+      };
+      groups.push(grp);
+    }
+    grp.sessions.push({ session, globalIndex: idx });
+  });
+
+  return groups;
+});
+
 // Fetch Host Telemetry
 const fetchHostTelemetry = async (session: OpenSession) => {
   try {
@@ -947,39 +973,56 @@ onUnmounted(() => {
         <span>SFTP TRANSFER</span>
       </button>
 
-      <!-- Open Session Tabs (With DUPLICATE TAB Support) -->
-      <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
+      <!-- Open Session Tabs (Organized into TAB GROUPS by Host) -->
+      <div class="flex items-center gap-2 ml-2 border-l border-slate-800 pl-3">
+        <!-- Loop over Grouped Sessions -->
         <div
-          v-for="(session, idx) in openSessions"
-          :key="session.id"
-          @click="activeSessionIndex = idx"
-          :class="[
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border group',
-            activeSessionIndex === idx
-              ? 'bg-[#242833] border-slate-700 text-white shadow-sm'
-              : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-          ]"
+          v-for="grp in groupedSessions"
+          :key="grp.hostId"
+          class="flex items-center gap-1 p-0.5 rounded-xl bg-[#171a23] border border-slate-800/80 shadow-sm"
         >
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>{{ session.displayName || session.host.name }}</span>
+          <!-- Group Tag / Host Label -->
+          <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold text-slate-400 font-mono">
+            <Server class="w-3 h-3 text-brand-400" />
+            <span>{{ grp.hostName }}</span>
+            <span v-if="grp.sessions.length > 1" class="px-1.5 py-0.2 rounded bg-slate-800 text-brand-400 text-[10px] font-bold">
+              {{ grp.sessions.length }} tabs
+            </span>
+          </div>
 
-          <!-- DUPLICATE TAB BUTTON (+) -->
-          <button
-            @click="duplicateSession(session, $event)"
-            title="Duplicate Terminal Tab"
-            class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-1"
+          <!-- Child Session Tabs within this Group -->
+          <div
+            v-for="sItem in grp.sessions"
+            :key="sItem.session.id"
+            @click="activeSessionIndex = sItem.globalIndex"
+            :class="[
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer border',
+              activeSessionIndex === sItem.globalIndex
+                ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            ]"
           >
-            <Copy class="w-3 h-3" />
-          </button>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
+            <span>#{{ sItem.session.instanceNumber || 1 }}</span>
 
-          <!-- Close Tab Button -->
-          <button
-            @click="closeSession(idx, $event)"
-            title="Close Tab"
-            class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
-          >
-            <X class="w-3 h-3" />
-          </button>
+            <!-- Duplicate Button -->
+            <button
+              @click.stop="duplicateSession(sItem.session)"
+              title="Duplicate tab in this group"
+              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+            >
+              <Copy class="w-2.5 h-2.5" />
+            </button>
+
+            <!-- Close Tab Button -->
+            <button
+              @click.stop="closeSession(sItem.globalIndex)"
+              title="Close Tab"
+              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+            >
+              <X class="w-2.5 h-2.5" />
+            </button>
+          </div>
         </div>
 
         <!-- Global + Duplicate Active Tab -->
@@ -987,7 +1030,7 @@ onUnmounted(() => {
           v-if="activeSession"
           @click="duplicateSession(activeSession)"
           title="Duplicate Current Server Tab"
-          class="flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition"
         >
           <Plus class="w-3 h-3 text-brand-400" />
           <span>New Tab</span>
