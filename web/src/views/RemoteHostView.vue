@@ -61,6 +61,7 @@ interface OpenSession {
   fitAddon?: FitAddon;
   ws?: WebSocket;
   connected: boolean;
+  heartbeatTimer?: any;
   metrics?: any;
   processes?: any[];
   services?: any[];
@@ -255,6 +256,9 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   if (event) event.stopPropagation();
   const s = openSessions.value[idx];
   if (s) {
+    if (s.heartbeatTimer) {
+      clearInterval(s.heartbeatTimer);
+    }
     if (s.ws) {
       try {
         s.ws.close();
@@ -272,11 +276,28 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   }
 };
 
+// Reconnect Terminal
+const reconnectTerminal = (session: OpenSession) => {
+  if (session.heartbeatTimer) {
+    clearInterval(session.heartbeatTimer);
+  }
+  if (session.ws) {
+    try {
+      session.ws.close();
+    } catch (e) {}
+  }
+  initXterm(session);
+};
+
 // Initialize xterm.js Terminal with Token Authentication
 const initXterm = (session: OpenSession) => {
   const container = document.getElementById(`terminal-container-${session.id}`);
   if (!container) return;
   container.innerHTML = '';
+
+  if (session.heartbeatTimer) {
+    clearInterval(session.heartbeatTimer);
+  }
 
   const term = new Terminal({
     cursorBlink: true,
@@ -332,6 +353,13 @@ const initXterm = (session: OpenSession) => {
       cols: term.cols,
       rows: term.rows,
     }));
+
+    // Client-side heartbeat every 15s to keep idle connection and background tabs alive
+    session.heartbeatTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
   };
 
   ws.onmessage = (ev) => {
@@ -341,10 +369,13 @@ const initXterm = (session: OpenSession) => {
         term.write(msg.data);
       } else if (msg.type === 'connected') {
         session.connected = true;
+      } else if (msg.type === 'pong') {
+        // Keepalive pong received
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'disconnected') {
         session.connected = false;
+        if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
         term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
       }
     } catch (e) {
@@ -354,11 +385,13 @@ const initXterm = (session: OpenSession) => {
 
   ws.onclose = () => {
     session.connected = false;
+    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
     term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
   };
 
   ws.onerror = () => {
     session.connected = false;
+    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
     term.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
   };
 
@@ -915,10 +948,26 @@ onUnmounted(() => {
           <!-- 1. TERMINAL VIEW -->
           <div v-show="activeSession.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
             <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
-              <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5">
+              <span
+                v-if="activeSession.connected"
+                class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5"
+              >
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 Connected
               </span>
+              <div v-else class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[10px] font-mono border border-red-500/30 flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                  Disconnected
+                </span>
+                <button
+                  @click="reconnectTerminal(activeSession)"
+                  class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition"
+                >
+                  <RotateCw class="w-3 h-3" />
+                  <span>Reconnect</span>
+                </button>
+              </div>
             </div>
             <div :id="`terminal-container-${activeSession.id}`" class="flex-1 p-2 w-full h-full"></div>
           </div>

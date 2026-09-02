@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -82,7 +83,21 @@ func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	return ssh.Dial("tcp", addr, sshConfig)
+	netDialer := &net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 15 * time.Second,
+	}
+	conn, err := netDialer.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return ssh.NewClient(ncc, chans, reqs), nil
 }
 
 func (s *SSHService) ExecuteCommand(cfg *domain.RemoteHostConfig, command string) (string, string, int, error) {
