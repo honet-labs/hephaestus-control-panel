@@ -37,6 +37,16 @@ import {
   StopCircle,
   FolderPlus,
   Lock,
+  Copy,
+  ChevronRight,
+  FileCode,
+  FileText,
+  FileArchive,
+  File,
+  CornerLeftUp,
+  Terminal as TerminalIcon,
+  Shield,
+  ArrowUpRight,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -57,6 +67,7 @@ interface RemoteHost {
 interface OpenSession {
   id: string;
   host: RemoteHost;
+  displayName?: string;
   activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp';
   term?: Terminal;
   fitAddon?: FitAddon;
@@ -105,10 +116,21 @@ const hostForm = ref<any>({
   tags: [],
 });
 
-// SFTP States
+// =================================================================
+// SFTP FILEZILLA-STYLE STATES
+// =================================================================
 const sftpFiles = ref<any[]>([]);
 const sftpCurrentPath = ref('/');
+const sftpInputPath = ref('/');
 const sftpLoading = ref(false);
+const selectedSftpHostId = ref<string>('');
+const sftpFileInput = ref<HTMLInputElement | null>(null);
+const sftpUploadProgress = ref(false);
+const sftpError = ref('');
+const sftpFileFilter = ref('');
+const sftpCommandLogs = ref<Array<{ time: string; type: 'status' | 'command' | 'response' | 'error'; text: string }>>([]);
+const sftpTransferQueue = ref<Array<{ name: string; size: string; status: 'queued' | 'transferring' | 'success' | 'failed'; progress: number }>>([]);
+const isDragOverSftp = ref(false);
 
 const activeSession = computed(() => {
   if (activeSessionIndex.value >= 0 && activeSessionIndex.value < openSessions.value.length) {
@@ -120,7 +142,7 @@ const activeSession = computed(() => {
 // Groups computed
 const groupedHosts = computed(() => {
   const groups: Record<string, RemoteHost[]> = {};
-  hosts.value.forEach(h => {
+  hosts.value.forEach((h) => {
     const g = h.groupName || 'Default';
     if (!groups[g]) groups[g] = [];
     groups[g].push(h);
@@ -130,7 +152,7 @@ const groupedHosts = computed(() => {
 
 const existingGroupNames = computed(() => {
   const set = new Set<string>();
-  hosts.value.forEach(h => {
+  hosts.value.forEach((h) => {
     if (h.groupName) set.add(h.groupName);
   });
   if (set.size === 0) set.add('Default');
@@ -141,22 +163,22 @@ const existingGroupNames = computed(() => {
 const filteredHosts = computed(() => {
   let list = hosts.value;
   if (selectedGroupFilter.value) {
-    list = list.filter(h => h.groupName === selectedGroupFilter.value);
+    list = list.filter((h) => h.groupName === selectedGroupFilter.value);
   }
   if (!searchHostQuery.value) return list;
   const q = searchHostQuery.value.toLowerCase();
   return list.filter(
-    h => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q) || h.username.toLowerCase().includes(q)
+    (h) => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q) || h.username.toLowerCase().includes(q)
   );
 });
 
-// Filtered & Sorted Processes
+// Filtered Processes
 const filteredProcesses = computed(() => {
   if (!activeSession.value?.processes) return [];
   let list = [...activeSession.value.processes];
   if (processSearch.value) {
     const q = processSearch.value.toLowerCase();
-    list = list.filter(p => p.command.toLowerCase().includes(q) || p.user.toLowerCase().includes(q));
+    list = list.filter((p) => p.command.toLowerCase().includes(q) || p.user.toLowerCase().includes(q));
   }
   if (processSort.value === 'cpu') {
     list.sort((a, b) => b.cpu - a.cpu);
@@ -174,7 +196,7 @@ const filteredServices = computed(() => {
   if (!serviceSearch.value) return activeSession.value.services;
   const q = serviceSearch.value.toLowerCase();
   return activeSession.value.services.filter(
-    s => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q))
+    (s) => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q))
   );
 });
 
@@ -184,12 +206,12 @@ const filteredListeningPorts = computed(() => {
   let list = [...activeSession.value.networkInfo.listeningPorts];
   if (portProtoFilter.value !== 'all') {
     const p = portProtoFilter.value.toUpperCase();
-    list = list.filter(item => item.proto && item.proto.toUpperCase().includes(p));
+    list = list.filter((item) => item.proto && item.proto.toUpperCase().includes(p));
   }
   if (portSearch.value) {
     const q = portSearch.value.toLowerCase();
     list = list.filter(
-      item =>
+      (item) =>
         (item.localAddr && item.localAddr.toLowerCase().includes(q)) ||
         (item.port && item.port.toString().toLowerCase().includes(q)) ||
         (item.process && item.process.toLowerCase().includes(q)) ||
@@ -217,37 +239,29 @@ const filteredInterfaces = computed(() => {
 const saveSessionsState = () => {
   try {
     const state = {
-      sessions: openSessions.value.map(s => ({
+      sessions: openSessions.value.map((s) => ({
         hostId: s.host.id,
+        displayName: s.displayName,
         activeView: s.activeView || 'terminal',
       })),
-      activeHostId: activeSession.value ? activeSession.value.host.id : null,
       activeSessionIndex: activeSessionIndex.value,
     };
     localStorage.setItem('hcp_remote_sessions_state', JSON.stringify(state));
   } catch (e) {}
 };
 
-watch(activeSessionIndex, () => {
-  saveSessionsState();
-});
-
-watch(openSessions, () => {
-  saveSessionsState();
-}, { deep: true });
-
 const restorePersistedSessions = async () => {
-  // 1. Check direct route query hostId first
+  // 1. Direct query param
   const queryHostId = route.query.hostId as string;
   if (queryHostId) {
-    const target = hosts.value.find(h => h.id === queryHostId);
+    const target = hosts.value.find((h) => h.id === queryHostId);
     if (target) {
       await connectHost(target);
       return;
     }
   }
 
-  // 2. Otherwise restore from localStorage
+  // 2. LocalStorage restore
   const saved = localStorage.getItem('hcp_remote_sessions_state');
   if (!saved) return;
   try {
@@ -255,11 +269,12 @@ const restorePersistedSessions = async () => {
     if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return;
 
     for (const sInfo of parsed.sessions) {
-      const host = hosts.value.find(h => h.id === sInfo.hostId);
-      if (host && !openSessions.value.some(s => s.host.id === host.id)) {
+      const host = hosts.value.find((h) => h.id === sInfo.hostId);
+      if (host) {
         const session: OpenSession = {
-          id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           host,
+          displayName: sInfo.displayName || host.name,
           activeView: sInfo.activeView || 'terminal',
           connected: false,
         };
@@ -269,10 +284,11 @@ const restorePersistedSessions = async () => {
 
     if (openSessions.value.length > 0) {
       let targetIdx = 0;
-      if (parsed.activeHostId) {
-        const found = openSessions.value.findIndex(s => s.host.id === parsed.activeHostId);
-        if (found >= 0) targetIdx = found;
-      } else if (typeof parsed.activeSessionIndex === 'number' && parsed.activeSessionIndex >= 0 && parsed.activeSessionIndex < openSessions.value.length) {
+      if (
+        typeof parsed.activeSessionIndex === 'number' &&
+        parsed.activeSessionIndex >= 0 &&
+        parsed.activeSessionIndex < openSessions.value.length
+      ) {
         targetIdx = parsed.activeSessionIndex;
       }
       activeSessionIndex.value = targetIdx;
@@ -284,11 +300,11 @@ const restorePersistedSessions = async () => {
       }
     }
   } catch (e) {
-    console.error('Failed to restore persisted sessions:', e);
+    console.error('Failed to restore sessions:', e);
   }
 };
 
-// Fetch Hosts
+// Fetch Hosts List
 const fetchHosts = async () => {
   try {
     const res = await axios.get('/api/v1/remote-host');
@@ -304,19 +320,28 @@ const fetchHosts = async () => {
   }
 };
 
-// Open a Host Session
-const connectHost = async (host: RemoteHost) => {
-  // Check if session already exists
-  const existingIdx = openSessions.value.findIndex(s => s.host.id === host.id);
-  if (existingIdx >= 0) {
-    activeSessionIndex.value = existingIdx;
-    saveSessionsState();
-    return;
+// =================================================================
+// MULTI-SESSION & DUPLICATE TABS SUPPORT
+// =================================================================
+const connectHost = async (host: RemoteHost, forceNew = false) => {
+  if (!forceNew) {
+    const existingIdx = openSessions.value.findIndex((s) => s.host.id === host.id);
+    if (existingIdx >= 0) {
+      activeSessionIndex.value = existingIdx;
+      saveSessionsState();
+      await ensureTerminalReady(openSessions.value[existingIdx]);
+      return;
+    }
   }
 
+  // Calculate instance count for tab label
+  const count = openSessions.value.filter((s) => s.host.id === host.id).length;
+  const tabName = count > 0 ? `${host.name} #${count + 1}` : host.name;
+
   const session: OpenSession = {
-    id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     host,
+    displayName: tabName,
     activeView: 'terminal',
     connected: false,
   };
@@ -325,9 +350,40 @@ const connectHost = async (host: RemoteHost) => {
   activeSessionIndex.value = openSessions.value.length - 1;
   saveSessionsState();
 
-  await nextTick();
-  initXterm(session);
+  await ensureTerminalReady(session);
   fetchHostTelemetry(session);
+};
+
+// Duplicate the current or specified session into a new terminal tab
+const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  await connectHost(session.host, true);
+};
+
+// Ensure Terminal DOM node is mounted, fitted and focused
+const ensureTerminalReady = async (session: OpenSession) => {
+  await nextTick();
+  let container = document.getElementById(`terminal-container-${session.id}`);
+  if (!container) {
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 60));
+      container = document.getElementById(`terminal-container-${session.id}`);
+      if (container) break;
+    }
+  }
+
+  if (!container) return;
+
+  if (!session.term) {
+    initXterm(session);
+  } else {
+    setTimeout(() => {
+      try {
+        session.fitAddon?.fit();
+        session.term?.focus();
+      } catch (e) {}
+    }, 50);
+  }
 };
 
 // Close Session
@@ -335,9 +391,7 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   if (event) event.stopPropagation();
   const s = openSessions.value[idx];
   if (s) {
-    if (s.heartbeatTimer) {
-      clearInterval(s.heartbeatTimer);
-    }
+    if (s.heartbeatTimer) clearInterval(s.heartbeatTimer);
     if (s.ws) {
       try {
         s.ws.close();
@@ -358,9 +412,7 @@ const closeSession = (idx: number, event?: MouseEvent) => {
 
 // Reconnect Terminal
 const reconnectTerminal = (session: OpenSession) => {
-  if (session.heartbeatTimer) {
-    clearInterval(session.heartbeatTimer);
-  }
+  if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
   if (session.ws) {
     try {
       session.ws.close();
@@ -369,15 +421,13 @@ const reconnectTerminal = (session: OpenSession) => {
   initXterm(session);
 };
 
-// Initialize xterm.js Terminal with Token Authentication
+// Initialize xterm.js Terminal with WebSocket & Heartbeats
 const initXterm = (session: OpenSession) => {
   const container = document.getElementById(`terminal-container-${session.id}`);
   if (!container) return;
   container.innerHTML = '';
 
-  if (session.heartbeatTimer) {
-    clearInterval(session.heartbeatTimer);
-  }
+  if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
 
   const term = new Terminal({
     cursorBlink: true,
@@ -411,30 +461,36 @@ const initXterm = (session: OpenSession) => {
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
   term.open(container);
-  fitAddon.fit();
+
+  setTimeout(() => {
+    try {
+      fitAddon.fit();
+      term.focus();
+    } catch (e) {}
+  }, 50);
 
   session.term = term;
   session.fitAddon = fitAddon;
 
-  // Open WebSocket with Auth Token query param
+  // Open WebSocket
   const token = authStore.token || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${term.cols}&rows=${term.rows}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${term.cols || 80}&rows=${term.rows || 24}`;
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     session.connected = true;
     term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
-    // Send initial auth handshake payload
-    ws.send(JSON.stringify({
-      type: 'auth',
-      token: token,
-      hostConfigId: session.host.id,
-      cols: term.cols,
-      rows: term.rows,
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'auth',
+        token: token,
+        hostConfigId: session.host.id,
+        cols: term.cols,
+        rows: term.rows,
+      })
+    );
 
-    // Client-side heartbeat every 15s to keep idle connection and background tabs alive
     session.heartbeatTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
@@ -449,8 +505,6 @@ const initXterm = (session: OpenSession) => {
         term.write(msg.data);
       } else if (msg.type === 'connected') {
         session.connected = true;
-      } else if (msg.type === 'pong') {
-        // Keepalive pong received
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'disconnected') {
@@ -487,109 +541,56 @@ const initXterm = (session: OpenSession) => {
     }
   });
 
-  window.addEventListener('resize', () => {
-    try {
-      fitAddon.fit();
-    } catch (e) {}
-  });
-
   session.ws = ws;
 };
 
-// Fetch Host Metrics, Processes, Services, and Network
+// Watch activeSession changes to ensure fitted terminal
+watch(
+  [activeSessionIndex, () => activeSession.value?.activeView],
+  async () => {
+    if (activeSession.value && activeSession.value.activeView === 'terminal') {
+      await ensureTerminalReady(activeSession.value);
+    }
+  }
+);
+
+// Fetch Host Telemetry
 const fetchHostTelemetry = async (session: OpenSession) => {
   try {
-    const [metricsRes, procsRes, svcsRes, netRes] = await Promise.allSettled([
-      axios.get(`/api/v1/vps/${session.host.id}/metrics`),
-      axios.get(`/api/v1/vps/${session.host.id}/processes`),
-      axios.get(`/api/v1/vps/${session.host.id}/services`),
-      axios.get(`/api/v1/vps/${session.host.id}/network`),
+    const [metricsRes, procRes, srvRes, netRes] = await Promise.all([
+      axios.get(`/api/v1/remote-host/${session.host.id}/metrics`).catch(() => ({ data: { success: false } })),
+      axios.get(`/api/v1/remote-host/${session.host.id}/processes`).catch(() => ({ data: { success: false } })),
+      axios.get(`/api/v1/remote-host/${session.host.id}/services`).catch(() => ({ data: { success: false } })),
+      axios.get(`/api/v1/remote-host/${session.host.id}/network`).catch(() => ({ data: { success: false } })),
     ]);
 
-    if (metricsRes.status === 'fulfilled' && metricsRes.value.data.success) {
-      session.metrics = metricsRes.value.data.data;
-    }
-    if (procsRes.status === 'fulfilled' && procsRes.value.data.success) {
-      session.processes = procsRes.value.data.data;
-    }
-    if (svcsRes.status === 'fulfilled' && svcsRes.value.data.success) {
-      session.services = svcsRes.value.data.data;
-    }
-    if (netRes.status === 'fulfilled' && netRes.value.data.success) {
-      session.networkInfo = netRes.value.data.data;
-    }
+    if (metricsRes.data?.success) session.metrics = metricsRes.data.data;
+    if (procRes.data?.success) session.processes = procRes.data.data;
+    if (srvRes.data?.success) session.services = srvRes.data.data;
+    if (netRes.data?.success) session.networkInfo = netRes.data.data;
   } catch (err) {
-    console.error('Failed to fetch telemetry:', err);
+    console.warn('Telemetry poll error:', err);
   }
 };
 
-// Kill Process
-const handleKillProcess = async (pid: number) => {
-  if (!activeSession.value) return;
-  if (!confirm(`Are you sure you want to terminate process PID ${pid}?`)) return;
-  try {
-    await axios.post(`/api/v1/vps/${activeSession.value.host.id}/processes/${pid}/kill`);
-    fetchHostTelemetry(activeSession.value);
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to kill process');
-  }
-};
-
-// Control Service
-const handleControlService = async (serviceName: string, action: string) => {
-  if (!activeSession.value) return;
-  try {
-    await axios.post(`/api/v1/vps/${activeSession.value.host.id}/control`, {
-      serviceName,
-      action,
-    });
-    fetchHostTelemetry(activeSession.value);
-  } catch (err: any) {
-    alert(err.response?.data?.error || `Failed to ${action} service`);
-  }
-};
-
-// Save Host
-const handleSaveHost = async () => {
-  try {
-    const res = await axios.post('/api/v1/remote-host', hostForm.value);
-    if (res.data.success) {
-      isHostModalOpen.value = false;
-      // Reset form
-      hostForm.value = {
-        id: '',
-        name: '',
-        host: '',
-        port: 22,
-        username: '',
-        authType: 'password',
-        password: '',
-        sshKey: '',
-        groupName: 'Default',
-        tags: [],
-      };
-      await fetchHosts();
-    }
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to save host');
-  }
-};
-
-// SFTP Methods
-const selectedSftpHostId = ref<string>('');
-const sftpFileInput = ref<HTMLInputElement | null>(null);
-const sftpUploadProgress = ref(false);
-const sftpError = ref('');
-
+// =================================================================
+// SFTP FILEZILLA-STYLE CLIENT IMPLEMENTATION
+// =================================================================
 const currentSftpHost = computed(() => {
   if (selectedSftpHostId.value) {
-    return hosts.value.find(h => h.id === selectedSftpHostId.value) || null;
+    return hosts.value.find((h) => h.id === selectedSftpHostId.value) || null;
   }
   if (activeSession.value) {
     return activeSession.value.host;
   }
   return hosts.value[0] || null;
 });
+
+const logSftp = (type: 'status' | 'command' | 'response' | 'error', text: string) => {
+  const time = new Date().toLocaleTimeString();
+  sftpCommandLogs.value.unshift({ time, type, text });
+  if (sftpCommandLogs.value.length > 50) sftpCommandLogs.value.pop();
+};
 
 const fetchSftpFiles = async (path = sftpCurrentPath.value) => {
   const host = currentSftpHost.value;
@@ -599,18 +600,24 @@ const fetchSftpFiles = async (path = sftpCurrentPath.value) => {
   }
   sftpLoading.value = true;
   sftpError.value = '';
+  logSftp('command', `List directory "${path || '/'}"`);
+
   try {
     const res = await axios.get(`/api/v1/remote-host/${host.id}/sftp/list`, {
       params: { path: path || '/' },
     });
     if (res.data.success && res.data.data) {
       sftpFiles.value = res.data.data;
-      sftpCurrentPath.value = path;
+      sftpCurrentPath.value = path || '/';
+      sftpInputPath.value = sftpCurrentPath.value;
+      logSftp('response', `Directory listing of "${sftpCurrentPath.value}" successful (${sftpFiles.value.length} items).`);
     } else {
       sftpFiles.value = [];
     }
   } catch (err: any) {
-    sftpError.value = err.response?.data?.error || 'Failed to list directory contents';
+    const msg = err.response?.data?.error || 'Failed to list directory contents';
+    sftpError.value = msg;
+    logSftp('error', `Error: ${msg}`);
     sftpFiles.value = [];
   } finally {
     sftpLoading.value = false;
@@ -635,6 +642,12 @@ const navigateUp = () => {
   fetchSftpFiles(parent);
 };
 
+const handlePathSubmit = () => {
+  if (sftpInputPath.value) {
+    fetchSftpFiles(sftpInputPath.value);
+  }
+};
+
 const triggerFileUpload = () => {
   if (sftpFileInput.value) {
     sftpFileInput.value.click();
@@ -645,11 +658,13 @@ const handleFileUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (!target.files || target.files.length === 0) return;
   const file = target.files[0];
+  await uploadSingleFile(file);
+  target.value = '';
+};
+
+const uploadSingleFile = async (file: File) => {
   const host = currentSftpHost.value;
   if (!host) return;
-
-  const formData = new FormData();
-  formData.append('file', file);
 
   let targetPath = sftpCurrentPath.value.replace(/\/+$/, '');
   if (!targetPath) targetPath = '/';
@@ -659,20 +674,47 @@ const handleFileUpload = async (event: Event) => {
     targetPath = `${targetPath}/${file.name}`;
   }
 
+  const transferItem = {
+    name: file.name,
+    size: formatFileSize(file.size),
+    status: 'transferring' as const,
+    progress: 0,
+  };
+  sftpTransferQueue.value.unshift(transferItem);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
   sftpUploadProgress.value = true;
+  logSftp('command', `PUT "${file.name}" -> "${targetPath}" (${formatFileSize(file.size)})`);
+
   try {
     const res = await axios.post(`/api/v1/remote-host/${host.id}/sftp/upload`, formData, {
       params: { path: targetPath },
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     if (res.data.success) {
+      transferItem.status = 'success';
+      transferItem.progress = 100;
+      logSftp('response', `File transfer of "${file.name}" successful.`);
       await fetchSftpFiles();
     }
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to upload file');
+    transferItem.status = 'failed';
+    const msg = err.response?.data?.error || 'Upload failed';
+    logSftp('error', `Transfer failed: ${msg}`);
+    alert(msg);
   } finally {
     sftpUploadProgress.value = false;
-    target.value = '';
+  }
+};
+
+const handleDrop = async (e: DragEvent) => {
+  isDragOverSftp.value = false;
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    for (let i = 0; i < e.dataTransfer.files.length; i++) {
+      await uploadSingleFile(e.dataTransfer.files[i]);
+    }
   }
 };
 
@@ -686,6 +728,7 @@ const handleDownloadFile = (fileName: string) => {
   } else {
     targetPath = `${targetPath}/${fileName}`;
   }
+  logSftp('command', `GET "${targetPath}" (Download)`);
   const url = `/api/v1/remote-host/${host.id}/sftp/download?path=${encodeURIComponent(targetPath)}`;
   window.open(url, '_blank');
 };
@@ -699,15 +742,43 @@ const openSftpModal = (hostId?: string) => {
     selectedSftpHostId.value = hosts.value[0].id;
   }
   sftpCurrentPath.value = '/';
+  sftpInputPath.value = '/';
+  sftpCommandLogs.value = [];
+  logSftp('status', `Connecting to SFTP subsystem on ${currentSftpHost.value?.name || 'Remote Host'}...`);
   isSftpModalOpen.value = true;
   fetchSftpFiles('/');
 };
+
+// Filtered SFTP Files in Table
+const filteredSftpFiles = computed(() => {
+  if (!sftpFileFilter.value) return sftpFiles.value;
+  const q = sftpFileFilter.value.toLowerCase();
+  return sftpFiles.value.filter((f) => f.name.toLowerCase().includes(q));
+});
 
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+function getFileTypeLabel(name: string, isDir: boolean): string {
+  if (isDir) return 'File folder';
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  if (['yaml', 'yml'].includes(ext)) return 'YAML Configuration';
+  if (['json'].includes(ext)) return 'JSON File';
+  if (['log'].includes(ext)) return 'System Log File';
+  if (['tar', 'gz', 'zip', 'bz2'].includes(ext)) return 'Compressed Archive';
+  if (['sh', 'bash'].includes(ext)) return 'Shell Script';
+  if (['conf', 'cfg', 'ini'].includes(ext)) return 'Config File';
+  if (['txt', 'md'].includes(ext)) return 'Text Document';
+  return 'File';
+}
+
+function getFilePermissions(file: any): string {
+  if (file.permissions) return file.permissions;
+  return file.isDir ? 'drwxr-xr-x' : '-rw-r--r--';
 }
 
 const handleBackToPortal = () => {
@@ -718,12 +789,45 @@ const handleBackToPortal = () => {
   }
 };
 
+const handleSaveHost = async () => {
+  try {
+    const res = await axios.post('/api/v1/remote-host', hostForm.value);
+    if (res.data.success) {
+      isHostModalOpen.value = false;
+      hostForm.value = {
+        id: '',
+        name: '',
+        host: '',
+        port: 22,
+        username: '',
+        authType: 'password',
+        password: '',
+        sshKey: '',
+        groupName: 'Default',
+        tags: [],
+      };
+      await fetchHosts();
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to save host');
+  }
+};
+
+const handleCreateGroup = () => {
+  if (newGroupName.value.trim()) {
+    isGroupModalOpen.value = false;
+    hostForm.value.groupName = newGroupName.value.trim();
+    isHostModalOpen.value = true;
+    newGroupName.value = '';
+  }
+};
+
 onMounted(() => {
   fetchHosts();
 });
 
 onUnmounted(() => {
-  openSessions.value.forEach(s => {
+  openSessions.value.forEach((s) => {
     if (s.ws) s.ws.close();
     if (s.term) s.term.dispose();
   });
@@ -732,12 +836,13 @@ onUnmounted(() => {
 
 <template>
   <div class="h-screen w-screen bg-[#14161b] text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
+    
     <!-- Top Header Bar -->
     <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0">
       <!-- Title -->
       <div class="flex items-center gap-2.5">
         <SquareTerminal class="w-4 h-4 text-brand-400" />
-        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server</h1>
+        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server (SSH & SFTP)</h1>
       </div>
 
       <!-- Right Action -->
@@ -760,7 +865,7 @@ onUnmounted(() => {
         :class="[
           'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition text-xs',
           activeSessionIndex === -1
-            ? 'bg-slate-800 text-white border border-slate-700'
+            ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
             : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
         ]"
       >
@@ -777,37 +882,61 @@ onUnmounted(() => {
         <Plus class="w-3.5 h-3.5" />
       </button>
 
-      <!-- Transfer Button -->
+      <!-- FileZilla Transfer Button -->
       <button
         @click="openSftpModal()"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition font-medium text-xs"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white bg-[#20242e] border border-slate-700/80 hover:border-brand-500/50 transition font-medium text-xs shadow-sm"
+        title="Open FileZilla SFTP Transfer"
       >
-        <Upload class="w-3.5 h-3.5 text-slate-400" />
-        <span>TRANSFER</span>
+        <Upload class="w-3.5 h-3.5 text-brand-400" />
+        <span>SFTP TRANSFER</span>
       </button>
 
-      <!-- Open Session Tabs -->
+      <!-- Open Session Tabs (With DUPLICATE TAB Support) -->
       <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
         <div
           v-for="(session, idx) in openSessions"
           :key="session.id"
           @click="activeSessionIndex = idx"
           :class="[
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border group',
             activeSessionIndex === idx
-              ? 'bg-[#242833] border-slate-700 text-white'
+              ? 'bg-[#242833] border-slate-700 text-white shadow-sm'
               : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
           ]"
         >
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>{{ session.host.name }}</span>
+          <span>{{ session.displayName || session.host.name }}</span>
+
+          <!-- DUPLICATE TAB BUTTON (+) -->
+          <button
+            @click="duplicateSession(session, $event)"
+            title="Duplicate Terminal Tab"
+            class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-1"
+          >
+            <Copy class="w-3 h-3" />
+          </button>
+
+          <!-- Close Tab Button -->
           <button
             @click="closeSession(idx, $event)"
-            class="p-0.5 hover:text-red-400 rounded transition ml-1"
+            title="Close Tab"
+            class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
           >
             <X class="w-3 h-3" />
           </button>
         </div>
+
+        <!-- Global + Duplicate Active Tab -->
+        <button
+          v-if="activeSession"
+          @click="duplicateSession(activeSession)"
+          title="Duplicate Current Server Tab"
+          class="flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition"
+        >
+          <Plus class="w-3 h-3 text-brand-400" />
+          <span>New Tab</span>
+        </button>
       </div>
     </div>
 
@@ -818,7 +947,7 @@ onUnmounted(() => {
       <!-- VIEW 1: SERVER LIST / DISCOVERY (When activeSessionIndex === -1) -->
       <!-- ================================================================= -->
       <div v-if="activeSessionIndex === -1" class="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-6">
-        <!-- Search & New Host / New Group Bar -->
+        <!-- Search & Actions -->
         <div class="space-y-3">
           <div class="relative">
             <input
@@ -910,821 +1039,575 @@ onUnmounted(() => {
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-[#1b1e26] border border-emerald-500/30 rounded-xl flex items-center gap-3 cursor-pointer hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10 transition group"
+              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer hover:shadow-lg hover:shadow-emerald-500/10 transition group"
             >
-              <!-- Initials Avatar -->
-              <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
-                {{ host.name.substring(0, 2).toUpperCase() }}
-              </div>
-              <div class="overflow-hidden flex-1">
-                <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
-                <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
-                <div class="flex items-center gap-1.5 mt-1.5">
-                  <span class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
-                    {{ host.groupName || 'Default' }}
-                  </span>
-                  <span
-                    v-for="tag in (host.tags || [])"
-                    :key="tag"
-                    class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium"
-                  >
-                    {{ tag }}
-                  </span>
+              <div class="flex items-center gap-3 overflow-hidden">
+                <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
+                  {{ host.name.substring(0, 2).toUpperCase() }}
+                </div>
+                <div class="overflow-hidden">
+                  <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
+                  <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
+                  <div class="flex items-center gap-1.5 mt-1.5">
+                    <span class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
+                      {{ host.groupName || 'Default' }}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              <!-- Quick Connect / Duplicate Action -->
+              <button
+                @click.stop="connectHost(host, true)"
+                title="Open New Tab"
+                class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-brand-600 transition shrink-0"
+              >
+                <Plus class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- ================================================================= -->
-      <!-- VIEW 2: ACTIVE HOST WORKSPACE (When activeSessionIndex >= 0) -->
+      <!-- VIEW 2: ACTIVE HOST WORKSPACES (PRESERVED IN DOM WITH v-show) -->
       <!-- ================================================================= -->
-      <div v-else-if="activeSession" class="flex-1 flex overflow-hidden">
-        <!-- Left Vertical Icon Nav Bar -->
-        <aside class="w-12 bg-[#1b1e26] border-r border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0">
-          <button
-            @click="activeSession.activeView = 'terminal'"
-            :title="'Interactive Terminal'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'terminal'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <SquareTerminal class="w-4 h-4" />
-          </button>
+      <template v-for="(session, sIdx) in openSessions" :key="session.id">
+        <div v-show="activeSessionIndex === sIdx" class="flex-1 flex overflow-hidden">
+          <!-- Left Vertical Icon Nav Bar -->
+          <aside class="w-12 bg-[#1b1e26] border-r border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0">
+            <button
+              @click="session.activeView = 'terminal'"
+              title="Interactive Terminal"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'terminal'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <SquareTerminal class="w-4 h-4" />
+            </button>
 
-          <button
-            @click="activeSession.activeView = 'dashboard'"
-            :title="'Host Dashboard & Metrics'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'dashboard'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <LayoutGrid class="w-4 h-4" />
-          </button>
+            <button
+              @click="session.activeView = 'dashboard'"
+              title="Host Dashboard & Metrics"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'dashboard'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <LayoutGrid class="w-4 h-4" />
+            </button>
 
-          <button
-            @click="activeSession.activeView = 'processes'"
-            :title="'Process Manager'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'processes'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <Activity class="w-4 h-4" />
-          </button>
+            <button
+              @click="session.activeView = 'processes'"
+              title="Process Manager"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'processes'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <Activity class="w-4 h-4" />
+            </button>
 
-          <button
-            @click="activeSession.activeView = 'services'"
-            :title="'System Services'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'services'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <Settings class="w-4 h-4" />
-          </button>
+            <button
+              @click="session.activeView = 'services'"
+              title="System Services"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'services'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <Settings class="w-4 h-4" />
+            </button>
 
-          <button
-            @click="activeSession.activeView = 'network'"
-            :title="'Network & Ports'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'network'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <Wifi class="w-4 h-4" />
-          </button>
+            <button
+              @click="session.activeView = 'network'"
+              title="Network & Ports"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'network'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <Wifi class="w-4 h-4" />
+            </button>
 
-          <button
-            @click="activeSession.activeView = 'sftp'; fetchSftpFiles()"
-            :title="'File Transfer & SFTP'"
-            :class="[
-              'p-2.5 rounded-lg transition',
-              activeSession.activeView === 'sftp'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            ]"
-          >
-            <Folder class="w-4 h-4" />
-          </button>
-        </aside>
+            <button
+              @click="openSftpModal(session.host.id)"
+              title="FileZilla SFTP Transfer"
+              class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            >
+              <Folder class="w-4 h-4" />
+            </button>
+          </aside>
 
-        <!-- Host Content Pane -->
-        <div class="flex-1 flex flex-col overflow-hidden bg-[#090d16]">
-          
-          <!-- 1. TERMINAL VIEW -->
-          <div v-show="activeSession.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
-            <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
-              <span
-                v-if="activeSession.connected"
-                class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5"
-              >
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Connected
-              </span>
-              <div v-else class="flex items-center gap-2">
-                <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[10px] font-mono border border-red-500/30 flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-                  Disconnected
+          <!-- Host Content Pane -->
+          <div class="flex-1 flex flex-col overflow-hidden bg-[#090d16]">
+            
+            <!-- 1. TERMINAL VIEW (Always mounted, no blank screens) -->
+            <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
+              <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
+                <span
+                  v-if="session.connected"
+                  class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5 shadow-sm"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Connected
                 </span>
-                <button
-                  @click="reconnectTerminal(activeSession)"
-                  class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition"
-                >
-                  <RotateCw class="w-3 h-3" />
-                  <span>Reconnect</span>
-                </button>
-              </div>
-            </div>
-            <div :id="`terminal-container-${activeSession.id}`" class="flex-1 p-2 w-full h-full"></div>
-          </div>
-
-          <!-- 2. DASHBOARD / METRICS VIEW -->
-          <div v-if="activeSession.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 class="text-sm font-bold text-white tracking-wide">Dashboard</h2>
-              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
-            </div>
-
-            <!-- Metric Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <!-- CPU -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.cpuUsage || 0 }}%</p>
-                <p class="text-[10px] text-slate-500">{{ activeSession.metrics?.cpuCores || 1 }} cores</p>
-              </div>
-
-              <!-- Memory -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2">
-                <div class="flex justify-between items-center">
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
-                  <span class="text-xs font-mono text-slate-300">{{ activeSession.metrics?.memUsed || '0 B' }} / {{ activeSession.metrics?.memTotal || '0 B' }}</span>
-                </div>
-                <p class="text-2xl font-black text-white font-mono">{{ Math.round(activeSession.metrics?.memPercent || 0) }}%</p>
-                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div class="h-full bg-emerald-400" :style="{ width: `${activeSession.metrics?.memPercent || 0}%` }"></div>
+                <div v-else class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[10px] font-mono border border-red-500/30 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                    Disconnected
+                  </span>
+                  <button
+                    @click="reconnectTerminal(session)"
+                    class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition"
+                  >
+                    <RotateCw class="w-3 h-3" />
+                    <span>Reconnect</span>
+                  </button>
                 </div>
               </div>
-
-              <!-- Load Average -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
-                <p class="text-xl font-bold text-white font-mono mt-1">{{ activeSession.metrics?.loadAverage || '0.00 / 0.00 / 0.00' }}</p>
-              </div>
-
-              <!-- Disks -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.disksCount || 0 }}</p>
-                <p class="text-[10px] text-slate-500">mounted</p>
-              </div>
+              <div :id="`terminal-container-${session.id}`" class="flex-1 p-2 w-full h-full"></div>
             </div>
 
-            <!-- Disk Usage Table -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-              <div class="p-3 px-5 border-b border-slate-800 text-xs font-bold text-white">
-                Disk Usage
-              </div>
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th class="py-2.5 px-5">Mount</th>
-                      <th class="py-2.5 px-4">Total</th>
-                      <th class="py-2.5 px-4">Used</th>
-                      <th class="py-2.5 px-4">Avail</th>
-                      <th class="py-2.5 px-6">Usage</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="activeSession.metrics?.disks && activeSession.metrics.disks.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="(d, dIdx) in activeSession.metrics.disks"
-                      :key="dIdx"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-3 px-5 text-slate-200">{{ d.mount }}</td>
-                      <td class="py-3 px-4">{{ d.total }}</td>
-                      <td class="py-3 px-4">{{ d.used }}</td>
-                      <td class="py-3 px-4">{{ d.avail }}</td>
-                      <td class="py-3 px-6">
-                        <div class="flex items-center gap-3">
-                          <div class="w-36 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                              class="h-full rounded-full"
-                              :class="d.percent > 85 ? 'bg-red-500' : d.percent > 60 ? 'bg-amber-500' : 'bg-emerald-400'"
-                              :style="{ width: `${d.percent}%` }"
-                            ></div>
-                          </div>
-                          <span class="text-[11px]">{{ d.percent }}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="5" class="py-6 text-center text-slate-500 text-xs">No disks mounted or telemetry unavailable.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3. PROCESSES VIEW -->
-          <div v-if="activeSession.activeView === 'processes'" class="flex-1 p-6 overflow-y-auto space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 class="text-sm font-bold text-white tracking-wide">Processes</h2>
-              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
-            </div>
-
-            <!-- Search & Sort Controls -->
-            <div class="flex items-center justify-between gap-4">
-              <div class="relative flex-1 max-w-xs">
-                <input
-                  v-model="processSearch"
-                  placeholder="Search processes..."
-                  class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
-                />
+            <!-- 2. DASHBOARD VIEW -->
+            <div v-if="session.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 class="text-sm font-bold text-white tracking-wide">Dashboard</h2>
+                <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
               </div>
 
-              <div>
-                <select
-                  v-model="processSort"
-                  class="bg-[#1b1e26] border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-500"
-                >
-                  <option value="cpu">Sort by CPU</option>
-                  <option value="mem">Sort by Memory</option>
-                  <option value="pid">Sort by PID</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Processes Table -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th class="py-2.5 px-4">PID</th>
-                      <th class="py-2.5 px-4">User</th>
-                      <th class="py-2.5 px-4">CPU%</th>
-                      <th class="py-2.5 px-4">MEM%</th>
-                      <th class="py-2.5 px-4">RSS</th>
-                      <th class="py-2.5 px-4">Command</th>
-                      <th class="py-2.5 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="filteredProcesses.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="p in filteredProcesses"
-                      :key="p.pid"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-2.5 px-4 text-slate-400">{{ p.pid }}</td>
-                      <td class="py-2.5 px-4 font-sans text-slate-300">{{ p.user }}</td>
-                      <td class="py-2.5 px-4 font-bold text-white">{{ p.cpu }}</td>
-                      <td class="py-2.5 px-4">{{ p.mem }}</td>
-                      <td class="py-2.5 px-4">{{ p.rss }}</td>
-                      <td class="py-2.5 px-4 max-w-md truncate text-slate-300">{{ p.command }}</td>
-                      <td class="py-2.5 px-4 text-right">
-                        <button
-                          @click="handleKillProcess(p.pid)"
-                          class="px-2.5 py-0.5 rounded bg-red-600/90 hover:bg-red-500 text-white font-sans text-[10px] font-bold tracking-wider uppercase transition shadow-sm"
-                        >
-                          Kill
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="7" class="py-6 text-center text-slate-500 text-xs">No active processes discovered.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- 4. SERVICES VIEW -->
-          <div v-if="activeSession.activeView === 'services'" class="flex-1 p-6 overflow-y-auto space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 class="text-sm font-bold text-white tracking-wide">Services</h2>
-              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
-            </div>
-
-            <!-- Search Service Input -->
-            <div class="max-w-xs">
-              <input
-                v-model="serviceSearch"
-                placeholder="Search services..."
-                class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
-              />
-            </div>
-
-            <!-- Services Table -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th class="py-2.5 px-4">Name</th>
-                      <th class="py-2.5 px-4">Description</th>
-                      <th class="py-2.5 px-4">Status</th>
-                      <th class="py-2.5 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="filteredServices.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="s in filteredServices"
-                      :key="s.name"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-2.5 px-4 font-bold text-white">{{ s.name }}</td>
-                      <td class="py-2.5 px-4 text-slate-400 font-sans">{{ s.description }}</td>
-                      <td class="py-2.5 px-4 font-sans">
-                        <span
-                          :class="[
-                            'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase',
-                            s.status === 'ACTIVE'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : s.status === 'FAILED'
-                              ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                              : 'bg-slate-800 text-slate-400'
-                          ]"
-                        >
-                          {{ s.status }}
-                        </span>
-                      </td>
-                      <td class="py-2.5 px-4 text-right">
-                        <div class="flex items-center justify-end gap-1.5 font-sans">
-                          <button
-                            v-if="s.status !== 'ACTIVE'"
-                            @click="handleControlService(s.name, 'start')"
-                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
-                          >
-                            Start
-                          </button>
-                          <button
-                            v-if="s.status === 'ACTIVE'"
-                            @click="handleControlService(s.name, 'stop')"
-                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
-                          >
-                            Stop
-                          </button>
-                          <button
-                            @click="handleControlService(s.name, 'restart')"
-                            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition"
-                          >
-                            Restart
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="4" class="py-6 text-center text-slate-500 text-xs">No services found.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- 5. NETWORK & LISTENING PORTS VIEW -->
-          <div v-if="activeSession.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-6">
-            <!-- Header Bar -->
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div class="flex items-center gap-2">
-                <Wifi class="w-4 h-4 text-brand-400" />
-                <h2 class="text-sm font-bold text-white tracking-wide">Network & Listening Ports</h2>
-              </div>
-              <div class="flex items-center gap-3">
-                <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
-                <button
-                  @click="fetchHostTelemetry(activeSession)"
-                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
-                >
-                  <RotateCw class="w-3.5 h-3.5" />
-                  <span>Refresh</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Top Metric Cards Row (4 cards) -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <!-- Total Interfaces -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Network Interfaces</p>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.networkInfo?.interfaces?.length || 0 }}</p>
-                <p class="text-[10px] text-emerald-400">{{ (activeSession.networkInfo?.interfaces || []).filter((i: any) => i.state === 'UP').length }} UP</p>
-              </div>
-
-              <!-- TCP Listening Ports -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TCP Listening Ports</p>
-                <p class="text-2xl font-black text-sky-400 font-mono">{{ (activeSession.networkInfo?.listeningPorts || []).filter((p: any) => p.proto?.startsWith('TCP')).length }}</p>
-                <p class="text-[10px] text-slate-500">Active TCP Sockets</p>
-              </div>
-
-              <!-- UDP Listening Ports -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">UDP Ports</p>
-                <p class="text-2xl font-black text-purple-400 font-mono">{{ (activeSession.networkInfo?.listeningPorts || []).filter((p: any) => p.proto?.startsWith('UDP')).length }}</p>
-                <p class="text-[10px] text-slate-500">Unconnected UDP</p>
-              </div>
-
-              <!-- Established Connections -->
-              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Connections</p>
-                <p class="text-2xl font-black text-emerald-400 font-mono">{{ activeSession.networkInfo?.connections?.length || 0 }}</p>
-                <p class="text-[10px] text-slate-500">Sockets in ESTAB state</p>
-              </div>
-            </div>
-
-            <!-- SECTION 1: NETWORK INTERFACES TABLE -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
-              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <Activity class="w-4 h-4 text-emerald-400" />
-                  <h3 class="text-xs font-bold text-white tracking-wide uppercase">Network Interfaces</h3>
+              <!-- Metric Cards -->
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
+                  <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.cpuUsage || 0 }}%</p>
+                  <p class="text-[10px] text-slate-500">{{ session.metrics?.cpuCores || 1 }} cores</p>
                 </div>
-                <div class="relative w-48">
-                  <input
-                    v-model="interfaceSearch"
-                    placeholder="Filter interface..."
-                    class="w-full bg-[#14161b] border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
-                  />
-                </div>
-              </div>
 
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th class="py-2.5 px-5">Interface</th>
-                      <th class="py-2.5 px-4">State</th>
-                      <th class="py-2.5 px-4">IPv4 Address & CIDR</th>
-                      <th class="py-2.5 px-4">IPv6 Address</th>
-                      <th class="py-2.5 px-4">MAC Address</th>
-                      <th class="py-2.5 px-4">MTU</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="filteredInterfaces.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="(iface, iIdx) in filteredInterfaces"
-                      :key="iIdx"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-3 px-5 font-bold text-white font-sans flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full" :class="iface.state === 'UP' ? 'bg-emerald-400' : 'bg-red-400'"></span>
-                        <span>{{ iface.name }}</span>
-                      </td>
-                      <td class="py-3 px-4">
-                        <span
-                          :class="[
-                            'px-2 py-0.5 rounded text-[10px] font-bold font-sans tracking-wider uppercase',
-                            iface.state === 'UP' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'
-                          ]"
-                        >
-                          {{ iface.state }}
-                        </span>
-                      </td>
-                      <td class="py-3 px-4 font-bold text-slate-200">{{ iface.ipv4 }}</td>
-                      <td class="py-3 px-4 text-slate-400 truncate max-w-[200px]" :title="iface.ipv6">{{ iface.ipv6 }}</td>
-                      <td class="py-3 px-4 text-slate-400">{{ iface.mac }}</td>
-                      <td class="py-3 px-4 text-slate-300">{{ iface.mtu }}</td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="6" class="py-6 text-center text-slate-500 text-xs font-sans">No network interfaces discovered.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- SECTION 2: ACTIVE LISTENING PORTS (TCP & UDP) TABLE -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
-              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                  <div class="flex items-center gap-2">
-                    <Radio class="w-4 h-4 text-sky-400" />
-                    <h3 class="text-xs font-bold text-white tracking-wide uppercase">Active Listening Ports</h3>
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2">
+                  <div class="flex justify-between items-center">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
+                    <span class="text-xs font-mono text-slate-300">{{ session.metrics?.memUsed || '0 B' }} / {{ session.metrics?.memTotal || '0 B' }}</span>
                   </div>
-
-                  <!-- Protocol Filter Tabs -->
-                  <div class="flex items-center bg-[#14161b] border border-slate-800 rounded-lg p-0.5 text-xs">
-                    <button
-                      v-for="pOpt in ['all', 'tcp', 'udp']"
-                      :key="pOpt"
-                      @click="portProtoFilter = pOpt as any"
-                      :class="[
-                        'px-2.5 py-0.5 rounded font-medium uppercase text-[10px] transition',
-                        portProtoFilter === pOpt ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                      ]"
-                    >
-                      {{ pOpt }}
-                    </button>
+                  <p class="text-2xl font-black text-white font-mono">{{ Math.round(session.metrics?.memPercent || 0) }}%</p>
+                  <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-emerald-400" :style="{ width: `${session.metrics?.memPercent || 0}%` }"></div>
                   </div>
                 </div>
 
-                <div class="relative w-48">
-                  <input
-                    v-model="portSearch"
-                    placeholder="Search port / process..."
-                    class="w-full bg-[#14161b] border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
-                  />
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
+                  <p class="text-xl font-bold text-white font-mono mt-1">{{ session.metrics?.loadAverage || '0.00 / 0.00 / 0.00' }}</p>
                 </div>
-              </div>
 
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th class="py-2.5 px-5">Protocol</th>
-                      <th class="py-2.5 px-4">Local Address</th>
-                      <th class="py-2.5 px-4">Port</th>
-                      <th class="py-2.5 px-4">State</th>
-                      <th class="py-2.5 px-4">Process / Daemon</th>
-                      <th class="py-2.5 px-4">PID</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="filteredListeningPorts.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="(p, pIdx) in filteredListeningPorts"
-                      :key="pIdx"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-3 px-5 font-bold font-sans">
-                        <span
-                          :class="[
-                            'px-2 py-0.5 rounded text-[10px] font-bold',
-                            p.proto?.startsWith('TCP') ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400' : 'bg-purple-500/10 border border-purple-500/30 text-purple-400'
-                          ]"
-                        >
-                          {{ p.proto }}
-                        </span>
-                      </td>
-                      <td class="py-3 px-4 text-slate-200">{{ p.localAddr }}</td>
-                      <td class="py-3 px-4 font-bold text-brand-400">{{ p.port }}</td>
-                      <td class="py-3 px-4 font-sans">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          {{ p.state || 'LISTEN' }}
-                        </span>
-                      </td>
-                      <td class="py-3 px-4 font-sans text-slate-200 font-medium">{{ p.process }}</td>
-                      <td class="py-3 px-4 text-slate-400">{{ p.pid }}</td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="6" class="py-6 text-center text-slate-500 text-xs font-sans">No listening ports matched.</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
+                  <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.disksCount || 0 }}</p>
+                  <p class="text-[10px] text-slate-500">mounted</p>
+                </div>
               </div>
             </div>
 
-            <!-- SECTION 3: ACTIVE SOCKET CONNECTIONS TABLE -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
-              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
+            <!-- 3. PROCESSES VIEW -->
+            <div v-if="session.activeView === 'processes'" class="flex-1 p-6 overflow-y-auto space-y-4">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 class="text-sm font-bold text-white tracking-wide">Processes ({{ filteredProcesses.length }})</h2>
                 <div class="flex items-center gap-2">
-                  <Activity class="w-4 h-4 text-purple-400" />
-                  <h3 class="text-xs font-bold text-white tracking-wide uppercase">Active Established Sockets</h3>
+                  <input
+                    v-model="processSearch"
+                    placeholder="Search process..."
+                    class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white"
+                  />
+                  <select v-model="processSort" class="bg-[#1b1e26] border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300">
+                    <option value="cpu">Sort by CPU</option>
+                    <option value="mem">Sort by Memory</option>
+                    <option value="pid">Sort by PID</option>
+                  </select>
                 </div>
-                <span class="text-xs font-mono text-slate-400">{{ (activeSession.networkInfo?.connections || []).length }} sockets</span>
               </div>
-
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
+              <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
+                <table class="w-full text-left text-xs font-mono">
                   <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
                     <tr>
-                      <th class="py-2.5 px-5">Proto</th>
-                      <th class="py-2.5 px-4">Local Address:Port</th>
-                      <th class="py-2.5 px-4">Foreign / Remote Socket</th>
-                      <th class="py-2.5 px-4">State</th>
-                      <th class="py-2.5 px-4">Process / PID</th>
+                      <th class="p-3">PID</th>
+                      <th class="p-3">User</th>
+                      <th class="p-3">CPU %</th>
+                      <th class="p-3">MEM %</th>
+                      <th class="p-3">Command</th>
                     </tr>
                   </thead>
-                  <tbody v-if="(activeSession.networkInfo?.connections || []).length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="(c, cIdx) in (activeSession.networkInfo?.connections || [])"
-                      :key="cIdx"
-                      class="hover:bg-slate-800/30 transition text-slate-300"
-                    >
-                      <td class="py-3 px-5 font-sans font-bold text-sky-400">{{ c.proto }}</td>
-                      <td class="py-3 px-4 text-slate-200">{{ c.localAddr }}</td>
-                      <td class="py-3 px-4 text-slate-300">{{ c.remoteAddr }}</td>
-                      <td class="py-3 px-4 font-sans">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          {{ c.state }}
-                        </span>
-                      </td>
-                      <td class="py-3 px-4 text-slate-300 font-sans">{{ c.process }} (PID {{ c.pid }})</td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="5" class="py-6 text-center text-slate-500 text-xs font-sans">No active established external connections.</td>
+                  <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                    <tr v-for="p in filteredProcesses" :key="p.pid" class="hover:bg-slate-800/30">
+                      <td class="p-3 text-slate-400">{{ p.pid }}</td>
+                      <td class="p-3 text-slate-300">{{ p.user }}</td>
+                      <td class="p-3 text-emerald-400 font-bold">{{ p.cpu }}%</td>
+                      <td class="p-3 text-sky-400">{{ p.mem }}%</td>
+                      <td class="p-3 text-white truncate max-w-md">{{ p.command }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-          </div>
-
-          <!-- 6. SFTP FILE MANAGER & TRANSFER VIEW -->
-          <div v-if="activeSession.activeView === 'sftp'" class="flex-1 p-6 overflow-y-auto space-y-4">
-            <!-- Header Bar -->
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div class="flex items-center gap-2">
-                <Folder class="w-4 h-4 text-amber-400" />
-                <h2 class="text-sm font-bold text-white tracking-wide">File Manager & SFTP Transfer</h2>
-              </div>
-              <div class="flex items-center gap-3">
-                <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.username }}@{{ activeSession.host.host }})</span>
-                <button
-                  @click="fetchSftpFiles()"
-                  :disabled="sftpLoading"
-                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium disabled:opacity-50"
-                >
-                  <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpLoading }" />
-                  <span>Refresh</span>
-                </button>
+            <!-- 4. SERVICES VIEW -->
+            <div v-if="session.activeView === 'services'" class="flex-1 p-6 overflow-y-auto space-y-4">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 class="text-sm font-bold text-white tracking-wide">System Services ({{ filteredServices.length }})</h2>
                 <input
-                  type="file"
-                  ref="sftpFileInput"
-                  @change="handleFileUpload"
-                  class="hidden"
+                  v-model="serviceSearch"
+                  placeholder="Search systemd service..."
+                  class="bg-[#1b1e26] border border-slate-800 rounded-lg px-3 py-1 text-xs text-white"
                 />
-                <button
-                  @click="triggerFileUpload"
-                  :disabled="sftpUploadProgress"
-                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium shadow-md shadow-blue-500/20 transition disabled:opacity-50"
-                >
-                  <Upload class="w-3.5 h-3.5" />
-                  <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
-                </button>
               </div>
-            </div>
-
-            <!-- Path Bar & Quick Shortcuts -->
-            <div class="flex flex-wrap items-center justify-between gap-3 bg-[#1b1e26] border border-slate-800/80 p-3 px-4 rounded-xl">
-              <!-- Breadcrumb Navigation -->
-              <div class="flex items-center gap-2 flex-1 font-mono text-xs">
-                <button
-                  @click="navigateUp"
-                  :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
-                  title="Up Directory"
-                  class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
-                >
-                  <ArrowLeft class="w-3.5 h-3.5" />
-                </button>
-                <span class="text-slate-500">Path:</span>
-                <span class="text-white font-bold bg-[#14161b] px-3 py-1 rounded border border-slate-800 max-w-md truncate">
-                  {{ sftpCurrentPath }}
-                </span>
-              </div>
-
-              <!-- Quick Path Jump -->
-              <div class="flex items-center gap-1.5 text-xs">
-                <span class="text-[11px] text-slate-500">Quick:</span>
-                <button
-                  v-for="qp in ['/', '/home', '/var/log', '/etc', '/root']"
-                  :key="qp"
-                  @click="fetchSftpFiles(qp)"
-                  class="px-2 py-0.5 rounded bg-[#14161b] border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-white font-mono text-[11px] transition"
-                >
-                  {{ qp }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Error Banner if any -->
-            <div v-if="sftpError" class="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 flex items-center gap-2">
-              <AlertTriangle class="w-4 h-4 shrink-0" />
-              <span>{{ sftpError }}</span>
-            </div>
-
-            <!-- File Explorer Table -->
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
+              <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
+                <table class="w-full text-left text-xs font-mono">
                   <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
                     <tr>
-                      <th class="py-2.5 px-5">Name</th>
-                      <th class="py-2.5 px-4">Type</th>
-                      <th class="py-2.5 px-4">Size</th>
-                      <th class="py-2.5 px-4">Last Modified</th>
-                      <th class="py-2.5 px-4 text-right">Actions</th>
+                      <th class="p-3">Service Name</th>
+                      <th class="p-3">State</th>
+                      <th class="p-3">Status</th>
+                      <th class="p-3">Description</th>
                     </tr>
                   </thead>
-                  <tbody v-if="sftpLoading">
-                    <tr>
-                      <td colspan="5" class="py-12 text-center text-slate-400">
-                        <div class="flex items-center justify-center gap-2">
-                          <RotateCw class="w-4 h-4 animate-spin text-brand-400" />
-                          <span>Listing files over SFTP...</span>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else-if="sftpFiles.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-                    <tr
-                      v-for="(file, fIdx) in sftpFiles"
-                      :key="fIdx"
-                      class="hover:bg-slate-800/30 transition text-slate-300 group"
-                    >
-                      <!-- Name with Icon -->
-                      <td class="py-2.5 px-5 font-sans flex items-center gap-2.5">
-                        <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
-                        <HardDrive v-else class="w-4 h-4 text-sky-400 shrink-0" />
-                        <span
-                          v-if="file.isDir"
-                          @click="navigateToDir(file.name)"
-                          class="font-semibold text-white hover:text-brand-400 cursor-pointer transition hover:underline"
-                        >
-                          {{ file.name }}
-                        </span>
-                        <span v-else class="text-slate-200">
-                          {{ file.name }}
-                        </span>
-                      </td>
-
-                      <!-- Type -->
-                      <td class="py-2.5 px-4 font-sans">
-                        <span
-                          :class="[
-                            'px-2 py-0.5 rounded text-[10px] font-bold',
-                            file.isDir ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-800 text-slate-400'
-                          ]"
-                        >
-                          {{ file.isDir ? 'DIR' : 'FILE' }}
-                        </span>
-                      </td>
-
-                      <!-- Size -->
-                      <td class="py-2.5 px-4 text-slate-400">
-                        {{ file.isDir ? '-' : formatFileSize(file.size) }}
-                      </td>
-
-                      <!-- Modified Date -->
-                      <td class="py-2.5 px-4 text-slate-400">
-                        {{ file.modTime ? new Date(file.modTime).toLocaleString() : '-' }}
-                      </td>
-
-                      <!-- Actions -->
-                      <td class="py-2.5 px-4 text-right">
-                        <button
-                          v-if="!file.isDir"
-                          @click="handleDownloadFile(file.name)"
-                          title="Download File"
-                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans transition"
-                        >
-                          <Download class="w-3 h-3" />
-                          <span>Download</span>
-                        </button>
-                        <button
-                          v-else
-                          @click="navigateToDir(file.name)"
-                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans transition"
-                        >
-                          <span>Open</span>
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                  <tbody v-else>
-                    <tr>
-                      <td colspan="5" class="py-8 text-center text-slate-500 text-xs font-sans">
-                        This directory is empty.
-                      </td>
+                  <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                    <tr v-for="s in filteredServices" :key="s.name" class="hover:bg-slate-800/30">
+                      <td class="p-3 text-white font-bold">{{ s.name }}</td>
+                      <td class="p-3 font-semibold" :class="s.activeState === 'active' ? 'text-emerald-400' : 'text-slate-500'">{{ s.activeState }}</td>
+                      <td class="p-3 text-slate-400">{{ s.subState }}</td>
+                      <td class="p-3 text-slate-400 truncate max-w-md">{{ s.description }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
 
+            <!-- 5. NETWORK & PORTS VIEW -->
+            <div v-if="session.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-6">
+              <div class="space-y-3">
+                <h3 class="text-xs font-bold text-white uppercase tracking-wider">Listening Ports</h3>
+                <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
+                  <table class="w-full text-left text-xs font-mono">
+                    <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th class="p-3">Proto</th>
+                        <th class="p-3">Local Address : Port</th>
+                        <th class="p-3">Process</th>
+                        <th class="p-3">PID</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                      <tr v-for="p in filteredListeningPorts" :key="`${p.proto}-${p.port}-${p.pid}`" class="hover:bg-slate-800/30">
+                        <td class="p-3 text-emerald-400 font-bold uppercase">{{ p.proto }}</td>
+                        <td class="p-3 text-white font-bold">{{ p.localAddr || '*' }}:{{ p.port }}</td>
+                        <td class="p-3 text-brand-400">{{ p.process || '-' }}</td>
+                        <td class="p-3 text-slate-400">{{ p.pid || '-' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
+      </template>
+
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- FILEZILLA-STYLE SFTP TRANSFER CLIENT (FULL MODAL) -->
+    <!-- ================================================================= -->
+    <div
+      v-if="isSftpModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150"
+    >
+      <div class="bg-[#13161f] border border-slate-700 rounded-2xl w-full max-w-5xl h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+        
+        <!-- 1. TOP QUICKCONNECT BAR (FileZilla Style) -->
+        <div class="p-3.5 bg-[#1b1e26] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 font-bold text-white">
+              <Folder class="w-4 h-4 text-brand-400" />
+              <span>SFTP Remote Site Explorer</span>
+            </div>
+
+            <!-- Server QuickConnect Selector -->
+            <div class="flex items-center gap-2 bg-[#14161b] border border-slate-700/80 rounded-lg px-2.5 py-1">
+              <span class="text-slate-400 text-[11px]">Host:</span>
+              <select
+                v-model="selectedSftpHostId"
+                @change="fetchSftpFiles('/')"
+                class="bg-transparent text-white font-semibold focus:outline-none text-xs"
+              >
+                <option v-for="h in hosts" :key="h.id" :value="h.id" class="bg-[#1b1e26]">
+                  {{ h.name }} ({{ h.host }})
+                </option>
+              </select>
+            </div>
+
+            <span class="text-slate-400 text-[11px] font-mono">Port: 22</span>
+
+            <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Connected (SFTP)
+            </span>
+          </div>
+
+          <button @click="isSftpModalOpen = false" class="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 2. FILEZILLA COMMAND / STATUS LOG CONSOLE -->
+        <div class="bg-[#090d16] border-b border-slate-800/80 p-2.5 px-4 max-h-24 overflow-y-auto font-mono text-[11px] space-y-0.5 shrink-0 select-text">
+          <div v-for="(log, idx) in sftpCommandLogs" :key="idx" class="flex items-center gap-2">
+            <span class="text-slate-600 text-[10px] select-none">{{ log.time }}</span>
+            <span
+              :class="[
+                log.type === 'command' ? 'text-sky-400 font-semibold' :
+                log.type === 'response' ? 'text-emerald-400' :
+                log.type === 'error' ? 'text-rose-400 font-bold' : 'text-slate-400',
+                'break-all'
+              ]"
+            >
+              {{ log.type === 'command' ? 'Command: ' : log.type === 'response' ? 'Response: ' : log.type === 'error' ? 'Error: ' : 'Status: ' }}
+              {{ log.text }}
+            </span>
+          </div>
+          <div v-if="sftpCommandLogs.length === 0" class="text-slate-600 text-[10px]">
+            Status: SFTP subsystem session ready.
+          </div>
+        </div>
+
+        <!-- 3. REMOTE SITE PATH BAR & QUICK BOOKMARKS (FileZilla Style) -->
+        <div class="p-2.5 px-4 bg-[#181b22] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+          <!-- Remote Site Path Input -->
+          <div class="flex items-center gap-2 flex-1 min-w-[320px]">
+            <button
+              @click="navigateUp"
+              :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
+              title="Parent Directory (..)"
+              class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 transition flex items-center gap-1 text-[11px] font-mono border border-slate-700"
+            >
+              <CornerLeftUp class="w-3.5 h-3.5" />
+              <span>..</span>
+            </button>
+
+            <span class="text-slate-400 font-semibold select-none">Remote Site:</span>
+            <form @submit.prevent="handlePathSubmit" class="flex items-center gap-1.5 flex-1">
+              <input
+                v-model="sftpInputPath"
+                placeholder="/etc/prometheus"
+                class="flex-1 bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+              <button
+                type="submit"
+                class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
+              >
+                Go
+              </button>
+            </form>
+          </div>
+
+          <!-- Quick Bookmark Path Shortcuts -->
+          <div class="flex items-center gap-1 text-[11px] font-mono">
+            <span class="text-slate-500 mr-1 text-[10px] uppercase">Quick:</span>
+            <button @click="fetchSftpFiles('/')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/</button>
+            <button @click="fetchSftpFiles('/root')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/root</button>
+            <button @click="fetchSftpFiles('/etc')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/etc</button>
+            <button @click="fetchSftpFiles('/var/log')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/var/log</button>
+            <button @click="fetchSftpFiles('/home')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/home</button>
+          </div>
+
+          <!-- Actions Toolbar -->
+          <div class="flex items-center gap-2">
+            <button
+              @click="fetchSftpFiles()"
+              :disabled="sftpLoading"
+              class="flex items-center gap-1 px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition"
+              title="Refresh Directory"
+            >
+              <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpLoading }" />
+              <span>Refresh</span>
+            </button>
+
+            <input
+              type="file"
+              ref="sftpFileInput"
+              @change="handleFileUpload"
+              class="hidden"
+            />
+            <button
+              @click="triggerFileUpload"
+              :disabled="sftpUploadProgress"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition shadow disabled:opacity-50"
+            >
+              <Upload class="w-3.5 h-3.5" />
+              <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Sub-bar -->
+        <div class="p-2 px-4 bg-[#14161b] border-b border-slate-800 flex items-center justify-between gap-3 text-xs shrink-0">
+          <div class="flex items-center gap-2 flex-1 max-w-xs">
+            <Search class="w-3.5 h-3.5 text-slate-500" />
+            <input
+              v-model="sftpFileFilter"
+              placeholder="Filter filename..."
+              class="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-xs font-mono"
+            />
+          </div>
+          <span class="text-slate-500 font-mono text-[11px]">{{ filteredSftpFiles.length }} items listed</span>
+        </div>
+
+        <!-- 4. FILEZILLA DIRECTORY EXPLORER TABLE (Drag & Drop Area) -->
+        <div
+          class="flex-1 overflow-y-auto bg-[#0b0e14] relative select-text"
+          @dragover.prevent="isDragOverSftp = true"
+          @dragleave.prevent="isDragOverSftp = false"
+          @drop.prevent="handleDrop"
+        >
+          <!-- Drag and Drop Overlay -->
+          <div
+            v-if="isDragOverSftp"
+            class="absolute inset-0 z-30 bg-blue-600/20 border-2 border-dashed border-blue-400 flex flex-col items-center justify-center backdrop-blur-sm"
+          >
+            <Upload class="w-10 h-10 text-blue-400 animate-bounce" />
+            <p class="text-sm font-bold text-white mt-2">Drop files here to upload to {{ sftpCurrentPath }}</p>
+          </div>
+
+          <table class="w-full text-left text-xs font-mono border-collapse">
+            <!-- FileZilla Standard Columns -->
+            <thead class="bg-[#171a23] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0 z-10 select-none">
+              <tr>
+                <th class="py-2.5 px-4">Filename</th>
+                <th class="py-2.5 px-4 w-28 text-right">Filesize</th>
+                <th class="py-2.5 px-4 w-44">Filetype</th>
+                <th class="py-2.5 px-4 w-44">Last Modified</th>
+                <th class="py-2.5 px-4 w-32 font-mono">Permissions</th>
+                <th class="py-2.5 px-4 w-24 text-right">Action</th>
+              </tr>
+            </thead>
+
+            <!-- Table Rows -->
+            <tbody class="divide-y divide-slate-800/50 text-[11px] text-slate-300">
+              <!-- Up Directory Item -->
+              <tr
+                v-if="sftpCurrentPath !== '/' && sftpCurrentPath"
+                @dblclick="navigateUp"
+                class="hover:bg-slate-800/40 transition cursor-pointer text-slate-400 select-none"
+              >
+                <td class="py-2 px-4 flex items-center gap-2.5">
+                  <CornerLeftUp class="w-4 h-4 text-amber-400 shrink-0" />
+                  <span class="font-bold text-slate-200">.. (Parent Directory)</span>
+                </td>
+                <td class="py-2 px-4 text-right">-</td>
+                <td class="py-2 px-4">Directory</td>
+                <td class="py-2 px-4">-</td>
+                <td class="py-2 px-4 font-mono text-slate-500">drwxr-xr-x</td>
+                <td class="py-2 px-4 text-right">
+                  <button @click="navigateUp" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white">Up</button>
+                </td>
+              </tr>
+
+              <!-- Files & Directories List -->
+              <tr
+                v-for="file in filteredSftpFiles"
+                :key="file.name"
+                @dblclick="file.isDir ? navigateToDir(file.name) : handleDownloadFile(file.name)"
+                class="hover:bg-slate-800/50 transition cursor-pointer group"
+              >
+                <!-- Filename with Specific Type Icon -->
+                <td class="py-2 px-4">
+                  <div class="flex items-center gap-2.5">
+                    <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
+                    <FileCode v-else-if="file.name.endsWith('.yaml') || file.name.endsWith('.yml') || file.name.endsWith('.json')" class="w-4 h-4 text-sky-400 shrink-0" />
+                    <FileText v-else-if="file.name.endsWith('.log') || file.name.endsWith('.txt')" class="w-4 h-4 text-emerald-400 shrink-0" />
+                    <FileArchive v-else-if="file.name.endsWith('.tar') || file.name.endsWith('.gz') || file.name.endsWith('.zip')" class="w-4 h-4 text-purple-400 shrink-0" />
+                    <File v-else class="w-4 h-4 text-slate-400 shrink-0" />
+
+                    <span :class="file.isDir ? 'font-bold text-white' : 'text-slate-200'" class="truncate">
+                      {{ file.name }}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Filesize -->
+                <td class="py-2 px-4 text-right font-mono" :class="file.isDir ? 'text-slate-600' : 'text-slate-300'">
+                  {{ file.isDir ? 'DIR' : formatFileSize(file.size) }}
+                </td>
+
+                <!-- Filetype -->
+                <td class="py-2 px-4 text-slate-400 truncate">
+                  {{ getFileTypeLabel(file.name, file.isDir) }}
+                </td>
+
+                <!-- Last Modified -->
+                <td class="py-2 px-4 text-slate-400 whitespace-nowrap">
+                  {{ file.modTime ? new Date(file.modTime).toLocaleString() : '-' }}
+                </td>
+
+                <!-- Permissions -->
+                <td class="py-2 px-4 font-mono text-slate-400 whitespace-nowrap">
+                  <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px]">
+                    {{ getFilePermissions(file) }}
+                  </span>
+                </td>
+
+                <!-- Action (Download / Open) -->
+                <td class="py-2 px-4 text-right whitespace-nowrap">
+                  <button
+                    v-if="!file.isDir"
+                    @click="handleDownloadFile(file.name)"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-brand-400 hover:text-brand-300 border border-slate-700 transition"
+                    title="Download File"
+                  >
+                    <Download class="w-3 h-3 inline mr-1" />
+                    <span>Get</span>
+                  </button>
+                  <button
+                    v-else
+                    @click="navigateToDir(file.name)"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                  >
+                    <span>Open</span>
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Empty directory state -->
+              <tr v-if="filteredSftpFiles.length === 0">
+                <td colspan="6" class="py-12 text-center text-slate-600 text-xs">
+                  This directory is empty.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 5. FILEZILLA BOTTOM TRANSFER QUEUE & STATUS PANE -->
+        <div class="p-2.5 px-4 bg-[#14161b] border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-4">
+            <span class="text-slate-300 font-semibold">Transfer Queue: {{ sftpTransferQueue.length }} tasks</span>
+            <div v-if="sftpTransferQueue.length > 0" class="flex items-center gap-2 font-mono text-[10px]">
+              <span class="text-emerald-400">Latest: {{ sftpTransferQueue[0].name }} ({{ sftpTransferQueue[0].status }})</span>
+            </div>
+          </div>
+          <span class="text-slate-500 font-mono">SFTP Protocol version 3</span>
+        </div>
+
       </div>
     </div>
 
@@ -1747,7 +1630,7 @@ onUnmounted(() => {
         <form @submit.prevent="handleSaveHost" class="space-y-3 text-xs">
           <div>
             <label class="block text-slate-400 mb-1">Server Name / Identifier</label>
-            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="e.g. Bifrost Server" />
+            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="e.g. Server - Bifrost" />
           </div>
 
           <div class="grid grid-cols-3 gap-3">
@@ -1861,170 +1744,5 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Modal: Standalone SFTP File Transfer Explorer -->
-    <div
-      v-if="isSftpModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
-    >
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl flex flex-col max-h-[85vh]">
-        <!-- Header -->
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
-          <div class="flex items-center gap-2">
-            <Upload class="w-4 h-4 text-brand-400" />
-            <h3 class="text-sm font-bold text-white">SFTP File Transfer</h3>
-          </div>
-
-          <div class="flex items-center gap-3">
-            <!-- Server Selector -->
-            <select
-              v-model="selectedSftpHostId"
-              @change="fetchSftpFiles('/')"
-              class="bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-sans"
-            >
-              <option v-for="h in hosts" :key="h.id" :value="h.id">
-                {{ h.name }} ({{ h.host }})
-              </option>
-            </select>
-
-            <button @click="isSftpModalOpen = false" class="text-slate-400 hover:text-white">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <!-- Path & Upload Actions -->
-        <div class="flex flex-wrap items-center justify-between gap-2 bg-[#14161b] border border-slate-800 p-2.5 px-3 rounded-xl shrink-0 text-xs">
-          <!-- Breadcrumbs -->
-          <div class="flex items-center gap-2 flex-1 font-mono">
-            <button
-              @click="navigateUp"
-              :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
-              title="Up Directory"
-              class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
-            >
-              <ArrowLeft class="w-3.5 h-3.5" />
-            </button>
-            <span class="text-slate-500">Path:</span>
-            <span class="text-white font-bold bg-[#1b1e26] px-2.5 py-0.5 rounded border border-slate-800 truncate max-w-[280px]">
-              {{ sftpCurrentPath }}
-            </span>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button
-              @click="fetchSftpFiles()"
-              :disabled="sftpLoading"
-              class="flex items-center gap-1 px-2.5 py-1 rounded bg-[#242833] border border-slate-700 text-xs text-slate-300 hover:text-white transition disabled:opacity-50"
-            >
-              <RotateCw class="w-3 h-3" :class="{ 'animate-spin': sftpLoading }" />
-              <span>Refresh</span>
-            </button>
-
-            <input
-              type="file"
-              ref="sftpFileInput"
-              @change="handleFileUpload"
-              class="hidden"
-            />
-            <button
-              @click="triggerFileUpload"
-              :disabled="sftpUploadProgress"
-              class="flex items-center gap-1 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-semibold transition disabled:opacity-50"
-            >
-              <Upload class="w-3.5 h-3.5" />
-              <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Error Banner -->
-        <div v-if="sftpError" class="p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 flex items-center gap-2 shrink-0">
-          <AlertTriangle class="w-4 h-4 shrink-0" />
-          <span>{{ sftpError }}</span>
-        </div>
-
-        <!-- File List Table -->
-        <div class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-[#14161b]">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-[#1b1e26] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0">
-              <tr>
-                <th class="py-2 px-4">Name</th>
-                <th class="py-2 px-3">Type</th>
-                <th class="py-2 px-3">Size</th>
-                <th class="py-2 px-3">Modified</th>
-                <th class="py-2 px-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody v-if="sftpLoading">
-              <tr>
-                <td colspan="5" class="py-10 text-center text-slate-400">
-                  <div class="flex items-center justify-center gap-2">
-                    <RotateCw class="w-4 h-4 animate-spin text-brand-400" />
-                    <span>Loading files...</span>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-            <tbody v-else-if="sftpFiles.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
-              <tr
-                v-for="(file, fIdx) in sftpFiles"
-                :key="fIdx"
-                class="hover:bg-slate-800/40 transition text-slate-300"
-              >
-                <td class="py-2 px-4 font-sans flex items-center gap-2">
-                  <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
-                  <HardDrive v-else class="w-4 h-4 text-sky-400 shrink-0" />
-                  <span
-                    v-if="file.isDir"
-                    @click="navigateToDir(file.name)"
-                    class="font-semibold text-white hover:text-brand-400 cursor-pointer transition hover:underline"
-                  >
-                    {{ file.name }}
-                  </span>
-                  <span v-else class="text-slate-200">
-                    {{ file.name }}
-                  </span>
-                </td>
-                <td class="py-2 px-3 font-sans">
-                  <span :class="file.isDir ? 'text-amber-400 font-bold' : 'text-slate-400'">
-                    {{ file.isDir ? 'DIR' : 'FILE' }}
-                  </span>
-                </td>
-                <td class="py-2 px-3 text-slate-400">
-                  {{ file.isDir ? '-' : formatFileSize(file.size) }}
-                </td>
-                <td class="py-2 px-3 text-slate-400">
-                  {{ file.modTime ? new Date(file.modTime).toLocaleDateString() : '-' }}
-                </td>
-                <td class="py-2 px-3 text-right font-sans">
-                  <button
-                    v-if="!file.isDir"
-                    @click="handleDownloadFile(file.name)"
-                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] transition inline-flex items-center gap-1"
-                  >
-                    <Download class="w-3 h-3" />
-                    <span>Download</span>
-                  </button>
-                  <button
-                    v-else
-                    @click="navigateToDir(file.name)"
-                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] transition"
-                  >
-                    <span>Open</span>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-            <tbody v-else>
-              <tr>
-                <td colspan="5" class="py-8 text-center text-slate-500 text-xs font-sans">
-                  Directory is empty.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
