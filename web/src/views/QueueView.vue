@@ -257,63 +257,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col space-y-4 overflow-y-auto pr-1 select-none">
+  <div class="h-full flex flex-col space-y-5 overflow-y-auto pr-1 select-none">
     
-    <!-- Top Action & Status Bar -->
-    <div class="bg-[#1b1e26] border border-slate-800 rounded-xl p-3 px-5 flex items-center justify-between shadow-lg">
-      <!-- Breadcrumb -->
-      <div class="flex items-center gap-2 text-xs">
-        <span class="text-slate-400">Services</span>
-        <span class="text-slate-600">/</span>
-        <span class="text-white font-semibold">Status Services</span>
-      </div>
-
-      <!-- Right Status Icons -->
-      <div class="flex items-center gap-4 text-slate-300">
-        <!-- History / Uptime Icon -->
-        <button title="System Uptime: 100% OK" class="p-1.5 text-slate-400 hover:text-white transition">
-          <Clock class="w-4 h-4" />
-        </button>
-
-        <!-- Red Alert Count Pill -->
-        <div title="Active Alerts" class="px-2 py-0.5 rounded-full bg-red-600 text-white font-black text-[11px] shadow-sm shadow-red-600/30 flex items-center justify-center min-w-[22px]">
-          0
-        </div>
-
-        <!-- Wand / Magic Cleaner -->
-        <button @click="fetchJobs" title="Refresh & Clean Queue" class="p-1.5 text-slate-400 hover:text-amber-400 transition">
-          <Wand2 class="w-4 h-4" />
-        </button>
-
-        <!-- Database / Storage Orange Icon -->
-        <div title="Database Engine: Online" class="p-1.5 text-amber-500 hover:text-amber-400 transition cursor-pointer">
-          <Database class="w-4 h-4" />
-        </div>
-
-        <!-- Help Icon -->
-        <button title="Documentation & Help" class="p-1.5 text-slate-400 hover:text-white transition">
-          <HelpCircle class="w-4 h-4" />
-        </button>
-
-        <!-- Settings Gear Icon -->
-        <button @click="router.push('/settings')" title="System Settings" class="p-1.5 text-slate-400 hover:text-white transition">
-          <Settings class="w-4 h-4" />
-        </button>
-
-        <!-- User Badge [admin] -->
-        <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-mono text-slate-200">
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span>[{{ authStore.user?.username || 'admin' }}]</span>
-        </div>
-
-        <!-- Logout Action -->
-        <button @click="handleLogout" title="Logout" class="p-1.5 text-slate-400 hover:text-red-400 transition">
-          <LogOut class="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-
-    <!-- Sub-Header Title & Quick Filter Bar -->
+    <!-- Header Title & Quick Filter Bar -->
     <div class="flex items-center justify-between">
       <div>
         <h2 class="text-base font-bold text-white tracking-wide">Status Services</h2>
