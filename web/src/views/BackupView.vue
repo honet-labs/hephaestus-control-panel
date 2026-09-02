@@ -173,8 +173,8 @@ const saveDestination = async () => {
   }
   try {
     const configData: any = {};
-    if (destForm.value.destType === 'local') {
-      configData.path = destForm.value.path || '/opt/backups';
+    if (destForm.value.destType === 'local' || destForm.value.destType === 'nfs') {
+      configData.path = destForm.value.path || (destForm.value.destType === 'nfs' ? '/mnt/nfs_backups' : '/opt/backups');
     } else {
       configData.bucket = destForm.value.bucket;
       configData.endpoint = destForm.value.endpoint;
@@ -427,8 +427,9 @@ onMounted(() => {
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <Cloud v-if="dest.destType !== 'local'" class="w-4 h-4 text-purple-400" />
-              <Folder v-else class="w-4 h-4 text-sky-400" />
+              <HardDrive v-if="dest.destType === 'nfs'" class="w-4 h-4 text-emerald-400" />
+              <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-sky-400" />
+              <Cloud v-else class="w-4 h-4 text-purple-400" />
               <h4 class="text-xs font-bold text-white">{{ dest.name }}</h4>
             </div>
             <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-purple-400 border border-slate-700/60 font-semibold">
@@ -437,7 +438,7 @@ onMounted(() => {
           </div>
 
           <p class="text-[11px] font-mono text-slate-400 bg-[#0f1219] p-2 rounded border border-slate-800/80 truncate">
-            {{ dest.destType === 'local' ? (dest.config?.path || '/opt/backups') : (dest.config?.bucket || 'S3 Bucket') }}
+            {{ dest.destType === 'local' || dest.destType === 'nfs' ? (dest.config?.path || '/mnt/nfs_backups') : (dest.config?.bucket || 'S3 Bucket') }}
           </p>
 
           <div class="flex items-center justify-end pt-1 border-t border-slate-800/80">
@@ -739,6 +740,7 @@ onMounted(() => {
               <label class="block text-slate-400 mb-1 font-bold">Storage Type</label>
               <select v-model="destForm.destType" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
                 <option value="local">Local Filesystem Folder</option>
+                <option value="nfs">NFS (Network File System / NAS Mount)</option>
                 <option value="r2">Cloudflare R2 Object Storage</option>
                 <option value="s3">AWS S3 / MinIO Storage</option>
               </select>
@@ -749,6 +751,19 @@ onMounted(() => {
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Local Directory Path</label>
               <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+            </div>
+          </template>
+
+          <template v-else-if="destForm.destType === 'nfs'">
+            <div class="space-y-2">
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">NFS Mount Directory Path</label>
+                <input v-model="destForm.path" required placeholder="/mnt/nfs_backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              </div>
+              <p class="text-[11px] text-slate-400 bg-[#0f1219] p-2.5 rounded-lg border border-slate-800 leading-relaxed">
+                <span class="text-emerald-400 font-bold">💡 NFS Mount Note:</span>
+                Target path where the NFS share or NAS storage is mounted on this host (e.g. <code>/mnt/nfs_backups</code> or <code>/mnt/nas/postgres</code>). Ensure write permissions are granted.
+              </p>
             </div>
           </template>
 

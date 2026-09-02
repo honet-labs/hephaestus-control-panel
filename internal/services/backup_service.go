@@ -282,7 +282,7 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 
 func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, filename string, dest *domain.BackupDestination) error {
 	switch dest.DestType {
-	case "local":
+	case "local", "nfs":
 		path, _ := dest.Config["path"].(string)
 		if path == "" {
 			path = "backups"
