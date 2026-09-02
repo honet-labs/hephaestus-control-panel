@@ -67,16 +67,15 @@ interface EngineServer {
 const jobs = ref<Job[]>([]);
 const loading = ref(false);
 const filterQuery = ref('');
-const activeFilterType = ref('all');
 const timer = ref<any>(null);
 
-// Pandora FMS Style Engine Servers List
+// Engine Services List (9 Core Daemons)
 const engineServers = ref<EngineServer[]>([
   {
     id: 'srv-icmp',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Network server (ICMP Sweep)',
+    type: 'Network Server (ICMP Sweep)',
     icon: 'network',
     master: true,
     version: '2.0.0 (Go 1.22)',
@@ -90,7 +89,7 @@ const engineServers = ref<EngineServer[]>([
     id: 'srv-opensearch',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Data server (OpenSearch Poller)',
+    type: 'Data Server (OpenSearch Poller)',
     icon: 'search',
     master: true,
     version: '2.0.0 (Go 1.22)',
@@ -104,7 +103,7 @@ const engineServers = ref<EngineServer[]>([
     id: 'srv-backup',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Backup server (PostgreSQL / MySQL)',
+    type: 'Backup Server (PostgreSQL / MySQL)',
     icon: 'database',
     master: true,
     version: '2.0.0 (Go 1.22)',
@@ -112,13 +111,13 @@ const engineServers = ref<EngineServer[]>([
     lag: '- / 0',
     tq: '2 : 0',
     updated: '18 seconds',
-    description: 'Scheduled automated database dumps & AWS S3 cloud archiving',
+    description: 'Scheduled automated database dumps & cloud archiving',
   },
   {
     id: 'srv-snmp',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'SNMP trap server',
+    type: 'SNMP Trap & Poller Server',
     icon: 'radio',
     master: true,
     version: '2.0.0 (Go 1.22)',
@@ -132,7 +131,7 @@ const engineServers = ref<EngineServer[]>([
     id: 'srv-discovery',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Discovery server',
+    type: 'Discovery Server (ARP / Subnet)',
     icon: 'discovery',
     master: true,
     version: '2.0.0 (Go 1.22)',
@@ -146,57 +145,57 @@ const engineServers = ref<EngineServer[]>([
     id: 'srv-alert',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Alert server',
+    type: 'Alert & Notification Server',
     icon: 'bell',
     master: true,
     version: '2.0.0 (Go 1.22)',
-    modules: '0 of 0',
+    modules: '15 of 15',
     lag: '- / 0',
-    tq: '4 : 0',
-    updated: '6 seconds',
-    description: 'Immediate Telegram, Discord, and Webhook alert notification dispatcher',
+    tq: '2 : 0',
+    updated: '7 seconds',
+    description: 'Threshold evaluation, incident escalation, and webhook notifications',
   },
   {
-    id: 'srv-log',
+    id: 'srv-prometheus',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Log server',
+    type: 'Prometheus & PromQL Collector',
     icon: 'log',
-    master: false,
+    master: true,
     version: '2.0.0 (Go 1.22)',
-    modules: '0 of 0',
+    modules: '500 of 500',
     lag: '- / 0',
-    tq: '0 : 0',
-    updated: '18 seconds',
-    description: 'Centralized streaming log ingestion, Grok pattern parsing, and ring buffer',
+    tq: '4 : 0',
+    updated: '12 seconds',
+    description: 'High-frequency metric ingestion from node exporters and Prometheus daemons',
   },
   {
     id: 'srv-heavy',
     name: 'labs-hcp-master',
     status: 'active',
-    type: 'Heavy server (Cron Scheduler)',
+    type: 'Heavy Background Worker Pool',
     icon: 'heavy',
-    master: false,
-    version: '2.0.0 (Go 1.22)',
-    modules: '386 of 386',
-    lag: '17 seconds / 10',
-    tq: '0 : 0',
-    updated: '18 seconds',
-    description: 'Robocron scheduler engine with precision millisecond execution timers',
-  },
-  {
-    id: 'srv-worker',
-    name: 'labs-hcp-master',
-    status: 'active',
-    type: 'High performance server (Worker Pool)',
-    icon: 'worker',
     master: true,
     version: '2.0.0 (Go 1.22)',
-    modules: '603 of 603',
-    lag: '4 minutes 47 seconds / 89',
+    modules: 'N/A',
+    lag: 'N/A',
     tq: '0 : 0',
     updated: '18 seconds',
-    description: '5 Concurrent worker threads processing asynchronous queue tasks',
+    description: '5 Concurrent worker threads for async batch tasks, exports, and heavy jobs',
+  },
+  {
+    id: 'srv-prediction',
+    name: 'labs-hcp-master',
+    status: 'active',
+    type: 'Prediction & Log Parser (Grok Engine)',
+    icon: 'prediction',
+    master: true,
+    version: '2.0.0 (Go 1.22)',
+    modules: '10 of 10',
+    lag: '- / 0',
+    tq: '1 : 0',
+    updated: '18 seconds',
+    description: 'Pattern matching, log structure transformation, and telemetry forecasting',
   },
 ]);
 
@@ -258,35 +257,35 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col space-y-4 overflow-y-auto pr-1">
+  <div class="h-full flex flex-col space-y-4 overflow-y-auto pr-1 select-none">
     
-    <!-- Top Action & Status Bar (Matching Pandora FMS Screenshot Image 3) -->
+    <!-- Top Action & Status Bar -->
     <div class="bg-[#1b1e26] border border-slate-800 rounded-xl p-3 px-5 flex items-center justify-between shadow-lg">
       <!-- Breadcrumb -->
       <div class="flex items-center gap-2 text-xs">
-        <span class="text-slate-400">Servers</span>
+        <span class="text-slate-400">Services</span>
         <span class="text-slate-600">/</span>
-        <span class="text-white font-semibold">Manage Servers</span>
+        <span class="text-white font-semibold">Status Services</span>
       </div>
 
-      <!-- Center & Right Status Icons (Image 3) -->
+      <!-- Right Status Icons -->
       <div class="flex items-center gap-4 text-slate-300">
         <!-- History / Uptime Icon -->
         <button title="System Uptime: 100% OK" class="p-1.5 text-slate-400 hover:text-white transition">
           <Clock class="w-4 h-4" />
         </button>
 
-        <!-- Red Alert Count Pill (Image 3) -->
+        <!-- Red Alert Count Pill -->
         <div title="Active Alerts" class="px-2 py-0.5 rounded-full bg-red-600 text-white font-black text-[11px] shadow-sm shadow-red-600/30 flex items-center justify-center min-w-[22px]">
           0
         </div>
 
         <!-- Wand / Magic Cleaner -->
-        <button @click="fetchJobs" title="Purge Completed Jobs" class="p-1.5 text-slate-400 hover:text-amber-400 transition">
+        <button @click="fetchJobs" title="Refresh & Clean Queue" class="p-1.5 text-slate-400 hover:text-amber-400 transition">
           <Wand2 class="w-4 h-4" />
         </button>
 
-        <!-- Database / Storage Orange Icon (Image 3) -->
+        <!-- Database / Storage Orange Icon -->
         <div title="Database Engine: Online" class="p-1.5 text-amber-500 hover:text-amber-400 transition cursor-pointer">
           <Database class="w-4 h-4" />
         </div>
@@ -317,8 +316,8 @@ onUnmounted(() => {
     <!-- Sub-Header Title & Quick Filter Bar -->
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-base font-bold text-white tracking-wide">Pandora FMS & Hephaestus Engine Servers</h2>
-        <p class="text-xs text-slate-400">Active background daemons, queue workers, telemetry pollers, and schedulers</p>
+        <h2 class="text-base font-bold text-white tracking-wide">Status Services</h2>
+        <p class="text-xs text-slate-400">Real-time status of backend daemons, telemetry pollers, and asynchronous queue workers</p>
       </div>
 
       <div class="flex items-center gap-2">
@@ -350,7 +349,7 @@ onUnmounted(() => {
     </div>
 
     <!-- ================================================================= -->
-    <!-- PANDORA FMS STYLE ENGINE SERVERS TABLE (Matching Screenshot Image 2) -->
+    <!-- SERVICES TABLE (9 CORE DAEMONS) -->
     <!-- ================================================================= -->
     <div class="bg-[#1b1e26] border border-slate-800/90 rounded-xl overflow-hidden shadow-2xl">
       <div class="overflow-x-auto">
@@ -378,7 +377,7 @@ onUnmounted(() => {
               <!-- Name -->
               <td class="py-3 px-4 font-sans font-medium text-slate-200">{{ srv.name }}</td>
 
-              <!-- Status (Green Square Icon matching Image 2) -->
+              <!-- Status (Green Square Icon) -->
               <td class="py-3 px-3">
                 <span class="inline-block w-2.5 h-2.5 rounded-[2px] bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
               </td>
@@ -417,7 +416,7 @@ onUnmounted(() => {
               <!-- Updated -->
               <td class="py-3 px-4 text-slate-400 font-sans">{{ srv.updated }}</td>
 
-              <!-- Op. Actions (Icons matching Image 2) -->
+              <!-- Op. Actions -->
               <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-2 text-slate-400">
                   <button title="Configure Daemon" class="hover:text-white transition">
@@ -448,28 +447,31 @@ onUnmounted(() => {
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
         <div class="flex items-center gap-2">
           <Activity class="w-4 h-4 text-brand-400" />
-          <h3 class="text-xs font-bold text-white uppercase tracking-wider">Live Asynchronous Job Queue (Worker Threads)</h3>
+          <h3 class="text-xs font-bold text-white tracking-wide uppercase">Live Asynchronous Job Queue (Worker Threads)</h3>
         </div>
+
+        <!-- Quick Trigger Actions -->
         <div class="flex items-center gap-2">
           <button
             @click="triggerJob('icmp_ping_cycle')"
-            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium transition"
+            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 font-medium transition"
           >
             + Ping Sweep
           </button>
           <button
             @click="triggerJob('opensearch_poll')"
-            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium transition"
+            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 font-medium transition"
           >
             + OpenSearch Poll
           </button>
         </div>
       </div>
 
+      <!-- Jobs Table -->
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
-          <thead>
-            <tr class="text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800/60">
+          <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+            <tr>
               <th class="py-2.5 px-3">Job ID</th>
               <th class="py-2.5 px-3">Task Type</th>
               <th class="py-2.5 px-3">Status</th>
@@ -479,46 +481,60 @@ onUnmounted(() => {
               <th class="py-2.5 px-3 text-right">Action</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800/50 font-mono text-[11px] text-slate-300">
-            <tr v-for="job in jobs" :key="job.id" class="hover:bg-slate-800/20 transition">
-              <td class="py-2.5 px-3 text-brand-400">{{ job.id }}</td>
+          <tbody class="divide-y divide-slate-800/60 font-mono text-[11px]">
+            <tr
+              v-for="job in jobs"
+              :key="job.id"
+              class="hover:bg-slate-800/20 transition text-slate-300"
+            >
+              <td class="py-2.5 px-3 text-slate-400">{{ job.id }}</td>
               <td class="py-2.5 px-3 text-white font-sans">{{ job.type }}</td>
               <td class="py-2.5 px-3 font-sans">
-                <span :class="[
-                  job.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                  job.status === 'running' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse' :
-                  job.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                  'bg-slate-800 text-slate-400',
-                  'px-2 py-0.5 rounded text-[10px] uppercase font-bold'
-                ]">
+                <span
+                  :class="[
+                    'px-2 py-0.5 rounded text-[10px] font-bold uppercase',
+                    job.status === 'COMPLETED'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : job.status === 'RUNNING'
+                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse'
+                      : job.status === 'FAILED'
+                      ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      : 'bg-slate-800 text-slate-400'
+                  ]"
+                >
                   {{ job.status }}
                 </span>
               </td>
               <td class="py-2.5 px-3">
-                <div class="w-24 bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div class="bg-brand-500 h-full rounded-full transition-all" :style="{ width: `${job.progress}%` }"></div>
+                <div class="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-emerald-400 rounded-full"
+                    :style="{ width: `${job.progress}%` }"
+                  ></div>
                 </div>
               </td>
-              <td class="py-2.5 px-3 text-slate-400 truncate max-w-xs font-sans">{{ job.message }}</td>
-              <td class="py-2.5 px-3 text-slate-500 text-[10px]">{{ new Date(job.createdAt).toLocaleTimeString() }}</td>
+              <td class="py-2.5 px-3 max-w-xs truncate text-slate-400 font-sans">{{ job.message }}</td>
+              <td class="py-2.5 px-3 text-slate-500">{{ job.createdAt ? new Date(job.createdAt).toLocaleTimeString() : '-' }}</td>
               <td class="py-2.5 px-3 text-right font-sans">
                 <button
-                  v-if="job.status === 'running' || job.status === 'pending'"
+                  v-if="job.status === 'RUNNING' || job.status === 'PENDING'"
                   @click="cancelJob(job.id)"
-                  class="px-2 py-0.5 text-[10px] font-bold text-red-400 hover:bg-red-500/10 rounded transition"
+                  class="px-2 py-0.5 rounded bg-red-600/80 hover:bg-red-500 text-white text-[10px] transition"
                 >
                   Cancel
                 </button>
+                <span v-else class="text-slate-600 text-[10px]">-</span>
               </td>
             </tr>
             <tr v-if="jobs.length === 0">
-              <td colspan="7" class="py-6 text-center text-slate-500 font-sans text-xs">
-                No active background tasks in execution queue.
+              <td colspan="7" class="py-6 text-center text-slate-500 text-xs font-sans">
+                No active jobs in queue.
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
+
   </div>
 </template>

@@ -16,9 +16,9 @@ import {
   Clock,
   Settings,
   LogOut,
-  Command,
   ShieldCheck,
   ExternalLink,
+  Activity,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -35,7 +35,7 @@ const navigation = [
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger' },
   { name: 'VPS Control', icon: Server, route: '/vps-control' },
   { name: 'Live Logs', icon: FileText, route: '/logs' },
-  { name: 'Task Queue', icon: Clock, route: '/queue' },
+  { name: 'Status Services', icon: Activity, route: '/queue' },
   { name: 'Settings', icon: Settings, route: '/settings' },
 ];
 

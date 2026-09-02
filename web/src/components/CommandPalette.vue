@@ -30,7 +30,7 @@ const items = [
   { name: 'Grok Regex Debugger', icon: ListTree, route: '/grok-debugger' },
   { name: 'VPS Telemetry & Services', icon: Server, route: '/vps-control' },
   { name: 'Live Backend Logs', icon: FileText, route: '/logs' },
-  { name: 'Background Queue Tasks', icon: Clock, route: '/queue' },
+  { name: 'Status Services & Daemons', icon: Clock, route: '/queue' },
   { name: 'System Settings', icon: Settings, route: '/settings' },
 ];
 
