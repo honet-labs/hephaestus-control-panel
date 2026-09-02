@@ -11,7 +11,9 @@ import {
   Activity, 
   ListTree, 
   Settings, 
-  FileText 
+  FileText,
+  Clock,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 const isOpen = ref(false);
@@ -20,15 +22,15 @@ const router = useRouter();
 
 const items = [
   { name: 'Dashboard', icon: Activity, route: '/' },
-  { name: 'Remote Host Terminal', icon: Terminal, route: '/terminal' },
-  { name: 'Network Topology Map', icon: Network, route: '/topology' },
+  { name: 'Remote Server', icon: Terminal, route: '/remote-host', newTab: true },
+  { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true },
   { name: 'Database Backup Manager', icon: Database, route: '/backup' },
   { name: 'SNMP Browser & MIBs', icon: Radio, route: '/snmp' },
-  { name: 'OpenSearch Cluster Health', icon: Search, route: '/opensearch' },
+  { name: 'OpenSearch Cluster Monitor', icon: Search, route: '/opensearch-cluster', newTab: true },
   { name: 'Grok Regex Debugger', icon: ListTree, route: '/grok-debugger' },
   { name: 'VPS Telemetry & Services', icon: Server, route: '/vps-control' },
   { name: 'Live Backend Logs', icon: FileText, route: '/logs' },
-  { name: 'Background Queue Tasks', icon: ListTree, route: '/queue' },
+  { name: 'Background Queue Tasks', icon: Clock, route: '/queue' },
   { name: 'System Settings', icon: Settings, route: '/settings' },
 ];
 
@@ -39,10 +41,14 @@ const filteredItems = computed(() => {
   );
 });
 
-const navigate = (route: string) => {
+const navigate = (item: any) => {
   isOpen.value = false;
   searchQuery.value = '';
-  router.push(route);
+  if (item.newTab) {
+    window.open(item.route, '_blank');
+  } else {
+    router.push(item.route);
+  }
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
@@ -85,11 +91,14 @@ onUnmounted(() => {
         <button
           v-for="item in filteredItems"
           :key="item.name"
-          @click="navigate(item.route)"
-          class="w-full flex items-center px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition group text-left"
+          @click="navigate(item)"
+          class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition group text-left"
         >
-          <component :is="item.icon" class="w-4 h-4 mr-3 text-slate-400 group-hover:text-brand-500 transition" />
-          <span>{{ item.name }}</span>
+          <div class="flex items-center">
+            <component :is="item.icon" class="w-4 h-4 mr-3 text-slate-400 group-hover:text-brand-500 transition" />
+            <span>{{ item.name }}</span>
+          </div>
+          <ExternalLink v-if="item.newTab" class="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition" />
         </button>
         <div v-if="filteredItems.length === 0" class="py-8 text-center text-sm text-slate-500">
           No matching modules found
