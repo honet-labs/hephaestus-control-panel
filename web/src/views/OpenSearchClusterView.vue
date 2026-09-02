@@ -371,6 +371,7 @@ const handleTestConnection = async () => {
       username: configForm.value.username,
       password: configForm.value.password,
       useSsl: configForm.value.useSsl,
+      verifySsl: configForm.value.verifySsl,
     });
     if (res.data.success) {
       testSuccess.value = true;

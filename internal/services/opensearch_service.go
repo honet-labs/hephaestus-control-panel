@@ -140,7 +140,15 @@ func (s *OpenSearchService) doRequest(ctx context.Context, method, endpoint stri
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifySSL},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reach OpenSearch cluster at %s: %w", url, err)
 	}
@@ -229,12 +237,20 @@ func (s *OpenSearchService) GetShards(ctx context.Context) ([]map[string]interfa
 	return result, nil
 }
 
-func (s *OpenSearchService) TestConnection(ctx context.Context, host string, port int, username, password string, useSSL bool) (map[string]interface{}, error) {
+func (s *OpenSearchService) TestConnection(ctx context.Context, host string, port int, username, password string, useSSL bool, verifySSL bool) (map[string]interface{}, error) {
 	scheme := "http"
 	if useSSL {
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d/_cluster/health", scheme, host, port)
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifySSL},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -244,7 +260,7 @@ func (s *OpenSearchService) TestConnection(ctx context.Context, host string, por
 		req.SetBasicAuth(username, password)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to %s: %w", url, err)
 	}

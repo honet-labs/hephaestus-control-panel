@@ -96,18 +96,19 @@ func (h *OpenSearchHandler) SaveConfig(c *gin.Context) {
 
 func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 	var req struct {
-		Host     string `json:"host" binding:"required"`
-		Port     int    `json:"port" binding:"required"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		UseSSL   bool   `json:"useSsl"`
+		Host      string `json:"host" binding:"required"`
+		Port      int    `json:"port" binding:"required"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		UseSSL    bool   `json:"useSsl"`
+		VerifySSL bool   `json:"verifySsl"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid connection parameters"})
 		return
 	}
 
-	res, err := h.openSearchService.TestConnection(c.Request.Context(), req.Host, req.Port, req.Username, req.Password, req.UseSSL)
+	res, err := h.openSearchService.TestConnection(c.Request.Context(), req.Host, req.Port, req.Username, req.Password, req.UseSSL, req.VerifySSL)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return

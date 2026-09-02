@@ -58,6 +58,7 @@ const form = ref({
   osUser: '',
   osPassword: '',
   osUseSsl: true,
+  osVerifySsl: false,
 });
 
 // Fetch all registered connections from backend database
@@ -142,6 +143,8 @@ const handleTestConnection = async () => {
         port: form.value.osPort || 9200,
         username: form.value.osUser,
         password: form.value.osPassword,
+        useSsl: form.value.osUseSsl,
+        verifySsl: form.value.osVerifySsl,
       });
       testStatus.value = {
         success: res.data?.success || false,
@@ -212,6 +215,7 @@ const handleRegisterEndpoint = async () => {
         username: form.value.osUser,
         password: form.value.osPassword,
         useSsl: form.value.osUseSsl,
+        verifySsl: form.value.osVerifySsl,
         isActive: true,
       });
     }
@@ -469,6 +473,28 @@ onMounted(() => {
                 <label class="block text-slate-400 text-[10px]">Password</label>
                 <input v-model="form.osPassword" type="password" placeholder="••••••" class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-1.5 text-white font-mono" />
               </div>
+            </div>
+
+            <!-- SSL / TLS Checkboxes matching screenshot 1 -->
+            <div class="flex items-center gap-6 pt-1">
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  v-model="form.osUseSsl"
+                  class="rounded bg-[#0f1219] border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer"
+                />
+                <span class="font-medium text-white">Use HTTPS (SSL/TLS)</span>
+              </label>
+
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  v-model="form.osVerifySsl"
+                  :disabled="!form.osUseSsl"
+                  class="rounded bg-[#0f1219] border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer disabled:opacity-40"
+                />
+                <span :class="{ 'text-slate-500': !form.osUseSsl, 'text-slate-300': form.osUseSsl }">Verify SSL Certificate</span>
+              </label>
             </div>
           </template>
 
