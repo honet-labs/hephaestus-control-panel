@@ -32,11 +32,21 @@ func main() {
 	logger.InitLogger(cfg.LogsDir)
 	logger.Info("Server", fmt.Sprintf("Starting Hephaestus Control Panel (HCP) v2.0.0 on port %d...", cfg.Port))
 
-	// 3. Initialize PostgreSQL Connection Pool & Run Migrations
-	dbCtx, cancelDB := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancelDB()
-	if err := database.InitDatabase(dbCtx, cfg); err != nil {
-		logger.Warn("Database", fmt.Sprintf("PostgreSQL connection incomplete (%v). Server will start in Setup/Recovery mode.", err))
+	// 3. Initialize PostgreSQL Connection Pool & Run Migrations with Retry
+	var dbErr error
+	for attempt := 1; attempt <= 15; attempt++ {
+		dbCtx, cancelDB := context.WithTimeout(context.Background(), 5*time.Second)
+		dbErr = database.InitDatabase(dbCtx, cfg)
+		cancelDB()
+		if dbErr == nil {
+			logger.Info("Database", "PostgreSQL database connected and schema initialized successfully.")
+			break
+		}
+		logger.Warn("Database", fmt.Sprintf("Waiting for PostgreSQL connection (attempt %d/15): %v", attempt, dbErr))
+		time.Sleep(2 * time.Second)
+	}
+	if dbErr != nil {
+		logger.Warn("Database", fmt.Sprintf("PostgreSQL connection incomplete (%v). Server will start in Setup/Recovery mode.", dbErr))
 	}
 
 	// 4. Initialize Repositories

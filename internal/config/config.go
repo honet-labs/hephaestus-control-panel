@@ -66,19 +66,24 @@ func LoadConfig() *Config {
 			port = 5000
 		}
 
-		dbPort, _ := strconv.Atoi(getEnv("PGPORT", "5432"))
+		dbHost := getEnv("DB_HOST", getEnv("PGHOST", "database"))
+		dbPortStr := getEnv("DB_PORT", getEnv("PGPORT", "5432"))
+		dbPort, _ := strconv.Atoi(dbPortStr)
 		if dbPort <= 0 {
 			dbPort = 5432
 		}
 
-		dbSSL := getEnv("PGSSL", "false") == "true"
+		dbUser := getEnv("DB_USER", getEnv("PGUSER", "hephaestus"))
+		dbPassword := getEnv("DB_PASSWORD", getEnv("PGPASSWORD", "hephaestus_secret"))
+		dbName := getEnv("DB_NAME", getEnv("PGDATABASE", "hephaestus"))
+		dbSSL := getEnv("DB_SSL", getEnv("PGSSL", "false")) == "true"
 
 		dbCfg := DBConfig{
-			Host:     getEnv("PGHOST", "localhost"),
+			Host:     dbHost,
 			Port:     dbPort,
-			User:     getEnv("PGUSER", "postgres"),
-			Password: getEnv("PGPASSWORD", "postgres"),
-			Database: getEnv("PGDATABASE", "hephaestus"),
+			User:     dbUser,
+			Password: dbPassword,
+			Database: dbName,
 			SSL:      dbSSL,
 		}
 
@@ -120,12 +125,12 @@ func LoadConfig() *Config {
 			origins[i] = strings.TrimSpace(origins[i])
 		}
 
-		encKey := getEnv("ENCRYPTION_KEY", "hephaestus-super-secure-key-32b!")
+		encKey := getEnv("APP_ENCRYPTION_KEY", getEnv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
 		SetSecretKey(encKey)
 
 		globalConfig = &Config{
 			Port:           port,
-			Env:            getEnv("NODE_ENV", "production"),
+			Env:            getEnv("APP_ENV", getEnv("NODE_ENV", "production")),
 			DataDir:        dataDir,
 			LogsDir:        logsDir,
 			AllowedOrigins: origins,
