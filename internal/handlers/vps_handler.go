@@ -63,6 +63,16 @@ func (h *VpsHandler) GetServices(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": svcs})
 }
 
+func (h *VpsHandler) GetNetworkInfo(c *gin.Context) {
+	hostID := c.Param("id")
+	netInfo, err := h.vpsService.GetNetworkInfo(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": netInfo})
+}
+
 func (h *VpsHandler) ControlService(c *gin.Context) {
 	hostID := c.Param("id")
 	var req struct {

@@ -64,6 +64,11 @@ interface OpenSession {
   metrics?: any;
   processes?: any[];
   services?: any[];
+  networkInfo?: {
+    interfaces?: any[];
+    listeningPorts?: any[];
+    connections?: any[];
+  };
 }
 
 const hosts = ref<RemoteHost[]>([]);
@@ -77,6 +82,9 @@ const selectedGroupFilter = ref<string | null>(null);
 const processSearch = ref('');
 const processSort = ref('cpu');
 const serviceSearch = ref('');
+const portProtoFilter = ref<'all' | 'tcp' | 'udp'>('all');
+const portSearch = ref('');
+const interfaceSearch = ref('');
 
 // New Group Form
 const newGroupName = ref('');
@@ -165,6 +173,41 @@ const filteredServices = computed(() => {
   const q = serviceSearch.value.toLowerCase();
   return activeSession.value.services.filter(
     s => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q))
+  );
+});
+
+// Filtered Listening Ports
+const filteredListeningPorts = computed(() => {
+  if (!activeSession.value?.networkInfo?.listeningPorts) return [];
+  let list = [...activeSession.value.networkInfo.listeningPorts];
+  if (portProtoFilter.value !== 'all') {
+    const p = portProtoFilter.value.toUpperCase();
+    list = list.filter(item => item.proto && item.proto.toUpperCase().includes(p));
+  }
+  if (portSearch.value) {
+    const q = portSearch.value.toLowerCase();
+    list = list.filter(
+      item =>
+        (item.localAddr && item.localAddr.toLowerCase().includes(q)) ||
+        (item.port && item.port.toString().toLowerCase().includes(q)) ||
+        (item.process && item.process.toLowerCase().includes(q)) ||
+        (item.pid && item.pid.toString().toLowerCase().includes(q))
+    );
+  }
+  return list;
+});
+
+// Filtered Network Interfaces
+const filteredInterfaces = computed(() => {
+  if (!activeSession.value?.networkInfo?.interfaces) return [];
+  if (!interfaceSearch.value) return activeSession.value.networkInfo.interfaces;
+  const q = interfaceSearch.value.toLowerCase();
+  return activeSession.value.networkInfo.interfaces.filter(
+    (i: any) =>
+      (i.name && i.name.toLowerCase().includes(q)) ||
+      (i.ipv4 && i.ipv4.toLowerCase().includes(q)) ||
+      (i.ipv6 && i.ipv6.toLowerCase().includes(q)) ||
+      (i.mac && i.mac.toLowerCase().includes(q))
   );
 });
 
@@ -340,13 +383,14 @@ const initXterm = (session: OpenSession) => {
   session.ws = ws;
 };
 
-// Fetch Host Metrics, Processes, Services
+// Fetch Host Metrics, Processes, Services, and Network
 const fetchHostTelemetry = async (session: OpenSession) => {
   try {
-    const [metricsRes, procsRes, svcsRes] = await Promise.allSettled([
+    const [metricsRes, procsRes, svcsRes, netRes] = await Promise.allSettled([
       axios.get(`/api/v1/vps/${session.host.id}/metrics`),
       axios.get(`/api/v1/vps/${session.host.id}/processes`),
       axios.get(`/api/v1/vps/${session.host.id}/services`),
+      axios.get(`/api/v1/vps/${session.host.id}/network`),
     ]);
 
     if (metricsRes.status === 'fulfilled' && metricsRes.value.data.success) {
@@ -357,6 +401,9 @@ const fetchHostTelemetry = async (session: OpenSession) => {
     }
     if (svcsRes.status === 'fulfilled' && svcsRes.value.data.success) {
       session.services = svcsRes.value.data.data;
+    }
+    if (netRes.status === 'fulfilled' && netRes.value.data.success) {
+      session.networkInfo = netRes.value.data.data;
     }
   } catch (err) {
     console.error('Failed to fetch telemetry:', err);
@@ -990,22 +1037,249 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 5. NETWORK VIEW -->
-          <div v-if="activeSession.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-4">
+          <!-- 5. NETWORK & LISTENING PORTS VIEW -->
+          <div v-if="activeSession.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-6">
+            <!-- Header Bar -->
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 class="text-sm font-bold text-white tracking-wide">Network & Listening Ports</h2>
-              <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }}</span>
-            </div>
-
-            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-5 space-y-4">
-              <h3 class="text-xs font-bold text-white">Active Listening Ports</h3>
-              <div class="font-mono text-xs space-y-2">
-                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
-                  <span class="text-slate-200">0.0.0.0:{{ activeSession.host.port || 22 }} (sshd)</span>
-                  <span class="text-emerald-400">LISTEN</span>
-                </div>
+              <div class="flex items-center gap-2">
+                <Wifi class="w-4 h-4 text-brand-400" />
+                <h2 class="text-sm font-bold text-white tracking-wide">Network & Listening Ports</h2>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
+                <button
+                  @click="fetchHostTelemetry(activeSession)"
+                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
+                >
+                  <RotateCw class="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
               </div>
             </div>
+
+            <!-- Top Metric Cards Row (4 cards) -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <!-- Total Interfaces -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Network Interfaces</p>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.networkInfo?.interfaces?.length || 0 }}</p>
+                <p class="text-[10px] text-emerald-400">{{ (activeSession.networkInfo?.interfaces || []).filter((i: any) => i.state === 'UP').length }} UP</p>
+              </div>
+
+              <!-- TCP Listening Ports -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TCP Listening Ports</p>
+                <p class="text-2xl font-black text-sky-400 font-mono">{{ (activeSession.networkInfo?.listeningPorts || []).filter((p: any) => p.proto?.startsWith('TCP')).length }}</p>
+                <p class="text-[10px] text-slate-500">Active TCP Sockets</p>
+              </div>
+
+              <!-- UDP Listening Ports -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">UDP Ports</p>
+                <p class="text-2xl font-black text-purple-400 font-mono">{{ (activeSession.networkInfo?.listeningPorts || []).filter((p: any) => p.proto?.startsWith('UDP')).length }}</p>
+                <p class="text-[10px] text-slate-500">Unconnected UDP</p>
+              </div>
+
+              <!-- Established Connections -->
+              <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Connections</p>
+                <p class="text-2xl font-black text-emerald-400 font-mono">{{ activeSession.networkInfo?.connections?.length || 0 }}</p>
+                <p class="text-[10px] text-slate-500">Sockets in ESTAB state</p>
+              </div>
+            </div>
+
+            <!-- SECTION 1: NETWORK INTERFACES TABLE -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
+              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <Activity class="w-4 h-4 text-emerald-400" />
+                  <h3 class="text-xs font-bold text-white tracking-wide uppercase">Network Interfaces</h3>
+                </div>
+                <div class="relative w-48">
+                  <input
+                    v-model="interfaceSearch"
+                    placeholder="Filter interface..."
+                    class="w-full bg-[#14161b] border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-5">Interface</th>
+                      <th class="py-2.5 px-4">State</th>
+                      <th class="py-2.5 px-4">IPv4 Address & CIDR</th>
+                      <th class="py-2.5 px-4">IPv6 Address</th>
+                      <th class="py-2.5 px-4">MAC Address</th>
+                      <th class="py-2.5 px-4">MTU</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="filteredInterfaces.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="(iface, iIdx) in filteredInterfaces"
+                      :key="iIdx"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-3 px-5 font-bold text-white font-sans flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full" :class="iface.state === 'UP' ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                        <span>{{ iface.name }}</span>
+                      </td>
+                      <td class="py-3 px-4">
+                        <span
+                          :class="[
+                            'px-2 py-0.5 rounded text-[10px] font-bold font-sans tracking-wider uppercase',
+                            iface.state === 'UP' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                          ]"
+                        >
+                          {{ iface.state }}
+                        </span>
+                      </td>
+                      <td class="py-3 px-4 font-bold text-slate-200">{{ iface.ipv4 }}</td>
+                      <td class="py-3 px-4 text-slate-400 truncate max-w-[200px]" :title="iface.ipv6">{{ iface.ipv6 }}</td>
+                      <td class="py-3 px-4 text-slate-400">{{ iface.mac }}</td>
+                      <td class="py-3 px-4 text-slate-300">{{ iface.mtu }}</td>
+                    </tr>
+                  </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="6" class="py-6 text-center text-slate-500 text-xs font-sans">No network interfaces discovered.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- SECTION 2: ACTIVE LISTENING PORTS (TCP & UDP) TABLE -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
+              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                  <div class="flex items-center gap-2">
+                    <Radio class="w-4 h-4 text-sky-400" />
+                    <h3 class="text-xs font-bold text-white tracking-wide uppercase">Active Listening Ports</h3>
+                  </div>
+
+                  <!-- Protocol Filter Tabs -->
+                  <div class="flex items-center bg-[#14161b] border border-slate-800 rounded-lg p-0.5 text-xs">
+                    <button
+                      v-for="pOpt in ['all', 'tcp', 'udp']"
+                      :key="pOpt"
+                      @click="portProtoFilter = pOpt as any"
+                      :class="[
+                        'px-2.5 py-0.5 rounded font-medium uppercase text-[10px] transition',
+                        portProtoFilter === pOpt ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                      ]"
+                    >
+                      {{ pOpt }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="relative w-48">
+                  <input
+                    v-model="portSearch"
+                    placeholder="Search port / process..."
+                    class="w-full bg-[#14161b] border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-5">Protocol</th>
+                      <th class="py-2.5 px-4">Local Address</th>
+                      <th class="py-2.5 px-4">Port</th>
+                      <th class="py-2.5 px-4">State</th>
+                      <th class="py-2.5 px-4">Process / Daemon</th>
+                      <th class="py-2.5 px-4">PID</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="filteredListeningPorts.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="(p, pIdx) in filteredListeningPorts"
+                      :key="pIdx"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-3 px-5 font-bold font-sans">
+                        <span
+                          :class="[
+                            'px-2 py-0.5 rounded text-[10px] font-bold',
+                            p.proto?.startsWith('TCP') ? 'bg-sky-500/10 border border-sky-500/30 text-sky-400' : 'bg-purple-500/10 border border-purple-500/30 text-purple-400'
+                          ]"
+                        >
+                          {{ p.proto }}
+                        </span>
+                      </td>
+                      <td class="py-3 px-4 text-slate-200">{{ p.localAddr }}</td>
+                      <td class="py-3 px-4 font-bold text-brand-400">{{ p.port }}</td>
+                      <td class="py-3 px-4 font-sans">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          {{ p.state || 'LISTEN' }}
+                        </span>
+                      </td>
+                      <td class="py-3 px-4 font-sans text-slate-200 font-medium">{{ p.process }}</td>
+                      <td class="py-3 px-4 text-slate-400">{{ p.pid }}</td>
+                    </tr>
+                  </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="6" class="py-6 text-center text-slate-500 text-xs font-sans">No listening ports matched.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- SECTION 3: ACTIVE SOCKET CONNECTIONS TABLE -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl space-y-0">
+              <div class="p-3 px-5 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <Activity class="w-4 h-4 text-purple-400" />
+                  <h3 class="text-xs font-bold text-white tracking-wide uppercase">Active Established Sockets</h3>
+                </div>
+                <span class="text-xs font-mono text-slate-400">{{ (activeSession.networkInfo?.connections || []).length }} sockets</span>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-5">Proto</th>
+                      <th class="py-2.5 px-4">Local Address:Port</th>
+                      <th class="py-2.5 px-4">Foreign / Remote Socket</th>
+                      <th class="py-2.5 px-4">State</th>
+                      <th class="py-2.5 px-4">Process / PID</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="(activeSession.networkInfo?.connections || []).length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="(c, cIdx) in (activeSession.networkInfo?.connections || [])"
+                      :key="cIdx"
+                      class="hover:bg-slate-800/30 transition text-slate-300"
+                    >
+                      <td class="py-3 px-5 font-sans font-bold text-sky-400">{{ c.proto }}</td>
+                      <td class="py-3 px-4 text-slate-200">{{ c.localAddr }}</td>
+                      <td class="py-3 px-4 text-slate-300">{{ c.remoteAddr }}</td>
+                      <td class="py-3 px-4 font-sans">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          {{ c.state }}
+                        </span>
+                      </td>
+                      <td class="py-3 px-4 text-slate-300 font-sans">{{ c.process }} (PID {{ c.pid }})</td>
+                    </tr>
+                  </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="5" class="py-6 text-center text-slate-500 text-xs font-sans">No active established external connections.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
 
         </div>

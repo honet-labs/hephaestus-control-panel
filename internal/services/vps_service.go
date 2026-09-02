@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
 )
 
@@ -226,4 +228,274 @@ func (s *VpsService) ControlService(ctx context.Context, hostID, serviceName, ac
 		return stderr, err
 	}
 	return stdout + stderr, nil
+}
+
+func (s *VpsService) GetNetworkInfo(ctx context.Context, hostID string) (map[string]interface{}, error) {
+	cfg, err := s.remoteRepo.GetRawByID(ctx, hostID)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := `ip -o addr 2>/dev/null; echo "===LINK==="; ip -o link 2>/dev/null; echo "===PORTS==="; ss -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null; echo "===CONNS==="; ss -tunp 2>/dev/null | head -n 45`
+	stdout, _, _, err := s.sshService.ExecuteCommand(cfg, cmd)
+	if err != nil || strings.TrimSpace(stdout) == "" {
+		return map[string]interface{}{
+			"interfaces": []map[string]interface{}{
+				{
+					"name":  "eth0",
+					"ipv4":  cfg.Host,
+					"ipv6":  "-",
+					"mac":   "-",
+					"state": "UP",
+					"mtu":   1500,
+					"rx":    "-",
+					"tx":    "-",
+				},
+			},
+			"listeningPorts": []map[string]interface{}{
+				{
+					"proto":     "TCP",
+					"localAddr": "0.0.0.0",
+					"port":      strconv.Itoa(cfg.Port),
+					"state":     "LISTEN",
+					"process":   "sshd",
+					"pid":       "-",
+				},
+			},
+			"connections": []map[string]interface{}{},
+		}, nil
+	}
+
+	return parseNetworkOutput(stdout, cfg), nil
+}
+
+func parseNetworkOutput(output string, cfg *domain.RemoteHostConfig) map[string]interface{} {
+	parts := strings.Split(output, "===LINK===")
+	addrPart := parts[0]
+
+	var linkPart, portsPart, connsPart string
+	if len(parts) > 1 {
+		p2 := strings.Split(parts[1], "===PORTS===")
+		linkPart = p2[0]
+		if len(p2) > 1 {
+			p3 := strings.Split(p2[1], "===CONNS===")
+			portsPart = p3[0]
+			if len(p3) > 1 {
+				connsPart = p3[1]
+			}
+		}
+	}
+
+	// 1. Parse Interfaces
+	interfacesMap := make(map[string]map[string]interface{})
+
+	for _, line := range strings.Split(strings.TrimSpace(addrPart), "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		ifaceName := fields[1]
+		if _, exists := interfacesMap[ifaceName]; !exists {
+			interfacesMap[ifaceName] = map[string]interface{}{
+				"name":  ifaceName,
+				"ipv4":  "-",
+				"ipv6":  "-",
+				"mac":   "-",
+				"state": "UNKNOWN",
+				"mtu":   1500,
+				"rx":    "-",
+				"tx":    "-",
+			}
+		}
+		family := fields[2]
+		ipAddr := fields[3]
+		if family == "inet" {
+			interfacesMap[ifaceName]["ipv4"] = ipAddr
+		} else if family == "inet6" && interfacesMap[ifaceName]["ipv6"] == "-" {
+			interfacesMap[ifaceName]["ipv6"] = ipAddr
+		}
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(linkPart), "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ifaceName := strings.TrimSuffix(fields[1], ":")
+		if _, exists := interfacesMap[ifaceName]; !exists {
+			interfacesMap[ifaceName] = map[string]interface{}{
+				"name":  ifaceName,
+				"ipv4":  "-",
+				"ipv6":  "-",
+				"mac":   "-",
+				"state": "UNKNOWN",
+				"mtu":   1500,
+				"rx":    "-",
+				"tx":    "-",
+			}
+		}
+
+		if strings.Contains(line, "state UP") || strings.Contains(line, "<UP") || strings.Contains(line, ",UP,") {
+			interfacesMap[ifaceName]["state"] = "UP"
+		} else if strings.Contains(line, "state DOWN") {
+			interfacesMap[ifaceName]["state"] = "DOWN"
+		}
+
+		if idx := strings.Index(line, "mtu "); idx != -1 {
+			sub := line[idx+4:]
+			if f := strings.Fields(sub); len(f) > 0 {
+				if mtu, err := strconv.Atoi(f[0]); err == nil {
+					interfacesMap[ifaceName]["mtu"] = mtu
+				}
+			}
+		}
+
+		if idx := strings.Index(line, "link/ether "); idx != -1 {
+			sub := line[idx+11:]
+			if f := strings.Fields(sub); len(f) > 0 {
+				interfacesMap[ifaceName]["mac"] = f[0]
+			}
+		}
+	}
+
+	var ifaceList []map[string]interface{}
+	for _, iface := range interfacesMap {
+		ifaceList = append(ifaceList, iface)
+	}
+	if len(ifaceList) == 0 {
+		ifaceList = append(ifaceList, map[string]interface{}{
+			"name":  "eth0",
+			"ipv4":  cfg.Host,
+			"ipv6":  "-",
+			"mac":   "-",
+			"state": "UP",
+			"mtu":   1500,
+			"rx":    "-",
+			"tx":    "-",
+		})
+	}
+
+	// 2. Parse Listening Ports
+	var listeningPorts []map[string]interface{}
+	rePID := regexp.MustCompile(`(?:pid=|/)(\d+)`)
+	reProc := regexp.MustCompile(`"([^"]+)"`)
+
+	for _, line := range strings.Split(strings.TrimSpace(portsPart), "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		protoLower := strings.ToLower(fields[0])
+		if !strings.HasPrefix(protoLower, "tcp") && !strings.HasPrefix(protoLower, "udp") {
+			continue
+		}
+
+		proto := strings.ToUpper(fields[0])
+		state := "LISTEN"
+		localAddr := ""
+		portStr := ""
+		procName := "-"
+		pidStr := "-"
+
+		for _, f := range fields {
+			if f == "LISTEN" || f == "UNCONN" {
+				state = f
+			}
+		}
+
+		for i := 1; i < len(fields); i++ {
+			if strings.Contains(fields[i], ":") && !strings.Contains(fields[i], "users:") {
+				addrFull := fields[i]
+				lastColon := strings.LastIndex(addrFull, ":")
+				if lastColon != -1 {
+					localAddr = addrFull[:lastColon]
+					portStr = addrFull[lastColon+1:]
+					break
+				}
+			}
+		}
+
+		if portStr == "" {
+			continue
+		}
+
+		if match := rePID.FindStringSubmatch(line); len(match) > 1 {
+			pidStr = match[1]
+		}
+		if match := reProc.FindStringSubmatch(line); len(match) > 1 {
+			procName = match[1]
+		} else {
+			for _, f := range fields {
+				if strings.Contains(f, "/") {
+					pParts := strings.Split(f, "/")
+					if len(pParts) == 2 && pParts[1] != "" {
+						pidStr = pParts[0]
+						procName = pParts[1]
+					}
+				}
+			}
+		}
+
+		listeningPorts = append(listeningPorts, map[string]interface{}{
+			"proto":     proto,
+			"localAddr": localAddr,
+			"port":      portStr,
+			"state":     state,
+			"process":   procName,
+			"pid":       pidStr,
+		})
+	}
+
+	// 3. Parse Active Connections
+	var conns []map[string]interface{}
+	for _, line := range strings.Split(strings.TrimSpace(connsPart), "\n") {
+		line = strings.TrimSpace(line)
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		protoLower := strings.ToLower(fields[0])
+		if !strings.HasPrefix(protoLower, "tcp") && !strings.HasPrefix(protoLower, "udp") {
+			continue
+		}
+
+		proto := strings.ToUpper(fields[0])
+		state := fields[1]
+		localAddr := ""
+		remoteAddr := ""
+		procName := "-"
+		pidStr := "-"
+
+		if len(fields) >= 5 {
+			localAddr = fields[3]
+			remoteAddr = fields[4]
+		}
+
+		if match := rePID.FindStringSubmatch(line); len(match) > 1 {
+			pidStr = match[1]
+		}
+		if match := reProc.FindStringSubmatch(line); len(match) > 1 {
+			procName = match[1]
+		}
+
+		if localAddr != "" && remoteAddr != "" {
+			conns = append(conns, map[string]interface{}{
+				"proto":      proto,
+				"localAddr":  localAddr,
+				"remoteAddr": remoteAddr,
+				"state":      state,
+				"process":    procName,
+				"pid":        pidStr,
+			})
+		}
+	}
+
+	return map[string]interface{}{
+		"interfaces":     ifaceList,
+		"listeningPorts": listeningPorts,
+		"connections":    conns,
+	}
 }

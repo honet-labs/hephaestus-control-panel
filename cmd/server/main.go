@@ -205,12 +205,13 @@ func main() {
 		api.GET("/prometheus/query", promHandler.Query)
 		api.POST("/prometheus/reload", promHandler.Reload)
 
-		// VPS Telemetry, Processes, and Services
+		// VPS Telemetry, Processes, Services, and Network
 		api.GET("/vps/:id/metrics", vpsHandler.GetMetrics)
 		api.GET("/vps/:id/processes", vpsHandler.GetProcesses)
 		api.POST("/vps/:id/processes/:pid/kill", vpsHandler.KillProcess)
 		api.GET("/vps/:id/services", vpsHandler.GetServices)
 		api.POST("/vps/:id/control", vpsHandler.ControlService)
+		api.GET("/vps/:id/network", vpsHandler.GetNetworkInfo)
 
 		// Grok Debugger
 		api.POST("/grok/test", grokHandler.Test)
