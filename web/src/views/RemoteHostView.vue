@@ -567,7 +567,8 @@ watch(
   }
 );
 
-// Tab Groups: Computed grouped sessions by Host
+// Tab Groups: Optional user toggle (disabled by default)
+const isGroupTabsEnabled = ref(false);
 const splitLayout = ref<'single' | 'vertical' | 'horizontal'>('single');
 
 const groupedSessions = computed(() => {
@@ -973,57 +974,112 @@ onUnmounted(() => {
         <span>SFTP TRANSFER</span>
       </button>
 
-      <!-- Open Session Tabs (Organized into TAB GROUPS by Host) -->
-      <div class="flex items-center gap-2 ml-2 border-l border-slate-800 pl-3">
-        <!-- Loop over Grouped Sessions -->
-        <div
-          v-for="grp in groupedSessions"
-          :key="grp.hostId"
-          class="flex items-center gap-1 p-0.5 rounded-xl bg-[#171a23] border border-slate-800/80 shadow-sm"
+      <!-- Open Session Tabs (Default Flat Tabs vs Optional Group Tabs) -->
+      <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
+        
+        <!-- Toggle Grouping Button (Only shown when 2+ sessions open) -->
+        <button
+          v-if="openSessions.length > 1"
+          @click="isGroupTabsEnabled = !isGroupTabsEnabled"
+          :class="[
+            'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono border transition mr-1',
+            isGroupTabsEnabled
+              ? 'bg-brand-500/20 text-brand-400 border-brand-500/40 font-bold'
+              : 'bg-[#20242e] text-slate-400 border-slate-700/60 hover:text-slate-200'
+          ]"
+          :title="isGroupTabsEnabled ? 'Ungroup tabs (Flat view)' : 'Group tabs by Host'"
         >
-          <!-- Group Tag / Host Label -->
-          <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold text-slate-400 font-mono">
-            <Server class="w-3 h-3 text-brand-400" />
-            <span>{{ grp.hostName }}</span>
-            <span v-if="grp.sessions.length > 1" class="px-1.5 py-0.2 rounded bg-slate-800 text-brand-400 text-[10px] font-bold">
-              {{ grp.sessions.length }} tabs
-            </span>
-          </div>
+          <Layers class="w-3 h-3" />
+          <span>{{ isGroupTabsEnabled ? 'Grouped' : 'Group Tabs' }}</span>
+        </button>
 
-          <!-- Child Session Tabs within this Group -->
+        <!-- MODE 1: OPTIONAL GROUP TABS (When User Enables It) -->
+        <template v-if="isGroupTabsEnabled">
           <div
-            v-for="sItem in grp.sessions"
-            :key="sItem.session.id"
-            @click="activeSessionIndex = sItem.globalIndex"
+            v-for="grp in groupedSessions"
+            :key="grp.hostId"
+            class="flex items-center gap-1 p-0.5 rounded-xl bg-[#171a23] border border-slate-800/80 shadow-sm"
+          >
+            <!-- Group Tag / Host Label -->
+            <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold text-slate-400 font-mono">
+              <Server class="w-3 h-3 text-brand-400" />
+              <span>{{ grp.hostName }}</span>
+              <span v-if="grp.sessions.length > 1" class="px-1.5 py-0.2 rounded bg-slate-800 text-brand-400 text-[10px] font-bold">
+                {{ grp.sessions.length }} tabs
+              </span>
+            </div>
+
+            <!-- Child Session Tabs within this Group -->
+            <div
+              v-for="sItem in grp.sessions"
+              :key="sItem.session.id"
+              @click="activeSessionIndex = sItem.globalIndex"
+              :class="[
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer border',
+                activeSessionIndex === sItem.globalIndex
+                  ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              ]"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
+              <span>#{{ sItem.session.instanceNumber || 1 }}</span>
+
+              <!-- Duplicate Button -->
+              <button
+                @click.stop="duplicateSession(sItem.session)"
+                title="Duplicate tab in this group"
+                class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+              >
+                <Copy class="w-2.5 h-2.5" />
+              </button>
+
+              <!-- Close Tab Button -->
+              <button
+                @click.stop="closeSession(sItem.globalIndex)"
+                title="Close Tab"
+                class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+              >
+                <X class="w-2.5 h-2.5" />
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- MODE 2: DEFAULT FLAT TABS (Normal Individual Tabs) -->
+        <template v-else>
+          <div
+            v-for="(session, idx) in openSessions"
+            :key="session.id"
+            @click="activeSessionIndex = idx"
             :class="[
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer border',
-              activeSessionIndex === sItem.globalIndex
-                ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer border group',
+              activeSessionIndex === idx
+                ? 'bg-[#242833] border-slate-700 text-white shadow-sm'
                 : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             ]"
           >
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
-            <span>#{{ sItem.session.instanceNumber || 1 }}</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{{ session.displayName || session.host.name }}</span>
 
-            <!-- Duplicate Button -->
+            <!-- DUPLICATE TAB BUTTON (+) -->
             <button
-              @click.stop="duplicateSession(sItem.session)"
-              title="Duplicate tab in this group"
-              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+              @click.stop="duplicateSession(session)"
+              title="Duplicate Terminal Tab"
+              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-1"
             >
-              <Copy class="w-2.5 h-2.5" />
+              <Copy class="w-3 h-3" />
             </button>
 
             <!-- Close Tab Button -->
             <button
-              @click.stop="closeSession(sItem.globalIndex)"
+              @click.stop="closeSession(idx)"
               title="Close Tab"
-              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
             >
-              <X class="w-2.5 h-2.5" />
+              <X class="w-3 h-3" />
             </button>
           </div>
-        </div>
+        </template>
 
         <!-- Global + Duplicate Active Tab -->
         <button
