@@ -25,7 +25,7 @@ import {
 } from 'lucide-vue-next';
 
 const route = useRoute();
-const activeTab = ref<'general' | 'services' | 'users' | 'database' | 'audit'>('general');
+const activeTab = ref<'services' | 'users' | 'database' | 'audit'>('services');
 
 // =================================================================
 // 1. STATUS SERVICES STATE & METHODS
@@ -419,19 +419,6 @@ onUnmounted(() => {
     <!-- Navigation Tabs -->
     <div class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-1 text-xs">
       <button
-        @click="activeTab = 'general'"
-        :class="[
-          'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
-          activeTab === 'general'
-            ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
-            : 'text-slate-400 hover:text-white hover:bg-slate-800/40 border border-transparent'
-        ]"
-      >
-        <Info class="w-3.5 h-3.5" />
-        <span>General Info</span>
-      </button>
-
-      <button
         @click="activeTab = 'services'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
@@ -485,32 +472,7 @@ onUnmounted(() => {
     </div>
 
     <!-- ============================================================= -->
-    <!-- TAB 1: GENERAL INFO -->
-    <!-- ============================================================= -->
-    <div v-if="activeTab === 'general'" class="space-y-4 animate-in fade-in duration-150">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div class="p-4 bg-[#1b1e26] border border-slate-800 rounded-xl space-y-1">
-          <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Application</p>
-          <p class="text-lg font-bold text-white">Hephaestus Control Panel</p>
-          <p class="text-xs text-brand-400 font-mono font-semibold">v2.0.0 Production</p>
-        </div>
-
-        <div class="p-4 bg-[#1b1e26] border border-slate-800 rounded-xl space-y-1">
-          <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Backend Runtime</p>
-          <p class="text-lg font-bold text-white">Go 1.22.x (Gin Engine)</p>
-          <p class="text-xs text-slate-400 font-mono">Linux / x86_64 High-Concurrency</p>
-        </div>
-
-        <div class="p-4 bg-[#1b1e26] border border-slate-800 rounded-xl space-y-1">
-          <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Database Engine</p>
-          <p class="text-lg font-bold text-white">PostgreSQL 16</p>
-          <p class="text-xs text-emerald-400 font-mono">AES-256-GCM Vault Enabled</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============================================================= -->
-    <!-- TAB 2: STATUS SERVICES (4 Core Columns + View Log Modal) -->
+    <!-- TAB 1: STATUS SERVICES (4 Core Columns + View Log Modal) -->
     <!-- ============================================================= -->
     <div v-if="activeTab === 'services'" class="space-y-4 animate-in fade-in duration-150">
       <div class="flex items-center justify-between">
