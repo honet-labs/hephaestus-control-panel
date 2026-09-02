@@ -253,6 +253,7 @@ func main() {
 		api.POST("/settings/prometheus/:id/active", settingsHandler.SetActivePrometheus)
 		api.GET("/settings/database", settingsHandler.GetDatabaseConfig)
 		api.POST("/settings/database", settingsHandler.UpdateDatabaseConfig)
+		api.POST("/settings/database/test", settingsHandler.TestDatabaseConnection)
 
 		// Monitoring Views / Slide Show (Kiosk Mode)
 		api.GET("/monitoring-views", settingsHandler.ListMonitoringViews)

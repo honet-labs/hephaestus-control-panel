@@ -348,21 +348,78 @@ const dbConfig = ref({
   user: 'hephaestus',
   password: '',
   database: 'hephaestus_db',
-  sslmode: 'disable',
+  ssl: false,
 });
-const dbStatus = ref<string | null>(null);
+const dbStatus = ref<{ success: boolean; message: string } | null>(null);
+const dbTesting = ref(false);
+const dbSaving = ref(false);
+
+const fetchDatabaseConfig = async () => {
+  try {
+    const res = await axios.get('/api/v1/settings/database');
+    if (res.data.success && res.data.data) {
+      dbConfig.value.host = res.data.data.host || 'localhost';
+      dbConfig.value.port = res.data.data.port || 5432;
+      dbConfig.value.user = res.data.data.user || 'hephaestus';
+      dbConfig.value.database = res.data.data.database || 'hephaestus_db';
+      dbConfig.value.ssl = Boolean(res.data.data.ssl);
+    }
+  } catch (err) {
+    console.warn('Could not fetch active db config:', err);
+  }
+};
 
 const testDbConnection = async () => {
-  dbStatus.value = 'Testing connection...';
+  dbTesting.value = true;
+  dbStatus.value = null;
   try {
-    const res = await axios.post('/api/v1/system/db-test', dbConfig.value).catch(() => null);
-    if (res && res.data && res.data.success) {
-      dbStatus.value = 'Database connection verified successfully! (PostgreSQL 16)';
+    const res = await axios.post('/api/v1/settings/database/test', {
+      host: dbConfig.value.host,
+      port: Number(dbConfig.value.port) || 5432,
+      user: dbConfig.value.user,
+      password: dbConfig.value.password,
+      database: dbConfig.value.database,
+      ssl: dbConfig.value.ssl,
+    });
+    if (res.data.success) {
+      dbStatus.value = { success: true, message: res.data.message || 'PostgreSQL Connection Verified Successfully!' };
     } else {
-      dbStatus.value = 'Database connection verified! (PostgreSQL 16 Pool Active)';
+      dbStatus.value = { success: false, message: res.data.error || 'Database connection test failed' };
     }
   } catch (err: any) {
-    dbStatus.value = err.response?.data?.error || 'Database connection verified! (PostgreSQL 16 Pool Active)';
+    dbStatus.value = {
+      success: false,
+      message: err.response?.data?.error || err.message || 'Database connection test failed',
+    };
+  } finally {
+    dbTesting.value = false;
+  }
+};
+
+const saveDbConfig = async () => {
+  dbSaving.value = true;
+  dbStatus.value = null;
+  try {
+    const res = await axios.post('/api/v1/settings/database', {
+      host: dbConfig.value.host,
+      port: Number(dbConfig.value.port) || 5432,
+      user: dbConfig.value.user,
+      password: dbConfig.value.password,
+      database: dbConfig.value.database,
+      ssl: dbConfig.value.ssl,
+    });
+    if (res.data.success) {
+      dbStatus.value = { success: true, message: 'Database configuration applied & pool reconnected successfully!' };
+    } else {
+      dbStatus.value = { success: false, message: res.data.error || 'Failed to apply database configuration' };
+    }
+  } catch (err: any) {
+    dbStatus.value = {
+      success: false,
+      message: err.response?.data?.error || err.message || 'Failed to apply database configuration',
+    };
+  } finally {
+    dbSaving.value = false;
   }
 };
 
@@ -394,6 +451,7 @@ onMounted(() => {
   }
   fetchUsers();
   fetchAuditLogs();
+  fetchDatabaseConfig();
   startElapsedTicker();
 });
 
@@ -591,38 +649,82 @@ onUnmounted(() => {
     <!-- ============================================================= -->
     <!-- TAB 4: POSTGRESQL CONNECTION -->
     <!-- ============================================================= -->
-    <div v-if="activeTab === 'database'" class="p-5 bg-[#1b1e26] border border-slate-800 rounded-xl space-y-4 animate-in fade-in duration-150">
-      <h3 class="text-xs font-bold text-white uppercase tracking-wider">PostgreSQL Connection Settings</h3>
+    <div v-if="activeTab === 'database'" class="p-6 bg-[#171a23] border border-slate-800 rounded-xl space-y-4 max-w-3xl animate-in fade-in duration-150">
+      <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+        <div>
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider">PostgreSQL Connection Settings</h3>
+          <p class="text-[11px] text-slate-400">Configure PostgreSQL database credentials, host endpoint, port, and TLS encryption</p>
+        </div>
+        <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
+          ACTIVE POOL
+        </span>
+      </div>
       
-      <div class="grid grid-cols-2 gap-3 text-xs">
-        <div>
-          <label class="block text-slate-400 mb-1">Host</label>
-          <input v-model="dbConfig.host" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
+      <form @submit.prevent="saveDbConfig" class="space-y-4 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1 font-bold">Host</label>
+            <input v-model="dbConfig.host" required placeholder="localhost" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1 font-bold">Port</label>
+            <input v-model.number="dbConfig.port" type="number" required placeholder="5432" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1 font-bold">Database Name</label>
+            <input v-model="dbConfig.database" required placeholder="hephaestus_db" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1 font-bold">User</label>
+            <input v-model="dbConfig.user" required placeholder="hephaestus" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+          </div>
         </div>
-        <div>
-          <label class="block text-slate-400 mb-1">Port</label>
-          <input v-model.number="dbConfig.port" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1">Database Name</label>
-          <input v-model="dbConfig.database" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1">User</label>
-          <input v-model="dbConfig.user" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
-        </div>
-      </div>
 
-      <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
-        <button
-          @click="testDbConnection"
-          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition"
-        >
-          Test Connection
-        </button>
+        <div>
+          <label class="block text-slate-400 mb-1 font-bold">Password</label>
+          <input
+            v-model="dbConfig.password"
+            type="password"
+            placeholder="••••••••••••••••"
+            class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+          />
+          <p class="text-[10px] text-slate-500 mt-1">Leave blank to retain existing encrypted database password</p>
+        </div>
 
-        <span v-if="dbStatus" class="text-xs font-mono text-emerald-400">{{ dbStatus }}</span>
-      </div>
+        <div class="pt-1">
+          <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+            <input
+              type="checkbox"
+              v-model="dbConfig.ssl"
+              class="rounded bg-[#0f1219] border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer"
+            />
+            <span class="font-medium">Use SSL / TLS Encrypted Connection (sslmode=require)</span>
+          </label>
+        </div>
+
+        <div v-if="dbStatus" :class="['p-3 rounded-lg border text-xs font-mono', dbStatus.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400']">
+          {{ dbStatus.message }}
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+          <button
+            type="button"
+            @click="testDbConnection"
+            :disabled="dbTesting"
+            class="px-4 py-2 bg-[#20242e] hover:bg-[#282d3a] text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition disabled:opacity-50"
+          >
+            {{ dbTesting ? 'TESTING...' : 'Test Connection' }}
+          </button>
+
+          <button
+            type="submit"
+            :disabled="dbSaving"
+            class="px-4 py-2 bg-[#4274D9] hover:bg-[#3461c2] text-white text-xs font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition disabled:opacity-50"
+          >
+            {{ dbSaving ? 'SAVING...' : 'Save & Apply Config' }}
+          </button>
+        </div>
+      </form>
     </div>
 
     <!-- ============================================================= -->
