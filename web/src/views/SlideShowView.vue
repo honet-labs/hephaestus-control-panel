@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import axios from 'axios';
-import { useRoute } from 'vue-router';
 import {
   Play,
   Pause,
@@ -12,334 +11,276 @@ import {
   Minimize2,
   ChevronLeft,
   ChevronRight,
-  Monitor,
   ExternalLink,
-  Layers,
   Clock,
   RotateCw,
   X,
-  ArrowUp,
-  ArrowDown,
   Globe,
   Sliders,
-  Sparkles,
-  LayoutGrid,
+  Monitor,
+  Check,
+  Power,
+  Layers,
+  Search,
 } from 'lucide-vue-next';
 
-interface SlideItem {
-  id: string;
-  title: string;
-  type: 'url' | 'internal' | 'text';
-  url?: string;
-  routePath?: string;
-  textTitle?: string;
-  textContent?: string;
-  textBgColor?: string;
-  duration?: number; // duration in seconds
-}
-
-interface SlideShow {
+interface EmbedItem {
   id: string;
   name: string;
-  description: string;
-  interval: number; // default interval in seconds
-  mode: string;
-  panels: SlideItem[];
+  url: string;
+  interval: number; // in seconds (e.g. 15)
+  zoom: number; // in percentage (e.g. 100, 90, 80)
+  isActive: boolean;
   createdAt?: string;
 }
 
-const route = useRoute();
-const slideShows = ref<SlideShow[]>([]);
+const activeTab = ref<'viewer' | 'manage'>('viewer');
+const embedList = ref<EmbedItem[]>([]);
 const loading = ref(false);
 
-// Active View Mode: 'list' | 'editor' | 'player'
-const viewMode = ref<'list' | 'editor' | 'player'>('list');
-const selectedShow = ref<SlideShow | null>(null);
-
-// ==========================================
-// Slide Show Create / Edit State
-// ==========================================
-const isModalOpen = ref(false);
-const showForm = ref<SlideShow>({
-  id: '',
-  name: '',
-  description: '',
-  interval: 15,
-  mode: 'slideshow',
-  panels: [],
-});
-
-// Slide Item Add / Edit Modal
-const isSlideModalOpen = ref(false);
-const editingSlideIndex = ref<number>(-1);
-const slideForm = ref<SlideItem>({
-  id: '',
-  title: '',
-  type: 'url',
-  url: '',
-  routePath: '/',
-  textTitle: '',
-  textContent: '',
-  textBgColor: '#0f172a',
-  duration: 15,
-});
-
-// ==========================================
-// Presentation Player State
-// ==========================================
-const currentSlideIndex = ref<number>(0);
-const isPlaying = ref<boolean>(true);
+// Viewer / Player State
+const currentActiveIndex = ref<number>(0);
+const isAutoRotating = ref<boolean>(true);
 const isFullscreen = ref<boolean>(false);
-const showControls = ref<boolean>(true);
 const progressPercent = ref<number>(0);
+const iframeKey = ref<number>(0);
 
 let progressTimer: any = null;
-let slideTimeoutTimer: any = null;
-let hideControlsTimer: any = null;
 
-const currentSlide = computed(() => {
-  if (!selectedShow.value || !selectedShow.value.panels || selectedShow.value.panels.length === 0) {
-    return null;
-  }
-  return selectedShow.value.panels[currentSlideIndex.value] || null;
+// Modal State (Add / Edit Embed URL)
+const isModalOpen = ref(false);
+const editingId = ref<string | null>(null);
+const form = ref<{
+  name: string;
+  url: string;
+  interval: number;
+  zoom: number;
+  isActive: boolean;
+}>({
+  name: '',
+  url: '',
+  interval: 15,
+  zoom: 100,
+  isActive: true,
 });
 
-const currentSlideDuration = computed(() => {
-  if (currentSlide.value?.duration && currentSlide.value.duration > 0) {
-    return currentSlide.value.duration;
-  }
-  return selectedShow.value?.interval || 15;
+// Active items participating in rotation
+const activeEmbeds = computed(() => {
+  return embedList.value.filter((item) => item.isActive && item.url);
 });
 
-// Fetch all slide shows
-const fetchSlideShows = async () => {
+const currentEmbed = computed<EmbedItem | null>(() => {
+  if (activeEmbeds.value.length === 0) return null;
+  const safeIdx = Math.max(0, Math.min(currentActiveIndex.value, activeEmbeds.value.length - 1));
+  return activeEmbeds.value[safeIdx] || null;
+});
+
+// Load Embed URLs from backend
+const fetchEmbeds = async () => {
   loading.value = true;
   try {
     const res = await axios.get('/api/v1/monitoring-views');
-    if (res.data?.success) {
-      slideShows.value = res.data.data || [];
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      embedList.value = res.data.data.map((item: any) => {
+        let meta: any = {};
+        if (typeof item.panels === 'object' && item.panels !== null) {
+          meta = item.panels;
+        }
+        return {
+          id: item.id,
+          name: item.name,
+          url: meta.url || item.description || '',
+          interval: item.interval > 0 ? item.interval : 15,
+          zoom: meta.zoom || 100,
+          isActive: meta.isActive !== false,
+          createdAt: item.createdAt,
+        };
+      });
     } else {
-      slideShows.value = [];
+      embedList.value = [];
+    }
+
+    if (currentActiveIndex.value >= activeEmbeds.value.length) {
+      currentActiveIndex.value = 0;
     }
   } catch (err) {
-    console.error('Failed to load slide shows:', err);
-    slideShows.value = [];
+    console.error('Failed to load embed URLs:', err);
+    embedList.value = [];
   } finally {
     loading.value = false;
   }
 };
 
-// Create / Edit SlideShow Meta
-const openCreateModal = () => {
-  showForm.value = {
-    id: '',
+// Open Add Modal
+const openAddModal = () => {
+  editingId.value = null;
+  form.value = {
     name: '',
-    description: '',
+    url: '',
     interval: 15,
-    mode: 'slideshow',
-    panels: [],
+    zoom: 100,
+    isActive: true,
   };
   isModalOpen.value = true;
 };
 
-const openEditMetaModal = (show: SlideShow) => {
-  showForm.value = JSON.parse(JSON.stringify(show));
+// Open Edit Modal
+const openEditModal = (item: EmbedItem) => {
+  editingId.value = item.id;
+  form.value = {
+    name: item.name,
+    url: item.url,
+    interval: item.interval,
+    zoom: item.zoom || 100,
+    isActive: item.isActive,
+  };
   isModalOpen.value = true;
 };
 
-const saveSlideShowMeta = async () => {
-  if (!showForm.value.name) {
-    alert('Please enter a name for the slide show.');
+// Save Embed URL
+const saveEmbedUrl = async () => {
+  if (!form.value.name.trim() || !form.value.url.trim()) {
+    alert('Please enter both a Name and a valid Embed URL.');
     return;
   }
+
+  // Ensure protocol
+  let cleanUrl = form.value.url.trim();
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://') && !cleanUrl.startsWith('/')) {
+    cleanUrl = 'https://' + cleanUrl;
+  }
+
+  const payload = {
+    id: editingId.value || `embed-${Date.now()}`,
+    name: form.value.name.trim(),
+    description: cleanUrl,
+    interval: form.value.interval > 0 ? form.value.interval : 15,
+    mode: 'embed',
+    panels: {
+      url: cleanUrl,
+      zoom: form.value.zoom || 100,
+      isActive: form.value.isActive,
+    },
+  };
+
   try {
-    const res = await axios.post('/api/v1/monitoring-views', showForm.value);
+    const res = await axios.post('/api/v1/monitoring-views', payload);
     if (res.data?.success) {
       isModalOpen.value = false;
-      await fetchSlideShows();
-      if (selectedShow.value && selectedShow.value.id === showForm.value.id) {
-        selectedShow.value = res.data.data;
+      await fetchEmbeds();
+      if (activeEmbeds.value.length > 0 && activeTab.value === 'viewer') {
+        resetTimer();
       }
     }
   } catch (err: any) {
-    alert(`Failed to save slide show: ${err.response?.data?.error || err.message}`);
+    alert(`Failed to save Embed URL: ${err.response?.data?.error || err.message}`);
   }
 };
 
-const deleteSlideShow = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this slide show?')) return;
+// Delete Embed URL
+const deleteEmbed = async (id: string) => {
+  if (!confirm('Are you sure you want to delete this Embed URL?')) return;
   try {
     await axios.delete(`/api/v1/monitoring-views/${id}`);
-    await fetchSlideShows();
-    if (selectedShow.value?.id === id) {
-      viewMode.value = 'list';
-      selectedShow.value = null;
-    }
+    await fetchEmbeds();
+    resetTimer();
   } catch (err: any) {
-    alert(`Failed to delete slide show: ${err.response?.data?.error || err.message}`);
+    alert(`Failed to delete: ${err.response?.data?.error || err.message}`);
   }
 };
 
-// ==========================================
-// Slide Editor
-// ==========================================
-const openEditor = (show: SlideShow) => {
-  selectedShow.value = JSON.parse(JSON.stringify(show));
-  if (!selectedShow.value.panels) selectedShow.value.panels = [];
-  viewMode.value = 'editor';
-};
-
-const openAddSlideModal = () => {
-  editingSlideIndex.value = -1;
-  slideForm.value = {
-    id: `slide-${Date.now()}`,
-    title: `Slide ${(selectedShow.value?.panels?.length || 0) + 1}`,
-    type: 'url',
-    url: '',
-    routePath: '/',
-    textTitle: '',
-    textContent: '',
-    textBgColor: '#0f172a',
-    duration: selectedShow.value?.interval || 15,
+// Toggle active status in rotation
+const toggleItemActive = async (item: EmbedItem) => {
+  item.isActive = !item.isActive;
+  const payload = {
+    id: item.id,
+    name: item.name,
+    description: item.url,
+    interval: item.interval,
+    mode: 'embed',
+    panels: {
+      url: item.url,
+      zoom: item.zoom,
+      isActive: item.isActive,
+    },
   };
-  isSlideModalOpen.value = true;
-};
-
-const openEditSlideModal = (idx: number) => {
-  editingSlideIndex.value = idx;
-  const item = selectedShow.value!.panels[idx];
-  slideForm.value = JSON.parse(JSON.stringify(item));
-  isSlideModalOpen.value = true;
-};
-
-const saveSlideItem = async () => {
-  if (!slideForm.value.title) {
-    alert('Slide title is required.');
-    return;
-  }
-  if (!selectedShow.value) return;
-
-  if (editingSlideIndex.value >= 0) {
-    selectedShow.value.panels[editingSlideIndex.value] = { ...slideForm.value };
-  } else {
-    selectedShow.value.panels.push({ ...slideForm.value });
-  }
-
-  isSlideModalOpen.value = false;
-  await saveCurrentShowPanels();
-};
-
-const removeSlide = async (idx: number) => {
-  if (!confirm('Remove this slide?')) return;
-  selectedShow.value?.panels.splice(idx, 1);
-  await saveCurrentShowPanels();
-};
-
-const moveSlide = async (idx: number, dir: 'up' | 'down') => {
-  if (!selectedShow.value) return;
-  const list = selectedShow.value.panels;
-  const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
-  if (targetIdx < 0 || targetIdx >= list.length) return;
-  const temp = list[idx];
-  list[idx] = list[targetIdx];
-  list[targetIdx] = temp;
-  await saveCurrentShowPanels();
-};
-
-const saveCurrentShowPanels = async () => {
-  if (!selectedShow.value) return;
   try {
-    await axios.post('/api/v1/monitoring-views', selectedShow.value);
-    await fetchSlideShows();
-  } catch (err: any) {
-    console.error('Failed to sync slide show:', err);
+    await axios.post('/api/v1/monitoring-views', payload);
+    await fetchEmbeds();
+    resetTimer();
+  } catch (err) {
+    console.error('Failed to update active state:', err);
   }
 };
 
-// ==========================================
-// Presentation / Player Mode
-// ==========================================
-const startPresentation = (show: SlideShow) => {
-  selectedShow.value = show;
-  if (!selectedShow.value.panels || selectedShow.value.panels.length === 0) {
-    alert('This slide show has no slides yet. Please add slides first.');
-    openEditor(show);
-    return;
-  }
-  currentSlideIndex.value = 0;
-  isPlaying.value = true;
-  viewMode.value = 'player';
-  startSlideTimer();
+// Rotation controls
+const nextEmbed = () => {
+  if (activeEmbeds.value.length <= 1) return;
+  currentActiveIndex.value = (currentActiveIndex.value + 1) % activeEmbeds.value.length;
+  resetTimer();
 };
 
-const exitPresentation = () => {
-  clearTimers();
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-  }
-  viewMode.value = 'list';
+const prevEmbed = () => {
+  if (activeEmbeds.value.length <= 1) return;
+  currentActiveIndex.value = (currentActiveIndex.value - 1 + activeEmbeds.value.length) % activeEmbeds.value.length;
+  resetTimer();
 };
 
-const togglePlayPause = () => {
-  isPlaying.value = !isPlaying.value;
-  if (isPlaying.value) {
-    startSlideTimer();
+const selectEmbed = (idx: number) => {
+  currentActiveIndex.value = idx;
+  resetTimer();
+};
+
+const toggleAutoRotate = () => {
+  isAutoRotating.value = !isAutoRotating.value;
+  if (isAutoRotating.value) {
+    startRotationTimer();
   } else {
-    clearTimers();
+    clearTimer();
   }
 };
 
-const nextSlide = () => {
-  if (!selectedShow.value || selectedShow.value.panels.length === 0) return;
-  currentSlideIndex.value = (currentSlideIndex.value + 1) % selectedShow.value.panels.length;
-  resetSlideTimer();
+const refreshCurrentIframe = () => {
+  iframeKey.value++;
+  resetTimer();
 };
 
-const prevSlide = () => {
-  if (!selectedShow.value || selectedShow.value.panels.length === 0) return;
-  currentSlideIndex.value = (currentSlideIndex.value - 1 + selectedShow.value.panels.length) % selectedShow.value.panels.length;
-  resetSlideTimer();
-};
-
-const jumpToSlide = (idx: number) => {
-  currentSlideIndex.value = idx;
-  resetSlideTimer();
-};
-
-const clearTimers = () => {
+const clearTimer = () => {
   if (progressTimer) clearInterval(progressTimer);
-  if (slideTimeoutTimer) clearTimeout(slideTimeoutTimer);
   progressPercent.value = 0;
 };
 
-const resetSlideTimer = () => {
-  clearTimers();
-  if (isPlaying.value) {
-    startSlideTimer();
+const resetTimer = () => {
+  clearTimer();
+  if (isAutoRotating.value && activeEmbeds.value.length > 1) {
+    startRotationTimer();
   }
 };
 
-const startSlideTimer = () => {
-  clearTimers();
-  const durationSec = currentSlideDuration.value;
+const startRotationTimer = () => {
+  clearTimer();
+  if (!currentEmbed.value || activeEmbeds.value.length <= 1) return;
+
+  const durationSec = currentEmbed.value.interval || 15;
   const totalMs = durationSec * 1000;
-  const intervalMs = 100;
-  let elapsedMs = 0;
+  const stepMs = 100;
+  let elapsed = 0;
 
   progressTimer = setInterval(() => {
-    elapsedMs += intervalMs;
-    progressPercent.value = Math.min(100, (elapsedMs / totalMs) * 100);
-    if (elapsedMs >= totalMs) {
+    elapsed += stepMs;
+    progressPercent.value = Math.min(100, (elapsed / totalMs) * 100);
+    if (elapsed >= totalMs) {
       clearInterval(progressTimer);
-      nextSlide();
+      nextEmbed();
     }
-  }, intervalMs);
+  }, stepMs);
 };
 
 const toggleFullscreen = () => {
-  const elem = document.documentElement;
+  const el = document.getElementById('embed-slideshow-container');
+  if (!el) return;
   if (!document.fullscreenElement) {
-    elem.requestFullscreen().then(() => {
+    el.requestFullscreen().then(() => {
       isFullscreen.value = true;
     }).catch(() => {});
   } else {
@@ -349,528 +290,437 @@ const toggleFullscreen = () => {
   }
 };
 
-const handleMouseMove = () => {
-  showControls.value = true;
-  if (hideControlsTimer) clearTimeout(hideControlsTimer);
-  hideControlsTimer = setTimeout(() => {
-    if (viewMode.value === 'player' && isPlaying.value) {
-      showControls.value = false;
-    }
-  }, 3500);
+const openInNewTab = (url?: string) => {
+  const target = url || currentEmbed.value?.url;
+  if (target) {
+    window.open(target, '_blank');
+  }
 };
 
 // Keyboard navigation
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (viewMode.value !== 'player') return;
-  if (e.key === ' ' || e.code === 'Space') {
+  if (activeTab.value !== 'viewer') return;
+  if (e.key === ' ' && e.target === document.body) {
     e.preventDefault();
-    togglePlayPause();
+    toggleAutoRotate();
   } else if (e.key === 'ArrowRight') {
-    e.preventDefault();
-    nextSlide();
+    nextEmbed();
   } else if (e.key === 'ArrowLeft') {
-    e.preventDefault();
-    prevSlide();
-  } else if (e.key === 'f' || e.key === 'F') {
-    e.preventDefault();
-    toggleFullscreen();
-  } else if (e.key === 'Escape') {
-    exitPresentation();
+    prevEmbed();
   }
 };
 
-onMounted(async () => {
-  await fetchSlideShows();
-  window.addEventListener('keydown', handleKeyDown);
-  window.addEventListener('mousemove', handleMouseMove);
-
-  // If launched via /kiosk/:id route parameter
-  if (route.params.id) {
-    const target = slideShows.value.find((s) => s.id === route.params.id);
-    if (target) {
-      startPresentation(target);
-    }
+watch(activeTab, (newTab) => {
+  if (newTab === 'viewer') {
+    resetTimer();
+  } else {
+    clearTimer();
   }
 });
 
+onMounted(async () => {
+  await fetchEmbeds();
+  if (activeEmbeds.value.length > 1) {
+    startRotationTimer();
+  }
+  window.addEventListener('keydown', handleKeyDown);
+});
+
 onUnmounted(() => {
-  clearTimers();
+  clearTimer();
   window.removeEventListener('keydown', handleKeyDown);
-  window.removeEventListener('mousemove', handleMouseMove);
 });
 </script>
 
 <template>
-  <div class="h-full flex flex-col font-sans select-none" :class="{ 'bg-black': viewMode === 'player' }">
-
-    <!-- ================================================================= -->
-    <!-- VIEW 1: SLIDE SHOWS LIST -->
-    <!-- ================================================================= -->
-    <div v-if="viewMode === 'list'" class="space-y-6 max-w-7xl mx-auto w-full p-2">
-      <!-- Header -->
-      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-        <div>
-          <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <Monitor class="w-5 h-5 text-brand-400" />
-            <span>Slide Show & NOC Wall Display</span>
-          </h1>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Create automated rotating dashboards, NOC Wall playlists, and fullscreen kiosk presentations.
-          </p>
-        </div>
-
+  <div id="embed-slideshow-container" class="h-full flex flex-col font-sans select-none bg-[#090d16] text-white">
+    
+    <!-- Top Bar -->
+    <div class="px-4 py-3 bg-[#13161f] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      
+      <!-- Title & Tab Switcher -->
+      <div class="flex items-center gap-4">
         <div class="flex items-center gap-2">
+          <Monitor class="w-5 h-5 text-brand-400" />
+          <h1 class="text-sm font-bold text-white tracking-wide">Slide Show (Embed URL)</h1>
+        </div>
+
+        <div class="flex items-center bg-[#090d16] p-0.5 rounded-lg border border-slate-800 text-xs font-semibold">
           <button
-            @click="fetchSlideShows"
-            class="p-2 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-            title="Refresh"
+            @click="activeTab = 'viewer'"
+            :class="[
+              activeTab === 'viewer'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white',
+              'px-3 py-1 rounded-md transition flex items-center gap-1.5'
+            ]"
           >
-            <RotateCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
+            <Globe class="w-3.5 h-3.5" />
+            <span>Embed Viewer ({{ activeEmbeds.length }})</span>
           </button>
 
           <button
-            @click="openCreateModal"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20 transition"
+            @click="activeTab = 'manage'"
+            :class="[
+              activeTab === 'manage'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white',
+              'px-3 py-1 rounded-md transition flex items-center gap-1.5'
+            ]"
           >
-            <Plus class="w-4 h-4" />
-            <span>NEW SLIDE SHOW</span>
+            <Sliders class="w-3.5 h-3.5" />
+            <span>Manage URLs ({{ embedList.length }})</span>
           </button>
         </div>
       </div>
 
-      <!-- Slide Shows Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div
-          v-for="show in slideShows"
-          :key="show.id"
-          class="rounded-2xl bg-[#171a23] border border-slate-800 hover:border-slate-700 p-5 space-y-4 shadow-xl transition flex flex-col justify-between"
+      <!-- Viewer Controls (When on Viewer tab and has embeds) -->
+      <div v-if="activeTab === 'viewer' && activeEmbeds.length > 0" class="flex items-center gap-2 text-xs">
+        
+        <!-- URL Selector Dropdown -->
+        <select
+          :value="currentActiveIndex"
+          @change="selectEmbed(Number(($event.target as HTMLSelectElement).value))"
+          class="bg-[#090d16] border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-brand-500 max-w-[220px] truncate"
         >
-          <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-bold text-white truncate max-w-[200px]">{{ show.name }}</h3>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 border border-slate-700/60 font-semibold flex items-center gap-1">
-                <Clock class="w-3 h-3" />
-                {{ show.interval }}s / slide
-              </span>
-            </div>
+          <option v-for="(item, idx) in activeEmbeds" :key="item.id" :value="idx">
+            {{ idx + 1 }}. {{ item.name }} ({{ item.interval }}s)
+          </option>
+        </select>
 
-            <p class="text-xs text-slate-400 line-clamp-2">
-              {{ show.description || 'No description provided.' }}
-            </p>
-
-            <div class="flex items-center gap-2 pt-2 text-[11px] text-slate-400">
-              <span class="px-2 py-0.5 rounded bg-[#0f1219] border border-slate-800 font-mono text-brand-400 font-bold">
-                {{ show.panels?.length || 0 }} Slides
-              </span>
-              <span class="uppercase text-[10px] tracking-wider text-slate-500 font-semibold">{{ show.mode }}</span>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between pt-4 border-t border-slate-800">
-            <button
-              @click="startPresentation(show)"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition"
-            >
-              <Play class="w-3.5 h-3.5 fill-current" />
-              <span>Present</span>
-            </button>
-
-            <div class="flex items-center gap-1">
-              <button
-                @click="openEditor(show)"
-                class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-                title="Edit Slides"
-              >
-                <Edit2 class="w-3.5 h-3.5" />
-              </button>
-              <button
-                @click="deleteSlideShow(show.id)"
-                class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 border border-slate-700 transition"
-                title="Delete Slide Show"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div v-if="slideShows.length === 0 && !loading" class="col-span-3 p-12 text-center bg-[#171a23] border border-slate-800 rounded-2xl space-y-3">
-          <Monitor class="w-10 h-10 text-slate-600 mx-auto" />
-          <h3 class="text-sm font-bold text-white">No Slide Shows Configured</h3>
-          <p class="text-xs text-slate-500 max-w-md mx-auto">
-            Create a slide show to display rotating network topology, Prometheus metrics, Grafana dashboards, or NOC wall views.
-          </p>
+        <!-- Previous / Next -->
+        <div class="flex items-center bg-[#090d16] border border-slate-700 rounded-lg p-0.5">
           <button
-            @click="openCreateModal"
-            class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-lg"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>Create First Slide Show</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ================================================================= -->
-    <!-- VIEW 2: SLIDE SHOW EDITOR -->
-    <!-- ================================================================= -->
-    <div v-if="viewMode === 'editor' && selectedShow" class="space-y-6 max-w-7xl mx-auto w-full p-2">
-      <!-- Editor Top Bar -->
-      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-        <div class="flex items-center gap-3">
-          <button
-            @click="viewMode = 'list'"
-            class="p-2 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-            title="Back to Slide Shows"
+            @click="prevEmbed"
+            :disabled="activeEmbeds.length <= 1"
+            class="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 transition"
+            title="Previous URL (Left Arrow)"
           >
             <ChevronLeft class="w-4 h-4" />
           </button>
-          <div>
-            <h2 class="text-lg font-bold text-white flex items-center gap-2">
-              <span>{{ selectedShow.name }}</span>
-              <button @click="openEditMetaModal(selectedShow)" class="text-slate-500 hover:text-white">
-                <Edit2 class="w-3.5 h-3.5" />
-              </button>
-            </h2>
-            <p class="text-xs text-slate-400">
-              {{ selectedShow.panels?.length || 0 }} slides • Default {{ selectedShow.interval }}s per slide
-            </p>
-          </div>
-        </div>
 
-        <div class="flex items-center gap-2">
           <button
-            @click="startPresentation(selectedShow)"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg transition"
+            @click="toggleAutoRotate"
+            :disabled="activeEmbeds.length <= 1"
+            :class="[
+              isAutoRotating ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 hover:text-white',
+              'px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition'
+            ]"
+            :title="isAutoRotating ? 'Pause Rotation (Space)' : 'Play Auto-Rotation (Space)'"
           >
-            <Play class="w-3.5 h-3.5 fill-current" />
-            <span>Start Presentation</span>
+            <Pause v-if="isAutoRotating" class="w-3.5 h-3.5 fill-current" />
+            <Play v-else class="w-3.5 h-3.5 fill-current" />
+            <span>{{ isAutoRotating ? 'Auto' : 'Paused' }}</span>
           </button>
 
           <button
-            @click="openAddSlideModal"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg transition"
+            @click="nextEmbed"
+            :disabled="activeEmbeds.length <= 1"
+            class="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 transition"
+            title="Next URL (Right Arrow)"
           >
-            <Plus class="w-4 h-4" />
-            <span>Add Slide</span>
+            <ChevronRight class="w-4 h-4" />
           </button>
         </div>
-      </div>
 
-      <!-- Slides List -->
-      <div class="space-y-3">
-        <div
-          v-for="(slide, idx) in selectedShow.panels"
-          :key="slide.id"
-          class="p-4 rounded-xl bg-[#171a23] border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-4 shadow-lg transition"
-        >
-          <div class="flex items-center gap-4">
-            <span class="w-6 h-6 rounded-full bg-[#0f1219] text-brand-400 border border-slate-800 flex items-center justify-center text-xs font-bold font-mono">
-              {{ idx + 1 }}
-            </span>
-
-            <div class="space-y-1">
-              <div class="flex items-center gap-2">
-                <h4 class="text-xs font-bold text-white">{{ slide.title }}</h4>
-                <span class="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-slate-800 text-sky-400 border border-slate-700/60 font-semibold">
-                  {{ slide.type }}
-                </span>
-                <span class="text-[10px] text-slate-400 font-mono">
-                  ⏱ {{ slide.duration || selectedShow.interval }}s
-                </span>
-              </div>
-              <p class="text-[11px] font-mono text-slate-400 truncate max-w-xl">
-                {{ slide.type === 'url' ? slide.url : slide.type === 'internal' ? `Internal Route: ${slide.routePath}` : slide.textTitle }}
-              </p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-1">
-            <button
-              @click="moveSlide(idx, 'up')"
-              :disabled="idx === 0"
-              class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30 transition"
-              title="Move Up"
-            >
-              <ArrowUp class="w-3.5 h-3.5" />
-            </button>
-            <button
-              @click="moveSlide(idx, 'down')"
-              :disabled="idx === selectedShow.panels.length - 1"
-              class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30 transition"
-              title="Move Down"
-            >
-              <ArrowDown class="w-3.5 h-3.5" />
-            </button>
-            <button
-              @click="openEditSlideModal(idx)"
-              class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
-              title="Edit Slide"
-            >
-              <Edit2 class="w-3.5 h-3.5" />
-            </button>
-            <button
-              @click="removeSlide(idx)"
-              class="p-1.5 rounded bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 transition"
-              title="Delete Slide"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <div v-if="selectedShow.panels.length === 0" class="p-12 text-center bg-[#171a23] border border-slate-800 rounded-xl space-y-2">
-          <Layers class="w-8 h-8 text-slate-600 mx-auto" />
-          <p class="text-xs font-bold text-slate-300">No slides added to this show yet</p>
-          <button @click="openAddSlideModal" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold">
-            + Add First Slide
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ================================================================= -->
-    <!-- VIEW 3: FULLSCREEN PRESENTATION / KIOSK PLAYER -->
-    <!-- ================================================================= -->
-    <div v-if="viewMode === 'player' && selectedShow && currentSlide" class="relative w-full h-screen bg-black overflow-hidden flex flex-col">
-      
-      <!-- Top Progress Bar -->
-      <div class="absolute top-0 left-0 right-0 h-1 bg-slate-900 z-50">
-        <div
-          class="h-full bg-gradient-to-r from-blue-500 via-brand-400 to-emerald-400 transition-all duration-100 ease-linear"
-          :style="{ width: `${progressPercent}%` }"
-        ></div>
-      </div>
-
-      <!-- Slide Viewport Content -->
-      <div class="flex-1 w-full h-full relative">
-        
-        <!-- Type 1: External URL / Iframe / Grafana Dashboard -->
-        <iframe
-          v-if="currentSlide.type === 'url' && currentSlide.url"
-          :src="currentSlide.url"
-          class="w-full h-full border-0 bg-[#090d16]"
-          allow="fullscreen; clipboard-read; clipboard-write"
-        ></iframe>
-
-        <!-- Type 2: Internal Route (Overview, Topology, etc.) -->
-        <iframe
-          v-else-if="currentSlide.type === 'internal'"
-          :src="currentSlide.routePath || '/'"
-          class="w-full h-full border-0 bg-[#090d16]"
-        ></iframe>
-
-        <!-- Type 3: Custom Announcement Banner -->
-        <div
-          v-else-if="currentSlide.type === 'text'"
-          class="w-full h-full flex flex-col items-center justify-center p-12 text-center"
-          :style="{ backgroundColor: currentSlide.textBgColor || '#0f172a' }"
-        >
-          <h1 class="text-4xl md:text-6xl font-black text-white tracking-tight mb-4 max-w-4xl drop-shadow-lg">
-            {{ currentSlide.textTitle || currentSlide.title }}
-          </h1>
-          <p class="text-lg md:text-2xl text-slate-300 max-w-3xl leading-relaxed whitespace-pre-line font-light">
-            {{ currentSlide.textContent }}
-          </p>
-        </div>
-
-        <div v-else class="w-full h-full flex items-center justify-center text-slate-500 text-sm">
-          No preview available for this slide.
-        </div>
-      </div>
-
-      <!-- Floating Presentation Controller HUD -->
-      <div
-        v-show="showControls"
-        class="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#13161f]/90 border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl backdrop-blur-md flex items-center gap-4 text-xs font-sans text-white transition-opacity duration-300"
-      >
+        <!-- Reload Current Iframe -->
         <button
-          @click="prevSlide"
-          class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
-          title="Previous (Left Arrow)"
+          @click="refreshCurrentIframe"
+          class="p-1.5 rounded-lg bg-[#090d16] hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+          title="Reload Iframe"
         >
-          <ChevronLeft class="w-4 h-4" />
+          <RotateCw class="w-3.5 h-3.5" />
         </button>
 
+        <!-- Open in New Tab -->
         <button
-          @click="togglePlayPause"
-          class="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
-          :title="isPlaying ? 'Pause (Space)' : 'Play (Space)'"
+          @click="openInNewTab()"
+          class="p-1.5 rounded-lg bg-[#090d16] hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+          title="Open in New Tab"
         >
-          <Pause v-if="isPlaying" class="w-4 h-4 fill-current" />
-          <Play v-else class="w-4 h-4 fill-current" />
+          <ExternalLink class="w-3.5 h-3.5" />
         </button>
 
-        <button
-          @click="nextSlide"
-          class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
-          title="Next (Right Arrow)"
-        >
-          <ChevronRight class="w-4 h-4" />
-        </button>
-
-        <div class="h-4 w-[1px] bg-slate-700"></div>
-
-        <div class="flex items-center gap-2">
-          <span class="font-bold text-white tracking-wide">
-            {{ currentSlideIndex + 1 }} / {{ selectedShow.panels.length }}
-          </span>
-          <span class="text-slate-400 truncate max-w-[150px] font-mono text-[11px]">
-            {{ currentSlide.title }}
-          </span>
-        </div>
-
-        <div class="h-4 w-[1px] bg-slate-700"></div>
-
+        <!-- Fullscreen / Kiosk -->
         <button
           @click="toggleFullscreen"
-          class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-          title="Toggle Fullscreen (F)"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
+          title="Toggle NOC Fullscreen (F11)"
         >
-          <Maximize2 v-if="!isFullscreen" class="w-4 h-4" />
-          <Minimize2 v-else class="w-4 h-4" />
+          <Maximize2 v-if="!isFullscreen" class="w-3.5 h-3.5" />
+          <Minimize2 v-else class="w-3.5 h-3.5" />
+          <span>{{ isFullscreen ? 'Exit' : 'Kiosk' }}</span>
+        </button>
+      </div>
+
+      <!-- Actions on Manage Tab -->
+      <div v-if="activeTab === 'manage'" class="flex items-center gap-2">
+        <button
+          @click="fetchEmbeds"
+          class="p-2 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+          title="Refresh List"
+        >
+          <RotateCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
         </button>
 
         <button
-          @click="exitPresentation"
-          class="p-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 transition"
-          title="Exit Presentation (Esc)"
+          @click="openAddModal"
+          class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg transition"
         >
-          <X class="w-4 h-4" />
+          <Plus class="w-3.5 h-3.5" />
+          <span>ADD EMBED URL</span>
         </button>
       </div>
 
     </div>
 
-    <!-- ================================================================= -->
-    <!-- MODAL: CREATE / EDIT SLIDESHOW META -->
-    <!-- ================================================================= -->
-    <div v-if="isModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-md bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+    <!-- Top Countdown Progress Bar (When Auto-Rotating) -->
+    <div v-if="activeTab === 'viewer' && isAutoRotating && activeEmbeds.length > 1" class="w-full h-1 bg-slate-900 shrink-0">
+      <div
+        class="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400 transition-all duration-100 ease-linear"
+        :style="{ width: `${progressPercent}%` }"
+      ></div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB 1: EMBED VIEWER (LIVE ROTATING IFRAME) -->
+    <!-- ============================================================= -->
+    <div v-if="activeTab === 'viewer'" class="flex-1 relative w-full h-full overflow-hidden bg-[#05070d]">
+      
+      <!-- When URL is available -->
+      <template v-if="currentEmbed && currentEmbed.url">
+        <iframe
+          :key="`${currentEmbed.id}-${iframeKey}`"
+          :src="currentEmbed.url"
+          class="w-full h-full border-0 bg-[#090d16]"
+          allow="fullscreen; clipboard-read; clipboard-write; camera; microphone"
+          :style="{
+            transform: currentEmbed.zoom && currentEmbed.zoom !== 100 ? `scale(${currentEmbed.zoom / 100})` : 'none',
+            transformOrigin: 'top left',
+            width: currentEmbed.zoom && currentEmbed.zoom !== 100 ? `${(100 / currentEmbed.zoom) * 100}%` : '100%',
+            height: currentEmbed.zoom && currentEmbed.zoom !== 100 ? `${(100 / currentEmbed.zoom) * 100}%` : '100%',
+          }"
+        ></iframe>
+
+        <!-- Bottom Float Indicator Bar -->
+        <div class="absolute bottom-3 left-4 z-30 bg-[#13161f]/85 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 flex items-center gap-2.5 shadow-xl pointer-events-none">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="font-bold text-white">{{ currentEmbed.name }}</span>
+          <span class="text-[11px] text-slate-400 font-mono truncate max-w-xs">{{ currentEmbed.url }}</span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 font-semibold border border-slate-700/60">
+            {{ currentActiveIndex + 1 }} / {{ activeEmbeds.length }}
+          </span>
+        </div>
+      </template>
+
+      <!-- Empty State When No Embed URLs Added -->
+      <div v-else class="w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <div class="w-16 h-16 rounded-2xl bg-[#171a23] border border-slate-800 flex items-center justify-center text-slate-600 shadow-xl">
+          <Globe class="w-8 h-8 text-brand-400" />
+        </div>
+        <div class="space-y-1 max-w-md">
+          <h3 class="text-base font-bold text-white">No Embed URLs Configured</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Add your Grafana dashboards, OpenSearch Dashboards, Prometheus targets, or any monitoring web pages to view them live and auto-rotate in Slide Show.
+          </p>
+        </div>
+        <button
+          @click="openAddModal"
+          class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+        >
+          <Plus class="w-4 h-4" />
+          <span>Add Your First Embed URL</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB 2: MANAGE EMBED URLS TABLE -->
+    <!-- ============================================================= -->
+    <div v-if="activeTab === 'manage'" class="flex-1 p-6 overflow-y-auto max-w-6xl mx-auto w-full space-y-4">
+      
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white">Configured Embed URLs</h2>
+          <p class="text-xs text-slate-400">List of web pages and dashboards for Slide Show rotation</p>
+        </div>
+
+        <button
+          @click="openAddModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow transition"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Add Embed URL</span>
+        </button>
+      </div>
+
+      <div class="bg-[#171a23] border border-slate-800 rounded-xl overflow-x-auto shadow-xl">
+        <table class="w-full text-left text-xs font-sans">
+          <thead class="bg-[#1c202b] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="p-3.5 w-12 text-center">Active</th>
+              <th class="p-3.5">Name / Title</th>
+              <th class="p-3.5">Embed URL Target</th>
+              <th class="p-3.5 w-28">Rotation Interval</th>
+              <th class="p-3.5 w-24">Zoom Scale</th>
+              <th class="p-3.5 w-32 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60 text-slate-300 text-xs">
+            <tr v-for="item in embedList" :key="item.id" class="hover:bg-slate-800/30 transition">
+              <td class="p-3.5 text-center">
+                <button
+                  @click="toggleItemActive(item)"
+                  :class="[
+                    item.isActive ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500 border border-slate-700',
+                    'w-5 h-5 rounded-md inline-flex items-center justify-center transition'
+                  ]"
+                  :title="item.isActive ? 'Active in Slide Show' : 'Paused'"
+                >
+                  <Check v-if="item.isActive" class="w-3.5 h-3.5" />
+                  <X v-else class="w-3 h-3" />
+                </button>
+              </td>
+
+              <td class="p-3.5 font-bold text-white flex items-center gap-2">
+                <Globe class="w-4 h-4 text-brand-400 shrink-0" />
+                <span>{{ item.name }}</span>
+              </td>
+
+              <td class="p-3.5 font-mono text-[11px] text-slate-400">
+                <a :href="item.url" target="_blank" class="hover:text-brand-400 hover:underline truncate block max-w-md">
+                  {{ item.url }}
+                </a>
+              </td>
+
+              <td class="p-3.5 font-mono text-amber-400 font-bold">
+                {{ item.interval }}s
+              </td>
+
+              <td class="p-3.5 font-mono text-slate-400">
+                {{ item.zoom || 100 }}%
+              </td>
+
+              <td class="p-3.5 text-right space-x-1 whitespace-nowrap">
+                <button
+                  @click="openInNewTab(item.url)"
+                  class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                  title="Open in New Tab"
+                >
+                  <ExternalLink class="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  @click="openEditModal(item)"
+                  class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                  title="Edit URL"
+                >
+                  <Edit2 class="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  @click="deleteEmbed(item.id)"
+                  class="p-1.5 rounded bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 transition"
+                  title="Delete"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </td>
+            </tr>
+
+            <tr v-if="embedList.length === 0">
+              <td colspan="6" class="p-12 text-center text-slate-500">
+                No Embed URLs registered yet. Click "Add Embed URL" to add a dashboard link.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL: ADD / EDIT EMBED URL -->
+    <!-- ============================================================= -->
+    <div v-if="isModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+      <div class="w-full max-w-lg bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans text-white">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Monitor class="w-4 h-4 text-brand-400" />
-            <span>{{ showForm.id ? 'Edit Slide Show' : 'New Slide Show' }}</span>
+          <h3 class="text-sm font-bold flex items-center gap-2">
+            <Globe class="w-4 h-4 text-brand-400" />
+            <span>{{ editingId ? 'Edit Embed URL' : 'Add New Embed URL' }}</span>
           </h3>
           <button @click="isModalOpen = false" class="text-slate-400 hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <form @submit.prevent="saveSlideShowMeta" class="space-y-3 text-xs">
+        <form @submit.prevent="saveEmbedUrl" class="space-y-4 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Slide Show Name</label>
-            <input v-model="showForm.name" required placeholder="e.g. NOC Main Wall Display" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+            <label class="block text-slate-400 mb-1 font-bold">Dashboard / URL Title</label>
+            <input
+              v-model="form.name"
+              required
+              placeholder="e.g. Grafana NOC Dashboard, OpenSearch Telemetry"
+              class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+            />
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Description</label>
-            <textarea v-model="showForm.description" rows="2" placeholder="Summary or purpose..." class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white"></textarea>
+            <label class="block text-slate-400 mb-1 font-bold">Embed URL Link</label>
+            <input
+              v-model="form.url"
+              required
+              placeholder="http://10.20.30.40:3000/d/... or https://grafana.mycorp.com/..."
+              class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+            />
+            <span class="text-[10px] text-slate-500 mt-1 block">
+              Supports any iframe embeddable URL (Grafana, Kibana, OpenSearch, Prometheus, Uptime Kuma, Weathermap, etc.).
+            </span>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Default Interval (seconds)</label>
-              <input v-model.number="showForm.interval" type="number" min="3" max="3600" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono" />
+              <label class="block text-slate-400 mb-1 font-bold">Rotation Interval (seconds)</label>
+              <input
+                v-model.number="form.interval"
+                type="number"
+                min="3"
+                max="3600"
+                required
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+              <span class="text-[10px] text-slate-500 mt-0.5 block">Time to display before rotating to next URL.</span>
             </div>
+
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Display Mode</label>
-              <select v-model="showForm.mode" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white">
-                <option value="slideshow">Auto-Rotating Slide Show</option>
-                <option value="kiosk">Kiosk Mode</option>
+              <label class="block text-slate-400 mb-1 font-bold">Zoom Scaling (%)</label>
+              <select
+                v-model.number="form.zoom"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              >
+                <option :value="100">100% (Default)</option>
+                <option :value="90">90%</option>
+                <option :value="80">80%</option>
+                <option :value="75">75% (Dense NOC Grid)</option>
+                <option :value="67">67%</option>
+                <option :value="50">50%</option>
               </select>
             </div>
           </div>
 
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isModalOpen = false" class="px-3 py-1.5 text-slate-400 hover:text-white">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Slide Show</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- ================================================================= -->
-    <!-- MODAL: ADD / EDIT SLIDE ITEM -->
-    <!-- ================================================================= -->
-    <div v-if="isSlideModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-lg bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Layers class="w-4 h-4 text-brand-400" />
-            <span>{{ editingSlideIndex >= 0 ? 'Edit Slide' : 'Add Slide' }}</span>
-          </h3>
-          <button @click="isSlideModalOpen = false" class="text-slate-400 hover:text-white">
-            <X class="w-4 h-4" />
-          </button>
-        </div>
-
-        <form @submit.prevent="saveSlideItem" class="space-y-3 text-xs">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-slate-400 mb-1 font-bold">Slide Title</label>
-              <input v-model="slideForm.title" required placeholder="e.g. Backbone Network Topology" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
-            </div>
-            <div>
-              <label class="block text-slate-400 mb-1 font-bold">Slide Type</label>
-              <select v-model="slideForm.type" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
-                <option value="url">External URL / Dashboard Iframe</option>
-                <option value="internal">Internal Hephaestus View</option>
-                <option value="text">Announcement / Text Slide</option>
-              </select>
-            </div>
+          <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-300 text-xs">
+              <input type="checkbox" v-model="form.isActive" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0" />
+              <span>Include in Slide Show Auto-Rotation</span>
+            </label>
           </div>
 
-          <!-- Type 1: URL -->
-          <div v-if="slideForm.type === 'url'">
-            <label class="block text-slate-400 mb-1 font-bold">Dashboard or Web URL</label>
-            <input v-model="slideForm.url" placeholder="https://grafana.example.com/d/... or http://..." class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
-            <span class="text-[10px] text-slate-500 mt-0.5 block">Grafana, OpenSearch, Prometheus, or any external monitoring web page.</span>
-          </div>
-
-          <!-- Type 2: Internal -->
-          <div v-if="slideForm.type === 'internal'">
-            <label class="block text-slate-400 mb-1 font-bold">Select Internal View</label>
-            <select v-model="slideForm.routePath" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
-              <option value="/">Overview Dashboard (/)</option>
-              <option value="/network-topology">Network Topology (/network-topology)</option>
-              <option value="/opensearch-cluster">OpenSearch Cluster (/opensearch-cluster)</option>
-              <option value="/backup">Backup Manager (/backup)</option>
-              <option value="/connections">Connections (/connections)</option>
-              <option value="/prometheus-config">Prometheus Config (/prometheus-config)</option>
-              <option value="/dataprepper-config">Data Prepper Pipelines (/dataprepper-config)</option>
-              <option value="/snmp">SNMP MIB Explorer (/snmp)</option>
-              <option value="/grok-debugger">Grok Pattern Studio (/grok-debugger)</option>
-            </select>
-          </div>
-
-          <!-- Type 3: Text Announcement -->
-          <template v-if="slideForm.type === 'text'">
-            <div>
-              <label class="block text-slate-400 mb-1 font-bold">Heading Title</label>
-              <input v-model="slideForm.textTitle" placeholder="MAINTENANCE NOTICE" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
-            </div>
-            <div>
-              <label class="block text-slate-400 mb-1 font-bold">Content Message</label>
-              <textarea v-model="slideForm.textContent" rows="3" placeholder="Server maintenance scheduled from 02:00 to 04:00 UTC." class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white"></textarea>
-            </div>
-          </template>
-
-          <div class="grid grid-cols-2 gap-3 pt-1">
-            <div>
-              <label class="block text-slate-400 mb-1 font-bold">Slide Duration (seconds)</label>
-              <input v-model.number="slideForm.duration" type="number" min="3" max="3600" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
-            </div>
-            <div v-if="slideForm.type === 'text'">
-              <label class="block text-slate-400 mb-1 font-bold">Background Color</label>
-              <input v-model="slideForm.textBgColor" type="color" class="w-full h-8 bg-[#0f1219] border border-slate-700 rounded-lg p-0.5 cursor-pointer" />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isSlideModalOpen = false" class="px-3 py-1.5 text-slate-400 hover:text-white">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Slide</button>
+          <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <button type="button" @click="isModalOpen = false" class="px-3 py-2 text-slate-400 hover:text-white">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg">
+              Save Embed URL
+            </button>
           </div>
         </form>
       </div>
