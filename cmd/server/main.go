@@ -221,9 +221,11 @@ func main() {
 		api.GET("/dataprepper/pipelines", dpHandler.ListPipelines)
 		api.POST("/dataprepper/validate", dpHandler.ValidateYAML)
 
-		// Live Logs & Queue
+		// Live Logs, Services & Queue
 		api.GET("/logs", logsHandler.GetRecentLogs)
 		api.GET("/logs/recent", logsHandler.GetRecentLogs)
+		api.GET("/services", queueHandler.ListServices)
+		api.POST("/services/:id/restart", queueHandler.RestartService)
 		api.GET("/queue/jobs", queueHandler.ListJobs)
 		api.GET("/queue/jobs/:id", queueHandler.GetJob)
 		api.POST("/queue/jobs/trigger", queueHandler.TriggerJob)
