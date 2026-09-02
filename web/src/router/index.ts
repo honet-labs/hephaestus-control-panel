@@ -81,6 +81,16 @@ const router = createRouter({
           component: () => import('../views/GrokDebuggerView.vue'),
         },
         {
+          path: 'slideshow',
+          name: 'slideshow',
+          component: () => import('../views/SlideShowView.vue'),
+        },
+        {
+          path: 'kiosk/:id?',
+          name: 'kiosk',
+          component: () => import('../views/SlideShowView.vue'),
+        },
+        {
           path: 'tools',
           redirect: '/snmp',
         },

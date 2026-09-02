@@ -251,9 +251,13 @@ func main() {
 		api.GET("/settings/prometheus", settingsHandler.ListPrometheus)
 		api.POST("/settings/prometheus", settingsHandler.SavePrometheus)
 		api.POST("/settings/prometheus/:id/active", settingsHandler.SetActivePrometheus)
-		api.DELETE("/settings/prometheus/:id", settingsHandler.DeletePrometheus)
 		api.GET("/settings/database", settingsHandler.GetDatabaseConfig)
 		api.POST("/settings/database", settingsHandler.UpdateDatabaseConfig)
+
+		// Monitoring Views / Slide Show (Kiosk Mode)
+		api.GET("/monitoring-views", settingsHandler.ListMonitoringViews)
+		api.POST("/monitoring-views", settingsHandler.SaveMonitoringView)
+		api.DELETE("/monitoring-views/:id", settingsHandler.DeleteMonitoringView)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)

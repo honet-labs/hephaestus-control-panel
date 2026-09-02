@@ -238,3 +238,45 @@ func (h *SettingsHandler) UpdateDatabaseConfig(c *gin.Context) {
 	logger.Info("Settings", fmt.Sprintf("PostgreSQL database switched to %s:%d/%s", req.Host, req.Port, req.Database))
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Database connected and synchronized successfully."})
 }
+
+// Monitoring Views (Slide Shows / Kiosk)
+func (h *SettingsHandler) ListMonitoringViews(c *gin.Context) {
+	list, err := h.configRepo.ListMonitoringViews(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+}
+
+func (h *SettingsHandler) SaveMonitoringView(c *gin.Context) {
+	var v domain.MonitoringView
+	if err := c.ShouldBindJSON(&v); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
+		return
+	}
+	if v.ID == "" {
+		v.ID = fmt.Sprintf("view-%s", uuid.New().String()[:8])
+	}
+	if v.Interval <= 0 {
+		v.Interval = 15
+	}
+	if v.Mode == "" {
+		v.Mode = "slideshow"
+	}
+	if err := h.configRepo.SaveMonitoringView(c.Request.Context(), v); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Slide Show saved.", "data": v})
+}
+
+func (h *SettingsHandler) DeleteMonitoringView(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.configRepo.DeleteMonitoringView(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Slide Show deleted."})
+}
+

@@ -248,6 +248,19 @@ onMounted(() => {
                 <span class="w-1 h-1 rounded-full" :class="route.path === '/grok-debugger' ? 'bg-brand-400' : 'bg-slate-600'"></span>
                 <span>Grok Debugger</span>
               </router-link>
+
+              <router-link
+                to="/slideshow"
+                :class="[
+                  route.path === '/slideshow'
+                    ? 'text-brand-400 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1 h-1 rounded-full" :class="route.path === '/slideshow' ? 'bg-brand-400' : 'bg-slate-600'"></span>
+                <span>Slide Show</span>
+              </router-link>
             </div>
           </div>
 
