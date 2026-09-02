@@ -68,7 +68,11 @@ func (h *OpenSearchHandler) GetConfig(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": cfg})
+	safeCfg := *cfg
+	if safeCfg.Password != "" {
+		safeCfg.Password = "••••••••"
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": safeCfg})
 }
 
 func (h *OpenSearchHandler) SaveConfig(c *gin.Context) {
@@ -83,7 +87,11 @@ func (h *OpenSearchHandler) SaveConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": saved})
+	safeSaved := *saved
+	if safeSaved.Password != "" {
+		safeSaved.Password = "••••••••"
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": safeSaved})
 }
 
 func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
@@ -118,16 +126,16 @@ func NewPrometheusHandler(promService *services.PrometheusService) *PrometheusHa
 func (h *PrometheusHandler) Query(c *gin.Context) {
 	query := c.Query("query")
 	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Query param 'query' is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "query parameter is required"})
 		return
 	}
 
-	result, err := h.promService.QueryPromQL(c.Request.Context(), query)
+	data, err := h.promService.Query(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 func (h *PrometheusHandler) Reload(c *gin.Context) {

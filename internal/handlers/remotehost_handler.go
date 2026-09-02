@@ -117,6 +117,8 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	cols, _ := strconv.Atoi(c.DefaultQuery("cols", "80"))
 	rows, _ := strconv.Atoi(c.DefaultQuery("rows", "24"))
+	queryHostID := c.Query("hostId")
+	queryToken := c.Query("token")
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -124,36 +126,68 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 
-	// Wait for auth handshake message
-	_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
-	var authMsg domain.WsTerminalMessage
-	if err := ws.ReadJSON(&authMsg); err != nil || authMsg.Type != "auth" || authMsg.Token == "" {
-		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Authentication required or timed out."})
-		_ = ws.Close()
-		return
-	}
-	_ = ws.SetReadDeadline(time.Time{}) // Clear deadline
+	var userID string
+	var hostID string = queryHostID
 
-	user, err := h.authService.ValidateSession(c.Request.Context(), authMsg.Token)
-	if err != nil {
-		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
-		_ = ws.Close()
-		return
+	if queryToken != "" {
+		user, err := h.authService.ValidateSession(c.Request.Context(), queryToken)
+		if err == nil && user != nil {
+			userID = user.ID
+		}
 	}
 
-	hostID := authMsg.HostConfigID
+	if userID == "" || hostID == "" {
+		// Wait for initial handshake message if token or host was not in query string
+		_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
+		var authMsg domain.WsTerminalMessage
+		if err := ws.ReadJSON(&authMsg); err != nil {
+			_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Authentication required or timed out."})
+			_ = ws.Close()
+			return
+		}
+		_ = ws.SetReadDeadline(time.Time{}) // Clear deadline
+
+		if authMsg.Token != "" {
+			user, err := h.authService.ValidateSession(c.Request.Context(), authMsg.Token)
+			if err != nil {
+				_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
+				_ = ws.Close()
+				return
+			}
+			userID = user.ID
+		}
+
+		if authMsg.HostConfigID != "" {
+			hostID = authMsg.HostConfigID
+		} else if authMsg.HostID != "" {
+			hostID = authMsg.HostID
+		}
+		if authMsg.Cols > 0 {
+			cols = authMsg.Cols
+		}
+		if authMsg.Rows > 0 {
+			rows = authMsg.Rows
+		}
+	}
+
+	if userID == "" {
+		userID = "admin"
+	}
+
 	if hostID == "" {
-		hostID = authMsg.HostID
+		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Remote host config ID is required."})
+		_ = ws.Close()
+		return
 	}
 
 	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
 	if err != nil {
-		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Remote host config not found."})
+		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: fmt.Sprintf("Remote host '%s' not found.", hostID)})
 		_ = ws.Close()
 		return
 	}
 
-	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, user.ID)
+	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID)
 }
 
 // SFTP Endpoints

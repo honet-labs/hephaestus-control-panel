@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
+import { useAuthStore } from '../stores/auth';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -34,9 +35,12 @@ import {
   AlertTriangle,
   PlayCircle,
   StopCircle,
+  FolderPlus,
+  Lock,
 } from 'lucide-vue-next';
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 interface RemoteHost {
   id: string;
@@ -66,11 +70,16 @@ const hosts = ref<RemoteHost[]>([]);
 const openSessions = ref<OpenSession[]>([]);
 const activeSessionIndex = ref<number>(-1); // -1 means Server List view
 const isHostModalOpen = ref(false);
+const isGroupModalOpen = ref(false);
 const isSftpModalOpen = ref(false);
 const searchHostQuery = ref('');
+const selectedGroupFilter = ref<string | null>(null);
 const processSearch = ref('');
 const processSort = ref('cpu');
 const serviceSearch = ref('');
+
+// New Group Form
+const newGroupName = ref('');
 
 // New Host Form
 const hostForm = ref<any>({
@@ -109,11 +118,24 @@ const groupedHosts = computed(() => {
   return groups;
 });
 
+const existingGroupNames = computed(() => {
+  const set = new Set<string>();
+  hosts.value.forEach(h => {
+    if (h.groupName) set.add(h.groupName);
+  });
+  if (set.size === 0) set.add('Default');
+  return Array.from(set);
+});
+
 // Filtered hosts
 const filteredHosts = computed(() => {
-  if (!searchHostQuery.value) return hosts.value;
+  let list = hosts.value;
+  if (selectedGroupFilter.value) {
+    list = list.filter(h => h.groupName === selectedGroupFilter.value);
+  }
+  if (!searchHostQuery.value) return list;
   const q = searchHostQuery.value.toLowerCase();
-  return hosts.value.filter(
+  return list.filter(
     h => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q) || h.username.toLowerCase().includes(q)
   );
 });
@@ -207,7 +229,7 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   }
 };
 
-// Initialize xterm.js Terminal
+// Initialize xterm.js Terminal with Token Authentication
 const initXterm = (session: OpenSession) => {
   const container = document.getElementById(`terminal-container-${session.id}`);
   if (!container) return;
@@ -250,16 +272,23 @@ const initXterm = (session: OpenSession) => {
   session.term = term;
   session.fitAddon = fitAddon;
 
-  // Open WebSocket
+  // Open WebSocket with Auth Token query param
+  const token = authStore.token || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?hostId=${session.host.id}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${term.cols}&rows=${term.rows}`;
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     session.connected = true;
     term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
-    // Resize notification
-    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    // Send initial auth handshake payload
+    ws.send(JSON.stringify({
+      type: 'auth',
+      token: token,
+      hostConfigId: session.host.id,
+      cols: term.cols,
+      rows: term.rows,
+    }));
   };
 
   ws.onmessage = (ev) => {
@@ -340,11 +369,32 @@ const handleSaveHost = async () => {
     const res = await axios.post('/api/v1/remote-host', hostForm.value);
     if (res.data.success) {
       isHostModalOpen.value = false;
+      // Reset form
+      hostForm.value = {
+        id: '',
+        name: '',
+        host: '',
+        port: 22,
+        username: '',
+        authType: 'password',
+        password: '',
+        sshKey: '',
+        groupName: 'Default',
+        tags: [],
+      };
       await fetchHosts();
     }
   } catch (err: any) {
     alert(err.response?.data?.error || 'Failed to save host');
   }
+};
+
+// Create Group
+const handleCreateGroup = () => {
+  if (!newGroupName.value.trim()) return;
+  hostForm.value.groupName = newGroupName.value.trim();
+  isGroupModalOpen.value = false;
+  newGroupName.value = '';
 };
 
 const handleBackToPortal = () => {
@@ -391,7 +441,7 @@ onUnmounted(() => {
 
     <!-- Sub-Header Tabs & Quick Actions Bar -->
     <div class="bg-[#1b1e26] border-b border-slate-800/80 px-4 flex items-center gap-2 text-xs shrink-0 py-1.5 overflow-x-auto">
-      <!-- Servers Menu / Selector Button -->
+      <!-- Servers Menu Button -->
       <button
         @click="activeSessionIndex = -1"
         :class="[
@@ -455,7 +505,7 @@ onUnmounted(() => {
       <!-- VIEW 1: SERVER LIST / DISCOVERY (When activeSessionIndex === -1) -->
       <!-- ================================================================= -->
       <div v-if="activeSessionIndex === -1" class="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-6">
-        <!-- Search & New Host Bar -->
+        <!-- Search & New Host / New Group Bar -->
         <div class="space-y-3">
           <div class="relative">
             <input
@@ -465,13 +515,21 @@ onUnmounted(() => {
             />
           </div>
 
-          <div>
+          <div class="flex items-center gap-3">
             <button
               @click="isHostModalOpen = true"
               class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition"
             >
               <Plus class="w-4 h-4" />
               <span>NEW HOST</span>
+            </button>
+
+            <button
+              @click="isGroupModalOpen = true"
+              class="flex items-center gap-2 px-4 py-2 bg-[#1b1e26] hover:bg-[#242833] text-slate-300 hover:text-white text-xs font-semibold rounded-lg border border-slate-800 transition"
+            >
+              <FolderPlus class="w-4 h-4 text-brand-400" />
+              <span>NEW GROUP</span>
             </button>
           </div>
         </div>
@@ -495,12 +553,27 @@ onUnmounted(() => {
 
         <!-- Groups Section -->
         <div v-if="hosts.length > 0" class="space-y-2">
-          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Groups</h3>
+          <div class="flex items-center justify-between">
+            <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Groups</h3>
+            <button
+              v-if="selectedGroupFilter"
+              @click="selectedGroupFilter = null"
+              class="text-[11px] text-brand-400 hover:underline"
+            >
+              Clear Filter (Show All)
+            </button>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div
               v-for="(gHosts, gName) in groupedHosts"
               :key="gName"
-              class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl flex items-center gap-3 cursor-pointer hover:border-slate-700 transition"
+              @click="selectedGroupFilter = selectedGroupFilter === gName ? null : gName"
+              :class="[
+                'p-4 bg-[#1b1e26] border rounded-xl flex items-center gap-3 cursor-pointer transition',
+                selectedGroupFilter === gName
+                  ? 'border-blue-500 shadow-lg shadow-blue-500/10'
+                  : 'border-slate-800/80 hover:border-slate-700'
+              ]"
             >
               <div class="p-2.5 rounded-lg bg-slate-800 text-slate-400">
                 <Server class="w-5 h-5" />
@@ -515,7 +588,10 @@ onUnmounted(() => {
 
         <!-- Hosts Section -->
         <div v-if="hosts.length > 0" class="space-y-2">
-          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Hosts ({{ filteredHosts.length }})</h3>
+          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            Hosts ({{ filteredHosts.length }})
+            <span v-if="selectedGroupFilter" class="text-slate-400 normal-case">in group "{{ selectedGroupFilter }}"</span>
+          </h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div
               v-for="host in filteredHosts"
@@ -531,6 +607,9 @@ onUnmounted(() => {
                 <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
                 <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
                 <div class="flex items-center gap-1.5 mt-1.5">
+                  <span class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
+                    {{ host.groupName || 'Default' }}
+                  </span>
                   <span
                     v-for="tag in (host.tags || [])"
                     :key="tag"
@@ -620,7 +699,7 @@ onUnmounted(() => {
         <!-- Host Content Pane -->
         <div class="flex-1 flex flex-col overflow-hidden bg-[#090d16]">
           
-          <!-- 1. TERMINAL VIEW (Matching Screenshot 1) -->
+          <!-- 1. TERMINAL VIEW -->
           <div v-show="activeSession.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
             <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
               <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5">
@@ -631,50 +710,49 @@ onUnmounted(() => {
             <div :id="`terminal-container-${activeSession.id}`" class="flex-1 p-2 w-full h-full"></div>
           </div>
 
-          <!-- 2. DASHBOARD / METRICS VIEW (Matching Screenshot 3) -->
+          <!-- 2. DASHBOARD / METRICS VIEW -->
           <div v-if="activeSession.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
-            <!-- Header with Server Info -->
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 class="text-sm font-bold text-white tracking-wide">Dashboard</h2>
               <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.host }})</span>
             </div>
 
-            <!-- Top 4 Metric Cards -->
+            <!-- Metric Cards -->
             <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <!-- CPU -->
               <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.cpuUsage || 12.9 }}%</p>
-                <p class="text-[10px] text-slate-500">{{ activeSession.metrics?.cpuCores || 4 }} cores</p>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.cpuUsage || 0 }}%</p>
+                <p class="text-[10px] text-slate-500">{{ activeSession.metrics?.cpuCores || 1 }} cores</p>
               </div>
 
               <!-- Memory -->
               <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2">
                 <div class="flex justify-between items-center">
                   <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
-                  <span class="text-xs font-mono text-slate-300">{{ activeSession.metrics?.memUsed || '3.1 GB' }} / {{ activeSession.metrics?.memTotal || '14.6 GB' }}</span>
+                  <span class="text-xs font-mono text-slate-300">{{ activeSession.metrics?.memUsed || '0 B' }} / {{ activeSession.metrics?.memTotal || '0 B' }}</span>
                 </div>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.memPercent || 21.3 }}%</p>
+                <p class="text-2xl font-black text-white font-mono">{{ Math.round(activeSession.metrics?.memPercent || 0) }}%</p>
                 <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div class="h-full bg-emerald-400" :style="{ width: `${activeSession.metrics?.memPercent || 21.3}%` }"></div>
+                  <div class="h-full bg-emerald-400" :style="{ width: `${activeSession.metrics?.memPercent || 0}%` }"></div>
                 </div>
               </div>
 
               <!-- Load Average -->
               <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
-                <p class="text-xl font-bold text-white font-mono mt-1">{{ activeSession.metrics?.loadAverage || '0.86 / 0.88 / 0.82' }}</p>
+                <p class="text-xl font-bold text-white font-mono mt-1">{{ activeSession.metrics?.loadAverage || '0.00 / 0.00 / 0.00' }}</p>
               </div>
 
               <!-- Disks -->
               <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
-                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.disksCount || 4 }}</p>
+                <p class="text-2xl font-black text-white font-mono">{{ activeSession.metrics?.disksCount || 0 }}</p>
                 <p class="text-[10px] text-slate-500">mounted</p>
               </div>
             </div>
 
-            <!-- Disk Usage Table (Matching Screenshot 3) -->
+            <!-- Disk Usage Table -->
             <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
               <div class="p-3 px-5 border-b border-slate-800 text-xs font-bold text-white">
                 Disk Usage
@@ -690,14 +768,9 @@ onUnmounted(() => {
                       <th class="py-2.5 px-6">Usage</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                  <tbody v-if="activeSession.metrics?.disks && activeSession.metrics.disks.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
                     <tr
-                      v-for="(d, dIdx) in (activeSession.metrics?.disks || [
-                        { mount: '/sys/firmware/efi/efivars', total: '87.9 KB', used: '77.5 KB', avail: '5.4 KB', percent: 94 },
-                        { mount: '/', total: '462.4 GB', used: '321.4 GB', avail: '117.4 GB', percent: 74 },
-                        { mount: '/boot', total: '973.4 MB', used: '200.9 MB', avail: '705.3 MB', percent: 23 },
-                        { mount: '/boot/efi', total: '1 GB', used: '6.1 MB', avail: '1 GB', percent: 1 }
-                      ])"
+                      v-for="(d, dIdx) in activeSession.metrics.disks"
                       :key="dIdx"
                       class="hover:bg-slate-800/30 transition text-slate-300"
                     >
@@ -719,12 +792,17 @@ onUnmounted(() => {
                       </td>
                     </tr>
                   </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="5" class="py-6 text-center text-slate-500 text-xs">No disks mounted or telemetry unavailable.</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
             </div>
           </div>
 
-          <!-- 3. PROCESSES VIEW (Matching Screenshot 4) -->
+          <!-- 3. PROCESSES VIEW -->
           <div v-if="activeSession.activeView === 'processes'" class="flex-1 p-6 overflow-y-auto space-y-4">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 class="text-sm font-bold text-white tracking-wide">Processes</h2>
@@ -768,7 +846,7 @@ onUnmounted(() => {
                       <th class="py-2.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                  <tbody v-if="filteredProcesses.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
                     <tr
                       v-for="p in filteredProcesses"
                       :key="p.pid"
@@ -790,12 +868,17 @@ onUnmounted(() => {
                       </td>
                     </tr>
                   </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="7" class="py-6 text-center text-slate-500 text-xs">No active processes discovered.</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
             </div>
           </div>
 
-          <!-- 4. SERVICES VIEW (Matching Screenshot 5) -->
+          <!-- 4. SERVICES VIEW -->
           <div v-if="activeSession.activeView === 'services'" class="flex-1 p-6 overflow-y-auto space-y-4">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 class="text-sm font-bold text-white tracking-wide">Services</h2>
@@ -823,7 +906,7 @@ onUnmounted(() => {
                       <th class="py-2.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                  <tbody v-if="filteredServices.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
                     <tr
                       v-for="s in filteredServices"
                       :key="s.name"
@@ -871,6 +954,11 @@ onUnmounted(() => {
                       </td>
                     </tr>
                   </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="4" class="py-6 text-center text-slate-500 text-xs">No services found.</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -887,19 +975,7 @@ onUnmounted(() => {
               <h3 class="text-xs font-bold text-white">Active Listening Ports</h3>
               <div class="font-mono text-xs space-y-2">
                 <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
-                  <span class="text-slate-200">0.0.0.0:22 (sshd)</span>
-                  <span class="text-emerald-400">LISTEN</span>
-                </div>
-                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
-                  <span class="text-slate-200">127.0.0.1:3000 (node / n8n)</span>
-                  <span class="text-emerald-400">LISTEN</span>
-                </div>
-                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
-                  <span class="text-slate-200">0.0.0.0:6379 (redis-server)</span>
-                  <span class="text-emerald-400">LISTEN</span>
-                </div>
-                <div class="p-2.5 rounded bg-[#14161b] border border-slate-800 flex justify-between">
-                  <span class="text-slate-200">0.0.0.0:3306 (mysqld)</span>
+                  <span class="text-slate-200">0.0.0.0:{{ activeSession.host.port || 22 }} (sshd)</span>
                   <span class="text-emerald-400">LISTEN</span>
                 </div>
               </div>
@@ -917,7 +993,10 @@ onUnmounted(() => {
     >
       <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white">Add New Remote Host</h3>
+          <div class="flex items-center gap-2">
+            <Server class="w-4 h-4 text-brand-400" />
+            <h3 class="text-sm font-bold text-white">Add New Remote Host</h3>
+          </div>
           <button @click="isHostModalOpen = false" class="text-slate-400 hover:text-white">
             <X class="w-4 h-4" />
           </button>
@@ -926,13 +1005,13 @@ onUnmounted(() => {
         <form @submit.prevent="handleSaveHost" class="space-y-3 text-xs">
           <div>
             <label class="block text-slate-400 mb-1">Host Name / Identifier</label>
-            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="docker-honet" />
+            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="e.g. Bifrost Server" />
           </div>
 
           <div class="grid grid-cols-3 gap-3">
             <div class="col-span-2">
               <label class="block text-slate-400 mb-1">Host IP / Domain</label>
-              <input v-model="hostForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="192.168.201.18" />
+              <input v-model="hostForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="10.20.3.1" />
             </div>
             <div>
               <label class="block text-slate-400 mb-1">Port</label>
@@ -943,17 +1022,36 @@ onUnmounted(() => {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-slate-400 mb-1">Username</label>
-              <input v-model="hostForm.username" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              <input v-model="hostForm.username" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="root" />
             </div>
             <div>
               <label class="block text-slate-400 mb-1">Group</label>
-              <input v-model="hostForm.groupName" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="Production" />
+              <input
+                v-model="hostForm.groupName"
+                list="group-options"
+                required
+                class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white"
+                placeholder="Production"
+              />
+              <datalist id="group-options">
+                <option v-for="g in existingGroupNames" :key="g" :value="g" />
+              </datalist>
             </div>
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1">Password (or leave blank if key)</label>
-            <input v-model="hostForm.password" type="password" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+            <label class="block text-slate-400 mb-1">
+              <span class="flex items-center gap-1.5">
+                <Lock class="w-3.5 h-3.5 text-amber-400" />
+                Password (AES-256-GCM Encrypted)
+              </span>
+            </label>
+            <input
+              v-model="hostForm.password"
+              type="password"
+              class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
+              placeholder="••••••••"
+            />
           </div>
 
           <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
@@ -972,6 +1070,52 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal: Add New Group -->
+    <div
+      v-if="isGroupModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+    >
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <FolderPlus class="w-4 h-4 text-brand-400" />
+            <h3 class="text-sm font-bold text-white">Create New Group</h3>
+          </div>
+          <button @click="isGroupModalOpen = false" class="text-slate-400 hover:text-white">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block text-slate-400 mb-1">Group Name</label>
+            <input
+              v-model="newGroupName"
+              required
+              class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              placeholder="e.g. Staging, Core Infra, DMZ"
+            />
+          </div>
+
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+            <button
+              type="button"
+              @click="isGroupModalOpen = false"
+              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              @click="handleCreateGroup"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20"
+            >
+              Set Group
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
