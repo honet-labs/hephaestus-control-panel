@@ -67,6 +67,18 @@ sudo ./update-version.sh
 
 ---
 
+## Uninstallation (`uninstall.sh`)
+
+To cleanly remove all containers, volumes, and networks:
+
+```bash
+cd /opt/hephaestus-control-panel
+chmod +x uninstall.sh
+sudo ./uninstall.sh
+```
+
+---
+
 ## Project Structure
 
 ```

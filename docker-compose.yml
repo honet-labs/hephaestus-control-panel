@@ -14,8 +14,7 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     networks:
       - hephaestus_net
 
@@ -49,15 +48,8 @@ services:
       - app_data:/app/data
       - app_logs:/app/logs
       - app_backups:/app/backups
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://127.0.0.1:5000/health || exit 0"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     networks:
       - hephaestus_net
 
@@ -76,12 +68,6 @@ services:
       - "${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 || pg_isready || exit 0"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
     networks:
       - hephaestus_net
 
