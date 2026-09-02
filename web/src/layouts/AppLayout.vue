@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Activity,
   Sliders,
+  Wrench,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -31,12 +32,10 @@ const navigation = [
   { name: 'Remote Server', icon: Terminal, route: '/remote-host', newTab: true },
   { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true },
   { name: 'Remote Config', icon: Sliders, route: '/remote-config' },
-  { name: 'Backup Manager', icon: Database, route: '/backup' },
-  { name: 'SNMP Browser', icon: Radio, route: '/snmp' },
   { name: 'OpenSearch Cluster', icon: Search, route: '/opensearch-cluster', newTab: true },
-  { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger' },
+  { name: 'Backup Manager', icon: Database, route: '/backup' },
+  { name: 'Tools', icon: Wrench, route: '/tools' },
   { name: 'Live Logs', icon: FileText, route: '/logs' },
-  { name: 'Status Services', icon: Activity, route: '/queue' },
   { name: 'Settings', icon: Settings, route: '/settings' },
 ];
 

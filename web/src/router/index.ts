@@ -66,19 +66,17 @@ const router = createRouter({
           component: () => import('../views/BackupView.vue'),
         },
         {
-          path: 'snmp',
-          name: 'snmp',
-          component: () => import('../views/SnmpView.vue'),
+          path: 'tools',
+          name: 'tools',
+          component: () => import('../views/ToolsView.vue'),
         },
         {
-          path: 'opensearch',
-          name: 'opensearch',
-          component: () => import('../views/OpenSearchClusterView.vue'),
+          path: 'snmp',
+          redirect: '/tools?tab=snmp',
         },
         {
           path: 'grok-debugger',
-          name: 'grok-debugger',
-          component: () => import('../views/GrokDebuggerView.vue'),
+          redirect: '/tools?tab=grok',
         },
         {
           path: 'remote-config',
@@ -92,8 +90,7 @@ const router = createRouter({
         },
         {
           path: 'queue',
-          name: 'queue',
-          component: () => import('../views/QueueView.vue'),
+          redirect: '/settings?tab=services',
         },
         {
           path: 'settings',
