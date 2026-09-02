@@ -98,8 +98,9 @@ const isSftpModalOpen = ref(false);
 const searchHostQuery = ref('');
 const selectedGroupFilter = ref<string | null>(null);
 const processSearch = ref('');
-const processSort = ref('cpu');
+const processSort = ref<'cpu' | 'mem' | 'pid'>('cpu');
 const serviceSearch = ref('');
+const isTelemetryLoading = ref(false);
 const portProtoFilter = ref<'all' | 'tcp' | 'udp'>('all');
 const portSearch = ref('');
 const interfaceSearch = ref('');
@@ -592,41 +593,6 @@ const groupedSessions = computed(() => {
   });
 
   return groups;
-});
-
-// Telemetry & Linux Subsystem Observability
-const processSearch = ref('');
-const processSort = ref<'cpu' | 'mem' | 'pid'>('cpu');
-const serviceSearch = ref('');
-const isTelemetryLoading = ref(false);
-
-const filteredProcesses = computed(() => {
-  if (!activeSession.value?.processes) return [];
-  let list = [...activeSession.value.processes];
-  if (processSearch.value) {
-    const q = processSearch.value.toLowerCase();
-    list = list.filter((p) => p.command?.toLowerCase().includes(q) || p.user?.toLowerCase().includes(q) || String(p.pid).includes(q));
-  }
-  list.sort((a, b) => {
-    if (processSort.value === 'cpu') return (b.cpu || 0) - (a.cpu || 0);
-    if (processSort.value === 'mem') return (b.mem || 0) - (a.mem || 0);
-    return (a.pid || 0) - (b.pid || 0);
-  });
-  return list;
-});
-
-const filteredServices = computed(() => {
-  if (!activeSession.value?.services) return [];
-  let list = [...activeSession.value.services];
-  if (serviceSearch.value) {
-    const q = serviceSearch.value.toLowerCase();
-    list = list.filter((s) => s.name?.toLowerCase().includes(q) || s.description?.toLowerCase().includes(q) || s.activeState?.toLowerCase().includes(q));
-  }
-  return list;
-});
-
-const filteredListeningPorts = computed(() => {
-  return activeSession.value?.networkInfo?.listeningPorts || [];
 });
 
 const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp') => {
