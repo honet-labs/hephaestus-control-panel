@@ -328,6 +328,34 @@ func (s *SSHService) SftpTransferRemoteToRemote(ctx context.Context, srcHostID, 
 	return err
 }
 
+func (s *SSHService) SftpUploadWithConfig(cfg *domain.RemoteHostConfig, remotePath string, reader io.Reader) error {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return err
+	}
+	defer sftpClient.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	dir := filepath.ToSlash(filepath.Dir(cleanPath))
+	_ = sftpClient.MkdirAll(dir)
+
+	dstFile, err := sftpClient.Create(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file '%s': %w", cleanPath, err)
+	}
+	defer dstFile.Close()
+
+	buf := make([]byte, 128*1024)
+	_, err = io.CopyBuffer(dstFile, reader, buf)
+	return err
+}
+
 func (s *SSHService) idleConnectionCleaner() {
 	ticker := time.NewTicker(1 * time.Minute)
 	for range ticker.C {

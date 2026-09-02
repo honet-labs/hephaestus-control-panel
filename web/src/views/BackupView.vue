@@ -55,7 +55,13 @@ const dbForm = ref({
 const isDestModalOpen = ref(false);
 const destForm = ref({
   name: '',
-  destType: 'local',
+  destType: 'nas',
+  host: '',
+  port: 22,
+  username: 'administrator',
+  authType: 'password',
+  password: '',
+  sshKey: '',
   path: '/opt/backups',
   bucket: '',
   endpoint: '',
@@ -173,8 +179,16 @@ const saveDestination = async () => {
   }
   try {
     const configData: any = {};
-    if (destForm.value.destType === 'local' || destForm.value.destType === 'nfs') {
-      configData.path = destForm.value.path || (destForm.value.destType === 'nfs' ? '/mnt/nfs_backups' : '/opt/backups');
+    if (destForm.value.destType === 'nas' || destForm.value.destType === 'nfs') {
+      configData.host = destForm.value.host;
+      configData.port = Number(destForm.value.port) || 22;
+      configData.username = destForm.value.username;
+      configData.authType = destForm.value.authType;
+      configData.password = destForm.value.password;
+      configData.sshKey = destForm.value.sshKey;
+      configData.path = destForm.value.path || '/opt/backups';
+    } else if (destForm.value.destType === 'local') {
+      configData.path = destForm.value.path || '/opt/backups';
     } else {
       configData.bucket = destForm.value.bucket;
       configData.endpoint = destForm.value.endpoint;
@@ -190,6 +204,10 @@ const saveDestination = async () => {
     if (res.data.success) {
       isDestModalOpen.value = false;
       destForm.value.name = '';
+      destForm.value.host = '';
+      destForm.value.password = '';
+      destForm.value.sshKey = '';
+      destForm.value.path = '/opt/backups';
       fetchAll();
     }
   } catch (err: any) {
@@ -427,18 +445,18 @@ onMounted(() => {
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <HardDrive v-if="dest.destType === 'nfs'" class="w-4 h-4 text-emerald-400" />
+              <HardDrive v-if="dest.destType === 'nas' || dest.destType === 'nfs'" class="w-4 h-4 text-emerald-400" />
               <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-sky-400" />
               <Cloud v-else class="w-4 h-4 text-purple-400" />
               <h4 class="text-xs font-bold text-white">{{ dest.name }}</h4>
             </div>
             <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-purple-400 border border-slate-700/60 font-semibold">
-              {{ dest.destType }}
+              {{ dest.destType === 'nas' ? 'NAS (SSH)' : dest.destType }}
             </span>
           </div>
 
           <p class="text-[11px] font-mono text-slate-400 bg-[#0f1219] p-2 rounded border border-slate-800/80 truncate">
-            {{ dest.destType === 'local' || dest.destType === 'nfs' ? (dest.config?.path || '/mnt/nfs_backups') : (dest.config?.bucket || 'S3 Bucket') }}
+            {{ (dest.destType === 'nas' || dest.destType === 'nfs') ? (dest.config?.host ? `${dest.config.host}:${dest.config.path || '/opt/backups'}` : (dest.config?.path || '/opt/backups')) : (dest.destType === 'local' ? (dest.config?.path || '/opt/backups') : (dest.config?.bucket || 'S3 Bucket')) }}
           </p>
 
           <div class="flex items-center justify-end pt-1 border-t border-slate-800/80">
@@ -739,31 +757,94 @@ onMounted(() => {
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Storage Type</label>
               <select v-model="destForm.destType" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+                <option value="nas">NAS (SMB/SSH)</option>
                 <option value="local">Local Filesystem Folder</option>
-                <option value="nfs">NFS (Network File System / NAS Mount)</option>
                 <option value="r2">Cloudflare R2 Object Storage</option>
                 <option value="s3">AWS S3 / MinIO Storage</option>
               </select>
             </div>
           </div>
 
-          <template v-if="destForm.destType === 'local'">
+          <!-- ================= NAS (SMB/SSH) ================= -->
+          <template v-if="destForm.destType === 'nas' || destForm.destType === 'nfs'">
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2">
+                <label class="block text-slate-400 mb-1 font-bold">NAS HOST</label>
+                <input
+                  v-model="destForm.host"
+                  required
+                  placeholder="10.3.16.184"
+                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">SSH PORT</label>
+                <input
+                  v-model.number="destForm.port"
+                  type="number"
+                  required
+                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">USERNAME</label>
+                <input
+                  v-model="destForm.username"
+                  required
+                  placeholder="administrator"
+                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-bold">AUTH</label>
+                <select
+                  v-model="destForm.authType"
+                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white"
+                >
+                  <option value="password">Password</option>
+                  <option value="key">SSH Key</option>
+                </select>
+              </div>
+            </div>
+
+            <div v-if="destForm.authType === 'password'">
+              <label class="block text-slate-400 mb-1 font-bold">PASSWORD</label>
+              <input
+                v-model="destForm.password"
+                type="password"
+                placeholder="••••••••"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+              />
+            </div>
+            <div v-else>
+              <label class="block text-slate-400 mb-1 font-bold">SSH PRIVATE KEY</label>
+              <textarea
+                v-model="destForm.sshKey"
+                rows="3"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-[11px]"
+              ></textarea>
+            </div>
+
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Local Directory Path</label>
-              <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-400 mb-1 font-bold">BACKUP PATH</label>
+              <input
+                v-model="destForm.path"
+                required
+                placeholder="/opt/backups-wordpress"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+              />
             </div>
           </template>
 
-          <template v-else-if="destForm.destType === 'nfs'">
-            <div class="space-y-2">
-              <div>
-                <label class="block text-slate-400 mb-1 font-bold">NFS Mount Directory Path</label>
-                <input v-model="destForm.path" required placeholder="/mnt/nfs_backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
-              </div>
-              <p class="text-[11px] text-slate-400 bg-[#0f1219] p-2.5 rounded-lg border border-slate-800 leading-relaxed">
-                <span class="text-emerald-400 font-bold">💡 NFS Mount Note:</span>
-                Target path where the NFS share or NAS storage is mounted on this host (e.g. <code>/mnt/nfs_backups</code> or <code>/mnt/nas/postgres</code>). Ensure write permissions are granted.
-              </p>
+          <!-- ================= LOCAL FILESYSTEM ================= -->
+          <template v-else-if="destForm.destType === 'local'">
+            <div>
+              <label class="block text-slate-400 mb-1 font-bold">Local Directory Path</label>
+              <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
             </div>
           </template>
 

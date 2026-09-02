@@ -282,7 +282,7 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 
 func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, filename string, dest *domain.BackupDestination) error {
 	switch dest.DestType {
-	case "local", "nfs":
+	case "local":
 		path, _ := dest.Config["path"].(string)
 		if path == "" {
 			path = "backups"
@@ -290,6 +290,58 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 		_ = os.MkdirAll(path, 0755)
 		targetFile := filepath.Join(path, filename)
 		return os.WriteFile(targetFile, data, 0644)
+
+	case "nas", "nfs", "nas_ssh":
+		host, _ := dest.Config["host"].(string)
+		if host == "" {
+			// If no remote host specified, treat as local filesystem/mount path
+			path, _ := dest.Config["path"].(string)
+			if path == "" {
+				path = "/opt/backups"
+			}
+			_ = os.MkdirAll(path, 0755)
+			targetFile := filepath.Join(path, filename)
+			return os.WriteFile(targetFile, data, 0644)
+		}
+
+		port := 22
+		if p, ok := dest.Config["port"].(float64); ok && p > 0 {
+			port = int(p)
+		} else if pStr, ok := dest.Config["port"].(string); ok && pStr != "" {
+			fmt.Sscanf(pStr, "%d", &port)
+		}
+
+		username, _ := dest.Config["username"].(string)
+		if username == "" {
+			username = "root"
+		}
+		authType, _ := dest.Config["authType"].(string)
+		if authType == "" {
+			authType = "password"
+		}
+		password, _ := dest.Config["password"].(string)
+		sshKey, _ := dest.Config["sshKey"].(string)
+		backupPath, _ := dest.Config["path"].(string)
+		if backupPath == "" {
+			backupPath = "/opt/backups"
+		}
+
+		remoteHostCfg := &domain.RemoteHostConfig{
+			ID:       "nas-dest",
+			Host:     host,
+			Port:     port,
+			Username: username,
+			AuthType: authType,
+		}
+		if password != "" {
+			remoteHostCfg.Password = &password
+		}
+		if sshKey != "" {
+			remoteHostCfg.SSHKey = &sshKey
+		}
+
+		remoteFile := filepath.ToSlash(filepath.Join(backupPath, filename))
+		return s.sshService.SftpUploadWithConfig(remoteHostCfg, remoteFile, bytes.NewReader(data))
 
 	case "r2", "s3":
 		bucket, _ := dest.Config["bucket"].(string)
