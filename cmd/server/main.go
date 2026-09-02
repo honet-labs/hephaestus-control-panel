@@ -100,11 +100,13 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware())
 
-	// CORS Setup
+	// CORS Setup - Allow dynamic origin resolution for custom host IP, domain, and ports
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = cfg.AllowedOrigins
+	corsConfig.AllowOriginFunc = func(origin string) bool {
+		return true
+	}
 	corsConfig.AllowCredentials = true
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID", "X-Requested-With"}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	r.Use(cors.New(corsConfig))
 
