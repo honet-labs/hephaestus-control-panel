@@ -70,6 +70,15 @@ func (s *CronScheduler) registerSystemJobs() {
 	if err != nil {
 		logger.Error("Cron", "Failed to schedule ICMP ping cycle", err)
 	}
+
+	// 3. Periodic OpenSearch Telemetry Poll (Every 30 seconds)
+	_, err = s.cron.AddFunc("*/30 * * * * *", func() {
+		wp := queue.GetWorkerPool()
+		_, _ = wp.Enqueue("opensearch_poll", map[string]interface{}{}, 0)
+	})
+	if err != nil {
+		logger.Error("Cron", "Failed to schedule OpenSearch poll cycle", err)
+	}
 }
 
 // ReloadBackupSchedules reloads active backup schedules from database

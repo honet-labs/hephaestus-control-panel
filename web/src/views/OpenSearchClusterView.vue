@@ -22,6 +22,8 @@ import {
   Terminal,
   ExternalLink,
   AlertCircle,
+  X,
+  Zap,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -34,6 +36,7 @@ const refreshIntervalSec = ref(30);
 const countdown = ref(30);
 const isRefreshing = ref(false);
 const timer = ref<any>(null);
+const isSettingsModalOpen = ref(false);
 
 // Data states
 const error = ref('');
@@ -126,12 +129,13 @@ const fetchClusterData = async () => {
   isRefreshing.value = true;
   error.value = '';
   try {
-    const [healthRes, nodesStatsRes, nodesInfoRes, indicesRes, shardsRes] = await Promise.allSettled([
+    const [healthRes, nodesStatsRes, nodesInfoRes, indicesRes, shardsRes, logsRes] = await Promise.allSettled([
       axios.get('/api/v1/opensearch/health'),
       axios.get('/api/v1/opensearch/nodes'),
       axios.get('/api/v1/opensearch/nodes/info'),
       axios.get('/api/v1/opensearch/indices'),
       axios.get('/api/v1/opensearch/shards'),
+      axios.get('/api/v1/logs'),
     ]);
 
     if (healthRes.status === 'fulfilled' && healthRes.value.data.success) {
@@ -157,11 +161,15 @@ const fetchClusterData = async () => {
     } else {
       nodesList.value = [];
     }
+
+    if (logsRes.status === 'fulfilled' && logsRes.value.data.success && Array.isArray(logsRes.value.data.data)) {
+      logsList.value = logsRes.value.data.data.filter((l: any) => l.source === 'OpenSearch' || l.category === 'OpenSearch' || (l.message && l.message.includes('OpenSearch')));
+    }
   } catch (err: any) {
     console.error('Error fetching OpenSearch data:', err);
   } finally {
     isRefreshing.value = false;
-    countdown.value = refreshIntervalSec.value;
+    countdown.value = refreshIntervalSec.value > 0 ? refreshIntervalSec.value : 0;
   }
 };
 
@@ -194,7 +202,6 @@ const parseNodesData = (stats: any, info: any) => {
     const load5 = os.cpu?.load_average?.['5m'] ?? '0.00';
     const load15 = os.cpu?.load_average?.['15m'] ?? '0.00';
 
-    // Count shards on this node
     const nodeShards = shardsList.value.filter(s => (s.node === n.name || s.nodeName === n.name));
     const priCount = nodeShards.filter(s => s.prirep === 'p' || s.type === 'Primary').length;
     const repCount = nodeShards.filter(s => s.prirep === 'r' || s.type === 'Replica').length;
@@ -288,6 +295,13 @@ const handleSaveConfig = async () => {
   }
 };
 
+const setRefreshInterval = (sec: number) => {
+  refreshIntervalSec.value = sec;
+  countdown.value = sec;
+  localStorage.setItem('hcp_opensearch_refresh_sec', String(sec));
+  isSettingsModalOpen.value = false;
+};
+
 const handleBackToPortal = () => {
   if (window.opener) {
     window.close();
@@ -298,7 +312,14 @@ const handleBackToPortal = () => {
 
 // Timer Tick
 const startAutoRefresh = () => {
+  const savedSec = localStorage.getItem('hcp_opensearch_refresh_sec');
+  if (savedSec) {
+    refreshIntervalSec.value = parseInt(savedSec);
+    countdown.value = refreshIntervalSec.value;
+  }
+
   timer.value = setInterval(() => {
+    if (refreshIntervalSec.value <= 0) return;
     if (countdown.value > 1) {
       countdown.value--;
     } else {
@@ -337,7 +358,7 @@ onUnmounted(() => {
         <!-- Auto Refresh Indicator -->
         <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 font-mono">
           <Clock class="w-3.5 h-3.5 text-slate-400" />
-          <span>{{ countdown }} s</span>
+          <span>{{ refreshIntervalSec > 0 ? `${countdown} s` : 'Manual' }}</span>
         </div>
 
         <!-- Manual Refresh Button -->
@@ -350,16 +371,11 @@ onUnmounted(() => {
           <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-brand-400' : '']" />
         </button>
 
-        <!-- Settings Modal Trigger -->
+        <!-- Settings Gear Modal Trigger -->
         <button
-          @click="activeTab = 'connection'"
-          title="Cluster Connection Settings"
-          :class="[
-            'p-1.5 rounded border transition',
-            activeTab === 'connection'
-              ? 'bg-brand-500/20 border-brand-500/40 text-brand-400'
-              : 'bg-[#242833] border-slate-700/60 text-slate-300 hover:text-white hover:border-slate-600'
-          ]"
+          @click="isSettingsModalOpen = true"
+          title="Auto Refresh & Display Settings"
+          class="p-1.5 rounded bg-[#242833] border border-slate-700/60 text-slate-300 hover:text-white hover:border-slate-600 transition"
         >
           <Settings class="w-4 h-4" />
         </button>
@@ -611,7 +627,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Node Metrics Grid (8 metrics matching screenshot) -->
+          <!-- Node Metrics Grid -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 text-xs font-sans">
             <!-- CPU -->
             <div>
@@ -725,7 +741,7 @@ onUnmounted(() => {
       <!-- TAB 4: SHARDS -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'shards'" class="space-y-6">
-        <!-- Legend Bar (Matching Screenshot 4) -->
+        <!-- Legend Bar -->
         <div class="flex items-center gap-6 text-xs bg-[#1b1e26] border border-slate-800/80 p-3 px-5 rounded-xl">
           <div class="flex items-center gap-2">
             <span class="w-3.5 h-3.5 rounded bg-emerald-500"></span>
@@ -847,7 +863,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Interactive Floating Tooltip (Matching Screenshot 5) -->
+        <!-- Tooltip -->
         <div
           v-if="hoveredShard"
           :style="{ left: `${tooltipPosition.x}px`, top: `${tooltipPosition.y}px` }"
@@ -891,7 +907,7 @@ onUnmounted(() => {
             <div class="grid grid-cols-3 gap-4">
               <div class="col-span-2">
                 <label class="block text-slate-400 mb-1 font-medium">OpenSearch Host / IP</label>
-                <input v-model="configForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. 192.168.1.50 or search.example.com" />
+                <input v-model="configForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. 103.171.31.56 or search.example.com" />
               </div>
               <div>
                 <label class="block text-slate-400 mb-1 font-medium">HTTP Port</label>
@@ -953,15 +969,15 @@ onUnmounted(() => {
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <h3 class="text-xs font-bold text-white tracking-wide flex items-center gap-2">
             <Terminal class="w-4 h-4 text-brand-400" />
-            Cluster Event & Query Logs
+            Cluster Event & Auto-Refresh Logs
           </h3>
-          <span class="text-[11px] text-slate-500 font-mono">Real-time OpenSearch diagnostic stream</span>
+          <span class="text-[11px] text-slate-500 font-mono">Real-time background polling & diagnostic stream</span>
         </div>
 
         <div v-if="logsList.length > 0" class="font-mono text-xs bg-[#14161b] p-4 rounded-lg border border-slate-800/80 space-y-2 text-slate-400">
           <div v-for="(log, lIdx) in logsList" :key="lIdx" class="flex items-start gap-3">
-            <span class="text-slate-600">{{ log.time }}</span>
-            <span :class="['px-1.5 py-0.2 rounded font-semibold text-[10px]', log.level === 'ERROR' ? 'bg-red-500/10 text-red-400' : log.level === 'WARN' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400']">{{ log.level }}</span>
+            <span class="text-slate-600">{{ new Date(log.timestamp || Date.now()).toLocaleTimeString() }}</span>
+            <span :class="['px-1.5 py-0.2 rounded font-semibold text-[10px]', log.level === 'error' ? 'bg-red-500/10 text-red-400' : log.level === 'warn' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400']">{{ log.level?.toUpperCase() || 'INFO' }}</span>
             <span class="text-slate-300">{{ log.message }}</span>
           </div>
         </div>
@@ -970,5 +986,61 @@ onUnmounted(() => {
         </div>
       </div>
     </main>
+
+    <!-- Modal: Auto-Refresh Settings (Triggered by Gear Icon ⚙) -->
+    <div
+      v-if="isSettingsModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+    >
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-5 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <Settings class="w-4 h-4 text-brand-400" />
+            <h3 class="text-sm font-bold text-white">Auto Refresh Settings</h3>
+          </div>
+          <button @click="isSettingsModalOpen = false" class="text-slate-400 hover:text-white">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <p class="text-xs text-slate-400">Select polling interval for live OpenSearch telemetry updates:</p>
+
+          <div class="space-y-2">
+            <button
+              v-for="opt in [
+                { sec: 0, label: 'Manual Refresh Only' },
+                { sec: 5, label: 'Every 5 Seconds' },
+                { sec: 10, label: 'Every 10 Seconds' },
+                { sec: 15, label: 'Every 15 Seconds' },
+                { sec: 30, label: 'Every 30 Seconds (Default)' },
+                { sec: 60, label: 'Every 1 Minute' },
+                { sec: 300, label: 'Every 5 Minutes' },
+              ]"
+              :key="opt.sec"
+              @click="setRefreshInterval(opt.sec)"
+              :class="[
+                'w-full flex items-center justify-between p-2.5 rounded-lg border text-xs font-medium transition',
+                refreshIntervalSec === opt.sec
+                  ? 'bg-brand-500/10 border-brand-500/40 text-brand-400 font-bold'
+                  : 'bg-[#14161b] border-slate-800 text-slate-300 hover:border-slate-700'
+              ]"
+            >
+              <span>{{ opt.label }}</span>
+              <CheckCircle2 v-if="refreshIntervalSec === opt.sec" class="w-4 h-4 text-brand-400" />
+            </button>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800 flex justify-end">
+          <button
+            @click="isSettingsModalOpen = false"
+            class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

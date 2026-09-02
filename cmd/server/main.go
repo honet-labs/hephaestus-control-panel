@@ -70,6 +70,7 @@ func main() {
 	_ = services.NewIcmpPingService(topologyRepo) // Registers ICMP worker
 	topologyService := services.NewTopologyService(topologyRepo, configRepo)
 	openSearchService := services.NewOpenSearchService()
+	openSearchService.RegisterWorker(workerPool)
 	promService := services.NewPrometheusService(configRepo, sshService)
 	vpsService := services.NewVpsService(remoteRepo, sshService)
 	grokService := services.NewGrokService()
@@ -219,9 +220,11 @@ func main() {
 		api.POST("/dataprepper/validate", dpHandler.ValidateYAML)
 
 		// Live Logs & Queue
+		api.GET("/logs", logsHandler.GetRecentLogs)
 		api.GET("/logs/recent", logsHandler.GetRecentLogs)
 		api.GET("/queue/jobs", queueHandler.ListJobs)
 		api.GET("/queue/jobs/:id", queueHandler.GetJob)
+		api.POST("/queue/jobs/trigger", queueHandler.TriggerJob)
 		api.POST("/queue/jobs/:id/cancel", queueHandler.CancelJob)
 
 		// Settings & System Stats
