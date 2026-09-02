@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import { Terminal } from '@xterm/xterm';
@@ -40,6 +40,7 @@ import {
 } from 'lucide-vue-next';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 interface RemoteHost {
@@ -212,12 +213,88 @@ const filteredInterfaces = computed(() => {
   );
 });
 
+// Session State Persistence Helpers
+const saveSessionsState = () => {
+  try {
+    const state = {
+      sessions: openSessions.value.map(s => ({
+        hostId: s.host.id,
+        activeView: s.activeView || 'terminal',
+      })),
+      activeHostId: activeSession.value ? activeSession.value.host.id : null,
+      activeSessionIndex: activeSessionIndex.value,
+    };
+    localStorage.setItem('hcp_remote_sessions_state', JSON.stringify(state));
+  } catch (e) {}
+};
+
+watch(activeSessionIndex, () => {
+  saveSessionsState();
+});
+
+watch(openSessions, () => {
+  saveSessionsState();
+}, { deep: true });
+
+const restorePersistedSessions = async () => {
+  // 1. Check direct route query hostId first
+  const queryHostId = route.query.hostId as string;
+  if (queryHostId) {
+    const target = hosts.value.find(h => h.id === queryHostId);
+    if (target) {
+      await connectHost(target);
+      return;
+    }
+  }
+
+  // 2. Otherwise restore from localStorage
+  const saved = localStorage.getItem('hcp_remote_sessions_state');
+  if (!saved) return;
+  try {
+    const parsed = JSON.parse(saved);
+    if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return;
+
+    for (const sInfo of parsed.sessions) {
+      const host = hosts.value.find(h => h.id === sInfo.hostId);
+      if (host && !openSessions.value.some(s => s.host.id === host.id)) {
+        const session: OpenSession = {
+          id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          host,
+          activeView: sInfo.activeView || 'terminal',
+          connected: false,
+        };
+        openSessions.value.push(session);
+      }
+    }
+
+    if (openSessions.value.length > 0) {
+      let targetIdx = 0;
+      if (parsed.activeHostId) {
+        const found = openSessions.value.findIndex(s => s.host.id === parsed.activeHostId);
+        if (found >= 0) targetIdx = found;
+      } else if (typeof parsed.activeSessionIndex === 'number' && parsed.activeSessionIndex >= 0 && parsed.activeSessionIndex < openSessions.value.length) {
+        targetIdx = parsed.activeSessionIndex;
+      }
+      activeSessionIndex.value = targetIdx;
+
+      await nextTick();
+      for (const session of openSessions.value) {
+        initXterm(session);
+        fetchHostTelemetry(session);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to restore persisted sessions:', e);
+  }
+};
+
 // Fetch Hosts
 const fetchHosts = async () => {
   try {
     const res = await axios.get('/api/v1/remote-host');
     if (res.data.success && res.data.data) {
       hosts.value = res.data.data;
+      await restorePersistedSessions();
     } else {
       hosts.value = [];
     }
@@ -233,11 +310,12 @@ const connectHost = async (host: RemoteHost) => {
   const existingIdx = openSessions.value.findIndex(s => s.host.id === host.id);
   if (existingIdx >= 0) {
     activeSessionIndex.value = existingIdx;
+    saveSessionsState();
     return;
   }
 
   const session: OpenSession = {
-    id: `session-${Date.now()}`,
+    id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     host,
     activeView: 'terminal',
     connected: false,
@@ -245,6 +323,7 @@ const connectHost = async (host: RemoteHost) => {
 
   openSessions.value.push(session);
   activeSessionIndex.value = openSessions.value.length - 1;
+  saveSessionsState();
 
   await nextTick();
   initXterm(session);
@@ -274,6 +353,7 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   if (activeSessionIndex.value >= openSessions.value.length) {
     activeSessionIndex.value = openSessions.value.length - 1;
   }
+  saveSessionsState();
 };
 
 // Reconnect Terminal
