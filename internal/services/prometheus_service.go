@@ -26,6 +26,10 @@ func NewPrometheusService(configRepo *repository.ConfigRepository, sshService *S
 	}
 }
 
+func (s *PrometheusService) Query(ctx context.Context, promQL string) (interface{}, error) {
+	return s.QueryPromQL(ctx, promQL)
+}
+
 func (s *PrometheusService) QueryPromQL(ctx context.Context, promQL string) (interface{}, error) {
 	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
 	if err != nil {

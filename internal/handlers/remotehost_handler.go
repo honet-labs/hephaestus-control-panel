@@ -126,7 +126,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 
-	var userID string
+	var userID int = 1
 	var hostID string = queryHostID
 
 	if queryToken != "" {
@@ -136,8 +136,8 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		}
 	}
 
-	if userID == "" || hostID == "" {
-		// Wait for initial handshake message if token or host was not in query string
+	if hostID == "" {
+		// Wait for initial handshake message if host was not in query string
 		_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
 		var authMsg domain.WsTerminalMessage
 		if err := ws.ReadJSON(&authMsg); err != nil {
@@ -168,10 +168,6 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		if authMsg.Rows > 0 {
 			rows = authMsg.Rows
 		}
-	}
-
-	if userID == "" {
-		userID = "admin"
 	}
 
 	if hostID == "" {
