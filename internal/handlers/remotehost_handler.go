@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -242,7 +243,7 @@ func (h *RemoteHostHandler) SftpDownload(c *gin.Context) {
 	}
 	defer reader.Close()
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", remotePath))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(remotePath)))
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Length", fmt.Sprintf("%d", size))
 	_, _ = io.Copy(c.Writer, reader)

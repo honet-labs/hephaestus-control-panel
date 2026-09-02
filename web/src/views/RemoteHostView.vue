@@ -462,13 +462,140 @@ const handleSaveHost = async () => {
   }
 };
 
-// Create Group
-const handleCreateGroup = () => {
-  if (!newGroupName.value.trim()) return;
-  hostForm.value.groupName = newGroupName.value.trim();
-  isGroupModalOpen.value = false;
-  newGroupName.value = '';
+// SFTP Methods
+const selectedSftpHostId = ref<string>('');
+const sftpFileInput = ref<HTMLInputElement | null>(null);
+const sftpUploadProgress = ref(false);
+const sftpError = ref('');
+
+const currentSftpHost = computed(() => {
+  if (selectedSftpHostId.value) {
+    return hosts.value.find(h => h.id === selectedSftpHostId.value) || null;
+  }
+  if (activeSession.value) {
+    return activeSession.value.host;
+  }
+  return hosts.value[0] || null;
+});
+
+const fetchSftpFiles = async (path = sftpCurrentPath.value) => {
+  const host = currentSftpHost.value;
+  if (!host) {
+    sftpError.value = 'No remote server selected';
+    return;
+  }
+  sftpLoading.value = true;
+  sftpError.value = '';
+  try {
+    const res = await axios.get(`/api/v1/remote-host/${host.id}/sftp/list`, {
+      params: { path: path || '/' },
+    });
+    if (res.data.success && res.data.data) {
+      sftpFiles.value = res.data.data;
+      sftpCurrentPath.value = path;
+    } else {
+      sftpFiles.value = [];
+    }
+  } catch (err: any) {
+    sftpError.value = err.response?.data?.error || 'Failed to list directory contents';
+    sftpFiles.value = [];
+  } finally {
+    sftpLoading.value = false;
+  }
 };
+
+const navigateToDir = (dirName: string) => {
+  let target = '';
+  if (sftpCurrentPath.value === '/' || !sftpCurrentPath.value) {
+    target = '/' + dirName;
+  } else {
+    target = `${sftpCurrentPath.value.replace(/\/+$/, '')}/${dirName}`;
+  }
+  fetchSftpFiles(target);
+};
+
+const navigateUp = () => {
+  if (sftpCurrentPath.value === '/' || !sftpCurrentPath.value) return;
+  const parts = sftpCurrentPath.value.split('/').filter(Boolean);
+  parts.pop();
+  const parent = parts.length === 0 ? '/' : '/' + parts.join('/');
+  fetchSftpFiles(parent);
+};
+
+const triggerFileUpload = () => {
+  if (sftpFileInput.value) {
+    sftpFileInput.value.click();
+  }
+};
+
+const handleFileUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+  const file = target.files[0];
+  const host = currentSftpHost.value;
+  if (!host) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  let targetPath = sftpCurrentPath.value.replace(/\/+$/, '');
+  if (!targetPath) targetPath = '/';
+  if (targetPath === '/') {
+    targetPath = '/' + file.name;
+  } else {
+    targetPath = `${targetPath}/${file.name}`;
+  }
+
+  sftpUploadProgress.value = true;
+  try {
+    const res = await axios.post(`/api/v1/remote-host/${host.id}/sftp/upload`, formData, {
+      params: { path: targetPath },
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    if (res.data.success) {
+      await fetchSftpFiles();
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to upload file');
+  } finally {
+    sftpUploadProgress.value = false;
+    target.value = '';
+  }
+};
+
+const handleDownloadFile = (fileName: string) => {
+  const host = currentSftpHost.value;
+  if (!host) return;
+  let targetPath = sftpCurrentPath.value.replace(/\/+$/, '');
+  if (!targetPath) targetPath = '/';
+  if (targetPath === '/') {
+    targetPath = '/' + fileName;
+  } else {
+    targetPath = `${targetPath}/${fileName}`;
+  }
+  const url = `/api/v1/remote-host/${host.id}/sftp/download?path=${encodeURIComponent(targetPath)}`;
+  window.open(url, '_blank');
+};
+
+const openSftpModal = (hostId?: string) => {
+  if (hostId) {
+    selectedSftpHostId.value = hostId;
+  } else if (activeSession.value) {
+    selectedSftpHostId.value = activeSession.value.host.id;
+  } else if (hosts.value.length > 0) {
+    selectedSftpHostId.value = hosts.value[0].id;
+  }
+  sftpCurrentPath.value = '/';
+  isSftpModalOpen.value = true;
+  fetchSftpFiles('/');
+};
+
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
 
 const handleBackToPortal = () => {
   if (window.opener) {
@@ -497,7 +624,7 @@ onUnmounted(() => {
       <!-- Title -->
       <div class="flex items-center gap-2.5">
         <SquareTerminal class="w-4 h-4 text-brand-400" />
-        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Host</h1>
+        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server</h1>
       </div>
 
       <!-- Right Action -->
@@ -528,10 +655,10 @@ onUnmounted(() => {
         <span>SERVERS</span>
       </button>
 
-      <!-- Quick Add Host (+) Button -->
+      <!-- Quick Add Server (+) Button -->
       <button
         @click="isHostModalOpen = true"
-        title="Add New Remote Host"
+        title="Add New Remote Server"
         class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
       >
         <Plus class="w-3.5 h-3.5" />
@@ -539,7 +666,7 @@ onUnmounted(() => {
 
       <!-- Transfer Button -->
       <button
-        @click="isSftpModalOpen = true"
+        @click="openSftpModal()"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition font-medium text-xs"
       >
         <Upload class="w-3.5 h-3.5 text-slate-400" />
@@ -766,6 +893,19 @@ onUnmounted(() => {
             ]"
           >
             <Wifi class="w-4 h-4" />
+          </button>
+
+          <button
+            @click="activeSession.activeView = 'sftp'; fetchSftpFiles()"
+            :title="'File Transfer & SFTP'"
+            :class="[
+              'p-2.5 rounded-lg transition',
+              activeSession.activeView === 'sftp'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <Folder class="w-4 h-4" />
           </button>
         </aside>
 
@@ -1282,11 +1422,184 @@ onUnmounted(() => {
 
           </div>
 
+          <!-- 6. SFTP FILE MANAGER & TRANSFER VIEW -->
+          <div v-if="activeSession.activeView === 'sftp'" class="flex-1 p-6 overflow-y-auto space-y-4">
+            <!-- Header Bar -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-2">
+                <Folder class="w-4 h-4 text-amber-400" />
+                <h2 class="text-sm font-bold text-white tracking-wide">File Manager & SFTP Transfer</h2>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-mono text-slate-400">{{ activeSession.host.name }} ({{ activeSession.host.username }}@{{ activeSession.host.host }})</span>
+                <button
+                  @click="fetchSftpFiles()"
+                  :disabled="sftpLoading"
+                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium disabled:opacity-50"
+                >
+                  <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpLoading }" />
+                  <span>Refresh</span>
+                </button>
+                <input
+                  type="file"
+                  ref="sftpFileInput"
+                  @change="handleFileUpload"
+                  class="hidden"
+                />
+                <button
+                  @click="triggerFileUpload"
+                  :disabled="sftpUploadProgress"
+                  class="flex items-center gap-1.5 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium shadow-md shadow-blue-500/20 transition disabled:opacity-50"
+                >
+                  <Upload class="w-3.5 h-3.5" />
+                  <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Path Bar & Quick Shortcuts -->
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-[#1b1e26] border border-slate-800/80 p-3 px-4 rounded-xl">
+              <!-- Breadcrumb Navigation -->
+              <div class="flex items-center gap-2 flex-1 font-mono text-xs">
+                <button
+                  @click="navigateUp"
+                  :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
+                  title="Up Directory"
+                  class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+                >
+                  <ArrowLeft class="w-3.5 h-3.5" />
+                </button>
+                <span class="text-slate-500">Path:</span>
+                <span class="text-white font-bold bg-[#14161b] px-3 py-1 rounded border border-slate-800 max-w-md truncate">
+                  {{ sftpCurrentPath }}
+                </span>
+              </div>
+
+              <!-- Quick Path Jump -->
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-[11px] text-slate-500">Quick:</span>
+                <button
+                  v-for="qp in ['/', '/home', '/var/log', '/etc', '/root']"
+                  :key="qp"
+                  @click="fetchSftpFiles(qp)"
+                  class="px-2 py-0.5 rounded bg-[#14161b] border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-white font-mono text-[11px] transition"
+                >
+                  {{ qp }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Error Banner if any -->
+            <div v-if="sftpError" class="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 flex items-center gap-2">
+              <AlertTriangle class="w-4 h-4 shrink-0" />
+              <span>{{ sftpError }}</span>
+            </div>
+
+            <!-- File Explorer Table -->
+            <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="py-2.5 px-5">Name</th>
+                      <th class="py-2.5 px-4">Type</th>
+                      <th class="py-2.5 px-4">Size</th>
+                      <th class="py-2.5 px-4">Last Modified</th>
+                      <th class="py-2.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="sftpLoading">
+                    <tr>
+                      <td colspan="5" class="py-12 text-center text-slate-400">
+                        <div class="flex items-center justify-center gap-2">
+                          <RotateCw class="w-4 h-4 animate-spin text-brand-400" />
+                          <span>Listing files over SFTP...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tbody v-else-if="sftpFiles.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <tr
+                      v-for="(file, fIdx) in sftpFiles"
+                      :key="fIdx"
+                      class="hover:bg-slate-800/30 transition text-slate-300 group"
+                    >
+                      <!-- Name with Icon -->
+                      <td class="py-2.5 px-5 font-sans flex items-center gap-2.5">
+                        <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
+                        <HardDrive v-else class="w-4 h-4 text-sky-400 shrink-0" />
+                        <span
+                          v-if="file.isDir"
+                          @click="navigateToDir(file.name)"
+                          class="font-semibold text-white hover:text-brand-400 cursor-pointer transition hover:underline"
+                        >
+                          {{ file.name }}
+                        </span>
+                        <span v-else class="text-slate-200">
+                          {{ file.name }}
+                        </span>
+                      </td>
+
+                      <!-- Type -->
+                      <td class="py-2.5 px-4 font-sans">
+                        <span
+                          :class="[
+                            'px-2 py-0.5 rounded text-[10px] font-bold',
+                            file.isDir ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-800 text-slate-400'
+                          ]"
+                        >
+                          {{ file.isDir ? 'DIR' : 'FILE' }}
+                        </span>
+                      </td>
+
+                      <!-- Size -->
+                      <td class="py-2.5 px-4 text-slate-400">
+                        {{ file.isDir ? '-' : formatFileSize(file.size) }}
+                      </td>
+
+                      <!-- Modified Date -->
+                      <td class="py-2.5 px-4 text-slate-400">
+                        {{ file.modTime ? new Date(file.modTime).toLocaleString() : '-' }}
+                      </td>
+
+                      <!-- Actions -->
+                      <td class="py-2.5 px-4 text-right">
+                        <button
+                          v-if="!file.isDir"
+                          @click="handleDownloadFile(file.name)"
+                          title="Download File"
+                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans transition"
+                        >
+                          <Download class="w-3 h-3" />
+                          <span>Download</span>
+                        </button>
+                        <button
+                          v-else
+                          @click="navigateToDir(file.name)"
+                          class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans transition"
+                        >
+                          <span>Open</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tbody v-else>
+                    <tr>
+                      <td colspan="5" class="py-8 text-center text-slate-500 text-xs font-sans">
+                        This directory is empty.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
 
-    <!-- Modal: Add New Host -->
+    <!-- Modal: Add New Remote Server -->
     <div
       v-if="isHostModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
@@ -1295,7 +1608,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center gap-2">
             <Server class="w-4 h-4 text-brand-400" />
-            <h3 class="text-sm font-bold text-white">Add New Remote Host</h3>
+            <h3 class="text-sm font-bold text-white">Add New Remote Server</h3>
           </div>
           <button @click="isHostModalOpen = false" class="text-slate-400 hover:text-white">
             <X class="w-4 h-4" />
@@ -1304,13 +1617,13 @@ onUnmounted(() => {
 
         <form @submit.prevent="handleSaveHost" class="space-y-3 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1">Host Name / Identifier</label>
+            <label class="block text-slate-400 mb-1">Server Name / Identifier</label>
             <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="e.g. Bifrost Server" />
           </div>
 
           <div class="grid grid-cols-3 gap-3">
             <div class="col-span-2">
-              <label class="block text-slate-400 mb-1">Host IP / Domain</label>
+              <label class="block text-slate-400 mb-1">Server IP / Domain</label>
               <input v-model="hostForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="10.20.3.1" />
             </div>
             <div>
@@ -1366,7 +1679,7 @@ onUnmounted(() => {
               type="submit"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20"
             >
-              Save Host
+              Save Server
             </button>
           </div>
         </form>
@@ -1415,6 +1728,172 @@ onUnmounted(() => {
               Set Group
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Standalone SFTP File Transfer Explorer -->
+    <div
+      v-if="isSftpModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+    >
+      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl flex flex-col max-h-[85vh]">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2">
+            <Upload class="w-4 h-4 text-brand-400" />
+            <h3 class="text-sm font-bold text-white">SFTP File Transfer</h3>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <!-- Server Selector -->
+            <select
+              v-model="selectedSftpHostId"
+              @change="fetchSftpFiles('/')"
+              class="bg-[#14161b] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-sans"
+            >
+              <option v-for="h in hosts" :key="h.id" :value="h.id">
+                {{ h.name }} ({{ h.host }})
+              </option>
+            </select>
+
+            <button @click="isSftpModalOpen = false" class="text-slate-400 hover:text-white">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Path & Upload Actions -->
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-[#14161b] border border-slate-800 p-2.5 px-3 rounded-xl shrink-0 text-xs">
+          <!-- Breadcrumbs -->
+          <div class="flex items-center gap-2 flex-1 font-mono">
+            <button
+              @click="navigateUp"
+              :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
+              title="Up Directory"
+              class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
+            >
+              <ArrowLeft class="w-3.5 h-3.5" />
+            </button>
+            <span class="text-slate-500">Path:</span>
+            <span class="text-white font-bold bg-[#1b1e26] px-2.5 py-0.5 rounded border border-slate-800 truncate max-w-[280px]">
+              {{ sftpCurrentPath }}
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              @click="fetchSftpFiles()"
+              :disabled="sftpLoading"
+              class="flex items-center gap-1 px-2.5 py-1 rounded bg-[#242833] border border-slate-700 text-xs text-slate-300 hover:text-white transition disabled:opacity-50"
+            >
+              <RotateCw class="w-3 h-3" :class="{ 'animate-spin': sftpLoading }" />
+              <span>Refresh</span>
+            </button>
+
+            <input
+              type="file"
+              ref="sftpFileInput"
+              @change="handleFileUpload"
+              class="hidden"
+            />
+            <button
+              @click="triggerFileUpload"
+              :disabled="sftpUploadProgress"
+              class="flex items-center gap-1 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-semibold transition disabled:opacity-50"
+            >
+              <Upload class="w-3.5 h-3.5" />
+              <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error Banner -->
+        <div v-if="sftpError" class="p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 flex items-center gap-2 shrink-0">
+          <AlertTriangle class="w-4 h-4 shrink-0" />
+          <span>{{ sftpError }}</span>
+        </div>
+
+        <!-- File List Table -->
+        <div class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-[#14161b]">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-[#1b1e26] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0">
+              <tr>
+                <th class="py-2 px-4">Name</th>
+                <th class="py-2 px-3">Type</th>
+                <th class="py-2 px-3">Size</th>
+                <th class="py-2 px-3">Modified</th>
+                <th class="py-2 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody v-if="sftpLoading">
+              <tr>
+                <td colspan="5" class="py-10 text-center text-slate-400">
+                  <div class="flex items-center justify-center gap-2">
+                    <RotateCw class="w-4 h-4 animate-spin text-brand-400" />
+                    <span>Loading files...</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+            <tbody v-else-if="sftpFiles.length > 0" class="divide-y divide-slate-800/60 font-mono text-xs">
+              <tr
+                v-for="(file, fIdx) in sftpFiles"
+                :key="fIdx"
+                class="hover:bg-slate-800/40 transition text-slate-300"
+              >
+                <td class="py-2 px-4 font-sans flex items-center gap-2">
+                  <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
+                  <HardDrive v-else class="w-4 h-4 text-sky-400 shrink-0" />
+                  <span
+                    v-if="file.isDir"
+                    @click="navigateToDir(file.name)"
+                    class="font-semibold text-white hover:text-brand-400 cursor-pointer transition hover:underline"
+                  >
+                    {{ file.name }}
+                  </span>
+                  <span v-else class="text-slate-200">
+                    {{ file.name }}
+                  </span>
+                </td>
+                <td class="py-2 px-3 font-sans">
+                  <span :class="file.isDir ? 'text-amber-400 font-bold' : 'text-slate-400'">
+                    {{ file.isDir ? 'DIR' : 'FILE' }}
+                  </span>
+                </td>
+                <td class="py-2 px-3 text-slate-400">
+                  {{ file.isDir ? '-' : formatFileSize(file.size) }}
+                </td>
+                <td class="py-2 px-3 text-slate-400">
+                  {{ file.modTime ? new Date(file.modTime).toLocaleDateString() : '-' }}
+                </td>
+                <td class="py-2 px-3 text-right font-sans">
+                  <button
+                    v-if="!file.isDir"
+                    @click="handleDownloadFile(file.name)"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] transition inline-flex items-center gap-1"
+                  >
+                    <Download class="w-3 h-3" />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    v-else
+                    @click="navigateToDir(file.name)"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] transition"
+                  >
+                    <span>Open</span>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+            <tbody v-else>
+              <tr>
+                <td colspan="5" class="py-8 text-center text-slate-500 text-xs font-sans">
+                  Directory is empty.
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
