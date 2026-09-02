@@ -294,7 +294,7 @@ onMounted(() => {
 
         <button
           @click="isRunBackupModalOpen = true"
-          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20 transition"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition"
         >
           <Play class="w-3.5 h-3.5 fill-current" />
           <span>RUN BACKUP NOW</span>
@@ -629,7 +629,7 @@ onMounted(() => {
           <button @click="isRunBackupModalOpen = false" class="px-3 py-1.5 text-xs text-slate-400 hover:text-white">
             Cancel
           </button>
-          <button @click="triggerBackup" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-lg shadow-blue-600/20">
+          <button @click="triggerBackup" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg">
             Start Backup
           </button>
         </div>

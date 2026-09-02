@@ -165,15 +165,35 @@ html.light .bg-gradient-to-r .text-white {
 }
 
 /* ===================================================================
-   NO-GLOW / CLEAN SOLID AESTHETICS (Disable colored neon glows)
+   NO-GLOW / CLEAN SOLID AESTHETICS (Disable colored neon glows & halos)
    =================================================================== */
 [class*="shadow-blue"],
 [class*="shadow-emerald"],
+[class*="shadow-green"],
 [class*="shadow-brand"],
 [class*="shadow-rose"],
+[class*="shadow-red"],
 [class*="shadow-amber"],
+[class*="shadow-yellow"],
+[class*="shadow-cyan"],
+[class*="shadow-sky"],
+[class*="shadow-purple"],
+[class*="shadow-indigo"],
 [class*="shadow-[#"] {
+  --tw-shadow: 0 0 #0000 !important;
+  --tw-shadow-colored: 0 0 #0000 !important;
   --tw-shadow-color: transparent !important;
   box-shadow: none !important;
+  filter: none !important;
 }
+
+/* Eliminate SVG blur glow filters and neon pulsating halos */
+svg filter[id*="glow"] {
+  display: none !important;
+}
+
+.animate-pulse {
+  animation: none !important;
+}
+
 

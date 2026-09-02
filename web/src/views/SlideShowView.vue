@@ -504,7 +504,7 @@ onUnmounted(() => {
 
         <!-- Bottom Float Indicator Bar -->
         <div class="absolute bottom-3 left-4 z-30 bg-[#13161f]/85 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 flex items-center gap-2.5 shadow-xl pointer-events-none">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
           <span class="font-bold text-white">{{ currentEmbed.name }}</span>
           <span class="text-[11px] text-slate-400 font-mono truncate max-w-xs">{{ currentEmbed.url }}</span>
           <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 font-semibold border border-slate-700/60">
@@ -526,7 +526,7 @@ onUnmounted(() => {
         </div>
         <button
           @click="openAddModal"
-          class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+          class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold inline-flex items-center gap-1.5"
         >
           <Plus class="w-4 h-4" />
           <span>Add Your First Embed URL</span>

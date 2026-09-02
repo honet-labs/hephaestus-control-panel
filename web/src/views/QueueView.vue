@@ -442,7 +442,7 @@ onUnmounted(() => {
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
       <div>
         <div class="flex items-center gap-2.5">
-          <div class="w-2.5 h-2.5 rounded-[2px] bg-emerald-500 shadow-sm shadow-emerald-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-[2px] bg-emerald-500"></div>
           <h2 class="text-base font-bold text-white tracking-wide">Status Services</h2>
           <span class="px-2 py-0.5 rounded text-[11px] font-mono bg-slate-800 text-slate-300 border border-slate-700/60">
             {{ services.length }} Services
@@ -501,9 +501,9 @@ onUnmounted(() => {
                 <div class="flex items-center gap-2">
                   <span
                     :class="[
-                      srv.status === 'running' ? 'bg-emerald-500 shadow-emerald-500/50' :
-                      srv.status === 'warning' ? 'bg-amber-500 shadow-amber-500/50' : 'bg-rose-500 shadow-rose-500/50',
-                      'inline-block w-2.5 h-2.5 rounded-[2px] shadow-sm shrink-0'
+                      srv.status === 'running' ? 'bg-emerald-500' :
+                      srv.status === 'warning' ? 'bg-amber-500' : 'bg-rose-500',
+                      'inline-block w-2.5 h-2.5 rounded-[2px] shrink-0'
                     ]"
                   ></span>
                   <span
@@ -546,7 +546,7 @@ onUnmounted(() => {
               <!-- 3. Last Update (Live Ticking Relative Time) -->
               <td class="py-3.5 px-5 text-slate-300 font-sans whitespace-nowrap">
                 <span class="inline-flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" v-if="srv.elapsedSec && srv.elapsedSec < 6"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500" v-if="srv.elapsedSec && srv.elapsedSec < 6"></span>
                   <Clock class="w-3.5 h-3.5 text-slate-500 shrink-0" v-else />
                   {{ srv.updated }}
                 </span>
@@ -723,7 +723,7 @@ onUnmounted(() => {
 
           <!-- Empty log view state -->
           <div v-if="filteredServiceLogs.length === 0" class="h-full min-h-[250px] flex flex-col items-center justify-center text-slate-600 text-xs">
-            <Activity class="w-6 h-6 text-slate-600 mb-2 animate-pulse" />
+            <Activity class="w-6 h-6 text-slate-600 mb-2" />
             <p>Listening for [{{ activeLogService.moduleKey }}] daemon events on live WebSocket stream...</p>
             <p class="text-[10px] text-slate-600 mt-1">Click "Run Cycle" above to trigger an immediate daemon operation.</p>
           </div>

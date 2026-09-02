@@ -463,7 +463,7 @@ onUnmounted(() => {
           class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono border"
           :class="clusterHealth.status === 'green' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-red-500/10 border-red-500/30 text-red-400'"
         >
-          <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-400 animate-pulse' : clusterHealth.status === 'yellow' ? 'bg-amber-400' : 'bg-red-400'"></span>
+          <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-400' : clusterHealth.status === 'yellow' ? 'bg-amber-400' : 'bg-red-400'"></span>
           <span class="uppercase font-bold">{{ clusterHealth.status }}</span>
         </div>
       </div>
@@ -547,7 +547,7 @@ onUnmounted(() => {
           </p>
           <button
             @click="activeTab = 'connection'"
-            class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg shadow-lg shadow-brand-500/20 transition"
+            class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg transition"
           >
             Configure Connection
           </button>
@@ -563,7 +563,7 @@ onUnmounted(() => {
             </div>
             <div
               class="w-full h-1 rounded-full shadow-sm"
-              :class="clusterHealth?.status === 'green' ? 'bg-emerald-500 shadow-emerald-500/50' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : clusterHealth?.status === 'red' ? 'bg-red-500' : 'bg-slate-700'"
+              :class="clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : clusterHealth?.status === 'red' ? 'bg-red-500' : 'bg-slate-700'"
             ></div>
           </div>
 
@@ -1070,7 +1070,7 @@ onUnmounted(() => {
               <button
                 type="submit"
                 :disabled="isSavingConfig"
-                class="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-lg shadow-lg shadow-brand-500/20 transition disabled:opacity-50"
+                class="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-lg transition disabled:opacity-50"
               >
                 {{ isSavingConfig ? 'Saving...' : 'Save Configuration' }}
               </button>

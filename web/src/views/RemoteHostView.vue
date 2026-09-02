@@ -1554,7 +1554,7 @@ onUnmounted(() => {
                 }"
               >
                 <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
-                <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: cluster.group.color }" :class="{ 'animate-pulse': activeSessionIndex === sItem.globalIndex }"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: cluster.group.color }"></span>
                 <span>{{ sItem.session.displayName || sItem.session.host.name }}</span>
 
                 <!-- Duplicate Tab Button -->
@@ -1599,7 +1599,7 @@ onUnmounted(() => {
             ]"
           >
             <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             <span>{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
             <!-- Duplicate Tab Button -->
@@ -1664,7 +1664,7 @@ onUnmounted(() => {
           <div class="flex items-center gap-3">
             <button
               @click="isHostModalOpen = true"
-              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition"
             >
               <Plus class="w-4 h-4" />
               <span>NEW HOST</span>
@@ -1710,7 +1710,7 @@ onUnmounted(() => {
               :class="[
                 'p-4 bg-[#1b1e26] border rounded-xl flex items-center gap-3 cursor-pointer transition',
                 selectedGroupFilter === gName
-                  ? 'border-blue-500 shadow-lg shadow-blue-500/10'
+                  ? 'border-blue-500 bg-[#202534]'
                   : 'border-slate-800/80 hover:border-slate-700'
               ]"
             >
@@ -1735,7 +1735,7 @@ onUnmounted(() => {
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer hover:shadow-lg hover:shadow-emerald-500/10 transition group"
+              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group"
             >
               <div class="flex items-center gap-3 overflow-hidden">
                 <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
@@ -1776,7 +1776,7 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'terminal'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               ]"
             >
@@ -1789,7 +1789,7 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'dashboard'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               ]"
             >
@@ -1802,7 +1802,7 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'processes'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               ]"
             >
@@ -1815,7 +1815,7 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'services'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               ]"
             >
@@ -1828,7 +1828,7 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'network'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               ]"
             >
@@ -1852,9 +1852,9 @@ onUnmounted(() => {
               <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
                 <span
                   v-if="session.connected"
-                  class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5 shadow-sm"
+                  class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5"
                 >
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   Connected
                 </span>
                 <div v-else class="flex items-center gap-2">
@@ -2136,7 +2136,7 @@ onUnmounted(() => {
             </div>
 
             <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
               SFTP Ready
             </span>
           </div>
@@ -2617,7 +2617,7 @@ onUnmounted(() => {
             </button>
             <button
               type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg"
             >
               Save Server
             </button>
@@ -2663,7 +2663,7 @@ onUnmounted(() => {
             </button>
             <button
               @click="handleCreateGroup"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg shadow-blue-500/20"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg"
             >
               Set Group
             </button>

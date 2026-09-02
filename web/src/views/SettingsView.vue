@@ -542,7 +542,7 @@ onUnmounted(() => {
     <div v-if="activeTab === 'services'" class="space-y-4 animate-in fade-in duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="w-2.5 h-2.5 rounded-[2px] bg-emerald-500 shadow-sm shadow-emerald-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-[2px] bg-emerald-500"></div>
           <h3 class="text-xs font-bold text-white uppercase tracking-wider">Active Service Daemons</h3>
         </div>
 
@@ -576,7 +576,7 @@ onUnmounted(() => {
               <!-- 1. Status Services -->
               <td class="py-3 px-4 whitespace-nowrap">
                 <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   <span class="uppercase">RUNNING</span>
                 </div>
               </td>
@@ -726,7 +726,7 @@ onUnmounted(() => {
           <button
             type="submit"
             :disabled="dbSaving"
-            class="px-4 py-2 bg-[#4274D9] hover:bg-[#3461c2] text-white text-xs font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition disabled:opacity-50"
+            class="px-4 py-2 bg-[#4274D9] hover:bg-[#3461c2] text-white text-xs font-bold rounded-lg transition disabled:opacity-50"
           >
             {{ dbSaving ? 'SAVING...' : 'Save & Apply Config' }}
           </button>

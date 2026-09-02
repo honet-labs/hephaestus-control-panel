@@ -1057,7 +1057,7 @@ onUnmounted(() => {
         <!-- Center Status Pill -->
         <div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
           <div class="px-3 py-1 rounded-full bg-[#171a21]/90 border border-slate-800 text-[11px] font-mono text-slate-400 flex items-center gap-2 shadow-lg backdrop-blur-sm">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             <span>{{ activeNodes.length }} nodes, {{ edges.length }} edges</span>
           </div>
         </div>
@@ -1070,18 +1070,6 @@ onUnmounted(() => {
             transformOrigin: '0 0'
           }"
         >
-          <!-- Defs for Glows and Arrowheads -->
-          <defs>
-            <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-            <filter id="glow-red" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
-
           <!-- 1. Render Links / Edges -->
           <g class="edges-layer">
             <g v-for="(edge, eIdx) in edges" :key="eIdx" class="edge-group">
@@ -1091,10 +1079,10 @@ onUnmounted(() => {
                 :class="[
                   'transition-all cursor-pointer',
                   (edge.edgeType || edge.label) === 'VPN'
-                    ? 'stroke-emerald-400 stroke-[2.5]'
+                    ? 'stroke-emerald-500 stroke-2'
                     : (edge.edgeType || edge.label) === 'Wireless'
-                    ? 'stroke-cyan-400 stroke-[2]'
-                    : 'stroke-emerald-500/70 stroke-[2.5]'
+                    ? 'stroke-cyan-500 stroke-[1.5]'
+                    : 'stroke-slate-600 hover:stroke-slate-400 stroke-2'
                 ]"
                 :stroke-dasharray="(edge.edgeType || edge.label) === 'VPN' ? '6,4' : (edge.edgeType || edge.label) === 'Wireless' ? '4,4' : 'none'"
                 fill="none"
@@ -1138,18 +1126,17 @@ onUnmounted(() => {
               @contextmenu="handleNodeContextMenu(dev, $event)"
               @click="selectedNode = dev"
             >
-              <!-- Outer Glow Circle -->
+              <!-- Solid Clean Node Circle (No Glow) -->
               <circle
                 r="30"
                 :class="[
                   'transition-all duration-200',
                   dev.status === 'online'
-                    ? 'fill-[#0e2a1b] stroke-emerald-400 stroke-[2.5] shadow-lg'
+                    ? 'fill-[#121f18] stroke-emerald-600 stroke-2'
                     : dev.status === 'offline'
-                    ? 'fill-[#2b0f13] stroke-red-500 stroke-[2.5]'
-                    : 'fill-[#171a21] stroke-slate-600 stroke-[2]'
+                    ? 'fill-[#261517] stroke-rose-600 stroke-2'
+                    : 'fill-[#171a21] stroke-slate-700 stroke-2'
                 ]"
-                :filter="dev.status === 'online' ? 'url(#glow-green)' : dev.status === 'offline' ? 'url(#glow-red)' : 'none'"
               />
 
               <!-- Center Icon -->
@@ -1387,7 +1374,7 @@ onUnmounted(() => {
       <div class="bg-[#171a21] border border-slate-800 rounded-2xl w-full max-w-xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center gap-2">
-            <Activity class="w-4 h-4 text-emerald-400 animate-pulse" />
+            <Activity class="w-4 h-4 text-emerald-400" />
             <h3 class="text-sm font-bold text-white">Ping {{ pingTarget.name }} ({{ pingTarget.ip }})</h3>
           </div>
           <button @click="isPingModalOpen = false" class="text-slate-400 hover:text-white">
@@ -1471,7 +1458,7 @@ onUnmounted(() => {
               <button
                 @click="handleRunSubnetScan"
                 :disabled="scanLoading"
-                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs shadow-lg shadow-emerald-500/20"
+                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs"
               >
                 {{ scanLoading ? 'Scanning...' : 'Start Scan' }}
               </button>
@@ -1558,7 +1545,7 @@ onUnmounted(() => {
             </button>
             <button
               type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs shadow-lg shadow-blue-500/20"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs"
             >
               Save Device
             </button>
@@ -1648,7 +1635,7 @@ onUnmounted(() => {
             </button>
             <button
               type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs shadow-lg shadow-blue-500/20"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs"
             >
               Save Link
             </button>

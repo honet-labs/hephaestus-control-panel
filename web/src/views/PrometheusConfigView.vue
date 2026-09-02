@@ -220,7 +220,7 @@ onMounted(() => {
         </p>
         <button
           @click="router.push('/connections')"
-          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition mt-2"
+          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Prometheus Connection</span>
@@ -252,7 +252,7 @@ onMounted(() => {
 
             <button
               @click="handleSave"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition"
+              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
             >
               <Save class="w-3.5 h-3.5" />
               <span>SAVE</span>

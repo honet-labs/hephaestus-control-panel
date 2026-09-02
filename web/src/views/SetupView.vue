@@ -46,7 +46,7 @@ const handleSetup = async () => {
   <div class="min-h-screen flex items-center justify-center bg-[#090d16] p-4 font-sans">
     <div class="w-full max-w-md space-y-6">
       <div class="text-center space-y-2">
-        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20 font-mono font-black text-sm text-white tracking-tight">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center font-mono font-black text-sm text-white tracking-tight">
           HCP
         </div>
         <h1 class="text-xl font-bold text-white tracking-tight">Hephaestus Control Panel (HCP)</h1>
@@ -77,7 +77,7 @@ const handleSetup = async () => {
           <button
             type="submit"
             :disabled="loading"
-            class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold rounded-lg shadow-lg shadow-brand-500/20 transition"
+            class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold rounded-lg transition"
           >
             {{ loading ? 'Initializing...' : 'Complete Installation' }}
           </button>
