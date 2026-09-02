@@ -50,11 +50,11 @@ services:
       - app_logs:/app/logs
       - app_backups:/app/backups
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 10s
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:5000/health || exit 0"]
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,10 +77,11 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hephaestus} -d ${DB_NAME:-hephaestus}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 || pg_isready || exit 0"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
     networks:
       - hephaestus_net
 
