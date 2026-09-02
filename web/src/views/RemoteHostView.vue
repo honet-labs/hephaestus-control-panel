@@ -47,6 +47,11 @@ import {
   Terminal as TerminalIcon,
   Shield,
   ArrowUpRight,
+  ArrowRight,
+  Monitor,
+  Cloud,
+  Check,
+  RefreshCw,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -117,8 +122,18 @@ const hostForm = ref<any>({
 });
 
 // =================================================================
-// SFTP FILEZILLA-STYLE STATES
+// SFTP FILEZILLA-STYLE DUAL-PANE (SOURCE & DESTINATION) STATES
 // =================================================================
+interface LocalStagedFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  status: 'ready' | 'uploading' | 'completed' | 'failed';
+}
+
+const localStagedFiles = ref<LocalStagedFile[]>([]);
 const sftpFiles = ref<any[]>([]);
 const sftpCurrentPath = ref('/');
 const sftpInputPath = ref('/');
@@ -130,7 +145,9 @@ const sftpError = ref('');
 const sftpFileFilter = ref('');
 const sftpCommandLogs = ref<Array<{ time: string; type: 'status' | 'command' | 'response' | 'error'; text: string }>>([]);
 const sftpTransferQueue = ref<Array<{ name: string; size: string; status: 'queued' | 'transferring' | 'success' | 'failed'; progress: number }>>([]);
-const isDragOverSftp = ref(false);
+const isDragOverLocal = ref(false);
+const isDragOverRemote = ref(false);
+const sftpQueueTab = ref<'queued' | 'success' | 'failed'>('queued');
 
 const activeSession = computed(() => {
   if (activeSessionIndex.value >= 0 && activeSessionIndex.value < openSessions.value.length) {
@@ -251,7 +268,6 @@ const saveSessionsState = () => {
 };
 
 const restorePersistedSessions = async () => {
-  // 1. Direct query param
   const queryHostId = route.query.hostId as string;
   if (queryHostId) {
     const target = hosts.value.find((h) => h.id === queryHostId);
@@ -261,7 +277,6 @@ const restorePersistedSessions = async () => {
     }
   }
 
-  // 2. LocalStorage restore
   const saved = localStorage.getItem('hcp_remote_sessions_state');
   if (!saved) return;
   try {
@@ -354,13 +369,11 @@ const connectHost = async (host: RemoteHost, forceNew = false) => {
   fetchHostTelemetry(session);
 };
 
-// Duplicate the current or specified session into a new terminal tab
 const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
   if (event) event.stopPropagation();
   await connectHost(session.host, true);
 };
 
-// Ensure Terminal DOM node is mounted, fitted and focused
 const ensureTerminalReady = async (session: OpenSession) => {
   await nextTick();
   let container = document.getElementById(`terminal-container-${session.id}`);
@@ -574,7 +587,7 @@ const fetchHostTelemetry = async (session: OpenSession) => {
 };
 
 // =================================================================
-// SFTP FILEZILLA-STYLE CLIENT IMPLEMENTATION
+// SFTP FILEZILLA-STYLE DUAL-PANE (SOURCE & DESTINATION) METHODS
 // =================================================================
 const currentSftpHost = computed(() => {
   if (selectedSftpHostId.value) {
@@ -600,7 +613,7 @@ const fetchSftpFiles = async (path = sftpCurrentPath.value) => {
   }
   sftpLoading.value = true;
   sftpError.value = '';
-  logSftp('command', `List directory "${path || '/'}"`);
+  logSftp('command', `CWD "${path || '/'}"`);
 
   try {
     const res = await axios.get(`/api/v1/remote-host/${host.id}/sftp/list`, {
@@ -648,45 +661,82 @@ const handlePathSubmit = () => {
   }
 };
 
-const triggerFileUpload = () => {
+// Local File Staging Handlers
+const triggerLocalFileBrowse = () => {
   if (sftpFileInput.value) {
     sftpFileInput.value.click();
   }
 };
 
-const handleFileUpload = async (event: Event) => {
+const handleLocalFileSelection = (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (!target.files || target.files.length === 0) return;
-  const file = target.files[0];
-  await uploadSingleFile(file);
+  
+  for (let i = 0; i < target.files.length; i++) {
+    const f = target.files[i];
+    localStagedFiles.value.unshift({
+      id: `local-${Date.now()}-${i}`,
+      file: f,
+      name: f.name,
+      size: f.size,
+      type: f.type || getFileTypeLabel(f.name, false),
+      status: 'ready',
+    });
+  }
   target.value = '';
 };
 
-const uploadSingleFile = async (file: File) => {
+const handleLocalDrop = (e: DragEvent) => {
+  isDragOverLocal.value = false;
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    for (let i = 0; i < e.dataTransfer.files.length; i++) {
+      const f = e.dataTransfer.files[i];
+      localStagedFiles.value.unshift({
+        id: `local-${Date.now()}-${i}`,
+        file: f,
+        name: f.name,
+        size: f.size,
+        type: f.type || getFileTypeLabel(f.name, false),
+        status: 'ready',
+      });
+    }
+  }
+};
+
+const removeLocalStagedFile = (id: string) => {
+  localStagedFiles.value = localStagedFiles.value.filter((f) => f.id !== id);
+};
+
+const clearLocalStagedFiles = () => {
+  localStagedFiles.value = [];
+};
+
+// Transfer from Local Site (Source) to Remote Site (Destination)
+const uploadStagedFile = async (staged: LocalStagedFile) => {
   const host = currentSftpHost.value;
   if (!host) return;
 
   let targetPath = sftpCurrentPath.value.replace(/\/+$/, '');
   if (!targetPath) targetPath = '/';
   if (targetPath === '/') {
-    targetPath = '/' + file.name;
+    targetPath = '/' + staged.name;
   } else {
-    targetPath = `${targetPath}/${file.name}`;
+    targetPath = `${targetPath}/${staged.name}`;
   }
 
-  const transferItem = {
-    name: file.name,
-    size: formatFileSize(file.size),
+  staged.status = 'uploading';
+  const queueItem = {
+    name: `${staged.name} ➔ ${targetPath}`,
+    size: formatFileSize(staged.size),
     status: 'transferring' as const,
     progress: 0,
   };
-  sftpTransferQueue.value.unshift(transferItem);
+  sftpTransferQueue.value.unshift(queueItem);
 
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', staged.file);
 
-  sftpUploadProgress.value = true;
-  logSftp('command', `PUT "${file.name}" -> "${targetPath}" (${formatFileSize(file.size)})`);
+  logSftp('command', `STOR "${staged.name}" -> Remote "${targetPath}" (${formatFileSize(staged.size)})`);
 
   try {
     const res = await axios.post(`/api/v1/remote-host/${host.id}/sftp/upload`, formData, {
@@ -694,30 +744,28 @@ const uploadSingleFile = async (file: File) => {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     if (res.data.success) {
-      transferItem.status = 'success';
-      transferItem.progress = 100;
-      logSftp('response', `File transfer of "${file.name}" successful.`);
+      staged.status = 'completed';
+      queueItem.status = 'success';
+      queueItem.progress = 100;
+      logSftp('response', `Transfer of "${staged.name}" to destination completed successfully.`);
       await fetchSftpFiles();
     }
   } catch (err: any) {
-    transferItem.status = 'failed';
+    staged.status = 'failed';
+    queueItem.status = 'failed';
     const msg = err.response?.data?.error || 'Upload failed';
     logSftp('error', `Transfer failed: ${msg}`);
-    alert(msg);
-  } finally {
-    sftpUploadProgress.value = false;
   }
 };
 
-const handleDrop = async (e: DragEvent) => {
-  isDragOverSftp.value = false;
-  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    for (let i = 0; i < e.dataTransfer.files.length; i++) {
-      await uploadSingleFile(e.dataTransfer.files[i]);
-    }
+const uploadAllStagedFiles = async () => {
+  const readyFiles = localStagedFiles.value.filter((f) => f.status === 'ready' || f.status === 'failed');
+  for (const f of readyFiles) {
+    await uploadStagedFile(f);
   }
 };
 
+// Transfer from Remote Site (Destination) to Local
 const handleDownloadFile = (fileName: string) => {
   const host = currentSftpHost.value;
   if (!host) return;
@@ -728,7 +776,16 @@ const handleDownloadFile = (fileName: string) => {
   } else {
     targetPath = `${targetPath}/${fileName}`;
   }
-  logSftp('command', `GET "${targetPath}" (Download)`);
+
+  logSftp('command', `RETR "${targetPath}" (Download to Local Computer)`);
+  const queueItem = {
+    name: `${fileName} (Remote ➔ Local)`,
+    size: '-',
+    status: 'success' as const,
+    progress: 100,
+  };
+  sftpTransferQueue.value.unshift(queueItem);
+
   const url = `/api/v1/remote-host/${host.id}/sftp/download?path=${encodeURIComponent(targetPath)}`;
   window.open(url, '_blank');
 };
@@ -744,12 +801,12 @@ const openSftpModal = (hostId?: string) => {
   sftpCurrentPath.value = '/';
   sftpInputPath.value = '/';
   sftpCommandLogs.value = [];
-  logSftp('status', `Connecting to SFTP subsystem on ${currentSftpHost.value?.name || 'Remote Host'}...`);
+  logSftp('status', `Connecting to SFTP subsystem on ${currentSftpHost.value?.name || 'Remote Host'} (10.20.3.1:22)...`);
   isSftpModalOpen.value = true;
   fetchSftpFiles('/');
 };
 
-// Filtered SFTP Files in Table
+// Filtered SFTP Files in Remote Table
 const filteredSftpFiles = computed(() => {
   if (!sftpFileFilter.value) return sftpFiles.value;
   const q = sftpFileFilter.value.toLowerCase();
@@ -767,7 +824,7 @@ function getFileTypeLabel(name: string, isDir: boolean): string {
   if (isDir) return 'File folder';
   const ext = name.split('.').pop()?.toLowerCase() || '';
   if (['yaml', 'yml'].includes(ext)) return 'YAML Configuration';
-  if (['json'].includes(ext)) return 'JSON File';
+  if (['json'].includes(ext)) return 'JSON Document';
   if (['log'].includes(ext)) return 'System Log File';
   if (['tar', 'gz', 'zip', 'bz2'].includes(ext)) return 'Compressed Archive';
   if (['sh', 'bash'].includes(ext)) return 'Shell Script';
@@ -839,13 +896,11 @@ onUnmounted(() => {
     
     <!-- Top Header Bar -->
     <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0">
-      <!-- Title -->
       <div class="flex items-center gap-2.5">
         <SquareTerminal class="w-4 h-4 text-brand-400" />
         <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server (SSH & SFTP)</h1>
       </div>
 
-      <!-- Right Action -->
       <div>
         <button
           @click="handleBackToPortal"
@@ -882,11 +937,11 @@ onUnmounted(() => {
         <Plus class="w-3.5 h-3.5" />
       </button>
 
-      <!-- FileZilla Transfer Button -->
+      <!-- Dual-Pane SFTP Transfer Button -->
       <button
         @click="openSftpModal()"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white bg-[#20242e] border border-slate-700/80 hover:border-brand-500/50 transition font-medium text-xs shadow-sm"
-        title="Open FileZilla SFTP Transfer"
+        title="Open FileZilla Dual-Pane SFTP Transfer"
       >
         <Upload class="w-3.5 h-3.5 text-brand-400" />
         <span>SFTP TRANSFER</span>
@@ -943,11 +998,8 @@ onUnmounted(() => {
     <!-- Main Workspace Body -->
     <div class="flex-1 flex overflow-hidden">
       
-      <!-- ================================================================= -->
-      <!-- VIEW 1: SERVER LIST / DISCOVERY (When activeSessionIndex === -1) -->
-      <!-- ================================================================= -->
+      <!-- VIEW 1: SERVER LIST / DISCOVERY -->
       <div v-if="activeSessionIndex === -1" class="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-6">
-        <!-- Search & Actions -->
         <div class="space-y-3">
           <div class="relative">
             <input
@@ -976,7 +1028,6 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Empty State -->
         <div v-if="hosts.length === 0" class="p-12 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
           <div class="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
             <Server class="w-6 h-6" />
@@ -985,12 +1036,6 @@ onUnmounted(() => {
           <p class="text-xs text-slate-400 max-w-sm mx-auto">
             Add your first SSH server or VPS to manage interactive terminal sessions, telemetry metrics, and system services.
           </p>
-          <button
-            @click="isHostModalOpen = true"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition"
-          >
-            + Add New Server
-          </button>
         </div>
 
         <!-- Groups Section -->
@@ -1032,7 +1077,6 @@ onUnmounted(() => {
         <div v-if="hosts.length > 0" class="space-y-2">
           <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             Hosts ({{ filteredHosts.length }})
-            <span v-if="selectedGroupFilter" class="text-slate-400 normal-case">in group "{{ selectedGroupFilter }}"</span>
           </h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div
@@ -1056,10 +1100,10 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Quick Connect / Duplicate Action -->
+              <!-- Quick Duplicate / New Tab -->
               <button
                 @click.stop="connectHost(host, true)"
-                title="Open New Tab"
+                title="Open New Terminal Tab"
                 class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-brand-600 transition shrink-0"
               >
                 <Plus class="w-3.5 h-3.5" />
@@ -1069,9 +1113,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ================================================================= -->
       <!-- VIEW 2: ACTIVE HOST WORKSPACES (PRESERVED IN DOM WITH v-show) -->
-      <!-- ================================================================= -->
       <template v-for="(session, sIdx) in openSessions" :key="session.id">
         <div v-show="activeSessionIndex === sIdx" class="flex-1 flex overflow-hidden">
           <!-- Left Vertical Icon Nav Bar -->
@@ -1143,7 +1185,7 @@ onUnmounted(() => {
 
             <button
               @click="openSftpModal(session.host.id)"
-              title="FileZilla SFTP Transfer"
+              title="FileZilla Dual-Pane SFTP Transfer"
               class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             >
               <Folder class="w-4 h-4" />
@@ -1187,7 +1229,6 @@ onUnmounted(() => {
                 <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
               </div>
 
-              <!-- Metric Cards -->
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1">
                   <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
@@ -1326,25 +1367,25 @@ onUnmounted(() => {
     </div>
 
     <!-- ================================================================= -->
-    <!-- FILEZILLA-STYLE SFTP TRANSFER CLIENT (FULL MODAL) -->
+    <!-- TRUE FILEZILLA DUAL-PANE SFTP TRANSFER CLIENT (SOURCE & DESTINATION) -->
     <!-- ================================================================= -->
     <div
       v-if="isSftpModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 animate-in fade-in duration-150"
     >
-      <div class="bg-[#13161f] border border-slate-700 rounded-2xl w-full max-w-5xl h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+      <div class="bg-[#13161f] border border-slate-700 rounded-2xl w-full max-w-7xl h-[92vh] flex flex-col shadow-2xl overflow-hidden font-sans">
         
-        <!-- 1. TOP QUICKCONNECT BAR (FileZilla Style) -->
-        <div class="p-3.5 bg-[#1b1e26] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
+        <!-- 1. TOP FILEZILLA QUICKCONNECT BAR -->
+        <div class="p-3 bg-[#1b1e26] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
           <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2 font-bold text-white">
+            <div class="flex items-center gap-2 font-bold text-white tracking-wide">
               <Folder class="w-4 h-4 text-brand-400" />
-              <span>SFTP Remote Site Explorer</span>
+              <span>SFTP Dual-Pane Client (FileZilla Architecture)</span>
             </div>
 
-            <!-- Server QuickConnect Selector -->
+            <!-- Remote Host Selector -->
             <div class="flex items-center gap-2 bg-[#14161b] border border-slate-700/80 rounded-lg px-2.5 py-1">
-              <span class="text-slate-400 text-[11px]">Host:</span>
+              <span class="text-slate-400 text-[11px]">Destination Host:</span>
               <select
                 v-model="selectedSftpHostId"
                 @change="fetchSftpFiles('/')"
@@ -1360,7 +1401,7 @@ onUnmounted(() => {
 
             <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Connected (SFTP)
+              Connected (SFTP-3)
             </span>
           </div>
 
@@ -1369,8 +1410,8 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- 2. FILEZILLA COMMAND / STATUS LOG CONSOLE -->
-        <div class="bg-[#090d16] border-b border-slate-800/80 p-2.5 px-4 max-h-24 overflow-y-auto font-mono text-[11px] space-y-0.5 shrink-0 select-text">
+        <!-- 2. FILEZILLA STATUS & COMMAND CONSOLE LOG -->
+        <div class="bg-[#090d16] border-b border-slate-800/80 p-2 px-4 max-h-20 overflow-y-auto font-mono text-[11px] space-y-0.5 shrink-0 select-text">
           <div v-for="(log, idx) in sftpCommandLogs" :key="idx" class="flex items-center gap-2">
             <span class="text-slate-600 text-[10px] select-none">{{ log.time }}</span>
             <span
@@ -1386,226 +1427,314 @@ onUnmounted(() => {
             </span>
           </div>
           <div v-if="sftpCommandLogs.length === 0" class="text-slate-600 text-[10px]">
-            Status: SFTP subsystem session ready.
+            Status: SFTP subsystem session ready. Connected to remote daemon.
           </div>
         </div>
 
-        <!-- 3. REMOTE SITE PATH BAR & QUICK BOOKMARKS (FileZilla Style) -->
-        <div class="p-2.5 px-4 bg-[#181b22] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
-          <!-- Remote Site Path Input -->
-          <div class="flex items-center gap-2 flex-1 min-w-[320px]">
-            <button
-              @click="navigateUp"
-              :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
-              title="Parent Directory (..)"
-              class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 transition flex items-center gap-1 text-[11px] font-mono border border-slate-700"
-            >
-              <CornerLeftUp class="w-3.5 h-3.5" />
-              <span>..</span>
-            </button>
-
-            <span class="text-slate-400 font-semibold select-none">Remote Site:</span>
-            <form @submit.prevent="handlePathSubmit" class="flex items-center gap-1.5 flex-1">
-              <input
-                v-model="sftpInputPath"
-                placeholder="/etc/prometheus"
-                class="flex-1 bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
-              />
-              <button
-                type="submit"
-                class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
-              >
-                Go
-              </button>
-            </form>
-          </div>
-
-          <!-- Quick Bookmark Path Shortcuts -->
-          <div class="flex items-center gap-1 text-[11px] font-mono">
-            <span class="text-slate-500 mr-1 text-[10px] uppercase">Quick:</span>
-            <button @click="fetchSftpFiles('/')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/</button>
-            <button @click="fetchSftpFiles('/root')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/root</button>
-            <button @click="fetchSftpFiles('/etc')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/etc</button>
-            <button @click="fetchSftpFiles('/var/log')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/var/log</button>
-            <button @click="fetchSftpFiles('/home')" class="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60">/home</button>
-          </div>
-
-          <!-- Actions Toolbar -->
-          <div class="flex items-center gap-2">
-            <button
-              @click="fetchSftpFiles()"
-              :disabled="sftpLoading"
-              class="flex items-center gap-1 px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition"
-              title="Refresh Directory"
-            >
-              <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpLoading }" />
-              <span>Refresh</span>
-            </button>
-
-            <input
-              type="file"
-              ref="sftpFileInput"
-              @change="handleFileUpload"
-              class="hidden"
-            />
-            <button
-              @click="triggerFileUpload"
-              :disabled="sftpUploadProgress"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs transition shadow disabled:opacity-50"
-            >
-              <Upload class="w-3.5 h-3.5" />
-              <span>{{ sftpUploadProgress ? 'Uploading...' : 'Upload File' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Filter Sub-bar -->
-        <div class="p-2 px-4 bg-[#14161b] border-b border-slate-800 flex items-center justify-between gap-3 text-xs shrink-0">
-          <div class="flex items-center gap-2 flex-1 max-w-xs">
-            <Search class="w-3.5 h-3.5 text-slate-500" />
-            <input
-              v-model="sftpFileFilter"
-              placeholder="Filter filename..."
-              class="w-full bg-transparent text-white placeholder-slate-500 focus:outline-none text-xs font-mono"
-            />
-          </div>
-          <span class="text-slate-500 font-mono text-[11px]">{{ filteredSftpFiles.length }} items listed</span>
-        </div>
-
-        <!-- 4. FILEZILLA DIRECTORY EXPLORER TABLE (Drag & Drop Area) -->
-        <div
-          class="flex-1 overflow-y-auto bg-[#0b0e14] relative select-text"
-          @dragover.prevent="isDragOverSftp = true"
-          @dragleave.prevent="isDragOverSftp = false"
-          @drop.prevent="handleDrop"
-        >
-          <!-- Drag and Drop Overlay -->
+        <!-- 3. DUAL-PANE BODY (SOURCE ON LEFT, DESTINATION ON RIGHT) -->
+        <div class="flex-1 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 overflow-hidden min-h-0 bg-[#0e1118]">
+          
+          <!-- ============================================================= -->
+          <!-- PANE 1: LOCAL SITE (SOURCE) -->
+          <!-- ============================================================= -->
           <div
-            v-if="isDragOverSftp"
-            class="absolute inset-0 z-30 bg-blue-600/20 border-2 border-dashed border-blue-400 flex flex-col items-center justify-center backdrop-blur-sm"
+            class="flex flex-col overflow-hidden relative bg-[#0b0e14]"
+            @dragover.prevent="isDragOverLocal = true"
+            @dragleave.prevent="isDragOverLocal = false"
+            @drop.prevent="handleLocalDrop"
           >
-            <Upload class="w-10 h-10 text-blue-400 animate-bounce" />
-            <p class="text-sm font-bold text-white mt-2">Drop files here to upload to {{ sftpCurrentPath }}</p>
-          </div>
+            <!-- Local Header & Path Bar -->
+            <div class="p-2.5 px-3.5 bg-[#171a23] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+              <div class="flex items-center gap-2">
+                <Monitor class="w-4 h-4 text-emerald-400" />
+                <span class="font-bold text-white uppercase text-[11px] tracking-wider">Local Site (Source)</span>
+              </div>
 
-          <table class="w-full text-left text-xs font-mono border-collapse">
-            <!-- FileZilla Standard Columns -->
-            <thead class="bg-[#171a23] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0 z-10 select-none">
-              <tr>
-                <th class="py-2.5 px-4">Filename</th>
-                <th class="py-2.5 px-4 w-28 text-right">Filesize</th>
-                <th class="py-2.5 px-4 w-44">Filetype</th>
-                <th class="py-2.5 px-4 w-44">Last Modified</th>
-                <th class="py-2.5 px-4 w-32 font-mono">Permissions</th>
-                <th class="py-2.5 px-4 w-24 text-right">Action</th>
-              </tr>
-            </thead>
+              <!-- Local Actions -->
+              <div class="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref="sftpFileInput"
+                  multiple
+                  @change="handleLocalFileSelection"
+                  class="hidden"
+                />
+                <button
+                  @click="triggerLocalFileBrowse"
+                  class="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs shadow transition"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Browse Local Files</span>
+                </button>
 
-            <!-- Table Rows -->
-            <tbody class="divide-y divide-slate-800/50 text-[11px] text-slate-300">
-              <!-- Up Directory Item -->
-              <tr
-                v-if="sftpCurrentPath !== '/' && sftpCurrentPath"
-                @dblclick="navigateUp"
-                class="hover:bg-slate-800/40 transition cursor-pointer text-slate-400 select-none"
-              >
-                <td class="py-2 px-4 flex items-center gap-2.5">
-                  <CornerLeftUp class="w-4 h-4 text-amber-400 shrink-0" />
-                  <span class="font-bold text-slate-200">.. (Parent Directory)</span>
-                </td>
-                <td class="py-2 px-4 text-right">-</td>
-                <td class="py-2 px-4">Directory</td>
-                <td class="py-2 px-4">-</td>
-                <td class="py-2 px-4 font-mono text-slate-500">drwxr-xr-x</td>
-                <td class="py-2 px-4 text-right">
-                  <button @click="navigateUp" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white">Up</button>
-                </td>
-              </tr>
+                <button
+                  v-if="localStagedFiles.length > 0"
+                  @click="uploadAllStagedFiles"
+                  class="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow transition"
+                >
+                  <ArrowRight class="w-3.5 h-3.5" />
+                  <span>Upload All ➔</span>
+                </button>
+              </div>
+            </div>
 
-              <!-- Files & Directories List -->
-              <tr
-                v-for="file in filteredSftpFiles"
-                :key="file.name"
-                @dblclick="file.isDir ? navigateToDir(file.name) : handleDownloadFile(file.name)"
-                class="hover:bg-slate-800/50 transition cursor-pointer group"
-              >
-                <!-- Filename with Specific Type Icon -->
-                <td class="py-2 px-4">
-                  <div class="flex items-center gap-2.5">
-                    <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
-                    <FileCode v-else-if="file.name.endsWith('.yaml') || file.name.endsWith('.yml') || file.name.endsWith('.json')" class="w-4 h-4 text-sky-400 shrink-0" />
-                    <FileText v-else-if="file.name.endsWith('.log') || file.name.endsWith('.txt')" class="w-4 h-4 text-emerald-400 shrink-0" />
-                    <FileArchive v-else-if="file.name.endsWith('.tar') || file.name.endsWith('.gz') || file.name.endsWith('.zip')" class="w-4 h-4 text-purple-400 shrink-0" />
-                    <File v-else class="w-4 h-4 text-slate-400 shrink-0" />
+            <!-- Local Sub-bar -->
+            <div class="p-2 px-3.5 bg-[#12151e] border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 shrink-0 font-mono">
+              <span>Path: C:\Local Computer\Staged Uploads</span>
+              <span>{{ localStagedFiles.length }} files ready to transfer</span>
+            </div>
 
-                    <span :class="file.isDir ? 'font-bold text-white' : 'text-slate-200'" class="truncate">
-                      {{ file.name }}
-                    </span>
-                  </div>
-                </td>
+            <!-- Drag & Drop Dropzone Overlay -->
+            <div
+              v-if="isDragOverLocal"
+              class="absolute inset-0 z-30 bg-blue-600/20 border-2 border-dashed border-blue-400 flex flex-col items-center justify-center backdrop-blur-sm"
+            >
+              <Upload class="w-10 h-10 text-blue-400 animate-bounce" />
+              <p class="text-sm font-bold text-white mt-2">Drop files here to stage for upload</p>
+            </div>
 
-                <!-- Filesize -->
-                <td class="py-2 px-4 text-right font-mono" :class="file.isDir ? 'text-slate-600' : 'text-slate-300'">
-                  {{ file.isDir ? 'DIR' : formatFileSize(file.size) }}
-                </td>
-
-                <!-- Filetype -->
-                <td class="py-2 px-4 text-slate-400 truncate">
-                  {{ getFileTypeLabel(file.name, file.isDir) }}
-                </td>
-
-                <!-- Last Modified -->
-                <td class="py-2 px-4 text-slate-400 whitespace-nowrap">
-                  {{ file.modTime ? new Date(file.modTime).toLocaleString() : '-' }}
-                </td>
-
-                <!-- Permissions -->
-                <td class="py-2 px-4 font-mono text-slate-400 whitespace-nowrap">
-                  <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px]">
-                    {{ getFilePermissions(file) }}
-                  </span>
-                </td>
-
-                <!-- Action (Download / Open) -->
-                <td class="py-2 px-4 text-right whitespace-nowrap">
-                  <button
-                    v-if="!file.isDir"
-                    @click="handleDownloadFile(file.name)"
-                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-brand-400 hover:text-brand-300 border border-slate-700 transition"
-                    title="Download File"
+            <!-- Local Files Staged Table -->
+            <div class="flex-1 overflow-y-auto">
+              <table class="w-full text-left text-xs font-mono border-collapse">
+                <thead class="bg-[#171a23] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0 select-none">
+                  <tr>
+                    <th class="py-2.5 px-3.5">Filename</th>
+                    <th class="py-2.5 px-3 w-24 text-right">Filesize</th>
+                    <th class="py-2.5 px-3 w-28">Type</th>
+                    <th class="py-2.5 px-3.5 w-28 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/50 text-[11px] text-slate-300">
+                  <tr
+                    v-for="staged in localStagedFiles"
+                    :key="staged.id"
+                    class="hover:bg-slate-800/40 transition group"
                   >
-                    <Download class="w-3 h-3 inline mr-1" />
-                    <span>Get</span>
-                  </button>
-                  <button
-                    v-else
-                    @click="navigateToDir(file.name)"
-                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                  >
-                    <span>Open</span>
-                  </button>
-                </td>
-              </tr>
+                    <td class="py-2 px-3.5">
+                      <div class="flex items-center gap-2">
+                        <FileCode v-if="staged.name.endsWith('.yaml') || staged.name.endsWith('.yml') || staged.name.endsWith('.json')" class="w-4 h-4 text-sky-400 shrink-0" />
+                        <FileText v-else-if="staged.name.endsWith('.log') || staged.name.endsWith('.txt')" class="w-4 h-4 text-emerald-400 shrink-0" />
+                        <FileArchive v-else-if="staged.name.endsWith('.tar') || staged.name.endsWith('.gz') || staged.name.endsWith('.zip')" class="w-4 h-4 text-purple-400 shrink-0" />
+                        <File v-else class="w-4 h-4 text-slate-400 shrink-0" />
 
-              <!-- Empty directory state -->
-              <tr v-if="filteredSftpFiles.length === 0">
-                <td colspan="6" class="py-12 text-center text-slate-600 text-xs">
-                  This directory is empty.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                        <span class="text-slate-200 font-medium truncate max-w-[180px]">{{ staged.name }}</span>
+                      </div>
+                    </td>
+                    <td class="py-2 px-3 text-right text-slate-400 font-mono">{{ formatFileSize(staged.size) }}</td>
+                    <td class="py-2 px-3 text-slate-400 truncate">{{ staged.type }}</td>
+                    <td class="py-2 px-3.5 text-right whitespace-nowrap">
+                      <div class="flex items-center justify-end gap-1.5">
+                        <button
+                          @click="uploadStagedFile(staged)"
+                          :disabled="staged.status === 'uploading'"
+                          class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px] transition flex items-center gap-1"
+                        >
+                          <Upload class="w-3 h-3" />
+                          <span>{{ staged.status === 'uploading' ? '...' : 'Upload ➔' }}</span>
+                        </button>
+                        <button
+                          @click="removeLocalStagedFile(staged.id)"
+                          class="p-1 text-slate-500 hover:text-red-400 transition"
+                          title="Remove from staging"
+                        >
+                          <Trash2 class="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
 
-        <!-- 5. FILEZILLA BOTTOM TRANSFER QUEUE & STATUS PANE -->
-        <div class="p-2.5 px-4 bg-[#14161b] border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
-          <div class="flex items-center gap-4">
-            <span class="text-slate-300 font-semibold">Transfer Queue: {{ sftpTransferQueue.length }} tasks</span>
-            <div v-if="sftpTransferQueue.length > 0" class="flex items-center gap-2 font-mono text-[10px]">
-              <span class="text-emerald-400">Latest: {{ sftpTransferQueue[0].name }} ({{ sftpTransferQueue[0].status }})</span>
+                  <!-- Empty Staging State -->
+                  <tr v-if="localStagedFiles.length === 0">
+                    <td colspan="4" class="py-14 text-center text-slate-500 text-xs font-sans space-y-2">
+                      <Monitor class="w-8 h-8 text-slate-600 mx-auto mb-1" />
+                      <p class="font-medium text-slate-400">Local Source Staging is Empty</p>
+                      <p class="text-[11px] text-slate-600">Click "Browse Local Files" or drag files from your computer into this pane.</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <span class="text-slate-500 font-mono">SFTP Protocol version 3</span>
+
+          <!-- ============================================================= -->
+          <!-- PANE 2: REMOTE SITE (DESTINATION - SFTP) -->
+          <!-- ============================================================= -->
+          <div class="flex flex-col overflow-hidden bg-[#0e1118]">
+            <!-- Remote Header & Path Bar (FileZilla Style) -->
+            <div class="p-2 px-3.5 bg-[#171a23] border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+              <div class="flex items-center gap-2">
+                <Cloud class="w-4 h-4 text-sky-400" />
+                <span class="font-bold text-white uppercase text-[11px] tracking-wider">Remote Site (Destination)</span>
+              </div>
+
+              <!-- Remote Site Path Input & Go Button -->
+              <div class="flex items-center gap-1.5 flex-1 max-w-sm">
+                <button
+                  @click="navigateUp"
+                  :disabled="sftpCurrentPath === '/' || !sftpCurrentPath"
+                  title="Parent Directory (..)"
+                  class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 transition flex items-center gap-1 text-[11px] font-mono border border-slate-700"
+                >
+                  <CornerLeftUp class="w-3.5 h-3.5" />
+                  <span>..</span>
+                </button>
+
+                <form @submit.prevent="handlePathSubmit" class="flex items-center gap-1 flex-1">
+                  <input
+                    v-model="sftpInputPath"
+                    placeholder="/etc/prometheus"
+                    class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                  <button
+                    type="submit"
+                    class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition"
+                  >
+                    Go
+                  </button>
+                </form>
+
+                <button
+                  @click="fetchSftpFiles()"
+                  :disabled="sftpLoading"
+                  class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                  title="Refresh Remote Directory"
+                >
+                  <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpLoading }" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Quick Bookmarks & Filter Bar -->
+            <div class="p-2 px-3.5 bg-[#12151e] border-b border-slate-800/80 flex items-center justify-between text-[11px] gap-2 shrink-0 font-mono">
+              <div class="flex items-center gap-1 text-slate-400">
+                <span class="text-slate-500 text-[10px] uppercase">Quick:</span>
+                <button @click="fetchSftpFiles('/')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/</button>
+                <button @click="fetchSftpFiles('/root')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/root</button>
+                <button @click="fetchSftpFiles('/etc')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/etc</button>
+                <button @click="fetchSftpFiles('/var/log')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/var/log</button>
+                <button @click="fetchSftpFiles('/home')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/home</button>
+              </div>
+
+              <!-- Filter remote files -->
+              <div class="relative w-36">
+                <Search class="w-3 h-3 absolute left-2 top-1.5 text-slate-500" />
+                <input
+                  v-model="sftpFileFilter"
+                  placeholder="Filter files..."
+                  class="w-full bg-[#090d16] border border-slate-800 rounded pl-6 pr-2 py-0.5 text-[10px] text-white placeholder-slate-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <!-- Remote Directory Table (FileZilla Columns) -->
+            <div class="flex-1 overflow-y-auto select-text">
+              <table class="w-full text-left text-xs font-mono border-collapse">
+                <thead class="bg-[#171a23] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800 sticky top-0 select-none">
+                  <tr>
+                    <th class="py-2.5 px-3.5">Filename</th>
+                    <th class="py-2.5 px-3 w-20 text-right">Size</th>
+                    <th class="py-2.5 px-3 w-24">Type</th>
+                    <th class="py-2.5 px-3 w-24 font-mono">Perms</th>
+                    <th class="py-2.5 px-3.5 w-24 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/50 text-[11px] text-slate-300">
+                  <!-- Up Directory Row -->
+                  <tr
+                    v-if="sftpCurrentPath !== '/' && sftpCurrentPath"
+                    @dblclick="navigateUp"
+                    class="hover:bg-slate-800/40 transition cursor-pointer text-slate-400 select-none"
+                  >
+                    <td class="py-2 px-3.5 flex items-center gap-2">
+                      <CornerLeftUp class="w-4 h-4 text-amber-400 shrink-0" />
+                      <span class="font-bold text-slate-200">.. (Parent Directory)</span>
+                    </td>
+                    <td class="py-2 px-3 text-right">-</td>
+                    <td class="py-2 px-3">Directory</td>
+                    <td class="py-2 px-3 text-slate-500">drwxr-xr-x</td>
+                    <td class="py-2 px-3.5 text-right">
+                      <button @click="navigateUp" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white">Up</button>
+                    </td>
+                  </tr>
+
+                  <!-- Remote Files and Folders -->
+                  <tr
+                    v-for="file in filteredSftpFiles"
+                    :key="file.name"
+                    @dblclick="file.isDir ? navigateToDir(file.name) : handleDownloadFile(file.name)"
+                    class="hover:bg-slate-800/50 transition cursor-pointer group"
+                  >
+                    <td class="py-2 px-3.5">
+                      <div class="flex items-center gap-2">
+                        <Folder v-if="file.isDir" class="w-4 h-4 text-amber-400 shrink-0" />
+                        <FileCode v-else-if="file.name.endsWith('.yaml') || file.name.endsWith('.yml') || file.name.endsWith('.json')" class="w-4 h-4 text-sky-400 shrink-0" />
+                        <FileText v-else-if="file.name.endsWith('.log') || file.name.endsWith('.txt')" class="w-4 h-4 text-emerald-400 shrink-0" />
+                        <FileArchive v-else-if="file.name.endsWith('.tar') || file.name.endsWith('.gz') || file.name.endsWith('.zip')" class="w-4 h-4 text-purple-400 shrink-0" />
+                        <File v-else class="w-4 h-4 text-slate-400 shrink-0" />
+
+                        <span :class="file.isDir ? 'font-bold text-white' : 'text-slate-200'" class="truncate max-w-[170px]">
+                          {{ file.name }}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td class="py-2 px-3 text-right font-mono" :class="file.isDir ? 'text-slate-600' : 'text-slate-300'">
+                      {{ file.isDir ? 'DIR' : formatFileSize(file.size) }}
+                    </td>
+
+                    <td class="py-2 px-3 text-slate-400 truncate">{{ getFileTypeLabel(file.name, file.isDir) }}</td>
+
+                    <td class="py-2 px-3 font-mono text-[10px] text-slate-400">
+                      {{ getFilePermissions(file) }}
+                    </td>
+
+                    <td class="py-2 px-3.5 text-right whitespace-nowrap">
+                      <button
+                        v-if="!file.isDir"
+                        @click="handleDownloadFile(file.name)"
+                        class="px-2 py-0.5 rounded bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 border border-brand-500/30 text-[10px] font-medium transition"
+                        title="Download file to local computer"
+                      >
+                        <Download class="w-3 h-3 inline mr-1" />
+                        <span>Get</span>
+                      </button>
+                      <button
+                        v-else
+                        @click="navigateToDir(file.name)"
+                        class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] transition"
+                      >
+                        <span>Open</span>
+                      </button>
+                    </td>
+                  </tr>
+
+                  <tr v-if="filteredSftpFiles.length === 0">
+                    <td colspan="5" class="py-12 text-center text-slate-500 text-xs font-sans">
+                      This remote directory is empty.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 4. BOTTOM FILEZILLA TRANSFER QUEUE & STATUS BAR -->
+        <div class="p-2.5 px-4 bg-[#14161b] border-t border-slate-800 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div class="flex items-center gap-4">
+            <span class="text-slate-300 font-semibold">Transfer Queue ({{ sftpTransferQueue.length }})</span>
+            <div v-if="sftpTransferQueue.length > 0" class="flex items-center gap-2 font-mono text-[10px]">
+              <span class="text-emerald-400 font-semibold">Active: {{ sftpTransferQueue[0].name }}</span>
+              <span class="text-slate-500">({{ sftpTransferQueue[0].status }})</span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 text-slate-500 font-mono text-[10px]">
+            <span>Local: Computer ➔ Remote: {{ currentSftpHost?.host }}</span>
+            <span class="text-slate-600">|</span>
+            <span>SFTP Protocol v3</span>
+          </div>
         </div>
 
       </div>
