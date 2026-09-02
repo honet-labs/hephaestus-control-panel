@@ -122,34 +122,6 @@ const hostForm = ref<any>({
   tags: [],
 });
 
-// =================================================================
-// SFTP FILEZILLA-STYLE DUAL-PANE (SOURCE & DESTINATION) STATES
-// =================================================================
-interface LocalStagedFile {
-  id: string;
-  file: File;
-  name: string;
-  size: number;
-  type: string;
-  status: 'ready' | 'uploading' | 'completed' | 'failed';
-}
-
-const localStagedFiles = ref<LocalStagedFile[]>([]);
-const sftpFiles = ref<any[]>([]);
-const sftpCurrentPath = ref('/');
-const sftpInputPath = ref('/');
-const sftpLoading = ref(false);
-const selectedSftpHostId = ref<string>('');
-const sftpFileInput = ref<HTMLInputElement | null>(null);
-const sftpUploadProgress = ref(false);
-const sftpError = ref('');
-const sftpFileFilter = ref('');
-const sftpCommandLogs = ref<Array<{ time: string; type: 'status' | 'command' | 'response' | 'error'; text: string }>>([]);
-const sftpTransferQueue = ref<Array<{ name: string; size: string; status: 'queued' | 'transferring' | 'success' | 'failed'; progress: number }>>([]);
-const isDragOverLocal = ref(false);
-const isDragOverRemote = ref(false);
-const sftpQueueTab = ref<'queued' | 'success' | 'failed'>('queued');
-
 const activeSession = computed(() => {
   if (activeSessionIndex.value >= 0 && activeSessionIndex.value < openSessions.value.length) {
     return openSessions.value[activeSessionIndex.value];
@@ -673,11 +645,22 @@ const sftpDestFiles = ref<any[]>([]);
 const sftpDestLoading = ref<boolean>(false);
 const sftpDestFilter = ref<string>('');
 
+interface LocalStagedFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  status: 'ready' | 'uploading' | 'completed' | 'failed';
+}
+
 const isDragOverLocal = ref(false);
+const isDragOverRemote = ref(false);
 const sftpFileInput = ref<HTMLInputElement | null>(null);
 const localStagedFiles = ref<LocalStagedFile[]>([]);
 const sftpCommandLogs = ref<{ time: string; type: 'status' | 'command' | 'response' | 'error'; text: string }[]>([]);
 const sftpTransferQueue = ref<any[]>([]);
+const sftpQueueTab = ref<'queued' | 'success' | 'failed'>('queued');
 
 const sourceHostObj = computed(() => {
   if (sftpSourceHostId.value === 'local') return null;
