@@ -7,12 +7,13 @@ import (
 // ==================== AUTH & USER DOMAIN ====================
 
 type User struct {
-	ID                  int       `json:"id"`
-	Username            string    `json:"username"`
-	PasswordHash        string    `json:"-"`
-	Role                string    `json:"role"`
-	ForcePasswordChange bool      `json:"forcePasswordChange"`
-	CreatedAt           time.Time `json:"createdAt"`
+	ID                  int               `json:"id"`
+	Username            string            `json:"username"`
+	PasswordHash        string            `json:"-"`
+	Role                string            `json:"role"`
+	Permissions         map[string]string `json:"permissions"`
+	ForcePasswordChange bool              `json:"forcePasswordChange"`
+	CreatedAt           time.Time         `json:"createdAt"`
 }
 
 type UserSession struct {
@@ -24,11 +25,12 @@ type UserSession struct {
 }
 
 type SystemRole struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	IsDefault   bool      `json:"isDefault"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          int               `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Permissions map[string]string `json:"permissions"`
+	IsDefault   bool              `json:"isDefault"`
+	CreatedAt   time.Time         `json:"createdAt"`
 }
 
 type ActivityLog struct {

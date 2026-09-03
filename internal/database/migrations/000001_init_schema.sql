@@ -10,11 +10,12 @@ CREATE TABLE IF NOT EXISTS app_config (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. SystemRoles - Available user roles (ADMIN, operator, etc.)
+-- 2. SystemRoles - Available user roles with granular feature permissions
 CREATE TABLE IF NOT EXISTS system_roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(50) UNIQUE NOT NULL,
     description VARCHAR(255),
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_default BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -319,10 +320,13 @@ CREATE INDEX IF NOT EXISTS idx_backup_history_started_at ON backup_history(start
 -- ==============================================================================
 -- SEED DEFAULT DATA
 -- ==============================================================================
-INSERT INTO system_roles (name, description, is_default) VALUES 
-    ('ADMIN', 'Full system administrator with unrestricted access', true),
-    ('operator', 'Standard operator with read and execute permissions', true)
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
+    ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "read"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
+ON CONFLICT (name) DO UPDATE SET 
+    permissions = EXCLUDED.permissions,
+    description = EXCLUDED.description;
 
 INSERT INTO app_config (key, value) VALUES 
     ('setup_completed', 'false'),

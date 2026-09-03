@@ -81,6 +81,7 @@ onMounted(() => {
           
           <!-- 1. Overview / Dashboard -->
           <router-link
+            v-if="authStore.can('dashboard', 'read')"
             to="/"
             :class="[
               route.path === '/'
@@ -95,6 +96,7 @@ onMounted(() => {
 
           <!-- 2. Connections -->
           <router-link
+            v-if="authStore.can('connections', 'read')"
             to="/connections"
             :class="[
               route.path === '/connections'
@@ -109,6 +111,7 @@ onMounted(() => {
 
           <!-- 3. Remote Server (Dedicated Top-Level Menu) -->
           <a
+            v-if="authStore.can('remote_servers', 'read')"
             href="/remote-server"
             target="_blank"
             class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
@@ -118,7 +121,7 @@ onMounted(() => {
           </a>
 
           <!-- 4. Remote Config (Accordion Parent) -->
-          <div>
+          <div v-if="authStore.can('prometheus_config', 'read') || authStore.can('dataprepper_config', 'read')">
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
@@ -133,6 +136,7 @@ onMounted(() => {
             <!-- Remote Config Sub-Menu Items -->
             <div v-show="isRemoteConfigOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <router-link
+                v-if="authStore.can('prometheus_config', 'read')"
                 to="/prometheus-config"
                 :class="[
                   route.path === '/prometheus-config'
@@ -146,6 +150,7 @@ onMounted(() => {
               </router-link>
 
               <router-link
+                v-if="authStore.can('dataprepper_config', 'read')"
                 to="/dataprepper-config"
                 :class="[
                   route.path === '/dataprepper-config'
@@ -162,6 +167,7 @@ onMounted(() => {
 
           <!-- 4. Network Topology -->
           <a
+            v-if="authStore.can('network_topology', 'read')"
             href="/network-topology"
             target="_blank"
             class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
@@ -172,6 +178,7 @@ onMounted(() => {
 
           <!-- 5. OpenSearch Cluster -->
           <a
+            v-if="authStore.can('opensearch', 'read')"
             href="/opensearch-cluster"
             target="_blank"
             class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
@@ -182,6 +189,7 @@ onMounted(() => {
 
           <!-- 6. Backup Manager -->
           <router-link
+            v-if="authStore.can('backup', 'read')"
             to="/backup"
             :class="[
               route.path === '/backup'
@@ -195,7 +203,7 @@ onMounted(() => {
           </router-link>
 
           <!-- 7. Tools (Accordion Parent) -->
-          <div>
+          <div v-if="authStore.can('snmp', 'read') || authStore.can('grok_debugger', 'read') || authStore.can('slideshow', 'read')">
             <button
               @click="isToolsOpen = !isToolsOpen"
               class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
@@ -210,6 +218,7 @@ onMounted(() => {
             <!-- Tools Sub-Menu Items -->
             <div v-show="isToolsOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <router-link
+                v-if="authStore.can('snmp', 'read')"
                 to="/snmp"
                 :class="[
                   route.path === '/snmp'
@@ -223,6 +232,7 @@ onMounted(() => {
               </router-link>
 
               <router-link
+                v-if="authStore.can('grok_debugger', 'read')"
                 to="/grok-debugger"
                 :class="[
                   route.path === '/grok-debugger'
@@ -236,6 +246,7 @@ onMounted(() => {
               </router-link>
 
               <router-link
+                v-if="authStore.can('slideshow', 'read')"
                 to="/slideshow"
                 :class="[
                   route.path === '/slideshow'
@@ -252,6 +263,7 @@ onMounted(() => {
 
           <!-- 8. System Settings -->
           <router-link
+            v-if="authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN'"
             to="/settings"
             :class="[
               route.path === '/settings'

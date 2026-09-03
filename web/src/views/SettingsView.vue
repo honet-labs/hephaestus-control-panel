@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import { useAuthStore } from '../stores/auth';
 import {
   Settings,
   Users,
@@ -24,6 +25,20 @@ import {
   Pause,
   Play,
   ShieldCheck,
+  Shield,
+  Eye,
+  Edit3,
+  Network,
+  HardDrive,
+  Link2,
+  Cpu,
+  Code2,
+  Layers,
+  BarChart2,
+  Monitor,
+  Check,
+  UserPlus,
+  KeyRound,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -473,13 +488,313 @@ const refreshCurrentLogs = () => {
   }
 };
 
+// =================================================================
+// 2. USERS, ROLES & GRANULAR PERMISSIONS STATE & METHODS
+// =================================================================
+const authStore = useAuthStore();
+
+interface SystemRole {
+  id: number;
+  name: string;
+  description: string;
+  isDefault: boolean;
+  permissions: Record<string, string>;
+  createdAt: string;
+}
+
+interface UserItem {
+  id: number;
+  username: string;
+  role: string;
+  permissions?: Record<string, string>;
+  forcePasswordChange: boolean;
+  createdAt: string;
+}
+
+const SYSTEM_FEATURES = [
+  { key: 'dashboard', label: 'Dashboard & Overview', desc: 'Main telemetry, resource gauges, and system status widgets', icon: Activity },
+  { key: 'remote_servers', label: 'Remote Servers & SSH', desc: 'SSH Web Terminal, SFTP explorer, processes, and service manager', icon: Terminal },
+  { key: 'network_topology', label: 'Network Topology', desc: 'Interactive topology canvas, device nodes, links, and subnet discovery', icon: Network },
+  { key: 'backup', label: 'Database Backups', desc: 'Automated database dumps (MySQL, PG, Mongo, ES) and S3 destinations', icon: HardDrive },
+  { key: 'connections', label: 'Monitoring Profiles', desc: 'Grafana, Prometheus, OpenSearch, Uptime Kuma connection credentials', icon: Link2 },
+  { key: 'snmp', label: 'SNMP Browser & MIBs', desc: 'SNMP OID query, walk engine, and enterprise MIB definition importer', icon: Cpu },
+  { key: 'opensearch', label: 'OpenSearch Cluster', desc: 'Elasticsearch/OpenSearch indices, shards, health, and node stats', icon: Search },
+  { key: 'grok_debugger', label: 'Grok Log Parser', desc: 'Regex pattern tester and log pipeline rule development environment', icon: Code2 },
+  { key: 'dataprepper_config', label: 'Data Prepper Pipelines', desc: 'Log routing, pipeline buffer configuration, and sink YAML validator', icon: Layers },
+  { key: 'prometheus_config', label: 'Prometheus & PromQL', desc: 'Prometheus query console and scrape target endpoint configurations', icon: BarChart2 },
+  { key: 'slideshow', label: 'Slideshow & Kiosk', desc: 'Rotating NOC presentation views and full-screen telemetry monitoring', icon: Monitor },
+  { key: 'settings', label: 'System & Audit Logs', desc: 'Background queue daemons, console logs, and security audit trail', icon: Settings },
+];
+
+const users = ref<UserItem[]>([]);
+const roles = ref<SystemRole[]>([]);
+const loadingUsers = ref(false);
+const loadingRoles = ref(false);
+
+const isUserModalOpen = ref(false);
+const newUserForm = ref({ username: '', password: '', role: 'OPERATOR' });
+const userActionLoading = ref(false);
+const userErrorMsg = ref('');
+
+const isRoleModalOpen = ref(false);
+const editingRole = ref<SystemRole | null>(null);
+const roleForm = ref({
+  id: 0,
+  name: '',
+  description: '',
+  permissions: {} as Record<string, string>,
+});
+const roleActionLoading = ref(false);
+const roleErrorMsg = ref('');
+
+// Database Connection Config State
+const dbConfig = ref({
+  host: 'localhost',
+  port: 5432,
+  database: 'hephaestus',
+  user: 'hephaestus',
+  password: '',
+  ssl: false,
+});
+const savingDb = ref(false);
+const dbStatusMessage = ref('');
+const dbStatusType = ref<'success' | 'error' | ''>('');
+
+const fetchUsers = async () => {
+  loadingUsers.value = true;
+  try {
+    const res = await axios.get('/api/v1/settings/users');
+    if (res.data && res.data.success) {
+      users.value = res.data.data || [];
+    }
+  } catch (err) {
+    console.error('Failed to fetch users:', err);
+  } finally {
+    loadingUsers.value = false;
+  }
+};
+
+const fetchRoles = async () => {
+  loadingRoles.value = true;
+  try {
+    const res = await axios.get('/api/v1/settings/roles');
+    if (res.data && res.data.success) {
+      roles.value = res.data.data || [];
+      if (newUserForm.value.role === 'OPERATOR' && roles.value.length > 0) {
+        newUserForm.value.role = roles.value[0].name;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch roles:', err);
+  } finally {
+    loadingRoles.value = false;
+  }
+};
+
+const createUser = async () => {
+  if (!newUserForm.value.username || !newUserForm.value.password) {
+    userErrorMsg.value = 'Username and password are required.';
+    return;
+  }
+  userActionLoading.value = true;
+  userErrorMsg.value = '';
+  try {
+    const res = await axios.post('/api/v1/settings/users', newUserForm.value);
+    if (res.data && res.data.success) {
+      isUserModalOpen.value = false;
+      newUserForm.value = { username: '', password: '', role: roles.value[0]?.name || 'OPERATOR' };
+      fetchUsers();
+    } else {
+      userErrorMsg.value = res.data?.error || 'Failed to create user.';
+    }
+  } catch (err: any) {
+    userErrorMsg.value = err.response?.data?.error || err.message || 'Failed to create user.';
+  } finally {
+    userActionLoading.value = false;
+  }
+};
+
+const deleteUser = async (user: UserItem) => {
+  if (!confirm(`Are you sure you want to delete user "${user.username}"?`)) return;
+  try {
+    const res = await axios.delete(`/api/v1/settings/users/${user.id}`);
+    if (res.data && res.data.success) {
+      fetchUsers();
+    } else {
+      alert(res.data?.error || 'Failed to delete user.');
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to delete user.');
+  }
+};
+
+const updateUserRole = async (user: UserItem, newRole: string) => {
+  try {
+    const res = await axios.put(`/api/v1/settings/users/${user.id}/role`, { role: newRole });
+    if (res.data && res.data.success) {
+      user.role = newRole;
+      fetchUsers();
+    } else {
+      alert(res.data?.error || 'Failed to update user role.');
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to update user role.');
+  }
+};
+
+const openCreateRoleModal = () => {
+  editingRole.value = null;
+  const initialPerms: Record<string, string> = {};
+  SYSTEM_FEATURES.forEach(f => {
+    initialPerms[f.key] = 'read';
+  });
+  roleForm.value = {
+    id: 0,
+    name: '',
+    description: '',
+    permissions: initialPerms,
+  };
+  roleErrorMsg.value = '';
+  isRoleModalOpen.value = true;
+};
+
+const openEditRoleModal = (role: SystemRole) => {
+  editingRole.value = role;
+  const perms = { ...(role.permissions || {}) };
+  SYSTEM_FEATURES.forEach(f => {
+    if (!perms[f.key]) {
+      perms[f.key] = role.name.toUpperCase() === 'ADMIN' ? 'manage' : 'none';
+    }
+  });
+  roleForm.value = {
+    id: role.id,
+    name: role.name,
+    description: role.description || '',
+    permissions: perms,
+  };
+  roleErrorMsg.value = '';
+  isRoleModalOpen.value = true;
+};
+
+const setAllPermissions = (tier: 'none' | 'read' | 'manage') => {
+  SYSTEM_FEATURES.forEach(f => {
+    roleForm.value.permissions[f.key] = tier;
+  });
+};
+
+const saveRole = async () => {
+  if (!roleForm.value.name.trim()) {
+    roleErrorMsg.value = 'Role name is required.';
+    return;
+  }
+  roleActionLoading.value = true;
+  roleErrorMsg.value = '';
+  try {
+    const payload = {
+      id: roleForm.value.id,
+      name: roleForm.value.name.trim().toUpperCase(),
+      description: roleForm.value.description,
+      permissions: roleForm.value.permissions,
+      isDefault: editingRole.value ? editingRole.value.isDefault : false,
+    };
+    const res = await axios.post('/api/v1/settings/roles', payload);
+    if (res.data && res.data.success) {
+      isRoleModalOpen.value = false;
+      fetchRoles();
+    } else {
+      roleErrorMsg.value = res.data?.error || 'Failed to save role.';
+    }
+  } catch (err: any) {
+    roleErrorMsg.value = err.response?.data?.error || err.message || 'Failed to save role.';
+  } finally {
+    roleActionLoading.value = false;
+  }
+};
+
+const deleteRole = async (role: SystemRole) => {
+  if (role.isDefault) {
+    alert('Built-in default system roles cannot be deleted.');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete role "${role.name}"?`)) return;
+  try {
+    const res = await axios.delete(`/api/v1/settings/roles/${role.id}`);
+    if (res.data && res.data.success) {
+      fetchRoles();
+    } else {
+      alert(res.data?.error || 'Failed to delete role.');
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to delete role.');
+  }
+};
+
+const getRoleStats = (role: SystemRole) => {
+  if (role.name.toUpperCase() === 'ADMIN') {
+    return { manageCount: SYSTEM_FEATURES.length, readCount: 0, noneCount: 0 };
+  }
+  let manageCount = 0;
+  let readCount = 0;
+  let noneCount = 0;
+  SYSTEM_FEATURES.forEach(f => {
+    const p = role.permissions?.[f.key] || 'none';
+    if (p === 'manage') manageCount++;
+    else if (p === 'read') readCount++;
+    else noneCount++;
+  });
+  return { manageCount, readCount, noneCount };
+};
+
+const fetchDatabaseConfig = async () => {
+  try {
+    const res = await axios.get('/api/v1/settings/database');
+    if (res.data && res.data.success && res.data.data) {
+      dbConfig.value = {
+        host: res.data.data.host || 'localhost',
+        port: res.data.data.port || 5432,
+        database: res.data.data.database || 'hephaestus',
+        user: res.data.data.user || 'hephaestus',
+        password: '',
+        ssl: !!res.data.data.ssl,
+      };
+    }
+  } catch (err) {
+    console.error('Failed to fetch DB config:', err);
+  }
+};
+
+const saveDbConfig = async () => {
+  savingDb.value = true;
+  dbStatusMessage.value = '';
+  try {
+    const res = await axios.post('/api/v1/settings/database', dbConfig.value);
+    if (res.data && res.data.success) {
+      dbStatusType.value = 'success';
+      dbStatusMessage.value = 'Database settings updated and reconnected successfully!';
+    } else {
+      dbStatusType.value = 'error';
+      dbStatusMessage.value = res.data?.error || 'Failed to update database settings.';
+    }
+  } catch (err: any) {
+    dbStatusType.value = 'error';
+    dbStatusMessage.value = err.response?.data?.error || 'Error saving database settings.';
+  } finally {
+    savingDb.value = false;
+  }
+};
+
 onMounted(() => {
   if (route.query.tab === 'services') {
     activeTab.value = 'services';
   } else if (route.query.tab === 'audit' || route.query.tab === 'activity') {
     activeTab.value = 'audit';
+  } else if (route.query.tab === 'users') {
+    activeTab.value = 'users';
+  } else if (route.query.tab === 'database') {
+    activeTab.value = 'database';
   }
   fetchUsers();
+  fetchRoles();
   fetchAuditLogs();
   fetchSystemLogs();
   fetchDatabaseConfig();
@@ -642,45 +957,197 @@ onUnmounted(() => {
     </div>
 
     <!-- ============================================================= -->
-    <!-- TAB 3: USER ACCOUNTS -->
+    <!-- TAB 3: USER ACCOUNTS & ROLE-BASED ACCESS CONTROL (RBAC) -->
     <!-- ============================================================= -->
-    <div v-if="activeTab === 'users'" class="space-y-4 animate-in fade-in duration-150">
-      <div class="flex items-center justify-between">
-        <h3 class="text-xs font-bold text-white uppercase tracking-wider">System Users</h3>
-        <button
-          @click="isUserModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition"
-        >
-          <Plus class="w-3.5 h-3.5" />
-          <span>Add User</span>
-        </button>
+    <div v-if="activeTab === 'users'" class="space-y-8 animate-in fade-in duration-150">
+      <!-- Section 1: System Users -->
+      <div class="space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <Users class="w-4 h-4 text-blue-500" />
+              <span>User Accounts ({{ users.length }})</span>
+            </h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              Manage operator logins, assign roles, and control account security credentials.
+            </p>
+          </div>
+          <button
+            @click="isUserModalOpen = true; userErrorMsg = '';"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-sm self-start sm:self-auto"
+          >
+            <UserPlus class="w-3.5 h-3.5" />
+            <span>Add User</span>
+          </button>
+        </div>
+
+        <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <div v-if="loadingUsers" class="p-8 text-center text-xs text-slate-400">
+            <RotateCw class="w-5 h-5 animate-spin mx-auto mb-2 text-blue-500" />
+            Loading user accounts...
+          </div>
+          <table v-else class="w-full text-left text-xs">
+            <thead class="bg-slate-50 dark:bg-[#20242e] text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="p-3">User</th>
+                <th class="p-3">Assigned Role</th>
+                <th class="p-3">Feature Access Overview</th>
+                <th class="p-3">Created</th>
+                <th class="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+              <tr v-for="u in users" :key="u.id" class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                <td class="p-3">
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-full bg-blue-600/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
+                      {{ u.username.substring(0, 2).toUpperCase() }}
+                    </div>
+                    <div>
+                      <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>{{ u.username }}</span>
+                        <span v-if="u.id === authStore.user?.id" class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                          YOU
+                        </span>
+                      </div>
+                      <span class="text-[10px] text-slate-400 font-mono">UID: #{{ u.id }}</span>
+                    </div>
+                  </div>
+                </td>
+                <td class="p-3">
+                  <div class="flex items-center gap-2">
+                    <select
+                      :value="u.role"
+                      @change="(e: any) => updateUserRole(u, e.target.value)"
+                      :disabled="u.id === authStore.user?.id && u.role === 'ADMIN'"
+                      class="bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition"
+                    >
+                      <option v-for="r in roles" :key="r.id" :value="r.name">
+                        {{ r.name }}
+                      </option>
+                    </select>
+                  </div>
+                </td>
+                <td class="p-3">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span v-if="u.role === 'ADMIN'" class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-500/30">
+                      ⚡ Full Unrestricted Access (All Features)
+                    </span>
+                    <template v-else>
+                      <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30">
+                        {{ Object.values(u.permissions || {}).filter(p => p === 'manage').length }} Manage
+                      </span>
+                      <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-500/30">
+                        {{ Object.values(u.permissions || {}).filter(p => p === 'read').length }} Read Only
+                      </span>
+                    </template>
+                  </div>
+                </td>
+                <td class="p-3 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                  {{ u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-' }}
+                </td>
+                <td class="p-3 text-right">
+                  <button
+                    v-if="u.id !== authStore.user?.id"
+                    @click="deleteUser(u)"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+                    title="Delete User"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                  <span v-else class="text-[10px] text-slate-400 italic">Self</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-        <table class="w-full text-left text-xs font-mono">
-          <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
-            <tr>
-              <th class="p-3">Username</th>
-              <th class="p-3">Role</th>
-              <th class="p-3">Created</th>
-              <th class="p-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-800/60 text-slate-300">
-            <tr v-for="u in users" :key="u.id" class="hover:bg-slate-800/30">
-              <td class="p-3 text-white font-bold">{{ u.username }}</td>
-              <td class="p-3">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold" :class="u.role === 'ADMIN' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30' : 'bg-slate-800 text-slate-300'">
-                  {{ u.role }}
+      <!-- Section 2: Roles & Granular Permission Matrix -->
+      <div class="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <ShieldCheck class="w-4 h-4 text-purple-500" />
+              <span>Roles & Granular Permissions Matrix</span>
+            </h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              Configure feature access tiers: <strong>No Access</strong>, <strong>Read-Only</strong>, or <strong>Edit/Manage & Read</strong> for each system capability.
+            </p>
+          </div>
+          <button
+            @click="openCreateRoleModal"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition shadow-sm self-start sm:self-auto"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>New Custom Role</span>
+          </button>
+        </div>
+
+        <!-- Role Cards Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            v-for="r in roles"
+            :key="r.id"
+            class="p-4 rounded-xl border transition flex flex-col justify-between bg-white dark:bg-[#1b1e26] border-slate-200 dark:border-slate-800 hover:border-purple-400 dark:hover:border-purple-500/50 shadow-sm"
+          >
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-slate-900 dark:text-white text-sm tracking-tight">{{ r.name }}</span>
+                  <span
+                    v-if="r.isDefault"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700"
+                  >
+                    System Built-in
+                  </span>
+                  <span
+                    v-else
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-300 dark:border-purple-500/30"
+                  >
+                    Custom Role
+                  </span>
+                </div>
+              </div>
+
+              <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[32px]">
+                {{ r.description || 'No description provided.' }}
+              </p>
+
+              <!-- Stats Pill Bar -->
+              <div class="flex items-center gap-1.5 pt-1 text-[10px] font-mono">
+                <span class="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 font-bold">
+                  {{ getRoleStats(r).manageCount }} Manage
                 </span>
-              </td>
-              <td class="p-3 text-slate-400">{{ u.createdAt || '2026-08-20' }}</td>
-              <td class="p-3 text-right">
-                <span class="text-slate-500 text-[11px]">Default</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <span class="px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-500/20 font-bold">
+                  {{ getRoleStats(r).readCount }} Read
+                </span>
+                <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                  {{ getRoleStats(r).noneCount }} Hidden
+                </span>
+              </div>
+            </div>
+
+            <div class="pt-4 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+              <button
+                @click="openEditRoleModal(r)"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold transition"
+              >
+                <Edit3 class="w-3.5 h-3.5 text-purple-500" />
+                <span>Configure Permissions</span>
+              </button>
+
+              <button
+                v-if="!r.isDefault"
+                @click="deleteRole(r)"
+                class="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+                title="Delete Custom Role"
+              >
+                <Trash2 class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -955,34 +1422,270 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Modal: Add User -->
+    <!-- ============================================================= -->
+    <!-- MODAL 1: ADD USER -->
+    <!-- ============================================================= -->
     <div
       v-if="isUserModalOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150"
     >
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
-        <h3 class="text-sm font-bold text-white">Create New User</h3>
-        <form @submit.prevent="handleCreateUser" class="space-y-3 text-xs">
-          <div>
-            <label class="block text-slate-400 mb-1">Username</label>
-            <input v-model="userForm.username" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <UserPlus class="w-4 h-4 text-blue-500" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Create New Operator User</h3>
           </div>
+          <button @click="isUserModalOpen = false" class="text-slate-400 hover:text-slate-200">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div v-if="userErrorMsg" class="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+          <AlertTriangle class="w-4 h-4 shrink-0" />
+          <span>{{ userErrorMsg }}</span>
+        </div>
+
+        <form @submit.prevent="createUser" class="space-y-3.5 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1">Password</label>
-            <input v-model="userForm.password" type="password" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+            <label class="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Username</label>
+            <input
+              v-model="newUserForm.username"
+              required
+              placeholder="e.g. jdoe_ops"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
           </div>
+
           <div>
-            <label class="block text-slate-400 mb-1">Role</label>
-            <select v-model="userForm.role" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white">
-              <option value="OPERATOR">OPERATOR</option>
-              <option value="ADMIN">ADMIN</option>
+            <label class="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Password</label>
+            <input
+              v-model="newUserForm.password"
+              type="password"
+              required
+              placeholder="Minimum 6 characters"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Assign System Role</label>
+            <select
+              v-model="newUserForm.role"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-semibold focus:outline-none focus:border-blue-500"
+            >
+              <option v-for="r in roles" :key="r.id" :value="r.name">
+                {{ r.name }} - {{ r.description }}
+              </option>
             </select>
           </div>
-          <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
-            <button type="button" @click="isUserModalOpen = false" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg">Create</button>
+
+          <div class="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              @click="isUserModalOpen = false"
+              class="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="userActionLoading"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg flex items-center gap-1.5 transition disabled:opacity-50"
+            >
+              <RotateCw v-if="userActionLoading" class="w-3.5 h-3.5 animate-spin" />
+              <span>Create Account</span>
+            </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 2: ROLE & GRANULAR PERMISSION MATRIX MODAL -->
+    <!-- ============================================================= -->
+    <div
+      v-if="isRoleModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto animate-in fade-in duration-150"
+    >
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl my-8 p-6 space-y-5 shadow-2xl flex flex-col max-h-[90vh]">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+              <ShieldCheck class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                {{ editingRole ? `Configure Role: ${editingRole.name}` : 'Create New Custom Role' }}
+              </h3>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Grant or restrict access per feature with granular tiers: No Access, Read-Only, or Edit/Manage.
+              </p>
+            </div>
+          </div>
+          <button @click="isRoleModalOpen = false" class="text-slate-400 hover:text-slate-200">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <div v-if="roleErrorMsg" class="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2 shrink-0">
+          <AlertTriangle class="w-4 h-4 shrink-0" />
+          <span>{{ roleErrorMsg }}</span>
+        </div>
+
+        <!-- Role Meta Info -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs shrink-0">
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Role Name</label>
+            <input
+              v-model="roleForm.name"
+              :disabled="editingRole?.isDefault"
+              required
+              placeholder="e.g. AUDITOR, NETWORK_ADMIN"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono font-bold uppercase focus:outline-none focus:border-purple-500 disabled:opacity-60"
+            />
+          </div>
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">Description</label>
+            <input
+              v-model="roleForm.description"
+              placeholder="Brief explanation of this role's purpose"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-purple-500"
+            />
+          </div>
+        </div>
+
+        <!-- Superadmin Notice or Quick Presets -->
+        <div v-if="editingRole?.name.toUpperCase() === 'ADMIN'" class="p-3 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 rounded-xl text-xs text-purple-800 dark:text-purple-300 shrink-0">
+          <div class="flex items-center gap-2 font-bold mb-1">
+            <Lock class="w-4 h-4 text-purple-500" />
+            <span>Built-in Superadmin Profile</span>
+          </div>
+          <p class="text-[11px] leading-relaxed">
+            The <strong>ADMIN</strong> role is the root system administrator and inherently holds unrestricted <strong>Edit / Manage</strong> permissions across all current and future features.
+          </p>
+        </div>
+
+        <div v-else class="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-100 dark:bg-[#14161b] rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+          <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Quick Batch Presets:</span>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="setAllPermissions('manage')"
+              class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 transition"
+            >
+              ⚡ Manage All
+            </button>
+            <button
+              type="button"
+              @click="setAllPermissions('read')"
+              class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-sky-100 hover:bg-sky-200 dark:bg-sky-500/20 dark:hover:bg-sky-500/30 text-sky-700 dark:text-sky-300 transition"
+            >
+              👁 Read Only All
+            </button>
+            <button
+              type="button"
+              @click="setAllPermissions('none')"
+              class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
+            >
+              ✕ No Access All
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Feature Matrix List -->
+        <div class="overflow-y-auto pr-1 space-y-2.5 flex-1 min-h-[260px]">
+          <div
+            v-for="f in SYSTEM_FEATURES"
+            :key="f.key"
+            class="p-3 rounded-xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-[#151821] border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
+          >
+            <div class="flex items-start gap-3">
+              <div class="w-8 h-8 rounded-lg bg-white dark:bg-[#1f232d] border border-slate-200 dark:border-slate-700 text-blue-500 flex items-center justify-center shrink-0 mt-0.5">
+                <component :is="f.icon" class="w-4 h-4" />
+              </div>
+              <div>
+                <div class="font-bold text-slate-900 dark:text-white text-xs">{{ f.label }}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">{{ f.desc }}</div>
+              </div>
+            </div>
+
+            <!-- 3-Segment Toggle Pill for Feature -->
+            <div class="flex items-center rounded-lg p-0.5 bg-slate-200 dark:bg-[#0e1017] border border-slate-300 dark:border-slate-800 shrink-0 self-end sm:self-auto">
+              <!-- Tier 1: None -->
+              <button
+                type="button"
+                @click="roleForm.permissions[f.key] = 'none'"
+                :disabled="editingRole?.name.toUpperCase() === 'ADMIN'"
+                :class="[
+                  'px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1',
+                  (roleForm.permissions[f.key] || 'none') === 'none'
+                    ? 'bg-slate-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ]"
+              >
+                <span>✕ None</span>
+              </button>
+
+              <!-- Tier 2: Read Only -->
+              <button
+                type="button"
+                @click="roleForm.permissions[f.key] = 'read'"
+                :disabled="editingRole?.name.toUpperCase() === 'ADMIN'"
+                :class="[
+                  'px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1',
+                  roleForm.permissions[f.key] === 'read'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ]"
+              >
+                <Eye class="w-3 h-3" />
+                <span>Read Only</span>
+              </button>
+
+              <!-- Tier 3: Edit / Manage -->
+              <button
+                type="button"
+                @click="roleForm.permissions[f.key] = 'manage'"
+                :disabled="editingRole?.name.toUpperCase() === 'ADMIN'"
+                :class="[
+                  'px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1',
+                  roleForm.permissions[f.key] === 'manage'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                ]"
+              >
+                <Check class="w-3 h-3" />
+                <span>Edit / Manage</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
+          <div class="text-[11px] text-slate-500 font-mono">
+            Permissions active immediately on save
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="isRoleModalOpen = false"
+              class="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="saveRole"
+              :disabled="roleActionLoading"
+              class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition disabled:opacity-50 shadow-sm"
+            >
+              <RotateCw v-if="roleActionLoading" class="w-3.5 h-3.5 animate-spin" />
+              <span>Save Role & Permissions</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

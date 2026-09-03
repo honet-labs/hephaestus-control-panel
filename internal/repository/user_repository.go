@@ -2,6 +2,9 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -20,13 +23,27 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*d
 		return nil, err
 	}
 
-	query := `SELECT id, username, password_hash, role, force_password_change, created_at FROM users WHERE username = $1`
+	query := `SELECT u.id, u.username, u.password_hash, u.role, u.force_password_change, u.created_at,
+                     COALESCE(sr.permissions, '{}'::jsonb)
+              FROM users u
+              LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
+              WHERE u.username = $1`
 	row := pool.QueryRow(ctx, query, username)
 
 	var u domain.User
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.ForcePasswordChange, &u.CreatedAt); err != nil {
+	var rawPerms []byte
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.ForcePasswordChange, &u.CreatedAt, &rawPerms); err != nil {
 		return nil, err
 	}
+
+	u.Permissions = make(map[string]string)
+	if len(rawPerms) > 0 {
+		_ = json.Unmarshal(rawPerms, &u.Permissions)
+	}
+	if strings.EqualFold(u.Role, "ADMIN") {
+		u.Permissions["*"] = "manage"
+	}
+
 	return &u, nil
 }
 
@@ -36,13 +53,27 @@ func (r *UserRepository) GetByID(ctx context.Context, id int) (*domain.User, err
 		return nil, err
 	}
 
-	query := `SELECT id, username, password_hash, role, force_password_change, created_at FROM users WHERE id = $1`
+	query := `SELECT u.id, u.username, u.password_hash, u.role, u.force_password_change, u.created_at,
+                     COALESCE(sr.permissions, '{}'::jsonb)
+              FROM users u
+              LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
+              WHERE u.id = $1`
 	row := pool.QueryRow(ctx, query, id)
 
 	var u domain.User
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.ForcePasswordChange, &u.CreatedAt); err != nil {
+	var rawPerms []byte
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.ForcePasswordChange, &u.CreatedAt, &rawPerms); err != nil {
 		return nil, err
 	}
+
+	u.Permissions = make(map[string]string)
+	if len(rawPerms) > 0 {
+		_ = json.Unmarshal(rawPerms, &u.Permissions)
+	}
+	if strings.EqualFold(u.Role, "ADMIN") {
+		u.Permissions["*"] = "manage"
+	}
+
 	return &u, nil
 }
 
@@ -52,7 +83,11 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 		return nil, err
 	}
 
-	rows, err := pool.Query(ctx, `SELECT id, username, role, force_password_change, created_at FROM users ORDER BY id ASC`)
+	rows, err := pool.Query(ctx, `SELECT u.id, u.username, u.role, u.force_password_change, u.created_at,
+                                         COALESCE(sr.permissions, '{}'::jsonb)
+                                  FROM users u
+                                  LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
+                                  ORDER BY u.id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +96,16 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.ForcePasswordChange, &u.CreatedAt); err != nil {
+		var rawPerms []byte
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.ForcePasswordChange, &u.CreatedAt, &rawPerms); err != nil {
 			return nil, err
+		}
+		u.Permissions = make(map[string]string)
+		if len(rawPerms) > 0 {
+			_ = json.Unmarshal(rawPerms, &u.Permissions)
+		}
+		if strings.EqualFold(u.Role, "ADMIN") {
+			u.Permissions["*"] = "manage"
 		}
 		users = append(users, u)
 	}
@@ -136,18 +179,29 @@ func (r *UserRepository) GetSessionByToken(ctx context.Context, tokenHash string
 	}
 
 	query := `SELECT s.id, s.user_id, s.token, s.expires_at, s.created_at,
-                     u.id, u.username, u.role, u.force_password_change, u.created_at
+                     u.id, u.username, u.role, u.force_password_change, u.created_at,
+                     COALESCE(sr.permissions, '{}'::jsonb)
               FROM user_sessions s
               JOIN users u ON s.user_id = u.id
+              LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
               WHERE s.token = $1 AND s.expires_at > NOW()`
 	row := pool.QueryRow(ctx, query, tokenHash)
 
 	var s domain.UserSession
 	var u domain.User
+	var rawPerms []byte
 	err = row.Scan(&s.ID, &s.UserID, &s.Token, &s.ExpiresAt, &s.CreatedAt,
-		&u.ID, &u.Username, &u.Role, &u.ForcePasswordChange, &u.CreatedAt)
+		&u.ID, &u.Username, &u.Role, &u.ForcePasswordChange, &u.CreatedAt, &rawPerms)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	u.Permissions = make(map[string]string)
+	if len(rawPerms) > 0 {
+		_ = json.Unmarshal(rawPerms, &u.Permissions)
+	}
+	if strings.EqualFold(u.Role, "ADMIN") {
+		u.Permissions["*"] = "manage"
 	}
 
 	// Extend session sliding window (max 7 days)
@@ -226,4 +280,108 @@ func (r *UserRepository) ListActivityLogs(ctx context.Context, limit, offset int
 		logs = append(logs, l)
 	}
 	return logs, count, nil
+}
+
+// ==============================================================================
+// SYSTEM ROLES & PERMISSIONS REPOSITORY
+// ==============================================================================
+
+func (r *UserRepository) ListRoles(ctx context.Context) ([]domain.SystemRole, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := pool.Query(ctx, `SELECT id, name, description, is_default, permissions, created_at FROM system_roles ORDER BY id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []domain.SystemRole
+	for rows.Next() {
+		var role domain.SystemRole
+		var rawPerms []byte
+		if err := rows.Scan(&role.ID, &role.Name, &role.Description, &role.IsDefault, &rawPerms, &role.CreatedAt); err != nil {
+			return nil, err
+		}
+		role.Permissions = make(map[string]string)
+		if len(rawPerms) > 0 {
+			_ = json.Unmarshal(rawPerms, &role.Permissions)
+		}
+		roles = append(roles, role)
+	}
+	return roles, nil
+}
+
+func (r *UserRepository) GetRoleByName(ctx context.Context, name string) (*domain.SystemRole, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+
+	row := pool.QueryRow(ctx, `SELECT id, name, description, is_default, permissions, created_at FROM system_roles WHERE LOWER(name) = LOWER($1)`, name)
+	var role domain.SystemRole
+	var rawPerms []byte
+	if err := row.Scan(&role.ID, &role.Name, &role.Description, &role.IsDefault, &rawPerms, &role.CreatedAt); err != nil {
+		return nil, err
+	}
+	role.Permissions = make(map[string]string)
+	if len(rawPerms) > 0 {
+		_ = json.Unmarshal(rawPerms, &role.Permissions)
+	}
+	return &role, nil
+}
+
+func (r *UserRepository) SaveRole(ctx context.Context, role *domain.SystemRole) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+
+	if role.Permissions == nil {
+		role.Permissions = make(map[string]string)
+	}
+	rawPerms, err := json.Marshal(role.Permissions)
+	if err != nil {
+		return err
+	}
+
+	if role.ID > 0 {
+		_, err = pool.Exec(ctx, `UPDATE system_roles SET name = $1, description = $2, permissions = $3 WHERE id = $4`,
+			role.Name, role.Description, rawPerms, role.ID)
+	} else {
+		err = pool.QueryRow(ctx, `INSERT INTO system_roles (name, description, is_default, permissions) VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+			role.Name, role.Description, role.IsDefault, rawPerms).Scan(&role.ID, &role.CreatedAt)
+	}
+	return err
+}
+
+func (r *UserRepository) DeleteRole(ctx context.Context, id int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+
+	// Prevent deleting built-in default roles
+	var isDefault bool
+	err = pool.QueryRow(ctx, `SELECT is_default FROM system_roles WHERE id = $1`, id).Scan(&isDefault)
+	if err != nil {
+		return err
+	}
+	if isDefault {
+		return fmt.Errorf("cannot delete built-in default role")
+	}
+
+	_, err = pool.Exec(ctx, `DELETE FROM system_roles WHERE id = $1`, id)
+	return err
+}
+
+func (r *UserRepository) UpdateUserRole(ctx context.Context, userID int, role string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, userID)
+	return err
 }

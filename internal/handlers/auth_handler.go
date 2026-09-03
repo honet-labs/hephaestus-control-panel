@@ -53,6 +53,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				"id":                  user.ID,
 				"username":            user.Username,
 				"role":                user.Role,
+				"permissions":         user.Permissions,
 				"forcePasswordChange": user.ForcePasswordChange,
 			},
 		},

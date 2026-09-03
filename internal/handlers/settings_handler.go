@@ -109,6 +109,61 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "User deleted."})
 }
 
+func (h *SettingsHandler) UpdateUserRole(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var req struct {
+		Role string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid role"})
+		return
+	}
+
+	if err := h.userRepo.UpdateUserRole(c.Request.Context(), id, req.Role); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "User role updated."})
+}
+
+// System Roles & Permissions Handlers
+func (h *SettingsHandler) ListRoles(c *gin.Context) {
+	roles, err := h.userRepo.ListRoles(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": roles})
+}
+
+func (h *SettingsHandler) SaveRole(c *gin.Context) {
+	var role domain.SystemRole
+	if err := c.ShouldBindJSON(&role); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid role payload"})
+		return
+	}
+
+	if strings.TrimSpace(role.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Role name is required"})
+		return
+	}
+
+	if err := h.userRepo.SaveRole(c.Request.Context(), &role); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Role saved.", "data": role})
+}
+
+func (h *SettingsHandler) DeleteRole(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if err := h.userRepo.DeleteRole(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Role deleted."})
+}
+
 // Grafana Configs
 func (h *SettingsHandler) ListGrafana(c *gin.Context) {
 	list, err := h.configRepo.ListGrafana(c.Request.Context())
