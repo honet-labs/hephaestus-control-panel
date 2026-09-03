@@ -23,6 +23,7 @@ import {
   Copy,
   Pause,
   Play,
+  ShieldCheck,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -425,17 +426,19 @@ const saveDbConfig = async () => {
 };
 
 // =================================================================
-// 4. AUDIT LOGS
+// 4. AUDIT & ACTIVITY LOGS
 // =================================================================
 const auditLogs = ref<any[]>([]);
+const systemLogs = ref<any[]>([]);
+const logViewMode = ref<'audit' | 'system'>('audit');
 const loadingLogs = ref(false);
 
 const fetchAuditLogs = async () => {
   loadingLogs.value = true;
   try {
-    const res = await axios.get('/api/v1/logs?limit=25').catch(() => null);
+    const res = await axios.get('/api/v1/settings/activity-logs?limit=50').catch(() => null);
     if (res && res.data && res.data.success) {
-      auditLogs.value = res.data.data;
+      auditLogs.value = res.data.data.logs || [];
     } else {
       auditLogs.value = [];
     }
@@ -446,12 +449,39 @@ const fetchAuditLogs = async () => {
   }
 };
 
+const fetchSystemLogs = async () => {
+  loadingLogs.value = true;
+  try {
+    const res = await axios.get('/api/v1/logs?limit=50').catch(() => null);
+    if (res && res.data && res.data.success) {
+      systemLogs.value = res.data.data || [];
+    } else {
+      systemLogs.value = [];
+    }
+  } catch (err) {
+    systemLogs.value = [];
+  } finally {
+    loadingLogs.value = false;
+  }
+};
+
+const refreshCurrentLogs = () => {
+  if (logViewMode.value === 'audit') {
+    fetchAuditLogs();
+  } else {
+    fetchSystemLogs();
+  }
+};
+
 onMounted(() => {
   if (route.query.tab === 'services') {
     activeTab.value = 'services';
+  } else if (route.query.tab === 'audit' || route.query.tab === 'activity') {
+    activeTab.value = 'audit';
   }
   fetchUsers();
   fetchAuditLogs();
+  fetchSystemLogs();
   fetchDatabaseConfig();
   startElapsedTicker();
 });
@@ -736,40 +766,137 @@ onUnmounted(() => {
     </div>
 
     <!-- ============================================================= -->
-    <!-- TAB 5: ACTIVITY LOGS -->
+    <!-- TAB 4: ACTIVITY LOGS & AUDIT TRAIL -->
     <!-- ============================================================= -->
     <div v-if="activeTab === 'audit'" class="space-y-4 animate-in fade-in duration-150">
-      <div class="flex items-center justify-between">
-        <h3 class="text-xs font-bold text-white uppercase tracking-wider">Recent Activity Logs</h3>
-        <button @click="fetchAuditLogs" class="flex items-center gap-1 text-xs text-brand-400 hover:underline">
-          <RotateCw class="w-3 h-3" :class="{ 'animate-spin': loadingLogs }" />
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#141824] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs">
+            <button
+              @click="logViewMode = 'audit'; fetchAuditLogs()"
+              :class="[
+                'px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5',
+                logViewMode === 'audit'
+                  ? 'bg-[#4274D9] text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              ]"
+            >
+              <ShieldCheck class="w-3.5 h-3.5" />
+              <span>User & Security Audit Trail ({{ auditLogs.length }})</span>
+            </button>
+            <button
+              @click="logViewMode = 'system'; fetchSystemLogs()"
+              :class="[
+                'px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5',
+                logViewMode === 'system'
+                  ? 'bg-[#4274D9] text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              ]"
+            >
+              <Terminal class="w-3.5 h-3.5" />
+              <span>System & Console Logs ({{ systemLogs.length }})</span>
+            </button>
+          </div>
+        </div>
+
+        <button
+          @click="refreshCurrentLogs"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition shadow-sm self-start sm:self-auto"
+        >
+          <RotateCw class="w-3.5 h-3.5 text-[#4274D9]" :class="{ 'animate-spin': loadingLogs }" />
           <span>Refresh</span>
         </button>
       </div>
 
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-        <table class="w-full text-left text-xs font-mono">
-          <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+      <!-- Table 1: Security & User Audit Logs (Database) -->
+      <div v-if="logViewMode === 'audit'" class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 dark:bg-[#1a202c] text-slate-700 dark:text-slate-300 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
             <tr>
-              <th class="p-3">Timestamp</th>
-              <th class="p-3">Level</th>
-              <th class="p-3">Module</th>
+              <th class="p-3 w-48">Timestamp</th>
+              <th class="p-3 w-32">Actor / User</th>
+              <th class="p-3 w-24">Module</th>
+              <th class="p-3 w-36">Action</th>
+              <th class="p-3">Details</th>
+              <th class="p-3 w-28 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200">
+            <tr v-for="log in auditLogs" :key="log.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition">
+              <td class="p-3 text-slate-500 dark:text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                {{ new Date(log.timestamp).toLocaleString() }}
+              </td>
+              <td class="p-3 font-semibold text-slate-900 dark:text-white">
+                <span v-if="log.username" class="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-mono text-[11px]">
+                  {{ log.username }}
+                </span>
+                <span v-else class="text-slate-400 dark:text-slate-500 italic text-[11px]">
+                  Anonymous
+                </span>
+              </td>
+              <td class="p-3">
+                <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
+                  {{ log.module }}
+                </span>
+              </td>
+              <td class="p-3 font-medium">
+                {{ log.action }}
+              </td>
+              <td class="p-3 text-slate-600 dark:text-slate-300 font-mono text-[11px] break-all">
+                {{ log.details }}
+              </td>
+              <td class="p-3 text-right">
+                <span
+                  class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                  :class="log.status === 'SUCCESS' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'"
+                >
+                  {{ log.status }}
+                </span>
+              </td>
+            </tr>
+            <tr v-if="auditLogs.length === 0">
+              <td colspan="6" class="p-8 text-center text-slate-400 dark:text-slate-500">
+                No security or user activity logs recorded yet.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Table 2: System Console Logs -->
+      <div v-else class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-50 dark:bg-[#1a202c] text-slate-700 dark:text-slate-300 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+            <tr>
+              <th class="p-3 w-48">Timestamp</th>
+              <th class="p-3 w-20">Level</th>
+              <th class="p-3 w-28">Module</th>
               <th class="p-3">Message</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800/60 text-slate-300">
-            <tr v-for="(log, idx) in auditLogs" :key="idx" class="hover:bg-slate-800/30">
-              <td class="p-3 text-slate-500 whitespace-nowrap">{{ log.timestamp }}</td>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200">
+            <tr v-for="(log, idx) in systemLogs" :key="idx" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition">
+              <td class="p-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">{{ log.timestamp }}</td>
               <td class="p-3">
-                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold" :class="log.level === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'">
+                <span
+                  class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                  :class="[
+                    log.level === 'ERROR' ? 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400' :
+                    log.level === 'WARN' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
+                    log.level === 'DEBUG' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
+                    'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                  ]"
+                >
                   {{ log.level }}
                 </span>
               </td>
-              <td class="p-3 text-brand-400">{{ log.module }}</td>
-              <td class="p-3 text-white truncate max-w-md">{{ log.message }}</td>
+              <td class="p-3 font-semibold text-[#4274D9]">{{ log.module }}</td>
+              <td class="p-3 text-slate-800 dark:text-slate-200 break-all">{{ log.message }}</td>
             </tr>
-            <tr v-if="auditLogs.length === 0">
-              <td colspan="4" class="p-6 text-center text-slate-500">No activity logs recorded.</td>
+            <tr v-if="systemLogs.length === 0">
+              <td colspan="4" class="p-8 text-center text-slate-400 dark:text-slate-500">
+                No system log events recorded.
+              </td>
             </tr>
           </tbody>
         </table>

@@ -10,6 +10,7 @@ import (
 
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
 )
 
@@ -28,11 +29,13 @@ func NewAuthService(userRepo *repository.UserRepository, configRepo *repository.
 func (s *AuthService) Login(ctx context.Context, username, password string) (*domain.User, string, error) {
 	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
+		logger.Warn("Auth", fmt.Sprintf("Login failed: Username '%s' not found", username))
 		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Username '%s' not found", username), "FAILED", nil)
 		return nil, "", errors.New("invalid username or password")
 	}
 
 	if !config.CheckPasswordHash(password, user.PasswordHash) {
+		logger.Warn("Auth", fmt.Sprintf("Login failed: Incorrect password for user '%s'", username))
 		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Incorrect password for '%s'", username), "FAILED", &user.ID)
 		return nil, "", errors.New("invalid username or password")
 	}
@@ -51,12 +54,18 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*do
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
 
+	logger.Info("Auth", fmt.Sprintf("Login success: User '%s' authenticated", username))
 	_ = s.userRepo.LogActivity(ctx, "Auth", "Login Success", fmt.Sprintf("User '%s' logged in", username), "SUCCESS", &user.ID)
 	return user, rawToken, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 	tokenHash := config.HashToken(rawToken)
+	_, user, err := s.userRepo.GetSessionByToken(ctx, tokenHash)
+	if err == nil && user != nil {
+		logger.Info("Auth", fmt.Sprintf("User '%s' logged out", user.Username))
+		_ = s.userRepo.LogActivity(ctx, "Auth", "Logout", fmt.Sprintf("User '%s' logged out", user.Username), "SUCCESS", &user.ID)
+	}
 	return s.userRepo.DeleteSession(ctx, tokenHash)
 }
 
@@ -76,6 +85,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPasswor
 	}
 
 	if !config.CheckPasswordHash(oldPassword, user.PasswordHash) {
+		logger.Warn("Auth", fmt.Sprintf("Password change failed for user '%s': current password incorrect", user.Username))
 		return errors.New("current password is incorrect")
 	}
 
@@ -90,6 +100,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPasswor
 
 	err = s.userRepo.UpdatePassword(ctx, userID, newHash, false)
 	if err == nil {
+		logger.Info("Auth", fmt.Sprintf("User '%s' changed password successfully", user.Username))
 		_ = s.userRepo.LogActivity(ctx, "User", "Change Password", "User changed password successfully", "SUCCESS", &userID)
 	}
 	return err
@@ -123,6 +134,7 @@ func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPas
 	}
 
 	_ = s.configRepo.SetAppConfig(ctx, "setup_completed", "true")
+	logger.Info("Setup", fmt.Sprintf("Initial setup completed. Master admin '%s' initialized", adminUsername))
 	_ = s.userRepo.LogActivity(ctx, "Setup", "Initial Setup Completed", fmt.Sprintf("Admin user '%s' created", adminUsername), "SUCCESS", &user.ID)
 
 	// Auto-login newly created admin
