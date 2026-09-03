@@ -27,30 +27,41 @@ const testPattern = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col space-y-4">
-    <div>
-      <h2 class="text-xl font-bold text-white tracking-tight">Grok Regex Debugger</h2>
-      <p class="text-xs text-slate-400">Test and validate log parsing Grok patterns interactively</p>
+  <div class="space-y-6 max-w-7xl mx-auto font-sans">
+    <!-- Header -->
+    <div class="border-b border-slate-200 dark:border-[#1b2234] pb-4">
+      <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Grok Regex Debugger</h1>
+      <p class="text-xs text-blue-700 dark:text-[#95CCDD]/80 mt-0.5">
+        Test and validate log parsing Grok patterns interactively against sample log lines.
+      </p>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
-      <!-- Input Panel -->
-      <div class="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-4 flex flex-col">
-        <div class="space-y-1">
-          <label class="block text-xs font-semibold text-slate-400">Grok Pattern</label>
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Input Panel (Left) -->
+      <div class="lg:col-span-6 p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-4 shadow-sm flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+            <ListTree class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
+            <span>Pattern Configuration</span>
+          </h2>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-700 dark:text-[#D0E7E6] uppercase tracking-wider">Grok Pattern</label>
           <textarea
             v-model="pattern"
             rows="3"
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-xs text-brand-400 font-mono focus:outline-none focus:border-brand-500"
+            class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3 text-xs text-blue-700 dark:text-[#95CCDD] font-mono font-semibold placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
             placeholder="%{TIMESTAMP:timestamp} %{WORD:level}..."
           ></textarea>
         </div>
 
-        <div class="space-y-1 flex-1 flex flex-col">
-          <label class="block text-xs font-semibold text-slate-400">Sample Log Line</label>
+        <div class="space-y-1.5 flex-1 flex flex-col">
+          <label class="block text-xs font-bold text-slate-700 dark:text-[#D0E7E6] uppercase tracking-wider">Sample Log Line</label>
           <textarea
             v-model="sampleText"
-            class="w-full flex-1 bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:outline-none"
+            rows="6"
+            class="w-full flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
             placeholder="Paste log line here..."
           ></textarea>
         </div>
@@ -58,34 +69,44 @@ const testPattern = async () => {
         <button
           @click="testPattern"
           :disabled="loading"
-          class="w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium text-xs rounded-lg transition flex items-center justify-center gap-1.5"
+          class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm"
         >
           <Play class="w-3.5 h-3.5 fill-current" />
-          Test Pattern
+          <span>{{ loading ? 'Testing Pattern...' : 'Test Pattern' }}</span>
         </button>
       </div>
 
-      <!-- Result Panel -->
-      <div class="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-3 flex flex-col min-w-0">
-        <div class="flex items-center justify-between">
-          <h3 class="text-xs font-bold text-white uppercase tracking-wider">Extraction Matches</h3>
-          <span v-if="result" :class="[
-            result.matched ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20',
-            'px-2 py-0.5 rounded text-[10px] font-bold border'
-          ]">
+      <!-- Result Panel (Right) -->
+      <div class="lg:col-span-6 p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-4 shadow-sm flex flex-col min-w-0">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Extraction Matches</h2>
+          <span
+            v-if="result"
+            :class="[
+              result.matched
+                ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30'
+                : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30',
+              'px-2.5 py-0.5 rounded-full text-[10px] font-bold border font-mono'
+            ]"
+          >
             {{ result.matched ? 'MATCHED' : 'NO MATCH' }}
           </span>
         </div>
 
-        <div class="flex-1 bg-slate-950 border border-slate-800/80 rounded-lg p-3 font-mono text-[11px] overflow-y-auto">
-          <pre v-if="result" class="text-slate-300">{{ JSON.stringify(result.matches, null, 2) }}</pre>
-          <div v-else class="h-full flex items-center justify-center text-slate-600 text-xs font-sans">
-            Press 'Test Pattern' to run extraction
+        <div class="flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3.5 font-mono text-[11px] overflow-y-auto min-h-[300px]">
+          <pre v-if="result && result.matched" class="text-slate-900 dark:text-slate-200 leading-relaxed font-semibold">{{ JSON.stringify(result.matches, null, 2) }}</pre>
+          <div v-else-if="result && !result.matched" class="h-full flex flex-col items-center justify-center text-rose-600 dark:text-rose-400 text-xs font-sans gap-1">
+            <XCircle class="w-6 h-6" />
+            <span class="font-bold">Pattern did not match sample log line</span>
+          </div>
+          <div v-else class="h-full flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs font-sans gap-2">
+            <ListTree class="w-8 h-8 text-slate-300 dark:text-slate-600" />
+            <span>Click 'Test Pattern' to run extraction</span>
           </div>
         </div>
 
-        <div v-if="result?.regex" class="text-[10px] text-slate-500 font-mono truncate">
-          Regex: {{ result.regex }}
+        <div v-if="result?.regex" class="text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate bg-slate-100 dark:bg-[#171b26] px-3 py-1.5 rounded border border-slate-200 dark:border-[#1b2234]">
+          <span class="font-bold text-slate-800 dark:text-slate-200">Compiled Regex:</span> {{ result.regex }}
         </div>
       </div>
     </div>
