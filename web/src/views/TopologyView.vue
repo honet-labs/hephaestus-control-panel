@@ -152,6 +152,7 @@ const panStart = ref({ x: 0, y: 0 });
 // Dragging Node
 const draggingNodeId = ref<string | null>(null);
 const dragStart = ref({ x: 0, y: 0, nodeX: 0, nodeY: 0 });
+const nodePositionVersion = ref(0);
 
 // Filtered Discovered Devices in Left Sidebar
 const filteredDiscoveredDevices = computed(() => {
@@ -635,6 +636,7 @@ const handleToggleFlowLayout = () => {
     node.y = startY + Math.floor(i / 4) * gapY;
     axios.put(`/api/v1/topology/devices/${node.id}/position`, { x: node.x, y: node.y }).catch(() => {});
   });
+  nodePositionVersion.value++;
 };
 
 // Reset / Center Canvas
@@ -656,25 +658,10 @@ const handleCanvasMouseMove = (e: MouseEvent) => {
   if (isPanning.value) {
     canvasTransform.value.x = e.clientX - panStart.value.x;
     canvasTransform.value.y = e.clientY - panStart.value.y;
-  } else if (draggingNodeId.value) {
-    const node = activeNodes.value.find(n => n.id === draggingNodeId.value);
-    if (node) {
-      const dx = (e.clientX - dragStart.value.x) / canvasTransform.value.scale;
-      const dy = (e.clientY - dragStart.value.y) / canvasTransform.value.scale;
-      node.x = Math.round(dragStart.value.nodeX + dx);
-      node.y = Math.round(dragStart.value.nodeY + dy);
-    }
   }
 };
 
 const handleCanvasMouseUp = () => {
-  if (draggingNodeId.value) {
-    const node = activeNodes.value.find(n => n.id === draggingNodeId.value);
-    if (node && node.x !== undefined && node.y !== undefined) {
-      axios.put(`/api/v1/topology/devices/${node.id}/position`, { x: node.x, y: node.y }).catch(() => {});
-    }
-    draggingNodeId.value = null;
-  }
   isPanning.value = false;
 };
 
@@ -685,7 +672,33 @@ const handleCanvasWheel = (e: WheelEvent) => {
   canvasTransform.value.scale = newScale;
 };
 
-// Node Dragging Handlers
+// Node Dragging Handlers with Global Window Event Listeners
+const handleWindowMouseMove = (e: MouseEvent) => {
+  if (draggingNodeId.value) {
+    const node = activeNodes.value.find(n => String(n.id) === String(draggingNodeId.value));
+    if (node) {
+      const dx = (e.clientX - dragStart.value.x) / canvasTransform.value.scale;
+      const dy = (e.clientY - dragStart.value.y) / canvasTransform.value.scale;
+      node.x = Math.round(dragStart.value.nodeX + dx);
+      node.y = Math.round(dragStart.value.nodeY + dy);
+      nodePositionVersion.value++;
+    }
+  }
+};
+
+const handleWindowMouseUp = () => {
+  if (draggingNodeId.value) {
+    const node = activeNodes.value.find(n => String(n.id) === String(draggingNodeId.value));
+    if (node && node.x !== undefined && node.y !== undefined) {
+      axios.put(`/api/v1/topology/devices/${node.id}/position`, { x: node.x, y: node.y }).catch(() => {});
+    }
+    draggingNodeId.value = null;
+    nodePositionVersion.value++;
+  }
+  window.removeEventListener('mousemove', handleWindowMouseMove);
+  window.removeEventListener('mouseup', handleWindowMouseUp);
+};
+
 const handleNodeMouseDown = (dev: Device, e: MouseEvent) => {
   e.stopPropagation();
   contextMenu.value.visible = false;
@@ -695,10 +708,13 @@ const handleNodeMouseDown = (dev: Device, e: MouseEvent) => {
     dragStart.value = {
       x: e.clientX,
       y: e.clientY,
-      nodeX: dev.x || 0,
-      nodeY: dev.y || 0,
+      nodeX: Number(dev.x) || 0,
+      nodeY: Number(dev.y) || 0,
     };
     selectedNode.value = dev;
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
   }
 };
 
@@ -715,18 +731,18 @@ const handleNodeContextMenu = (dev: Device, e: MouseEvent) => {
   };
 };
 
-// Calculate SVG Bezier path between two nodes
+// Calculate SVG Bezier path between two nodes (Helper function)
 const calculateEdgePath = (edge: Edge) => {
-  const source = activeNodes.value.find(n => n.id === edge.sourceId);
-  const target = activeNodes.value.find(n => n.id === edge.targetId);
+  const source = activeNodes.value.find(n => String(n.id) === String(edge.sourceId));
+  const target = activeNodes.value.find(n => String(n.id) === String(edge.targetId));
   if (!source || !target || source.x === undefined || source.y === undefined || target.x === undefined || target.y === undefined) {
     return { path: '', midX: 0, midY: 0 };
   }
 
-  const x1 = source.x;
-  const y1 = source.y;
-  const x2 = target.x;
-  const y2 = target.y;
+  const x1 = Number(source.x);
+  const y1 = Number(source.y);
+  const x2 = Number(target.x);
+  const y2 = Number(target.y);
 
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -741,6 +757,60 @@ const calculateEdgePath = (edge: Edge) => {
 
   return { path, midX, midY };
 };
+
+// Computed edges with real-time reactive paths tied to node movements
+const renderedEdges = computed(() => {
+  // Read nodePositionVersion to guarantee re-computation on every drag movement
+  nodePositionVersion.value;
+
+  const nodeMap = new Map<string, Device>();
+  for (const n of activeNodes.value) {
+    if (n.id !== undefined && n.id !== null) {
+      nodeMap.set(String(n.id), n);
+    }
+  }
+
+  return edges.value.map((edge, idx) => {
+    const source = nodeMap.get(String(edge.sourceId));
+    const target = nodeMap.get(String(edge.targetId));
+
+    if (!source || !target || source.x === undefined || source.y === undefined || target.x === undefined || target.y === undefined) {
+      return {
+        ...edge,
+        renderKey: edge.id || `edge-${edge.sourceId}-${edge.targetId}-${idx}`,
+        path: '',
+        midX: 0,
+        midY: 0,
+        valid: false,
+      };
+    }
+
+    const x1 = Number(source.x);
+    const y1 = Number(source.y);
+    const x2 = Number(target.x);
+    const y2 = Number(target.y);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const cx1 = x1 + dx * 0.3;
+    const cy1 = y1 + dy * 0.1;
+    const cx2 = x1 + dx * 0.7;
+    const cy2 = y2 - dy * 0.1;
+
+    const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+
+    return {
+      ...edge,
+      renderKey: edge.id || `edge-${edge.sourceId}-${edge.targetId}-${idx}`,
+      path,
+      midX,
+      midY,
+      valid: true,
+    };
+  });
+});
 
 // Return node icon component based on type
 const getNodeIcon = (type?: string) => {
@@ -771,6 +841,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick);
+  window.removeEventListener('mousemove', handleWindowMouseMove);
+  window.removeEventListener('mouseup', handleWindowMouseUp);
 });
 </script>
 
@@ -1110,12 +1182,13 @@ onUnmounted(() => {
         >
           <!-- 1. Render Links / Edges -->
           <g class="edges-layer">
-            <g v-for="(edge, eIdx) in edges" :key="eIdx" class="edge-group">
+            <g v-for="edge in renderedEdges" :key="edge.renderKey" class="edge-group">
               <!-- Edge Path -->
               <path
-                :d="calculateEdgePath(edge).path"
+                v-if="edge.valid"
+                :d="edge.path"
                 :class="[
-                  'transition-all cursor-pointer',
+                  'transition-colors duration-150 cursor-pointer',
                   (edge.edgeType || edge.label) === 'VPN'
                     ? 'stroke-emerald-500 stroke-2'
                     : (edge.edgeType || edge.label) === 'Wireless'
@@ -1128,8 +1201,8 @@ onUnmounted(() => {
 
               <!-- Edge Label Badge -->
               <g
-                v-if="edge.label || edge.edgeType"
-                :transform="`translate(${calculateEdgePath(edge).midX}, ${calculateEdgePath(edge).midY})`"
+                v-if="edge.valid && (edge.label || edge.edgeType)"
+                :transform="`translate(${edge.midX}, ${edge.midY})`"
                 class="cursor-pointer"
                 @click="handleDeleteEdge(edge.id)"
               >
@@ -1139,7 +1212,7 @@ onUnmounted(() => {
                   width="56"
                   height="18"
                   rx="9"
-                  class="fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1"
+                  class="fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1 shadow-sm"
                 />
                 <text
                   x="0"
