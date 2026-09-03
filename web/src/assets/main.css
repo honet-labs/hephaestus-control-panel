@@ -48,7 +48,7 @@
 
 /* 1. Body & Scrollbars */
 html.light body {
-  background-color: #f4f7fb !important;
+  background-color: #f1f5f9 !important;
   color: #0f172a !important;
 }
 
@@ -82,7 +82,10 @@ html.light .glass {
   border: 1px solid rgba(203, 213, 225, 0.8);
 }
 
-/* 3. Primary Canvas / Background Surfaces -> #f4f7fb */
+/* 3. Primary Canvas / Background Surfaces -> #f1f5f9 (Soft Slate) */
+html.light body,
+html.light .bg-slate-50,
+html.light .bg-slate-100,
 html.light [class*="bg-[#090d16]"],
 html.light [class*="bg-[#0a0e17]"],
 html.light [class*="bg-[#05070d]"],
@@ -91,10 +94,10 @@ html.light .bg-\[\#090d16\],
 html.light .bg-\[\#0a0e17\],
 html.light .bg-\[\#05070d\],
 html.light .bg-\[\#0b0d11\] {
-  background-color: #f4f7fb !important;
+  background-color: #f1f5f9 !important;
 }
 
-/* 4. Cards / Panels / Tables / Dialogs / Modals -> #ffffff */
+/* 4. Cards / Panels / Tables / Dialogs / Modals -> #ffffff with subtle crisp border */
 html.light [class*="bg-[#0e121c]"],
 html.light [class*="bg-[#0e1118]"],
 html.light [class*="bg-[#0c101a]"],
@@ -130,10 +133,11 @@ html.light .bg-\[\#1a1d26\],
 html.light .bg-\[\#1b1e26\],
 html.light .bg-\[\#1c202b\] {
   background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
   color: #0f172a !important;
 }
 
-/* 5. Insets / Form Inputs / Inner Sub-surfaces / Badges / Secondary Buttons -> #f1f5f9 */
+/* 5. Insets / Form Inputs / Inner Sub-surfaces / Badges / Secondary Buttons -> #f8fafc */
 html.light [class*="bg-[#0f1219]"],
 html.light [class*="bg-[#121620]"],
 html.light [class*="bg-[#121826]"],
@@ -160,11 +164,12 @@ html.light .bg-\[\#20242e\],
 html.light .bg-\[\#202534\],
 html.light .bg-\[\#242833\],
 html.light .bg-\[\#282d3a\] {
-  background-color: #f1f5f9 !important;
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
   color: #1e293b !important;
 }
 
-/* 6. Hover States in Light Mode (No more turning black!) */
+/* 6. Hover States in Light Mode (Clean Slate Hover) */
 html.light [class*="hover:bg-[#"]:hover,
 html.light [class*="hover:bg-slate-800"]:hover,
 html.light [class*="hover:bg-slate-700"]:hover,
@@ -191,7 +196,7 @@ html.light .border-\[\#1b2234\],
 html.light .border-\[\#293681\],
 html.light .border-slate-800,
 html.light .border-slate-700 {
-  border-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
 }
 html.light .divide-slate-800 > *,
 html.light .divide-slate-800\/60 > *,
@@ -200,6 +205,15 @@ html.light .divide-slate-800\/50 > * {
 }
 
 /* 8. Text Color & Contrast in Light Mode */
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4,
+html.light h5,
+html.light h6 {
+  color: #0f172a !important;
+}
+
 html.light .text-white,
 html.light [class*="text-white"] {
   color: #0f172a !important;
@@ -214,6 +228,9 @@ html.light .text-slate-400 {
 }
 html.light .text-slate-500 {
   color: #64748b !important;
+}
+html.light .text-slate-600 {
+  color: #334155 !important;
 }
 
 /* Brand Accent Colors in Light Mode */
@@ -232,11 +249,12 @@ html.light .text-brand-400 {
 /* 9. Sidebar Navigation in Light Mode */
 html.light aside {
   background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
 }
 html.light aside nav a,
 html.light aside nav button {
-  color: #475569 !important;
+  color: #334155 !important;
+  font-weight: 500;
 }
 html.light aside nav a:hover,
 html.light aside nav button:hover {

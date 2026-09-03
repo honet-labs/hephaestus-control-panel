@@ -275,10 +275,10 @@ onMounted(() => {
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-tight">Database Backup Manager</h1>
-        <p class="text-xs text-slate-400 mt-0.5">
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Database Backup Manager</h1>
+        <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
           Automated multi-database backups, cron scheduling, and S3 / Cloudflare R2 / Local disaster recovery.
         </p>
       </div>
@@ -286,7 +286,7 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <button
           @click="fetchAll"
-          class="p-2 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+          class="p-2 rounded-lg bg-white dark:bg-[#20242e] hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition shadow-sm"
           title="Refresh Backup Status"
         >
           <RotateCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
@@ -294,7 +294,7 @@ onMounted(() => {
 
         <button
           @click="isRunBackupModalOpen = true"
-          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm"
         >
           <Play class="w-3.5 h-3.5 fill-current" />
           <span>RUN BACKUP NOW</span>
@@ -303,13 +303,13 @@ onMounted(() => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-slate-800 pb-2 text-xs font-medium">
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium">
       <button
         @click="activeTab = 'databases'"
         :class="[
           activeTab === 'databases'
-            ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-bold'
-            : 'text-slate-400 hover:text-slate-200 border-transparent',
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
       >
@@ -321,8 +321,8 @@ onMounted(() => {
         @click="activeTab = 'destinations'"
         :class="[
           activeTab === 'destinations'
-            ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-bold'
-            : 'text-slate-400 hover:text-slate-200 border-transparent',
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
       >
@@ -334,8 +334,8 @@ onMounted(() => {
         @click="activeTab = 'schedules'"
         :class="[
           activeTab === 'schedules'
-            ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-bold'
-            : 'text-slate-400 hover:text-slate-200 border-transparent',
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
       >
@@ -347,8 +347,8 @@ onMounted(() => {
         @click="activeTab = 'history'"
         :class="[
           activeTab === 'history'
-            ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 font-bold'
-            : 'text-slate-400 hover:text-slate-200 border-transparent',
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
       >
@@ -362,10 +362,10 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'databases'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs text-slate-400">Registered Database Targets for Automated & On-Demand Backup</p>
+        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Registered Database Targets for Automated & On-Demand Backup</p>
         <button
           @click="isDbModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Database</span>
@@ -376,26 +376,26 @@ onMounted(() => {
         <div
           v-for="db in databases"
           :key="db.id"
-          class="p-4 rounded-xl bg-[#171a23] border border-slate-800 hover:border-slate-700 space-y-3 shadow-lg transition"
+          class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <Database class="w-4 h-4 text-brand-400" />
-              <h4 class="text-xs font-bold text-white">{{ db.name }}</h4>
+              <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ db.name }}</h4>
             </div>
-            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-brand-400 border border-slate-700/60 font-semibold">
+            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-brand-400 border border-blue-200 dark:border-slate-700/60 font-semibold">
               {{ db.dbType }}
             </span>
           </div>
 
-          <p class="text-[11px] font-mono text-slate-400 bg-[#0f1219] p-2 rounded border border-slate-800/80 truncate">
+          <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
             {{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}
           </p>
 
-          <div class="flex items-center justify-between pt-1 border-t border-slate-800/80">
+          <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
               @click="handleRunSingle(db.id)"
-              class="flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition"
+              class="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition"
             >
               <Play class="w-3 h-3 fill-current" />
               <span>Backup Now</span>
@@ -403,7 +403,7 @@ onMounted(() => {
 
             <button
               @click="deleteDBConfig(db.id)"
-              class="p-1 text-slate-500 hover:text-rose-400 transition"
+              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
               title="Delete Database Config"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -412,10 +412,10 @@ onMounted(() => {
         </div>
 
         <!-- Empty state -->
-        <div v-if="databases.length === 0 && !loading" class="col-span-3 p-12 text-center bg-[#171a23] border border-slate-800 rounded-xl space-y-2">
-          <Database class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <p class="text-xs font-bold text-slate-300">No Databases Configured</p>
-          <p class="text-[11px] text-slate-500 max-w-sm mx-auto">
+        <div v-if="databases.length === 0 && !loading" class="col-span-3 p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm">
+          <Database class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+          <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Databases Configured</p>
+          <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
             Click "Add Database" above to configure a PostgreSQL, MySQL, or MariaDB target for automated backups.
           </p>
         </div>
@@ -427,10 +427,10 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'destinations'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs text-slate-400">Storage Repositories (Local Filesystem, Cloudflare R2, AWS S3, MinIO)</p>
+        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Storage Repositories (Local Filesystem, Cloudflare R2, AWS S3, MinIO)</p>
         <button
           @click="isDestModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Destination</span>
@@ -441,28 +441,28 @@ onMounted(() => {
         <div
           v-for="dest in destinations"
           :key="dest.id"
-          class="p-4 rounded-xl bg-[#171a23] border border-slate-800 hover:border-slate-700 space-y-3 shadow-lg transition"
+          class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <HardDrive v-if="dest.destType === 'nas' || dest.destType === 'nfs'" class="w-4 h-4 text-emerald-400" />
-              <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-sky-400" />
-              <Cloud v-else class="w-4 h-4 text-purple-400" />
-              <h4 class="text-xs font-bold text-white">{{ dest.name }}</h4>
+              <HardDrive v-if="dest.destType === 'nas' || dest.destType === 'nfs'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-sky-600 dark:text-sky-400" />
+              <Cloud v-else class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ dest.name }}</h4>
             </div>
-            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-purple-400 border border-slate-700/60 font-semibold">
+            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-purple-50 dark:bg-slate-800 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-slate-700/60 font-semibold">
               {{ dest.destType === 'nas' ? 'NAS (SSH)' : dest.destType }}
             </span>
           </div>
 
-          <p class="text-[11px] font-mono text-slate-400 bg-[#0f1219] p-2 rounded border border-slate-800/80 truncate">
+          <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
             {{ (dest.destType === 'nas' || dest.destType === 'nfs') ? (dest.config?.host ? `${dest.config.host}:${dest.config.path || '/opt/backups'}` : (dest.config?.path || '/opt/backups')) : (dest.destType === 'local' ? (dest.config?.path || '/opt/backups') : (dest.config?.bucket || 'S3 Bucket')) }}
           </p>
 
-          <div class="flex items-center justify-end pt-1 border-t border-slate-800/80">
+          <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
               @click="deleteDestination(dest.id)"
-              class="p-1 text-slate-500 hover:text-rose-400 transition"
+              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
               title="Delete Storage Destination"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -470,10 +470,10 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="destinations.length === 0 && !loading" class="col-span-3 p-12 text-center bg-[#171a23] border border-slate-800 rounded-xl space-y-2">
-          <Cloud class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <p class="text-xs font-bold text-slate-300">No Storage Destinations Configured</p>
-          <p class="text-[11px] text-slate-500 max-w-sm mx-auto">
+        <div v-if="destinations.length === 0 && !loading" class="col-span-3 p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm">
+          <Cloud class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+          <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Storage Destinations Configured</p>
+          <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
             Add a Local folder, Cloudflare R2, or AWS S3 destination to store backup archives.
           </p>
         </div>
@@ -485,10 +485,10 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'schedules'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs text-slate-400">Automated Background Cron Backup Jobs</p>
+        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Automated Background Cron Backup Jobs</p>
         <button
           @click="isScheduleModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Schedule</span>
@@ -499,26 +499,26 @@ onMounted(() => {
         <div
           v-for="sched in schedules"
           :key="sched.id"
-          class="p-4 rounded-xl bg-[#171a23] border border-slate-800 hover:border-slate-700 space-y-3 shadow-lg transition"
+          class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
         >
           <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold text-white">{{ sched.name }}</h4>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-amber-400 border border-slate-700/60 font-semibold">
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ sched.name }}</h4>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-slate-700/60 font-semibold">
               {{ sched.cronExpression }}
             </span>
           </div>
 
-          <div class="text-[11px] text-slate-400 flex items-center justify-between">
+          <div class="text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
             <span>Last Run: {{ sched.lastRun ? new Date(sched.lastRun).toLocaleString() : 'Never' }}</span>
-            <span :class="sched.isActive ? 'text-emerald-400 font-semibold' : 'text-slate-500'">
+            <span :class="sched.isActive ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-400 dark:text-slate-500'">
               {{ sched.isActive ? '● Active' : '○ Paused' }}
             </span>
           </div>
 
-          <div class="flex items-center justify-end pt-1 border-t border-slate-800/80">
+          <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
               @click="deleteSchedule(sched.id)"
-              class="p-1 text-slate-500 hover:text-rose-400 transition"
+              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
               title="Delete Schedule"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -526,10 +526,10 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="schedules.length === 0 && !loading" class="col-span-2 p-12 text-center bg-[#171a23] border border-slate-800 rounded-xl space-y-2">
-          <Clock class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <p class="text-xs font-bold text-slate-300">No Scheduled Backups</p>
-          <p class="text-[11px] text-slate-500 max-w-sm mx-auto">
+        <div v-if="schedules.length === 0 && !loading" class="col-span-2 p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm">
+          <Clock class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+          <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Scheduled Backups</p>
+          <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
             Set up a cron schedule to automatically dump and upload databases at scheduled times.
           </p>
         </div>
@@ -539,9 +539,9 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- TAB 4: EXECUTION HISTORY -->
     <!-- ============================================================= -->
-    <div v-if="activeTab === 'history'" class="bg-[#171a23] border border-slate-800 rounded-xl overflow-x-auto shadow-xl">
+    <div v-if="activeTab === 'history'" class="bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
       <table class="w-full text-left text-xs font-mono">
-        <thead class="bg-[#1c202b] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+        <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
           <tr>
             <th class="p-3">File Archive</th>
             <th class="p-3">Database</th>
@@ -552,29 +552,29 @@ onMounted(() => {
             <th class="p-3 w-16 text-right">Action</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-800/60 text-slate-300 text-[11px]">
-          <tr v-for="h in history" :key="h.id" class="hover:bg-slate-800/40 transition">
-            <td class="p-3 font-semibold text-white">{{ h.filename }}</td>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
+          <tr v-for="h in history" :key="h.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+            <td class="p-3 font-semibold text-slate-900 dark:text-white">{{ h.filename }}</td>
             <td class="p-3">{{ h.dbName }} ({{ h.dbType }})</td>
-            <td class="p-3 uppercase text-purple-400 font-semibold">{{ h.destType }}</td>
-            <td class="p-3 text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
+            <td class="p-3 uppercase text-purple-700 dark:text-purple-400 font-semibold">{{ h.destType }}</td>
+            <td class="p-3 text-slate-600 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
             <td class="p-3">
               <span
                 :class="[
-                  h.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                  h.status === 'running' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                  'bg-rose-500/10 text-rose-400 border-rose-500/30',
+                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30' :
+                  h.status === 'running' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/30' :
+                  'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30',
                   'px-2 py-0.5 rounded text-[10px] font-bold uppercase border'
                 ]"
               >
                 {{ h.status }}
               </span>
             </td>
-            <td class="p-3 text-slate-400">{{ new Date(h.startedAt).toLocaleString() }}</td>
+            <td class="p-3 text-slate-600 dark:text-slate-400">{{ new Date(h.startedAt).toLocaleString() }}</td>
             <td class="p-3 text-right">
               <button
                 @click="deleteHistoryItem(h.id)"
-                class="p-1 text-slate-500 hover:text-rose-400 transition"
+                class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
                 title="Delete Record"
               >
                 <Trash2 class="w-3.5 h-3.5" />
@@ -593,22 +593,22 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- MODAL 1: RUN ON-DEMAND BACKUP -->
     <!-- ============================================================= -->
-    <div v-if="isRunBackupModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-md bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Play class="w-4 h-4 text-emerald-400 fill-current" />
+    <div v-if="isRunBackupModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
+      <div class="w-full max-w-md bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Play class="w-4 h-4 text-emerald-600 dark:text-emerald-400 fill-current" />
             <span>Run On-Demand Backup</span>
           </h3>
-          <button @click="isRunBackupModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isRunBackupModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Select Database</label>
-            <select v-model="runForm.dbConfigId" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500">
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Database</label>
+            <select v-model="runForm.dbConfigId" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-brand-500">
               <option v-for="db in databases" :key="db.id" :value="db.id">
                 {{ db.name }} ({{ db.databaseName }}) - {{ db.dbType }}
               </option>
@@ -616,8 +616,8 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Select Storage Destination</label>
-            <select v-model="runForm.destinationId" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500">
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Storage Destination</label>
+            <select v-model="runForm.destinationId" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-brand-500">
               <option v-for="d in destinations" :key="d.id" :value="d.id">
                 {{ d.name }} ({{ d.destType }})
               </option>
@@ -626,10 +626,10 @@ onMounted(() => {
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button @click="isRunBackupModalOpen = false" class="px-3 py-1.5 text-xs text-slate-400 hover:text-white">
+          <button @click="isRunBackupModalOpen = false" class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
             Cancel
           </button>
-          <button @click="triggerBackup" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg">
+          <button @click="triggerBackup" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow">
             Start Backup
           </button>
         </div>
@@ -639,14 +639,14 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- MODAL 2: ADD DATABASE CONFIG -->
     <!-- ============================================================= -->
-    <div v-if="isDbModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-lg bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Database class="w-4 h-4 text-brand-400" />
+    <div v-if="isDbModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
+      <div class="w-full max-w-lg bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
             <span>Add Database Configuration</span>
           </h3>
-          <button @click="isDbModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isDbModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -654,12 +654,12 @@ onMounted(() => {
         <form @submit.prevent="saveDBConfig" class="space-y-3 text-xs">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Config Label</label>
-              <input v-model="dbForm.name" required placeholder="e.g. Primary Postgres" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Config Label</label>
+              <input v-model="dbForm.name" required placeholder="e.g. Primary Postgres" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white" />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Database Type</label>
-              <select v-model="dbForm.dbType" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Database Type</label>
+              <select v-model="dbForm.dbType" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
                 <option value="mariadb">MariaDB</option>
@@ -669,64 +669,64 @@ onMounted(() => {
 
           <div class="grid grid-cols-3 gap-3">
             <div class="col-span-2">
-              <label class="block text-slate-400 mb-1 font-bold">Host / IP</label>
-              <input v-model="dbForm.host" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Host / IP</label>
+              <input v-model="dbForm.host" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Port</label>
-              <input v-model.number="dbForm.port" type="number" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Port</label>
+              <input v-model.number="dbForm.port" type="number" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Username</label>
-              <input v-model="dbForm.username" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Username</label>
+              <input v-model="dbForm.username" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Password</label>
-              <input v-model="dbForm.password" type="password" placeholder="••••••" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Password</label>
+              <input v-model="dbForm.password" type="password" placeholder="••••••" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Database Name</label>
-            <input v-model="dbForm.databaseName" required placeholder="e.g. hephaestus_db" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Database Name</label>
+            <input v-model="dbForm.databaseName" required placeholder="e.g. hephaestus_db" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
           </div>
 
           <!-- SSH Tunnel Option -->
-          <div class="pt-2 border-t border-slate-800">
-            <label class="flex items-center gap-2 cursor-pointer text-slate-300">
-              <input type="checkbox" v-model="dbForm.useSsh" class="rounded bg-slate-800 border-slate-700" />
+          <div class="pt-2 border-t border-slate-200 dark:border-slate-800">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input type="checkbox" v-model="dbForm.useSsh" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600" />
               <span>Connect via Remote SSH Host</span>
             </label>
 
-            <div v-if="dbForm.useSsh" class="mt-2 space-y-2 p-3 bg-[#0f1219] rounded-lg border border-slate-800">
+            <div v-if="dbForm.useSsh" class="mt-2 space-y-2 p-3 bg-slate-50 dark:bg-[#0f1219] rounded-lg border border-slate-200 dark:border-slate-800">
               <div class="grid grid-cols-3 gap-2">
                 <div class="col-span-2">
                   <label class="block text-slate-500 text-[10px]">SSH Host</label>
-                  <input v-model="dbForm.sshHost" placeholder="10.20.3.1" class="w-full bg-[#171a23] border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono" />
+                  <input v-model="dbForm.sshHost" placeholder="10.20.3.1" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
                 </div>
                 <div>
                   <label class="block text-slate-500 text-[10px]">SSH Port</label>
-                  <input v-model.number="dbForm.sshPort" type="number" class="w-full bg-[#171a23] border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono" />
+                  <input v-model.number="dbForm.sshPort" type="number" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="block text-slate-500 text-[10px]">SSH User</label>
-                  <input v-model="dbForm.sshUser" placeholder="root" class="w-full bg-[#171a23] border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono" />
+                  <input v-model="dbForm.sshUser" placeholder="root" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
                 </div>
                 <div>
                   <label class="block text-slate-500 text-[10px]">SSH Password</label>
-                  <input v-model="dbForm.sshPassword" type="password" placeholder="••••••" class="w-full bg-[#171a23] border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono" />
+                  <input v-model="dbForm.sshPassword" type="password" placeholder="••••••" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
                 </div>
               </div>
             </div>
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isDbModalOpen = false" class="px-3 py-1.5 text-slate-400 hover:text-white">Cancel</button>
+            <button type="button" @click="isDbModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
             <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Database</button>
           </div>
         </form>
@@ -736,14 +736,14 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- MODAL 3: ADD STORAGE DESTINATION -->
     <!-- ============================================================= -->
-    <div v-if="isDestModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-lg bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Cloud class="w-4 h-4 text-purple-400" />
+    <div v-if="isDestModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
+      <div class="w-full max-w-lg bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Cloud class="w-4 h-4 text-purple-600 dark:text-purple-400" />
             <span>Add Storage Destination</span>
           </h3>
-          <button @click="isDestModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isDestModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -751,12 +751,12 @@ onMounted(() => {
         <form @submit.prevent="saveDestination" class="space-y-3 text-xs">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Destination Name</label>
-              <input v-model="destForm.name" required placeholder="e.g. Local Storage, Cloudflare R2" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Destination Name</label>
+              <input v-model="destForm.name" required placeholder="e.g. Local Storage, Cloudflare R2" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white" />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Storage Type</label>
-              <select v-model="destForm.destType" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Storage Type</label>
+              <select v-model="destForm.destType" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
                 <option value="nas">NAS (SMB/SSH)</option>
                 <option value="local">Local Filesystem Folder</option>
                 <option value="r2">Cloudflare R2 Object Storage</option>
@@ -769,40 +769,40 @@ onMounted(() => {
           <template v-if="destForm.destType === 'nas' || destForm.destType === 'nfs'">
             <div class="grid grid-cols-3 gap-3">
               <div class="col-span-2">
-                <label class="block text-slate-400 mb-1 font-bold">NAS HOST</label>
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">NAS HOST</label>
                 <input
                   v-model="destForm.host"
                   required
                   placeholder="10.3.16.184"
-                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
                 />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">SSH PORT</label>
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">SSH PORT</label>
                 <input
                   v-model.number="destForm.port"
                   type="number"
                   required
-                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
                 />
               </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">USERNAME</label>
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">USERNAME</label>
                 <input
                   v-model="destForm.username"
                   required
                   placeholder="administrator"
-                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
                 />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">AUTH</label>
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">AUTH</label>
                 <select
                   v-model="destForm.authType"
-                  class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white"
                 >
                   <option value="password">Password</option>
                   <option value="key">SSH Key</option>
@@ -811,31 +811,31 @@ onMounted(() => {
             </div>
 
             <div v-if="destForm.authType === 'password'">
-              <label class="block text-slate-400 mb-1 font-bold">PASSWORD</label>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">PASSWORD</label>
               <input
                 v-model="destForm.password"
                 type="password"
                 placeholder="••••••••"
-                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
               />
             </div>
             <div v-else>
-              <label class="block text-slate-400 mb-1 font-bold">SSH PRIVATE KEY</label>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">SSH PRIVATE KEY</label>
               <textarea
                 v-model="destForm.sshKey"
                 rows="3"
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-[11px]"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono text-[11px]"
               ></textarea>
             </div>
 
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">BACKUP PATH</label>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">BACKUP PATH</label>
               <input
                 v-model="destForm.path"
                 required
                 placeholder="/opt/backups-wordpress"
-                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
               />
             </div>
           </template>
@@ -843,42 +843,42 @@ onMounted(() => {
           <!-- ================= LOCAL FILESYSTEM ================= -->
           <template v-else-if="destForm.destType === 'local'">
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">Local Directory Path</label>
-              <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Local Directory Path</label>
+              <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
           </template>
 
           <template v-else>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">Bucket Name</label>
-                <input v-model="destForm.bucket" required placeholder="hephaestus-backups" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Bucket Name</label>
+                <input v-model="destForm.bucket" required placeholder="hephaestus-backups" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">Account ID / Region</label>
-                <input v-model="destForm.accountId" placeholder="e.g. auto / acct-id" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Account ID / Region</label>
+                <input v-model="destForm.accountId" placeholder="e.g. auto / acct-id" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
               </div>
             </div>
 
             <div>
-              <label class="block text-slate-400 mb-1 font-bold">S3 / R2 Endpoint URL</label>
-              <input v-model="destForm.endpoint" placeholder="https://<id>.r2.cloudflarestorage.com" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">S3 / R2 Endpoint URL</label>
+              <input v-model="destForm.endpoint" placeholder="https://<id>.r2.cloudflarestorage.com" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">Access Key ID</label>
-                <input v-model="destForm.accessKeyId" required placeholder="AKIAIOSFODNN7EXAMPLE" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Access Key ID</label>
+                <input v-model="destForm.accessKeyId" required placeholder="AKIAIOSFODNN7EXAMPLE" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-bold">Secret Access Key</label>
-                <input v-model="destForm.secretAccessKey" type="password" required placeholder="••••••••••••••••" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Secret Access Key</label>
+                <input v-model="destForm.secretAccessKey" type="password" required placeholder="••••••••••••••••" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
               </div>
             </div>
           </template>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isDestModalOpen = false" class="px-3 py-1.5 text-slate-400 hover:text-white">Cancel</button>
+            <button type="button" @click="isDestModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
             <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Destination</button>
           </div>
         </form>
@@ -888,27 +888,27 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- MODAL 4: ADD CRON SCHEDULE -->
     <!-- ============================================================= -->
-    <div v-if="isScheduleModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-md bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 class="text-sm font-bold text-white flex items-center gap-2">
-            <Clock class="w-4 h-4 text-amber-400" />
+    <div v-if="isScheduleModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
+      <div class="w-full max-w-md bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Clock class="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <span>Add Backup Schedule</span>
           </h3>
-          <button @click="isScheduleModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isScheduleModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
           </button>
         </div>
 
         <form @submit.prevent="saveSchedule" class="space-y-3 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Schedule Name</label>
-            <input v-model="scheduleForm.name" required placeholder="Daily Midnight Backup" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white" />
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Schedule Name</label>
+            <input v-model="scheduleForm.name" required placeholder="Daily Midnight Backup" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white" />
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Select Database</label>
-            <select v-model="scheduleForm.dbConfigId" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Database</label>
+            <select v-model="scheduleForm.dbConfigId" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
               <option v-for="db in databases" :key="db.id" :value="db.id">
                 {{ db.name }} ({{ db.databaseName }})
               </option>
@@ -916,8 +916,8 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Select Destination</label>
-            <select v-model="scheduleForm.destinationId" required class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white">
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Destination</label>
+            <select v-model="scheduleForm.destinationId" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
               <option v-for="d in destinations" :key="d.id" :value="d.id">
                 {{ d.name }} ({{ d.destType }})
               </option>
@@ -925,13 +925,13 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-bold">Cron Expression</label>
-            <input v-model="scheduleForm.cronExpression" required placeholder="0 2 * * *" class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono" />
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Cron Expression</label>
+            <input v-model="scheduleForm.cronExpression" required placeholder="0 2 * * *" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             <span class="text-[10px] text-slate-500 mt-0.5 block">Format: min hour dom mon dow (e.g. 0 2 * * * for 2 AM daily)</span>
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isScheduleModalOpen = false" class="px-3 py-1.5 text-slate-400 hover:text-white">Cancel</button>
+            <button type="button" @click="isScheduleModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
             <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Schedule</button>
           </div>
         </form>

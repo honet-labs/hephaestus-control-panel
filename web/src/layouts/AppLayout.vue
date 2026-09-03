@@ -39,12 +39,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-screen bg-slate-50 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans">
+  <div class="flex h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans">
     <!-- Command Palette (Ctrl+K) -->
     <CommandPalette />
 
     <!-- Sidebar -->
-    <aside class="w-64 border-r border-slate-200 dark:border-[#1b2234] bg-white dark:bg-[#0c101a] flex flex-col justify-between shrink-0">
+    <aside class="w-64 border-r border-slate-200 dark:border-[#1b2234] bg-white dark:bg-[#0c101a] flex flex-col justify-between shrink-0 shadow-sm">
       <div class="flex-1 flex flex-col min-h-0">
         <!-- App Brand Header -->
         <div class="h-16 flex items-center px-5 border-b border-slate-200 dark:border-[#1b2234] gap-3 shrink-0">
@@ -61,7 +61,7 @@ onMounted(() => {
         <div class="px-4 py-3 shrink-0">
           <button
             @click="window?.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))"
-            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-slate-100 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-slate-600 dark:text-slate-400 rounded-lg hover:border-blue-500/50 hover:text-slate-900 dark:hover:text-white transition"
+            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-400 rounded-lg hover:border-blue-500/50 hover:text-slate-900 dark:hover:text-white transition"
           >
             <span class="flex items-center gap-1.5">
               <Command class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
@@ -73,7 +73,7 @@ onMounted(() => {
 
         <!-- Section Label -->
         <div class="px-4 pt-1 pb-1">
-          <p class="text-[10px] uppercase font-bold text-blue-800 dark:text-[#95CCDD]/70 tracking-wider">OPERATIONAL MODULES</p>
+          <p class="text-[10px] uppercase font-bold text-slate-500 dark:text-[#95CCDD]/70 tracking-wider">OPERATIONAL MODULES</p>
         </div>
 
         <!-- Navigation Links (With Sub-Menu Accordions) -->
@@ -84,12 +84,12 @@ onMounted(() => {
             to="/"
             :class="[
               route.path === '/'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <LayoutDashboard class="w-4 h-4 shrink-0" />
+            <LayoutDashboard class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
             <span>Overview</span>
           </router-link>
 
@@ -98,12 +98,12 @@ onMounted(() => {
             to="/connections"
             :class="[
               route.path === '/connections'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Link2 class="w-4 h-4 shrink-0" />
+            <Link2 class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
             <span>Connections</span>
           </router-link>
 
@@ -111,7 +111,7 @@ onMounted(() => {
           <a
             href="/remote-server"
             target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
           >
             <Terminal class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
             <span>Remote Server</span>
@@ -121,7 +121,7 @@ onMounted(() => {
           <div>
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
             >
               <div class="flex items-center gap-3">
                 <Sliders class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -137,7 +137,7 @@ onMounted(() => {
                 :class="[
                   route.path === '/prometheus-config'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
@@ -150,7 +150,7 @@ onMounted(() => {
                 :class="[
                   route.path === '/dataprepper-config'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
@@ -164,7 +164,7 @@ onMounted(() => {
           <a
             href="/network-topology"
             target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
           >
             <Network class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
             <span>Network Topology</span>
@@ -174,7 +174,7 @@ onMounted(() => {
           <a
             href="/opensearch-cluster"
             target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
           >
             <Search class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
             <span>OpenSearch Cluster</span>
@@ -185,12 +185,12 @@ onMounted(() => {
             to="/backup"
             :class="[
               route.path === '/backup'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Database class="w-4 h-4 shrink-0" />
+            <Database class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
             <span>Backup Manager</span>
           </router-link>
 
@@ -198,7 +198,7 @@ onMounted(() => {
           <div>
             <button
               @click="isToolsOpen = !isToolsOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
             >
               <div class="flex items-center gap-3">
                 <Wrench class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -214,7 +214,7 @@ onMounted(() => {
                 :class="[
                   route.path === '/snmp'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
@@ -227,7 +227,7 @@ onMounted(() => {
                 :class="[
                   route.path === '/grok-debugger'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
@@ -240,7 +240,7 @@ onMounted(() => {
                 :class="[
                   route.path === '/slideshow'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
@@ -255,12 +255,12 @@ onMounted(() => {
             to="/settings"
             :class="[
               route.path === '/settings'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Settings class="w-4 h-4 shrink-0" />
+            <Settings class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
             <span>System Settings</span>
           </router-link>
 
@@ -295,7 +295,7 @@ onMounted(() => {
     </aside>
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50 dark:bg-[#090d16]">
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-[#090d16]">
       <main class="flex-1 overflow-y-auto p-6">
         <router-view />
       </main>
