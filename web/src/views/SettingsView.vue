@@ -482,14 +482,14 @@ onUnmounted(() => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-1 text-xs">
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-300 dark:border-slate-800 pb-2 text-xs">
       <button
         @click="activeTab = 'services'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
           activeTab === 'services'
-            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-transparent'
+            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30 shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
         <Activity class="w-3.5 h-3.5" />
@@ -501,8 +501,8 @@ onUnmounted(() => {
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
           activeTab === 'users'
-            ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-transparent'
+            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
         <Users class="w-3.5 h-3.5" />
@@ -514,8 +514,8 @@ onUnmounted(() => {
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
           activeTab === 'database'
-            ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-transparent'
+            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
         <Database class="w-3.5 h-3.5" />
@@ -527,8 +527,8 @@ onUnmounted(() => {
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2',
           activeTab === 'audit'
-            ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-transparent'
+            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
         <FileText class="w-3.5 h-3.5" />
@@ -548,19 +548,19 @@ onUnmounted(() => {
 
         <!-- Search input daemon -->
         <div class="relative w-64">
-          <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
+          <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500 dark:text-slate-400" />
           <input
             v-model="servicesSearch"
             placeholder="Search daemon..."
-            class="w-full bg-slate-50 dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-brand-500"
+            class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
           />
         </div>
       </div>
 
       <!-- 4 Core Columns Table -->
-      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
         <table class="w-full text-left text-xs border-collapse">
-          <thead class="bg-slate-50 dark:bg-[#20242e] text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800 select-none">
+          <thead class="bg-slate-100 dark:bg-[#20242e] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-300 dark:border-slate-800 select-none">
             <tr>
               <th class="py-3 px-4 w-36">Status Services</th>
               <th class="py-3 px-4">Nama Services</th>
@@ -576,7 +576,7 @@ onUnmounted(() => {
             >
               <!-- 1. Status Services -->
               <td class="py-3 px-4 whitespace-nowrap">
-                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-bold">
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400 text-[11px] font-bold">
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   <span class="uppercase">RUNNING</span>
                 </div>
@@ -585,13 +585,13 @@ onUnmounted(() => {
               <!-- 2. Nama Services -->
               <td class="py-3 px-4">
                 <div>
-                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition">{{ srv.name }}</p>
-                  <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{{ srv.description }}</p>
+                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-700 dark:group-hover:text-emerald-400 transition">{{ srv.name }}</p>
+                  <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">{{ srv.description }}</p>
                 </div>
               </td>
 
               <!-- 3. Last Update (Live Ticker) -->
-              <td class="py-3 px-4 whitespace-nowrap text-xs font-mono text-slate-600 dark:text-slate-300">
+              <td class="py-3 px-4 whitespace-nowrap text-xs font-mono text-slate-700 dark:text-slate-300 font-medium">
                 <span>{{ srv.updated }}</span>
               </td>
 
@@ -599,7 +599,7 @@ onUnmounted(() => {
               <td class="py-3 px-4 text-center whitespace-nowrap">
                 <button
                   @click="openViewLogModal(srv)"
-                  class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-slate-700 transition inline-flex items-center gap-1.5 shadow-sm"
+                  class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition inline-flex items-center gap-1.5 shadow-sm"
                 >
                   <Terminal class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400" />
                   <span>View Log</span>

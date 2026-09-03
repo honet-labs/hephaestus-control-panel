@@ -79,11 +79,11 @@ html.light .glass {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid #cbd5e1;
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
 }
 
-/* 3. Canvas & App Background Surfaces -> #f1f5f9 (Soft Slate) */
+/* 3. Canvas & App Background Surfaces -> #f1f5f9 (Soft Slate Canvas) */
 html.light .bg-slate-50,
 html.light .bg-slate-100,
 html.light [class*="bg-[#090d16]"],
@@ -97,7 +97,7 @@ html.light .bg-\[\#0b0d11\] {
   background-color: #f1f5f9 !important;
 }
 
-/* 4. Cards / Panels / Dialogs / Modals / Content Boxes -> #ffffff with crisp borders and subtle depth */
+/* 4. Cards / Panels / Dialogs / Modals / Tables -> #ffffff with CRISP #cbd5e1 borders */
 html.light [class*="bg-[#0e121c]"],
 html.light [class*="bg-[#0e1118]"],
 html.light [class*="bg-[#0c101a]"],
@@ -133,10 +133,10 @@ html.light .bg-\[\#1a1d26\],
 html.light .bg-\[\#1b1e26\],
 html.light .bg-\[\#1c202b\] {
   background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
 }
 
-/* 5. Insets / Sub-surfaces / Secondary Inset Boxes -> #f8fafc */
+/* 5. Insets / Sub-surfaces / Inset Boxes / Table Headers -> #f8fafc */
 html.light [class*="bg-[#0f1219]"],
 html.light [class*="bg-[#121620]"],
 html.light [class*="bg-[#121826]"],
@@ -164,7 +164,7 @@ html.light .bg-\[\#202534\],
 html.light .bg-\[\#242833\],
 html.light .bg-\[\#282d3a\] {
   background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
 }
 
 /* 6. Clean Slate Hover States in Light Mode */
@@ -184,25 +184,28 @@ html.light .hover\:bg-slate-700:hover {
   background-color: #f1f5f9 !important;
 }
 
-/* 7. Clean Crisp Borders in Light Mode */
+/* 7. VISIBLE & CRISP BORDERS IN LIGHT MODE */
 html.light [class*="border-[#1b2234]"],
 html.light [class*="border-[#293681]"],
 html.light [class*="border-slate-800"],
 html.light [class*="border-slate-700"],
+html.light [class*="border-slate-200"],
 html.light .border-\[\#1b2234\],
 html.light .border-\[\#293681\],
 html.light .border-slate-800,
-html.light .border-slate-700 {
-  border-color: #e2e8f0 !important;
+html.light .border-slate-700,
+html.light .border-slate-200 {
+  border-color: #cbd5e1 !important;
 }
 html.light .divide-slate-800 > *,
 html.light .divide-slate-800\/60 > *,
 html.light .divide-slate-800\/50 > *,
-html.light .divide-slate-700 > * {
+html.light .divide-slate-700 > *,
+html.light .divide-slate-200 > * {
   border-color: #e2e8f0 !important;
 }
 
-/* 8. Text Color & Hierarchy in Light Mode */
+/* 8. HIGH-CONTRAST TEXT IN LIGHT MODE (NO INVISIBLE WHITE/FAINT TEXT) */
 html.light h1,
 html.light h2,
 html.light h3,
@@ -212,20 +215,32 @@ html.light h6 {
   color: #0f172a !important;
 }
 
-/* Base text classes adapt to high-contrast dark tones when on light canvas */
+/* Standalone White text MUST convert to crisp dark slate in light mode */
+html.light .text-white,
+html.light [class*="text-white"] {
+  color: #0f172a !important;
+}
+
+/* Bright gray / dark theme text classes adapt to high-contrast dark tones */
 html.light .text-slate-100,
 html.light .text-slate-200,
-html.light .text-slate-300 {
+html.light .text-slate-300,
+html.light [class*="text-slate-100"],
+html.light [class*="text-slate-200"],
+html.light [class*="text-slate-300"] {
   color: #1e293b !important;
 }
-html.light .text-slate-400 {
-  color: #64748b !important;
-}
-html.light .text-slate-500 {
-  color: #64748b !important;
-}
-html.light .text-slate-600 {
+html.light .text-slate-400,
+html.light [class*="text-slate-400"] {
   color: #475569 !important;
+}
+html.light .text-slate-500,
+html.light [class*="text-slate-500"] {
+  color: #334155 !important;
+}
+html.light .text-slate-600,
+html.light [class*="text-slate-600"] {
+  color: #1e293b !important;
 }
 
 /* Brand Accent Colors in Light Mode */
@@ -235,21 +250,46 @@ html.light .text-\[\#95CCDD\] {
 }
 html.light [class*="text-[#D0E7E6]"],
 html.light .text-\[\#D0E7E6\] {
-  color: #1e293b !important;
+  color: #0f172a !important;
 }
-html.light .text-brand-400 {
+html.light .text-brand-400,
+html.light [class*="text-brand-400"] {
   color: #293681 !important;
+}
+
+/* Neon accents converted to high-contrast readable colors */
+html.light [class*="text-emerald-400"],
+html.light [class*="text-emerald-300"] {
+  color: #059669 !important;
+}
+html.light [class*="text-blue-400"],
+html.light [class*="text-blue-300"] {
+  color: #2563eb !important;
+}
+html.light [class*="text-amber-400"],
+html.light [class*="text-amber-300"],
+html.light [class*="text-yellow-400"] {
+  color: #d97706 !important;
+}
+html.light [class*="text-red-400"],
+html.light [class*="text-rose-400"],
+html.light [class*="text-rose-300"] {
+  color: #dc2626 !important;
+}
+html.light [class*="text-purple-400"],
+html.light [class*="text-purple-300"] {
+  color: #7e22ce !important;
 }
 
 /* 9. Sidebar Navigation in Light Mode */
 html.light aside {
   background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 1px 0 2px 0 rgb(0 0 0 / 0.03);
+  border-color: #cbd5e1 !important;
+  box-shadow: 1px 0 3px 0 rgb(0 0 0 / 0.04);
 }
 html.light aside nav a,
 html.light aside nav button {
-  color: #475569 !important;
+  color: #334155 !important;
   font-weight: 500;
 }
 html.light aside nav a:hover,
@@ -259,7 +299,7 @@ html.light aside nav button:hover {
 }
 html.light [class*="bg-[#293681]/40"] {
   background-color: #eff6ff !important;
-  border-color: #bfdbfe !important;
+  border-color: #93c5fd !important;
   color: #1d4ed8 !important;
   font-weight: 700 !important;
 }
@@ -274,7 +314,7 @@ html.light [class*="bg-[#293681]/40"] span {
 html.light kbd,
 html.light [class*="bg-[#1a2336]"] {
   background-color: #f1f5f9 !important;
-  color: #334155 !important;
+  color: #1e293b !important;
   border-color: #cbd5e1 !important;
 }
 
@@ -282,9 +322,9 @@ html.light [class*="bg-[#1a2336]"] {
 html.light thead,
 html.light thead th {
   background-color: #f8fafc !important;
-  color: #475569 !important;
-  border-color: #e2e8f0 !important;
-  font-weight: 600 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+  font-weight: 700 !important;
 }
 
 /* 11. Form Inputs / Selects / Textareas in Light Mode */
@@ -294,6 +334,7 @@ html.light textarea {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
+  font-weight: 500;
 }
 html.light input:focus,
 html.light select:focus,
@@ -437,11 +478,11 @@ html.light svg text[class*="fill-white"] {
 }
 html.light svg text.fill-slate-400,
 html.light svg text[class*="fill-slate-400"] {
-  fill: #64748b !important;
+  fill: #475569 !important;
 }
 html.light svg text.fill-slate-300,
 html.light svg text[class*="fill-slate-300"] {
-  fill: #334155 !important;
+  fill: #1e293b !important;
 }
 
 /* Topology Edge Badges */
@@ -458,7 +499,7 @@ html.light [class*="bg-[#171a21]/90"] {
   color: #1e293b !important;
 }
 
-/* 15. SOLID ACTION BUTTONS - CRITICAL WHITE TEXT PRESERVATION */
+/* 15. SOLID ACTION BUTTONS - CRITICAL WHITE TEXT PRESERVATION (HIGHEST SPECIFICITY) */
 /* Ensure all solid colored buttons, links, and action badges maintain clean, solid white text in Light Mode */
 html.light .bg-blue-600,
 html.light .bg-blue-500,
@@ -509,7 +550,7 @@ html.light [class*="bg-[#3461c2]"] * {
 
 /* 16. MODERN CARD ELEVATION & CRISP SHADOWS */
 html.light .shadow-sm {
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08) !important;
 }
 html.light .shadow {
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
