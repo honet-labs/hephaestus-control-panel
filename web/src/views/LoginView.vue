@@ -64,12 +64,17 @@ onMounted(() => {
           <span>{{ error }}</span>
         </div>
 
-        <form @submit.prevent="handleLogin" class="space-y-4 text-xs">
+        <form id="login-form" @submit.prevent="handleLogin" method="post" action="/api/v1/auth/login" class="space-y-4 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1 font-medium">Username</label>
+            <label for="login-username" class="block text-slate-400 mb-1 font-medium">Username</label>
             <div class="relative">
               <User class="w-4 h-4 absolute left-3 top-2.5 text-[#95CCDD]" />
               <input
+                id="login-username"
+                name="username"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck="false"
                 v-model="username"
                 type="text"
                 required
@@ -80,10 +85,13 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-medium">Password</label>
+            <label for="login-password" class="block text-slate-400 mb-1 font-medium">Password</label>
             <div class="relative">
               <Lock class="w-4 h-4 absolute left-3 top-2.5 text-[#95CCDD]" />
               <input
+                id="login-password"
+                name="password"
+                autocomplete="current-password"
                 v-model="password"
                 type="password"
                 required
@@ -94,6 +102,7 @@ onMounted(() => {
           </div>
 
           <button
+            id="login-submit-btn"
             type="submit"
             :disabled="loading"
             class="w-full py-2.5 bg-[#4274D9] hover:bg-[#3461c2] disabled:opacity-50 text-white font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition duration-150"

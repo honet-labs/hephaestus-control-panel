@@ -58,23 +58,51 @@ const handleSetup = async () => {
           {{ error }}
         </div>
 
-        <form @submit.prevent="handleSetup" class="space-y-4 text-xs">
+        <form id="setup-form" @submit.prevent="handleSetup" method="post" action="/api/v1/setup/complete" class="space-y-4 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1 font-medium">Administrator Username</label>
-            <input v-model="username" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+            <label for="setup-username" class="block text-slate-400 mb-1 font-medium">Administrator Username</label>
+            <input
+              id="setup-username"
+              name="username"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              v-model="username"
+              required
+              class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+            />
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-medium">Password</label>
-            <input v-model="password" type="password" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="Minimum 6 characters" />
+            <label for="setup-password" class="block text-slate-400 mb-1 font-medium">Password</label>
+            <input
+              id="setup-password"
+              name="password"
+              autocomplete="new-password"
+              v-model="password"
+              type="password"
+              required
+              class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              placeholder="Minimum 6 characters"
+            />
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1 font-medium">Confirm Password</label>
-            <input v-model="confirmPassword" type="password" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="Re-enter password" />
+            <label for="setup-confirm-password" class="block text-slate-400 mb-1 font-medium">Confirm Password</label>
+            <input
+              id="setup-confirm-password"
+              name="confirm-password"
+              autocomplete="new-password"
+              v-model="confirmPassword"
+              type="password"
+              required
+              class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              placeholder="Re-enter password"
+            />
           </div>
 
           <button
+            id="setup-submit-btn"
             type="submit"
             :disabled="loading"
             class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-semibold rounded-lg transition"

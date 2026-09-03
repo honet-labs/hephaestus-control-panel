@@ -510,7 +510,7 @@ onMounted(() => {
                 </div>
                 <div>
                   <label class="block text-slate-400 text-[10px]">Password</label>
-                  <input v-model="form.sshPassword" type="password" placeholder="••••••" class="w-full bg-[#0e121c] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
+                  <input v-model="form.sshPassword" type="password" autocomplete="new-password" placeholder="••••••" class="w-full bg-[#0e121c] border border-slate-700 rounded px-2 py-1 text-white font-mono" />
                 </div>
               </div>
             </div>
@@ -554,7 +554,7 @@ onMounted(() => {
               </div>
               <div>
                 <label class="block text-slate-400 text-[10px]">Password</label>
-                <input v-model="form.osPassword" type="password" placeholder="••••••" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
+                <input v-model="form.osPassword" type="password" autocomplete="new-password" placeholder="••••••" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
               </div>
             </div>
 
