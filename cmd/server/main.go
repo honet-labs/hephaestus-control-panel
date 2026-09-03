@@ -90,7 +90,7 @@ func main() {
 	grokHandler := handlers.NewGrokHandler(grokService)
 	dpHandler := handlers.NewDataPrepperHandler(dpService)
 	settingsHandler := handlers.NewSettingsHandler(configRepo, userRepo, systemService)
-	logsHandler := handlers.NewLogsHandler()
+	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
 
 	// 8. Gin Router Setup

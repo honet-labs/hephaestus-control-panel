@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
+import { useAuthStore } from '../stores/auth';
 import { FileText, Pause, Play, Trash2, Filter } from 'lucide-vue-next';
 
 interface LogEntry {
@@ -11,6 +12,7 @@ interface LogEntry {
   fields?: Record<string, any>;
 }
 
+const authStore = useAuthStore();
 const logs = ref<LogEntry[]>([]);
 const isPaused = ref(false);
 const filterLevel = ref('ALL');
@@ -27,8 +29,9 @@ const filteredLogs = computed(() => {
 });
 
 const connectWebSocket = () => {
+  const token = authStore.token || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/logs`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/logs?token=${encodeURIComponent(token)}`;
 
   ws = new WebSocket(wsUrl);
 

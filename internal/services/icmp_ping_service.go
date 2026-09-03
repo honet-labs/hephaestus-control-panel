@@ -92,8 +92,16 @@ func (s *IcmpPingService) HandlePingCycleJob(ctx context.Context, job *domain.Jo
 	return nil
 }
 
+func isSafeHostOrIP(target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" || strings.HasPrefix(t, "-") || strings.ContainsAny(t, ";&|`$>< \t\r\n'\"\\") {
+		return false
+	}
+	return true
+}
+
 func pingHost(ctx context.Context, ip string) (bool, *float64) {
-	if ip == "" {
+	if !isSafeHostOrIP(ip) {
 		return false, nil
 	}
 
@@ -132,11 +140,14 @@ func pingHost(ctx context.Context, ip string) (bool, *float64) {
 }
 
 func (s *IcmpPingService) PingHostOutput(ctx context.Context, ip string, count int) string {
-	if ip == "" {
-		return "Error: IP address is required"
+	if !isSafeHostOrIP(ip) {
+		return "Error: Invalid or disallowed host/IP address format"
 	}
 	if count <= 0 {
 		count = 4
+	}
+	if count > 10 {
+		count = 10
 	}
 
 	var cmd *exec.Cmd

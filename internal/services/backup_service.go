@@ -249,10 +249,10 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	switch dbCfg.DBType {
 	case "postgresql":
 		dumpCmd = fmt.Sprintf("PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'",
-			escapeShell(dbCfg.Password), dbCfg.Host, dbCfg.Port, dbCfg.Username, dbCfg.DatabaseName, remotePath)
+			escapeShell(dbCfg.Password), escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	case "mysql", "mariadb":
 		dumpCmd = fmt.Sprintf("mysqldump -h '%s' -P %d -u '%s' -p'%s' '%s' > '%s'",
-			dbCfg.Host, dbCfg.Port, dbCfg.Username, escapeShell(dbCfg.Password), dbCfg.DatabaseName, remotePath)
+			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.Password), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	default:
 		return nil, fmt.Errorf("unsupported DB type for SSH dump: %s", dbCfg.DBType)
 	}
@@ -274,8 +274,8 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 		return nil, err
 	}
 
-	// Clean up remote file
-	_, _, _, _ = s.sshService.ExecuteCommand(remoteHostCfg, fmt.Sprintf("rm -f '%s'", remotePath))
+	// Clean up remote file safely
+	_, _, _, _ = s.sshService.ExecuteCommand(remoteHostCfg, fmt.Sprintf("rm -f '%s'", escapeShell(remotePath)))
 
 	return data, nil
 }

@@ -6,14 +6,17 @@ import (
 	"strings"
 
 	"go-hephaestus/internal/logger"
+	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-type LogsHandler struct{}
+type LogsHandler struct {
+	authService *services.AuthService
+}
 
-func NewLogsHandler() *LogsHandler {
-	return &LogsHandler{}
+func NewLogsHandler(authService *services.AuthService) *LogsHandler {
+	return &LogsHandler{authService: authService}
 }
 
 func (h *LogsHandler) GetRecentLogs(c *gin.Context) {
@@ -50,6 +53,23 @@ func (h *LogsHandler) GetRecentLogs(c *gin.Context) {
 
 // WebSocket Live Log Stream Endpoint: /ws/logs
 func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
+	token := c.Query("token")
+	if token == "" {
+		token = c.GetHeader("Sec-WebSocket-Protocol")
+	}
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Authentication token required"})
+		return
+	}
+
+	if h.authService != nil {
+		user, err := h.authService.ValidateSession(c.Request.Context(), token)
+		if err != nil || user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired session token"})
+			return
+		}
+	}
+
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return

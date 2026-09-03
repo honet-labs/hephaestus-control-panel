@@ -129,19 +129,27 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		logger.Error("WS", "WebSocket upgrade failed", err)
 		return
 	}
+	defer ws.Close()
 
-	var userID int = 1
+	var userID int
 	var hostID string = queryHostID
+	var isAuthenticated bool
 
+	// 1. Try authentication via query token
 	if queryToken != "" {
 		user, err := h.authService.ValidateSession(c.Request.Context(), queryToken)
 		if err == nil && user != nil {
 			userID = user.ID
+			isAuthenticated = true
+		} else {
+			_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
+			_ = ws.Close()
+			return
 		}
 	}
 
-	if hostID == "" {
-		// Wait for initial handshake message if host was not in query string
+	// 2. If not authenticated or hostID missing, wait for initial handshake message
+	if !isAuthenticated || hostID == "" {
 		_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
 		var authMsg domain.WsTerminalMessage
 		if err := ws.ReadJSON(&authMsg); err != nil {
@@ -153,12 +161,13 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 
 		if authMsg.Token != "" {
 			user, err := h.authService.ValidateSession(c.Request.Context(), authMsg.Token)
-			if err != nil {
+			if err != nil || user == nil {
 				_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
 				_ = ws.Close()
 				return
 			}
 			userID = user.ID
+			isAuthenticated = true
 		}
 
 		if authMsg.HostConfigID != "" {
@@ -172,6 +181,13 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		if authMsg.Rows > 0 {
 			rows = authMsg.Rows
 		}
+	}
+
+	// Enforce strict authentication requirement
+	if !isAuthenticated {
+		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Access denied. Valid authentication token required."})
+		_ = ws.Close()
+		return
 	}
 
 	if hostID == "" {
