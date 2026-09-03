@@ -34,6 +34,16 @@ import {
   Zap,
   Cable,
   Eye,
+  Router,
+  Database,
+  Cloud,
+  Boxes,
+  Box,
+  Flame,
+  Monitor,
+  Laptop,
+  Cpu,
+  Globe,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 
@@ -156,9 +166,24 @@ const filteredDiscoveredDevices = computed(() => {
   return list;
 });
 
+const standardDeviceTypes = [
+  'SERVER',
+  'ROUTER',
+  'SWITCH',
+  'ACCESS POINT',
+  'DATABASE',
+  'DOCKER',
+  'CLOUD',
+  'FIREWALL',
+  'NAS',
+  'WORKSTATION',
+  'VM',
+  'INTERNET',
+];
+
 // Discovered types list
 const availableTypes = computed(() => {
-  const set = new Set<string>();
+  const set = new Set<string>(standardDeviceTypes);
   allDevices.value.forEach(d => {
     if (d.deviceType) set.add(d.deviceType.toUpperCase());
   });
@@ -720,12 +745,18 @@ const calculateEdgePath = (edge: Edge) => {
 // Return node icon component based on type
 const getNodeIcon = (type?: string) => {
   const t = (type || '').toLowerCase();
-  if (t.includes('server')) return Server;
-  if (t.includes('router')) return Radio;
-  if (t.includes('switch')) return Network;
-  if (t.includes('ap') || t.includes('wifi') || t.includes('access')) return Wifi;
-  if (t.includes('firewall')) return ShieldCheck;
-  return HardDrive;
+  if (t.includes('router') || t.includes('rtr')) return Router;
+  if (t.includes('switch') || t.includes('sw') || t.includes('hub')) return Network;
+  if (t.includes('ap') || t.includes('wifi') || t.includes('access') || t.includes('wireless') || t.includes('radio') || t.includes('hotspot')) return Wifi;
+  if (t.includes('database') || t.includes('db') || t.includes('sql') || t.includes('postgres') || t.includes('mysql') || t.includes('mongo') || t.includes('redis') || t.includes('opensearch') || t.includes('elasticsearch')) return Database;
+  if (t.includes('docker') || t.includes('container') || t.includes('k8s') || t.includes('kubernetes') || t.includes('pod') || t.includes('swarm')) return Boxes;
+  if (t.includes('cloud') || t.includes('aws') || t.includes('azure') || t.includes('gcp') || t.includes('cloudflare') || t.includes('saas') || t.includes('cdn')) return Cloud;
+  if (t.includes('firewall') || t.includes('fw') || t.includes('shield') || t.includes('pfsense') || t.includes('forti') || t.includes('waf') || t.includes('security')) return ShieldCheck;
+  if (t.includes('nas') || t.includes('storage') || t.includes('san') || t.includes('disk') || t.includes('backup') || t.includes('drive') || t.includes('hdd') || t.includes('ssd')) return HardDrive;
+  if (t.includes('workstation') || t.includes('pc') || t.includes('desktop') || t.includes('laptop') || t.includes('client') || t.includes('computer') || t.includes('endpoint')) return Monitor;
+  if (t.includes('vm') || t.includes('virtual') || t.includes('proxmox') || t.includes('esxi') || t.includes('vps') || t.includes('kvm')) return Cpu;
+  if (t.includes('internet') || t.includes('wan') || t.includes('isp') || t.includes('gateway') || t.includes('web') || t.includes('public')) return Globe;
+  return Server;
 };
 
 // Close all context menus on global click
@@ -981,26 +1012,29 @@ onUnmounted(() => {
           <div
             v-for="dev in filteredDiscoveredDevices"
             :key="dev.id"
-            class="pt-1.5 flex items-center justify-between group hover:bg-slate-800/30 p-1.5 rounded-lg transition"
+            class="pt-1.5 flex items-center justify-between group hover:bg-slate-100 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition"
           >
             <div class="flex items-center gap-2 overflow-hidden flex-1 mr-2">
               <input
                 type="checkbox"
                 :value="dev.id"
                 v-model="selectedDiscoveredIds"
-                class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
               />
-              <span
-                :class="[
-                  'w-2 h-2 rounded-full shrink-0',
-                  dev.status === 'online' ? 'bg-emerald-400' : dev.status === 'offline' ? 'bg-red-400' : 'bg-slate-500'
-                ]"
-              ></span>
+              <div class="w-6 h-6 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700/60">
+                <component
+                  :is="getNodeIcon(dev.deviceType)"
+                  class="w-3.5 h-3.5"
+                  :class="[
+                    dev.status === 'online' ? 'text-emerald-600 dark:text-emerald-400' : dev.status === 'offline' ? 'text-rose-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'
+                  ]"
+                />
+              </div>
               <div class="overflow-hidden">
-                <p class="text-xs font-medium text-slate-200 truncate">{{ dev.name }}</p>
+                <p class="text-xs font-medium text-slate-900 dark:text-slate-200 truncate">{{ dev.name }}</p>
                 <div class="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
                   <span>{{ dev.ipAddress }}</span>
-                  <span class="px-1 py-0.2 rounded bg-slate-800 text-slate-400 uppercase text-[8px] font-bold">
+                  <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase text-[8px] font-bold">
                     {{ dev.deviceType || 'UNKNOWN' }}
                   </span>
                 </div>
@@ -1207,11 +1241,16 @@ onUnmounted(() => {
       >
         <!-- Drawer Header -->
         <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">{{ selectedNode.name }}</h3>
-            <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ selectedNode.ipAddress }}</p>
+          <div class="flex items-center gap-2.5 overflow-hidden">
+            <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <component :is="getNodeIcon(selectedNode.deviceType)" class="w-4 h-4" />
+            </div>
+            <div class="overflow-hidden">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide truncate">{{ selectedNode.name }}</h3>
+              <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ selectedNode.ipAddress }}</p>
+            </div>
           </div>
-          <button @click="selectedNode = null" class="text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          <button @click="selectedNode = null" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -1518,12 +1557,19 @@ onUnmounted(() => {
                 v-model="deviceForm.deviceType"
                 class="w-full bg-[#111317] border border-slate-700 rounded-lg px-3 py-2 text-white"
               >
-                <option value="server">Server</option>
-                <option value="router">Router</option>
-                <option value="switch">Switch</option>
+                <option value="server">Server (VPS / Bare Metal)</option>
+                <option value="router">Router / Gateway</option>
+                <option value="switch">Switch / Core Switch</option>
                 <option value="ap">Access Point / WiFi</option>
-                <option value="firewall">Firewall</option>
-                <option value="unknown">Unknown</option>
+                <option value="database">Database (SQL / OpenSearch)</option>
+                <option value="docker">Docker / Container / K8s</option>
+                <option value="cloud">Cloud / SaaS (AWS / Cloudflare)</option>
+                <option value="firewall">Firewall / Security (pfSense / WAF)</option>
+                <option value="nas">NAS / Storage / SAN</option>
+                <option value="workstation">Workstation / PC / Laptop</option>
+                <option value="vm">Virtual Machine (Proxmox / ESXi)</option>
+                <option value="internet">Internet / WAN Provider</option>
+                <option value="unknown">Other / Unknown</option>
               </select>
             </div>
             <div>
