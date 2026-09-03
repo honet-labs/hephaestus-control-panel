@@ -14,7 +14,9 @@ ENV GOPROXY=https://proxy.golang.org,https://goproxy.io,direct \
 COPY . ./
 
 # Resolve dependencies and compile static binary
-RUN go mod tidy && go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server
+RUN go mod tidy && \
+    go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server && \
+    go build -ldflags="-w -s" -o /app/hcp-cli ./cmd/cli
 
 # ==========================================
 # Backend Production Runtime Stage
@@ -28,6 +30,8 @@ RUN (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/reposi
 WORKDIR /app
 
 COPY --from=builder /app/hephaestus /app/hephaestus
+COPY --from=builder /app/hcp-cli /app/hcp-cli
+RUN ln -sf /app/hcp-cli /usr/local/bin/hcp-cli && ln -sf /app/hephaestus /usr/local/bin/hephaestus
 COPY internal/database/migrations /app/internal/database/migrations
 
 # Create storage directories

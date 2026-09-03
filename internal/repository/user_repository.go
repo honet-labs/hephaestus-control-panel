@@ -165,6 +165,15 @@ func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) er
 	return err
 }
 
+func (r *UserRepository) DeleteUserSessions(ctx context.Context, userID int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, userID)
+	return err
+}
+
 func (r *UserRepository) CleanExpiredSessions(ctx context.Context) (int64, error) {
 	pool, err := database.GetPool()
 	if err != nil {

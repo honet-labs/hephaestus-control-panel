@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"go-hephaestus/internal/cli"
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/handlers"
@@ -25,6 +26,15 @@ import (
 )
 
 func main() {
+	// Support direct CLI subcommands (e.g. reset-password, list-users, create-user)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "reset-password", "reset-admin", "passwd", "list-users", "create-user", "add-user", "cli":
+			cli.RunCLI(os.Args[1:])
+			return
+		}
+	}
+
 	// 1. Load Configurations
 	cfg := config.LoadConfig()
 
