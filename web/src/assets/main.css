@@ -9,20 +9,20 @@
     --color-cyan: #95CCDD;
     --color-ice: #D0E7E6;
 
-    /* Light mode variables */
-    --bg-app: #f4f7fb;
+    /* Light mode tokens */
+    --bg-app: #f1f5f9;
     --bg-card: #ffffff;
     --bg-header: #ffffff;
-    --bg-subtle: #edf3f9;
-    --bg-hover: #e2ecf7;
-    --border-color: #d1dfed;
+    --bg-subtle: #f8fafc;
+    --bg-hover: #e2e8f0;
+    --border-color: #e2e8f0;
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-muted: #64748b;
   }
 
   html.dark {
-    /* Dark mode variables */
+    /* Dark mode tokens */
     --bg-app: #090d16;
     --bg-card: #0e1118;
     --bg-header: #14161f;
@@ -43,7 +43,7 @@
 }
 
 /* ===================================================================
-   LIGHT MODE ADAPTATION (Enterprise Crisp Clean Theme)
+   LIGHT MODE ADAPTATION (Crisp Enterprise Theme with High Contrast)
    =================================================================== */
 
 /* 1. Body & Scrollbars */
@@ -74,16 +74,16 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: #4274D9;
 }
 
-/* 2. Glassmorphism in Light Mode */
+/* 2. Glassmorphism */
 html.light .glass {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(203, 213, 225, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
 }
 
-/* 3. Primary Canvas / Background Surfaces -> #f1f5f9 (Soft Slate) */
-html.light body,
+/* 3. Canvas & App Background Surfaces -> #f1f5f9 (Soft Slate) */
 html.light .bg-slate-50,
 html.light .bg-slate-100,
 html.light [class*="bg-[#090d16]"],
@@ -97,7 +97,7 @@ html.light .bg-\[\#0b0d11\] {
   background-color: #f1f5f9 !important;
 }
 
-/* 4. Cards / Panels / Tables / Dialogs / Modals -> #ffffff with subtle crisp border */
+/* 4. Cards / Panels / Dialogs / Modals / Content Boxes -> #ffffff with crisp borders and subtle depth */
 html.light [class*="bg-[#0e121c]"],
 html.light [class*="bg-[#0e1118]"],
 html.light [class*="bg-[#0c101a]"],
@@ -133,11 +133,10 @@ html.light .bg-\[\#1a1d26\],
 html.light .bg-\[\#1b1e26\],
 html.light .bg-\[\#1c202b\] {
   background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
 }
 
-/* 5. Insets / Form Inputs / Inner Sub-surfaces / Badges / Secondary Buttons -> #f8fafc */
+/* 5. Insets / Sub-surfaces / Secondary Inset Boxes -> #f8fafc */
 html.light [class*="bg-[#0f1219]"],
 html.light [class*="bg-[#121620]"],
 html.light [class*="bg-[#121826]"],
@@ -165,11 +164,10 @@ html.light .bg-\[\#202534\],
 html.light .bg-\[\#242833\],
 html.light .bg-\[\#282d3a\] {
   background-color: #f8fafc !important;
-  border-color: #cbd5e1 !important;
-  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
 }
 
-/* 6. Hover States in Light Mode (Clean Slate Hover) */
+/* 6. Clean Slate Hover States in Light Mode */
 html.light [class*="hover:bg-[#"]:hover,
 html.light [class*="hover:bg-slate-800"]:hover,
 html.light [class*="hover:bg-slate-700"]:hover,
@@ -183,11 +181,10 @@ html.light .hover\:bg-\[\#242833\]:hover,
 html.light .hover\:bg-\[\#282d3a\]:hover,
 html.light .hover\:bg-slate-800:hover,
 html.light .hover\:bg-slate-700:hover {
-  background-color: #e2e8f0 !important;
-  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
 }
 
-/* 7. Borders in Light Mode */
+/* 7. Clean Crisp Borders in Light Mode */
 html.light [class*="border-[#1b2234]"],
 html.light [class*="border-[#293681]"],
 html.light [class*="border-slate-800"],
@@ -196,15 +193,16 @@ html.light .border-\[\#1b2234\],
 html.light .border-\[\#293681\],
 html.light .border-slate-800,
 html.light .border-slate-700 {
-  border-color: #cbd5e1 !important;
+  border-color: #e2e8f0 !important;
 }
 html.light .divide-slate-800 > *,
 html.light .divide-slate-800\/60 > *,
-html.light .divide-slate-800\/50 > * {
+html.light .divide-slate-800\/50 > *,
+html.light .divide-slate-700 > * {
   border-color: #e2e8f0 !important;
 }
 
-/* 8. Text Color & Contrast in Light Mode */
+/* 8. Text Color & Hierarchy in Light Mode */
 html.light h1,
 html.light h2,
 html.light h3,
@@ -214,23 +212,20 @@ html.light h6 {
   color: #0f172a !important;
 }
 
-html.light .text-white,
-html.light [class*="text-white"] {
-  color: #0f172a !important;
-}
+/* Base text classes adapt to high-contrast dark tones when on light canvas */
 html.light .text-slate-100,
 html.light .text-slate-200,
 html.light .text-slate-300 {
   color: #1e293b !important;
 }
 html.light .text-slate-400 {
-  color: #475569 !important;
+  color: #64748b !important;
 }
 html.light .text-slate-500 {
   color: #64748b !important;
 }
 html.light .text-slate-600 {
-  color: #334155 !important;
+  color: #475569 !important;
 }
 
 /* Brand Accent Colors in Light Mode */
@@ -240,7 +235,7 @@ html.light .text-\[\#95CCDD\] {
 }
 html.light [class*="text-[#D0E7E6]"],
 html.light .text-\[\#D0E7E6\] {
-  color: #0f172a !important;
+  color: #1e293b !important;
 }
 html.light .text-brand-400 {
   color: #293681 !important;
@@ -249,11 +244,12 @@ html.light .text-brand-400 {
 /* 9. Sidebar Navigation in Light Mode */
 html.light aside {
   background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 1px 0 2px 0 rgb(0 0 0 / 0.03);
 }
 html.light aside nav a,
 html.light aside nav button {
-  color: #334155 !important;
+  color: #475569 !important;
   font-weight: 500;
 }
 html.light aside nav a:hover,
@@ -263,35 +259,39 @@ html.light aside nav button:hover {
 }
 html.light [class*="bg-[#293681]/40"] {
   background-color: #eff6ff !important;
-  border-color: #93c5fd !important;
+  border-color: #bfdbfe !important;
   color: #1d4ed8 !important;
   font-weight: 700 !important;
 }
-html.light [class*="bg-[#293681]/40"] * {
+html.light [class*="bg-[#293681]/40"] svg {
+  color: #2563eb !important;
+}
+html.light [class*="bg-[#293681]/40"] span {
   color: #1d4ed8 !important;
 }
 
 /* Quick search kbd badge */
 html.light kbd,
 html.light [class*="bg-[#1a2336]"] {
-  background-color: #e2e8f0 !important;
-  color: #1e293b !important;
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
   border-color: #cbd5e1 !important;
 }
 
-/* 10. Table Thead & Cells */
+/* 10. Table Thead & Cells in Light Mode */
 html.light thead,
 html.light thead th {
   background-color: #f8fafc !important;
   color: #475569 !important;
   border-color: #e2e8f0 !important;
+  font-weight: 600 !important;
 }
 
-/* 11. Form Inputs / Selects / Textareas */
+/* 11. Form Inputs / Selects / Textareas in Light Mode */
 html.light input,
 html.light select,
 html.light textarea {
-  background-color: #f8fafc !important;
+  background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
@@ -299,7 +299,8 @@ html.light input:focus,
 html.light select:focus,
 html.light textarea:focus {
   background-color: #ffffff !important;
-  border-color: #4274D9 !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
   outline: none !important;
 }
 html.light input::placeholder,
@@ -307,63 +308,63 @@ html.light textarea::placeholder {
   color: #94a3b8 !important;
 }
 
-/* 12. Status Badges & Pills */
+/* 12. Status Badges & Pills (Crisp Pastel & High Contrast) */
 html.light [class*="bg-emerald-500/10"],
-html.light [class*="bg-emerald-600/20"] {
+html.light [class*="bg-emerald-600/20"],
+html.light [class*="bg-emerald-500/20"] {
   background-color: #ecfdf5 !important;
   border-color: #a7f3d0 !important;
   color: #065f46 !important;
 }
-html.light [class*="bg-emerald-500/10"] *,
-html.light [class*="bg-emerald-600/20"] * {
-  color: #065f46 !important;
+html.light [class*="bg-emerald-500/10"] svg,
+html.light [class*="bg-emerald-600/20"] svg {
+  color: #059669 !important;
 }
 
-html.light [class*="bg-amber-500/10"] {
+html.light [class*="bg-amber-500/10"],
+html.light [class*="bg-amber-500/20"],
+html.light [class*="bg-amber-600/20"] {
   background-color: #fffbeb !important;
   border-color: #fde68a !important;
   color: #92400e !important;
 }
-html.light [class*="bg-amber-500/10"] * {
-  color: #92400e !important;
+html.light [class*="bg-amber-500/10"] svg {
+  color: #d97706 !important;
 }
 
 html.light [class*="bg-red-500/10"],
-html.light [class*="bg-rose-500/10"] {
+html.light [class*="bg-red-500/20"],
+html.light [class*="bg-rose-500/10"],
+html.light [class*="bg-rose-500/20"] {
   background-color: #fef2f2 !important;
   border-color: #fecaca !important;
   color: #991b1b !important;
 }
-html.light [class*="bg-red-500/10"] *,
-html.light [class*="bg-rose-500/10"] * {
-  color: #991b1b !important;
+html.light [class*="bg-red-500/10"] svg,
+html.light [class*="bg-rose-500/10"] svg {
+  color: #dc2626 !important;
 }
 
 html.light [class*="bg-sky-500/10"],
-html.light [class*="bg-blue-500/10"] {
+html.light [class*="bg-blue-500/10"],
+html.light [class*="bg-blue-600/20"] {
   background-color: #eff6ff !important;
   border-color: #bfdbfe !important;
   color: #1d4ed8 !important;
 }
-html.light [class*="bg-sky-500/10"] *,
-html.light [class*="bg-blue-500/10"] * {
-  color: #1d4ed8 !important;
+html.light [class*="bg-sky-500/10"] svg,
+html.light [class*="bg-blue-500/10"] svg {
+  color: #2563eb !important;
 }
 
-html.light [class*="bg-purple-500/10"] {
+html.light [class*="bg-purple-500/10"],
+html.light [class*="bg-purple-500/20"] {
   background-color: #faf5ff !important;
   border-color: #e9d5ff !important;
   color: #7e22ce !important;
 }
-html.light [class*="bg-purple-500/10"] * {
-  color: #7e22ce !important;
-}
 
 /* 13. OpenSearch Shards Matrix in Light Mode */
-html.light [class*="bg-[#13161c]"] {
-  background-color: #f1f5f9 !important;
-  border-color: #e2e8f0 !important;
-}
 html.light [class*="bg-[#0f3d28]"] {
   background-color: #d1fae5 !important;
   border-color: #6ee7b7 !important;
@@ -382,19 +383,19 @@ html.light [class*="bg-[#3b1219]"] {
 
 /* Dimmed Shards in Light Mode */
 html.light [class*="bg-[#0f3d28]/25"] {
-  background-color: rgba(209, 250, 229, 0.4) !important;
-  border-color: rgba(110, 231, 183, 0.3) !important;
-  color: rgba(6, 95, 70, 0.4) !important;
+  background-color: rgba(209, 250, 229, 0.5) !important;
+  border-color: rgba(110, 231, 183, 0.4) !important;
+  color: rgba(6, 95, 70, 0.6) !important;
 }
 html.light [class*="bg-[#132c4a]/25"] {
-  background-color: rgba(219, 234, 254, 0.4) !important;
-  border-color: rgba(147, 197, 253, 0.3) !important;
-  color: rgba(30, 64, 175, 0.4) !important;
+  background-color: rgba(219, 234, 254, 0.5) !important;
+  border-color: rgba(147, 197, 253, 0.4) !important;
+  color: rgba(30, 64, 175, 0.6) !important;
 }
 html.light [class*="bg-[#3b1219]/25"] {
-  background-color: rgba(254, 226, 226, 0.4) !important;
-  border-color: rgba(252, 165, 165, 0.3) !important;
-  color: rgba(153, 27, 27, 0.4) !important;
+  background-color: rgba(254, 226, 226, 0.5) !important;
+  border-color: rgba(252, 165, 165, 0.4) !important;
+  color: rgba(153, 27, 27, 0.6) !important;
 }
 
 /* 14. Network Topology Canvas & Elements in Light Mode */
@@ -429,14 +430,6 @@ html.light circle.stroke-slate-700 {
   stroke: #94a3b8 !important;
 }
 
-/* Topology Node Center Icons */
-html.light svg .text-emerald-300 {
-  color: #059669 !important;
-}
-html.light svg .text-red-400 {
-  color: #e11d48 !important;
-}
-
 /* Topology Node Labels (SVG <text>) */
 html.light svg text.fill-white,
 html.light svg text[class*="fill-white"] {
@@ -464,15 +457,28 @@ html.light [class*="bg-[#171a21]/90"] {
   border-color: #cbd5e1 !important;
   color: #1e293b !important;
 }
-html.light [class*="bg-[#171a21]/90"] * {
-  color: #1e293b !important;
-}
 
-/* 15. PRESERVE Saturated Primary Action Buttons & Solid White Text */
+/* 15. SOLID ACTION BUTTONS - CRITICAL WHITE TEXT PRESERVATION */
+/* Ensure all solid colored buttons, links, and action badges maintain clean, solid white text in Light Mode */
+html.light .bg-blue-600,
+html.light .bg-blue-500,
+html.light .bg-blue-700,
+html.light .bg-indigo-600,
+html.light .bg-emerald-600,
+html.light .bg-emerald-500,
+html.light .bg-emerald-700,
+html.light .bg-rose-600,
+html.light .bg-rose-500,
+html.light .bg-red-600,
+html.light .bg-brand-500,
+html.light .bg-brand-600,
 html.light [class*="bg-blue-600"],
 html.light [class*="bg-blue-500"],
+html.light [class*="bg-blue-700"],
 html.light [class*="bg-emerald-600"],
+html.light [class*="bg-emerald-500"],
 html.light [class*="bg-rose-600"],
+html.light [class*="bg-red-600"],
 html.light [class*="bg-brand-500"],
 html.light [class*="bg-brand-600"],
 html.light [class*="bg-[#4274D9]"],
@@ -480,10 +486,19 @@ html.light [class*="bg-[#293681]"],
 html.light [class*="bg-[#3461c2]"] {
   color: #ffffff !important;
 }
+
+html.light .bg-blue-600 *,
+html.light .bg-blue-500 *,
+html.light .bg-blue-700 *,
+html.light .bg-emerald-600 *,
+html.light .bg-rose-600 *,
+html.light .bg-red-600 *,
 html.light [class*="bg-blue-600"] *,
 html.light [class*="bg-blue-500"] *,
+html.light [class*="bg-blue-700"] *,
 html.light [class*="bg-emerald-600"] *,
 html.light [class*="bg-rose-600"] *,
+html.light [class*="bg-red-600"] *,
 html.light [class*="bg-brand-500"] *,
 html.light [class*="bg-brand-600"] *,
 html.light [class*="bg-[#4274D9]"] *,
@@ -492,34 +507,24 @@ html.light [class*="bg-[#3461c2]"] * {
   color: #ffffff !important;
 }
 
-/* ===================================================================
-   NO-GLOW / CLEAN SOLID AESTHETICS (Disable colored neon glows & halos)
-   =================================================================== */
-[class*="shadow-blue"],
-[class*="shadow-emerald"],
-[class*="shadow-green"],
-[class*="shadow-brand"],
-[class*="shadow-rose"],
-[class*="shadow-red"],
-[class*="shadow-amber"],
-[class*="shadow-yellow"],
-[class*="shadow-cyan"],
-[class*="shadow-sky"],
-[class*="shadow-purple"],
-[class*="shadow-indigo"],
-[class*="shadow-[#"] {
-  --tw-shadow: 0 0 #0000 !important;
-  --tw-shadow-colored: 0 0 #0000 !important;
-  --tw-shadow-color: transparent !important;
-  box-shadow: none !important;
-  filter: none !important;
+/* 16. MODERN CARD ELEVATION & CRISP SHADOWS */
+html.light .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important;
+}
+html.light .shadow {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
+}
+html.light .shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+html.light .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+}
+html.light .shadow-xl {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
 }
 
-/* Eliminate SVG blur glow filters and neon pulsating halos */
+/* Eliminate excessive SVG neon glow filters */
 svg filter[id*="glow"] {
   display: none !important;
-}
-
-.animate-pulse {
-  animation: none !important;
 }
