@@ -148,6 +148,7 @@ interface OpenSession {
   activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp';
   term?: Terminal;
   fitAddon?: FitAddon;
+  resizeObserver?: ResizeObserver;
   ws?: WebSocket;
   connected: boolean;
   heartbeatTimer?: any;
@@ -453,8 +454,23 @@ const ensureTerminalReady = async (session: OpenSession) => {
       try {
         session.fitAddon?.fit();
         session.term?.focus();
+        if (
+          session.ws &&
+          session.ws.readyState === WebSocket.OPEN &&
+          session.term &&
+          session.term.cols > 0 &&
+          session.term.rows > 0
+        ) {
+          session.ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols: session.term.cols,
+              rows: session.term.rows,
+            })
+          );
+        }
       } catch (e) {}
-    }, 50);
+    }, 60);
   }
 };
 
@@ -464,6 +480,11 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   const s = openSessions.value[idx];
   if (s) {
     if (s.heartbeatTimer) clearInterval(s.heartbeatTimer);
+    if (s.resizeObserver) {
+      try {
+        s.resizeObserver.disconnect();
+      } catch (e) {}
+    }
     if (s.ws) {
       try {
         s.ws.close();
@@ -485,6 +506,11 @@ const closeSession = (idx: number, event?: MouseEvent) => {
 // Reconnect Terminal
 const reconnectTerminal = (session: OpenSession) => {
   if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+  if (session.resizeObserver) {
+    try {
+      session.resizeObserver.disconnect();
+    } catch (e) {}
+  }
   if (session.ws) {
     try {
       session.ws.close();
@@ -500,12 +526,18 @@ const initXterm = (session: OpenSession) => {
   container.innerHTML = '';
 
   if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+  if (session.resizeObserver) {
+    try {
+      session.resizeObserver.disconnect();
+    } catch (e) {}
+  }
 
   const term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
     theme: themeStore.isDark ? darkTerminalTheme : lightTerminalTheme,
+    allowProposedApi: true,
   });
 
   const fitAddon = new FitAddon();
@@ -513,25 +545,33 @@ const initXterm = (session: OpenSession) => {
   term.loadAddon(new WebLinksAddon());
   term.open(container);
 
-  setTimeout(() => {
-    try {
-      fitAddon.fit();
-      term.focus();
-    } catch (e) {}
-  }, 50);
+  // Initial fit attempt
+  try {
+    fitAddon.fit();
+    term.focus();
+  } catch (e) {}
 
   session.term = term;
   session.fitAddon = fitAddon;
 
-  // Open WebSocket
+  // Open WebSocket with token and detected initial terminal dimensions
   const token = authStore.token || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${term.cols || 80}&rows=${term.rows || 24}`;
+  const initialCols = term.cols > 0 ? term.cols : 80;
+  const initialRows = term.rows > 0 ? term.rows : 24;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${initialCols}&rows=${initialRows}`;
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     session.connected = true;
     term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+
+    // Fit again immediately upon WebSocket opening to get true container dimensions
+    try {
+      fitAddon.fit();
+    } catch (e) {}
+
+    // Send auth handshake
     ws.send(
       JSON.stringify({
         type: 'auth',
@@ -541,6 +581,17 @@ const initXterm = (session: OpenSession) => {
         rows: term.rows,
       })
     );
+
+    // Send explicit resize message to ensure PTY adopts dimensions immediately
+    if (term.cols > 0 && term.rows > 0) {
+      ws.send(
+        JSON.stringify({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows,
+        })
+      );
+    }
 
     session.heartbeatTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -556,6 +607,10 @@ const initXterm = (session: OpenSession) => {
         term.write(msg.data);
       } else if (msg.type === 'connected') {
         session.connected = true;
+        // On connected ack, ensure remote PTY matches client dimensions
+        if (term.cols > 0 && term.rows > 0 && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'disconnected') {
@@ -591,6 +646,26 @@ const initXterm = (session: OpenSession) => {
       ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
   });
+
+  // Attach ResizeObserver to container so any layout change automatically fits terminal
+  const resizeObserver = new ResizeObserver(() => {
+    if (session.term && session.fitAddon && session.activeView === 'terminal') {
+      try {
+        session.fitAddon.fit();
+        if (session.ws && session.ws.readyState === WebSocket.OPEN && session.term.cols > 0 && session.term.rows > 0) {
+          session.ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols: session.term.cols,
+              rows: session.term.rows,
+            })
+          );
+        }
+      } catch (e) {}
+    }
+  });
+  resizeObserver.observe(container);
+  session.resizeObserver = resizeObserver;
 
   session.ws = ws;
 };
@@ -1406,16 +1481,46 @@ const handleCreateGroup = () => {
   }
 };
 
+const handleWindowResize = () => {
+  if (activeSession.value && activeSession.value.activeView === 'terminal') {
+    try {
+      activeSession.value.fitAddon?.fit();
+      if (
+        activeSession.value.ws &&
+        activeSession.value.ws.readyState === WebSocket.OPEN &&
+        activeSession.value.term &&
+        activeSession.value.term.cols > 0 &&
+        activeSession.value.term.rows > 0
+      ) {
+        activeSession.value.ws.send(
+          JSON.stringify({
+            type: 'resize',
+            cols: activeSession.value.term.cols,
+            rows: activeSession.value.term.rows,
+          })
+        );
+      }
+    } catch (e) {}
+  }
+};
+
 onMounted(() => {
   fetchHosts();
   window.addEventListener('click', closeAllContextMenus);
   window.addEventListener('keydown', handleGlobalKeydown);
+  window.addEventListener('resize', handleWindowResize);
 });
 
 onUnmounted(() => {
   window.removeEventListener('click', closeAllContextMenus);
   window.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('resize', handleWindowResize);
   openSessions.value.forEach((s) => {
+    if (s.resizeObserver) {
+      try {
+        s.resizeObserver.disconnect();
+      } catch (e) {}
+    }
     if (s.ws) s.ws.close();
     if (s.term) s.term.dispose();
   });
@@ -1845,10 +1950,10 @@ onUnmounted(() => {
           </aside>
 
           <!-- Host Content Pane -->
-          <div class="flex-1 flex flex-col overflow-hidden bg-[#090d16]">
+          <div class="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-[#090d16]">
             
             <!-- 1. TERMINAL VIEW (Always mounted, no blank screens) -->
-            <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative h-full">
+            <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden">
               <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
                 <span
                   v-if="session.connected"
@@ -1871,7 +1976,7 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
-              <div :id="`terminal-container-${session.id}`" class="flex-1 p-2 w-full h-full"></div>
+              <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden"></div>
             </div>
 
             <!-- 2. DASHBOARD VIEW -->
@@ -2833,3 +2938,29 @@ onUnmounted(() => {
 
   </div>
 </template>
+
+<style>
+.terminal-wrapper {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-wrapper .xterm {
+  height: 100% !important;
+  width: 100% !important;
+  padding: 6px 10px;
+}
+
+.terminal-wrapper .xterm .xterm-viewport {
+  overflow-y: auto !important;
+  width: 100% !important;
+}
+
+.terminal-wrapper .xterm .xterm-screen {
+  width: 100% !important;
+}
+</style>

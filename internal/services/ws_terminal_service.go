@@ -209,6 +209,9 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			case "disconnect":
 				return
 			case "auth":
+				if msg.Cols > 0 && msg.Rows > 0 {
+					_ = session.WindowChange(msg.Rows, msg.Cols)
+				}
 				// Handshake ack
 				_ = writeWs(domain.WsTerminalMessage{Type: "connected"})
 			}
