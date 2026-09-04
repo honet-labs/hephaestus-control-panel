@@ -324,39 +324,6 @@ const filteredServiceLogs = computed(() => {
 });
 
 // =================================================================
-// 2. USER ACCOUNTS STATE & METHODS
-// =================================================================
-const users = ref<any[]>([]);
-const isUserModalOpen = ref(false);
-const userForm = ref({ username: '', password: '', role: 'OPERATOR' });
-
-const fetchUsers = async () => {
-  try {
-    const res = await axios.get('/api/v1/auth/users').catch(() => null);
-    if (res && res.data && res.data.success) {
-      users.value = res.data.data;
-    } else {
-      users.value = [{ id: '1', username: 'admin', role: 'ADMIN', createdAt: '2026-08-20' }];
-    }
-  } catch (err) {
-    users.value = [{ id: '1', username: 'admin', role: 'ADMIN', createdAt: '2026-08-20' }];
-  }
-};
-
-const handleCreateUser = async () => {
-  try {
-    const res = await axios.post('/api/v1/auth/users', userForm.value);
-    if (res.data.success) {
-      isUserModalOpen.value = false;
-      userForm.value = { username: '', password: '', role: 'OPERATOR' };
-      await fetchUsers();
-    }
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to create user');
-  }
-};
-
-// =================================================================
 // 3. DATABASE CONFIG
 // =================================================================
 const dbConfig = ref({
@@ -547,19 +514,6 @@ const roleForm = ref({
 const roleActionLoading = ref(false);
 const roleErrorMsg = ref('');
 
-// Database Connection Config State
-const dbConfig = ref({
-  host: 'localhost',
-  port: 5432,
-  database: 'hephaestus',
-  user: 'hephaestus',
-  password: '',
-  ssl: false,
-});
-const savingDb = ref(false);
-const dbStatusMessage = ref('');
-const dbStatusType = ref<'success' | 'error' | ''>('');
-
 const fetchUsers = async () => {
   loadingUsers.value = true;
   try {
@@ -743,44 +697,6 @@ const getRoleStats = (role: SystemRole) => {
     else noneCount++;
   });
   return { manageCount, readCount, noneCount };
-};
-
-const fetchDatabaseConfig = async () => {
-  try {
-    const res = await axios.get('/api/v1/settings/database');
-    if (res.data && res.data.success && res.data.data) {
-      dbConfig.value = {
-        host: res.data.data.host || 'localhost',
-        port: res.data.data.port || 5432,
-        database: res.data.data.database || 'hephaestus',
-        user: res.data.data.user || 'hephaestus',
-        password: '',
-        ssl: !!res.data.data.ssl,
-      };
-    }
-  } catch (err) {
-    console.error('Failed to fetch DB config:', err);
-  }
-};
-
-const saveDbConfig = async () => {
-  savingDb.value = true;
-  dbStatusMessage.value = '';
-  try {
-    const res = await axios.post('/api/v1/settings/database', dbConfig.value);
-    if (res.data && res.data.success) {
-      dbStatusType.value = 'success';
-      dbStatusMessage.value = 'Database settings updated and reconnected successfully!';
-    } else {
-      dbStatusType.value = 'error';
-      dbStatusMessage.value = res.data?.error || 'Failed to update database settings.';
-    }
-  } catch (err: any) {
-    dbStatusType.value = 'error';
-    dbStatusMessage.value = err.response?.data?.error || 'Error saving database settings.';
-  } finally {
-    savingDb.value = false;
-  }
 };
 
 onMounted(() => {
