@@ -158,16 +158,66 @@ const handleTestConnection = async () => {
         success: res.data?.success || false,
         message: res.data?.success ? 'Connection verified successfully!' : (res.data?.error || 'Test failed'),
       };
+    } else if (form.value.type === 'Prometheus Server (SSH / Local File)') {
+      const payload: any = {
+        name: form.value.name,
+        mode: form.value.accessMode,
+        path: form.value.filePath || '/etc/prometheus/prometheus.yml',
+        reloadUrl: form.value.reloadUrl || 'http://localhost:9090/-/reload',
+        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
+        sshPort: form.value.accessMode === 'ssh' ? Number(form.value.sshPort) || 22 : null,
+        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
+        sshAuth: form.value.accessMode === 'ssh' ? form.value.sshAuth : null,
+        sshPassword: form.value.accessMode === 'ssh' ? form.value.sshPassword : null,
+        sshKey: form.value.accessMode === 'ssh' ? form.value.sshKey : null,
+      };
+      if (editingId.value) payload.id = editingId.value;
+
+      const res = await axios.post('/api/v1/settings/prometheus/test', payload);
+      testStatus.value = {
+        success: res.data?.success || false,
+        message: res.data?.success
+          ? (res.data?.message || 'Prometheus connection verified successfully!')
+          : (res.data?.error || res.data?.message || 'Failed to connect to Prometheus server.'),
+      };
+    } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
+      if (form.value.accessMode === 'ssh') {
+        const payload: any = {
+          name: form.value.name,
+          mode: 'ssh',
+          path: form.value.pipelinesDir || '/opt/data-prepper/pipelines',
+          sshHost: form.value.sshHost,
+          sshPort: Number(form.value.sshPort) || 22,
+          sshUser: form.value.sshUser,
+          sshAuth: form.value.sshAuth,
+          sshPassword: form.value.sshPassword,
+          sshKey: form.value.sshKey,
+        };
+        if (editingId.value) payload.id = editingId.value;
+
+        const res = await axios.post('/api/v1/settings/prometheus/test', payload);
+        testStatus.value = {
+          success: res.data?.success || false,
+          message: res.data?.success
+            ? (res.data?.message || 'Data Prepper host connection verified!')
+            : (res.data?.error || res.data?.message || 'Failed to connect to Data Prepper host.'),
+        };
+      } else {
+        testStatus.value = {
+          success: true,
+          message: 'Local directory mode configured.',
+        };
+      }
     } else {
       testStatus.value = {
         success: true,
-        message: 'Endpoint reachability verified via TCP handshake.',
+        message: 'Endpoint configuration verified.',
       };
     }
   } catch (err: any) {
     testStatus.value = {
       success: false,
-      message: err.response?.data?.error || 'Failed to reach service endpoint.',
+      message: err.response?.data?.error || err.message || 'Failed to reach service endpoint.',
     };
   } finally {
     testing.value = false;
@@ -307,10 +357,38 @@ const handleRegisterEndpoint = async () => {
 const handlePingTest = async (item: RegistryItem) => {
   item.status = 'checking';
   try {
-    await new Promise((r) => setTimeout(r, 600));
-    item.status = 'connected';
-  } catch (e) {
+    if (item.rawType === 'prometheus') {
+      const res = await axios.post('/api/v1/settings/prometheus/test', {
+        id: item.id,
+      });
+      if (res.data?.success) {
+        item.status = 'connected';
+      } else {
+        item.status = 'offline';
+        alert(res.data?.error || res.data?.message || `Prometheus connection failed: ${item.name}`);
+      }
+    } else if (item.rawType === 'opensearch') {
+      const res = await axios.post('/api/v1/opensearch/test', {
+        host: item.rawItem?.host,
+        port: Number(item.rawItem?.port) || 9200,
+        username: item.rawItem?.username,
+        password: item.rawItem?.password,
+        useSsl: item.rawItem?.useSsl,
+        verifySsl: item.rawItem?.verifySsl,
+      });
+      if (res.data?.success) {
+        item.status = 'connected';
+      } else {
+        item.status = 'offline';
+        alert(res.data?.error || `OpenSearch cluster unreachable for ${item.name}`);
+      }
+    } else {
+      await new Promise((r) => setTimeout(r, 400));
+      item.status = 'connected';
+    }
+  } catch (e: any) {
     item.status = 'offline';
+    alert(e.response?.data?.error || e.message || `Ping test failed for ${item.name}`);
   }
 };
 

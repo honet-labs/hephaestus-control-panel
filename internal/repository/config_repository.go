@@ -164,6 +164,16 @@ func (r *ConfigRepository) GetActivePrometheus(ctx context.Context) (*domain.Pro
 	if err != nil {
 		return nil, err
 	}
+	if c.SSHPassword != nil && *c.SSHPassword != "" {
+		if dec, err := config.DecryptText(*c.SSHPassword); err == nil {
+			c.SSHPassword = &dec
+		}
+	}
+	if c.SSHKey != nil && *c.SSHKey != "" {
+		if dec, err := config.DecryptText(*c.SSHKey); err == nil {
+			c.SSHKey = &dec
+		}
+	}
 	return &c, nil
 }
 

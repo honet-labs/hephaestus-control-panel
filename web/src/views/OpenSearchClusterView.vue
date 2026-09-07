@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import {
   RotateCw,
@@ -24,10 +24,82 @@ import {
   AlertCircle,
   X,
   Zap,
+  Share2,
+  Copy,
+  Check,
+  Code2,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 
 const router = useRouter();
+const route = useRoute();
+
+// Embed / Standalone Mode Detection
+const isEmbedMode = computed(() => {
+  return route.query.embed === 'true' || route.query.kiosk === 'true' || route.query.shared === 'true';
+});
+const showHeader = computed(() => {
+  return route.query.header !== 'false';
+});
+
+// Share / Embed Modal State
+const isShareModalOpen = ref(false);
+const shareIncludeToken = ref(true);
+const shareEmbedMode = ref(true);
+const shareHideHeader = ref(false);
+const shareTheme = ref<'auto' | 'dark' | 'light'>('auto');
+const shareRefreshSec = ref(30);
+const copiedUrl = ref(false);
+const copiedIframe = ref(false);
+
+const generatedShareUrl = computed(() => {
+  const origin = window.location.origin;
+  const params = new URLSearchParams();
+  params.set('tab', 'overview');
+  if (shareEmbedMode.value) {
+    params.set('embed', 'true');
+  }
+  if (shareHideHeader.value) {
+    params.set('header', 'false');
+  }
+  if (shareTheme.value !== 'auto') {
+    params.set('theme', shareTheme.value);
+  }
+  if (shareRefreshSec.value !== 30 && shareRefreshSec.value > 0) {
+    params.set('refresh', shareRefreshSec.value.toString());
+  }
+  if (shareIncludeToken.value) {
+    const token = localStorage.getItem('hephaestus_token');
+    if (token) {
+      params.set('token', token);
+    }
+  }
+  return `${origin}/opensearch-cluster?${params.toString()}`;
+});
+
+const generatedIframeCode = computed(() => {
+  return `<iframe src="${generatedShareUrl.value}" width="100%" height="850" frameborder="0" allowfullscreen style="border: 0; border-radius: 8px;"></iframe>`;
+});
+
+const copyShareUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(generatedShareUrl.value);
+    copiedUrl.value = true;
+    setTimeout(() => { copiedUrl.value = false; }, 2500);
+  } catch (_) {}
+};
+
+const copyIframeCode = async () => {
+  try {
+    await navigator.clipboard.writeText(generatedIframeCode.value);
+    copiedIframe.value = true;
+    setTimeout(() => { copiedIframe.value = false; }, 2500);
+  } catch (_) {}
+};
+
+const openEmbedPreview = () => {
+  window.open(generatedShareUrl.value, '_blank');
+};
 
 // Active Navigation Tab
 const activeTab = ref<'overview' | 'nodes' | 'indices' | 'shards' | 'connection' | 'logs'>('overview');
@@ -431,8 +503,24 @@ const handleBackToPortal = () => {
 };
 
 onMounted(() => {
+  if (route.query.tab && typeof route.query.tab === 'string') {
+    activeTab.value = route.query.tab as any;
+  }
+  if (route.query.refresh) {
+    const r = parseInt(route.query.refresh as string);
+    if (!isNaN(r) && r > 0) {
+      refreshIntervalSec.value = r;
+      countdown.value = r;
+    }
+  }
+  if (route.query.theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else if (route.query.theme === 'light') {
+    document.documentElement.classList.remove('dark');
+  }
+
   const savedSec = localStorage.getItem('opensearch_refresh_sec');
-  if (savedSec !== null) {
+  if (savedSec !== null && !route.query.refresh) {
     refreshIntervalSec.value = parseInt(savedSec);
     countdown.value = refreshIntervalSec.value;
   }
@@ -450,12 +538,18 @@ onUnmounted(() => {
 <template>
   <div class="min-h-screen w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
     <!-- Top Header Bar (Sticky at top) -->
-    <header class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md">
+    <header
+      v-if="showHeader"
+      class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md"
+    >
       <!-- Left: Title and Status -->
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
           <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
-          <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">OpenSearch Cluster Monitor</h1>
+          <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">
+            OpenSearch Cluster Monitor
+            <span v-if="isEmbedMode && configForm.name" class="text-slate-400 font-normal"> · {{ configForm.name }}</span>
+          </h1>
         </div>
 
         <!-- Connection Status Pill -->
@@ -469,7 +563,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Right Actions: Refresh, Countdown, Gear, ThemeToggle, Back to Portal -->
+      <!-- Right Actions: Refresh, Countdown, Gear, ThemeToggle, Share, Back to Portal -->
       <div class="flex items-center gap-2.5">
         <!-- Countdown indicator -->
         <div v-if="refreshIntervalSec > 0" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono">
@@ -486,8 +580,9 @@ onUnmounted(() => {
           <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-brand-400' : '']" />
         </button>
 
-        <!-- Settings Gear Modal Button -->
+        <!-- Settings Gear Modal Button (Only if not embed) -->
         <button
+          v-if="!isEmbedMode"
           @click="isSettingsModalOpen = true"
           class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition"
           title="Auto-Refresh Settings"
@@ -498,19 +593,43 @@ onUnmounted(() => {
         <!-- Theme Toggle Button -->
         <ThemeToggle variant="compact" />
 
-        <!-- Back to Portal Button -->
+        <!-- Share / Embed Button (Top Header) -->
         <button
+          v-if="!isEmbedMode"
+          @click="isShareModalOpen = true"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-700 dark:text-blue-400 font-medium transition"
+          title="Share & Embed Overview URL"
+        >
+          <Share2 class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">Share</span>
+        </button>
+
+        <!-- Back to Portal Button (or Open Full Monitor if in embed) -->
+        <button
+          v-if="!isEmbedMode"
           @click="handleBackToPortal"
           class="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#242833] border border-slate-300 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition font-medium"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>Back to Portal</span>
         </button>
+        <a
+          v-else
+          href="/opensearch-cluster"
+          target="_blank"
+          class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition flex items-center gap-1 text-xs"
+          title="Open Full Cluster Monitor in Portal"
+        >
+          <ExternalLink class="w-3.5 h-3.5" />
+        </a>
       </div>
     </header>
 
-    <!-- Navigation Tabs Bar (Sticky below header) -->
-    <div class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md">
+    <!-- Navigation Tabs Bar (Sticky below header, hidden in embed mode) -->
+    <div
+      v-if="!isEmbedMode"
+      class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md"
+    >
       <button
         v-for="tab in [
           { id: 'overview', label: 'Overview' },
@@ -540,6 +659,26 @@ onUnmounted(() => {
       <!-- TAB 1: OVERVIEW -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'overview'" class="space-y-6">
+        <!-- Overview Tab Action Toolbar -->
+        <div v-if="!isEmbedMode" class="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-slate-200/60 dark:border-slate-800/60">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Cluster Overview</span>
+            <span v-if="configForm.name" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-400">
+              {{ configForm.name }} ({{ configForm.host }}:{{ configForm.port }})
+            </span>
+          </div>
+
+          <!-- Prominent Share & Embed URL button on Overview tab -->
+          <button
+            @click="isShareModalOpen = true"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30 text-xs font-semibold transition shadow-sm"
+            title="Get Embeddable URL & iframe code for Overview tab"
+          >
+            <Share2 class="w-3.5 h-3.5" />
+            <span>Share / Embed Overview</span>
+          </button>
+        </div>
+
         <!-- Not Connected Notice -->
         <div v-if="!clusterHealth" class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
           <div class="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
@@ -1257,6 +1396,159 @@ onUnmounted(() => {
           >
             <span>{{ opt.label }}</span>
             <CheckCircle2 v-if="refreshIntervalSec === opt.sec" class="w-3.5 h-3.5 text-brand-400" />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: SHARE & EMBED OVERVIEW -->
+    <!-- ================================================================= -->
+    <div
+      v-if="isShareModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto"
+    >
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl p-6 space-y-5 shadow-2xl text-slate-800 dark:text-slate-200 my-8">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <Share2 class="w-4 h-4" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Share & Embed Overview</h3>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Generate standalone URL or iframe snippet for external dashboards & displays</p>
+            </div>
+          </div>
+          <button @click="isShareModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Direct Embed URL -->
+        <div class="space-y-1.5">
+          <label class="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Embeddable Direct URL</label>
+          <div class="flex items-center gap-2">
+            <input
+              :value="generatedShareUrl"
+              readonly
+              class="flex-1 bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 dark:text-slate-200 select-all focus:outline-none focus:border-blue-500"
+            />
+            <button
+              @click="copyShareUrl"
+              class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shrink-0"
+            >
+              <Check v-if="copiedUrl" class="w-3.5 h-3.5 text-emerald-300" />
+              <Copy v-else class="w-3.5 h-3.5" />
+              <span>{{ copiedUrl ? 'Copied!' : 'Copy Link' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- HTML iframe Code Snippet -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Code2 class="w-3.5 h-3.5 text-blue-500" />
+              <span>HTML iframe Embed Snippet</span>
+            </label>
+            <button
+              @click="copyIframeCode"
+              class="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium"
+            >
+              <Check v-if="copiedIframe" class="w-3 h-3 text-emerald-400" />
+              <Copy v-else class="w-3 h-3" />
+              <span>{{ copiedIframe ? 'Copied!' : 'Copy iframe' }}</span>
+            </button>
+          </div>
+          <textarea
+            :value="generatedIframeCode"
+            readonly
+            rows="3"
+            class="w-full bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-800 rounded-lg p-2.5 text-[11px] font-mono text-amber-600 dark:text-amber-400 select-all resize-none focus:outline-none focus:border-blue-500"
+          ></textarea>
+        </div>
+
+        <!-- Customization Options -->
+        <div class="p-4 bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-3 text-xs">
+          <div class="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Embed Options</div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                v-model="shareEmbedMode"
+                class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer"
+              />
+              <span>Clean Embed (Hide tabs & navigation)</span>
+            </label>
+
+            <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                v-model="shareHideHeader"
+                class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer"
+              />
+              <span>Full Headless (Hide top bar completely)</span>
+            </label>
+
+            <label class="flex items-start gap-2 cursor-pointer text-slate-700 dark:text-slate-300 sm:col-span-2">
+              <input
+                type="checkbox"
+                v-model="shareIncludeToken"
+                class="rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 cursor-pointer mt-0.5"
+              />
+              <div>
+                <span class="font-medium text-slate-900 dark:text-white">Include Authentication Session Token</span>
+                <p class="text-[10px] text-slate-500">Allows external monitors, TVs, or iframes to load telemetry without manual login prompt.</p>
+              </div>
+            </label>
+          </div>
+
+          <!-- Theme & Refresh Options -->
+          <div class="grid grid-cols-2 gap-3 pt-1 border-t border-slate-200 dark:border-slate-800/80">
+            <div>
+              <label class="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Theme Mode</label>
+              <select
+                v-model="shareTheme"
+                class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+              >
+                <option value="auto">System / Auto</option>
+                <option value="dark">Always Dark</option>
+                <option value="light">Always Light</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[10px] text-slate-500 uppercase font-semibold mb-1">Auto-Refresh Interval</label>
+              <select
+                v-model.number="shareRefreshSec"
+                class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+              >
+                <option :value="10">Every 10 seconds</option>
+                <option :value="30">Every 30 seconds (Default)</option>
+                <option :value="60">Every 1 minute</option>
+                <option :value="300">Every 5 minutes</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
+          <button
+            @click="openEmbedPreview"
+            class="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition"
+          >
+            <ExternalLink class="w-3.5 h-3.5" />
+            <span>Open Preview in New Tab</span>
+          </button>
+
+          <button
+            @click="isShareModalOpen = false"
+            class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition"
+          >
+            Done
           </button>
         </div>
       </div>

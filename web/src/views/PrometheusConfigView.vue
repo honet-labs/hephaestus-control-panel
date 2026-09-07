@@ -34,6 +34,7 @@ const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
 
 const yamlContent = ref('');
+const saving = ref(false);
 
 // Fetch real Prometheus instances strictly from database /api/v1/settings/prometheus
 const fetchPrometheusInstances = async () => {
@@ -46,45 +47,57 @@ const fetchPrometheusInstances = async () => {
       if (instances.value[0].path) {
         configFilePath.value = instances.value[0].path;
       }
-      isLoaded.value = true;
-      loadInstanceConfig(instances.value[0]);
+      await fetchConfigContent(instances.value[0].id);
     } else {
       // ZERO DUMMY DATA: If not registered, leave completely empty
       instances.value = [];
       selectedInstanceId.value = '';
       yamlContent.value = '';
       isLoaded.value = false;
+      loading.value = false;
     }
-  } catch (err) {
+  } catch (err: any) {
     instances.value = [];
     selectedInstanceId.value = '';
     yamlContent.value = '';
+    isLoaded.value = false;
+    loading.value = false;
+  }
+};
+
+const fetchConfigContent = async (instanceId: string) => {
+  loading.value = true;
+  validationMessage.value = null;
+  yamlContent.value = '';
+  isLoaded.value = false;
+
+  try {
+    const res = await axios.get(`/api/v1/prometheus/config?instanceId=${instanceId}`);
+    if (res.data?.success && res.data.data) {
+      yamlContent.value = res.data.data.content || '';
+      if (res.data.data.path) {
+        configFilePath.value = res.data.data.path;
+      }
+      isLoaded.value = true;
+    } else {
+      validationMessage.value = `Failed to fetch remote config: ${res.data?.error || 'Unknown error'}`;
+      isValidationSuccess.value = false;
+      isLoaded.value = false;
+    }
+  } catch (err: any) {
+    validationMessage.value = `Failed to fetch remote config: ${err.response?.data?.error || err.message}`;
+    isValidationSuccess.value = false;
     isLoaded.value = false;
   } finally {
     loading.value = false;
   }
 };
 
-const loadInstanceConfig = (inst: PrometheusInstance) => {
-  // Load remote or local prometheus config
-  yamlContent.value = `# Prometheus configuration for ${inst.name}
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
-`;
-};
-
 const handleInstanceChange = () => {
   const current = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (current) {
     if (current.path) configFilePath.value = current.path;
-    isLoaded.value = true;
-    loadInstanceConfig(current);
+    fetchConfigContent(current.id);
   }
 };
 
@@ -109,26 +122,35 @@ const handleValidate = () => {
 };
 
 const handleReset = () => {
-  const current = instances.value.find((i) => i.id === selectedInstanceId.value);
-  if (current) {
-    loadInstanceConfig(current);
+  if (selectedInstanceId.value) {
+    fetchConfigContent(selectedInstanceId.value);
   }
-  validationMessage.value = null;
 };
 
 const handleSave = async () => {
   if (!selectedInstanceId.value) return;
+  saving.value = true;
+  validationMessage.value = null;
+
   try {
-    await axios.post('/api/v1/prometheus/reload', {
+    const res = await axios.post('/api/v1/prometheus/config', {
       instanceId: selectedInstanceId.value,
       yaml: yamlContent.value,
-    }).catch(() => null);
+      reload: true,
+    });
 
-    validationMessage.value = 'Config saved & Prometheus reload trigger sent successfully (HTTP 200).';
-    isValidationSuccess.value = true;
+    if (res.data?.success) {
+      validationMessage.value = res.data.message || 'Config saved & Prometheus reload trigger sent successfully.';
+      isValidationSuccess.value = true;
+    } else {
+      validationMessage.value = res.data?.error || 'Failed to save configuration.';
+      isValidationSuccess.value = false;
+    }
   } catch (err: any) {
-    validationMessage.value = err.response?.data?.error || 'Config saved to instance profile.';
-    isValidationSuccess.value = true;
+    validationMessage.value = err.response?.data?.error || err.message || 'Failed to save configuration.';
+    isValidationSuccess.value = false;
+  } finally {
+    saving.value = false;
   }
 };
 
@@ -208,6 +230,12 @@ onMounted(() => {
           <span v-if="isLoaded" class="text-emerald-400 font-bold text-[11px]">
             Loaded
           </span>
+          <span v-else-if="loading" class="text-amber-400 font-bold text-[11px] flex items-center gap-1">
+            <RotateCw class="w-3 h-3 animate-spin" /> Fetching...
+          </span>
+          <span v-else class="text-rose-400 font-bold text-[11px]">
+            Failed
+          </span>
         </div>
       </div>
 
@@ -236,7 +264,8 @@ onMounted(() => {
           <div class="flex items-center gap-2">
             <button
               @click="handleValidate"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+              :disabled="loading || !isLoaded"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold border border-slate-700 transition"
             >
               <Check class="w-3.5 h-3.5 text-emerald-400" />
               <span>VALIDATE</span>
@@ -244,18 +273,21 @@ onMounted(() => {
 
             <button
               @click="handleReset"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+              :disabled="loading"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-semibold border border-slate-700 transition"
             >
-              <RotateCw class="w-3.5 h-3.5 text-amber-400" />
+              <RotateCw class="w-3.5 h-3.5 text-amber-400" :class="{ 'animate-spin': loading }" />
               <span>RESET</span>
             </button>
 
             <button
               @click="handleSave"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
+              :disabled="saving || loading || !isLoaded"
+              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition"
             >
-              <Save class="w-3.5 h-3.5" />
-              <span>SAVE</span>
+              <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+              <Save v-else class="w-3.5 h-3.5" />
+              <span>{{ saving ? 'SAVING...' : 'SAVE' }}</span>
             </button>
           </div>
         </div>

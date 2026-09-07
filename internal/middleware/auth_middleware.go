@@ -19,6 +19,8 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
 		} else if cookie, err := c.Cookie("hephaestus_session"); err == nil {
 			token = cookie
+		} else if qToken := c.Query("token"); qToken != "" {
+			token = qToken
 		}
 
 		if token == "" {

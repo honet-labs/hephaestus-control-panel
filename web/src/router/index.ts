@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
@@ -111,8 +112,20 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
+  // Support auth token passed in query parameter for shared links / embed views
+  if (to.query.token && typeof to.query.token === 'string') {
+    const qToken = to.query.token;
+    authStore.token = qToken;
+    authStore.isAuthenticated = true;
+    localStorage.setItem('hephaestus_token', qToken);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${qToken}`;
+    if (!authStore.user) {
+      await authStore.fetchUser();
+    }
+  }
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return next({ name: 'login' });
+    return next({ name: 'login', query: { redirect: to.fullPath } });
   }
   if (to.meta.guestOnly && authStore.isAuthenticated) {
     return next({ name: 'dashboard' });

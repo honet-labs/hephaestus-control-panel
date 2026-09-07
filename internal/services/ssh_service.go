@@ -356,6 +356,85 @@ func (s *SSHService) SftpUploadWithConfig(cfg *domain.RemoteHostConfig, remotePa
 	return err
 }
 
+func (s *SSHService) ReadFile(cfg *domain.RemoteHostConfig, remotePath string) (string, error) {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return "", fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	sftpClient, err := sftp.NewClient(client)
+	if err == nil {
+		defer sftpClient.Close()
+		f, err := sftpClient.Open(cleanPath)
+		if err == nil {
+			defer f.Close()
+			data, err := io.ReadAll(f)
+			if err == nil {
+				return string(data), nil
+			}
+		}
+	}
+
+	// Fallback to command execution
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
+	cmd := fmt.Sprintf("cat %s", cleanPath)
+	if err := session.Run(cmd); err != nil {
+		return "", fmt.Errorf("failed to read remote file '%s': %w (stderr: %s)", cleanPath, err, stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+func (s *SSHService) WriteFile(cfg *domain.RemoteHostConfig, remotePath string, content string) error {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	sftpClient, err := sftp.NewClient(client)
+	if err == nil {
+		defer sftpClient.Close()
+		dir := filepath.ToSlash(filepath.Dir(cleanPath))
+		_ = sftpClient.MkdirAll(dir)
+
+		f, err := sftpClient.Create(cleanPath)
+		if err == nil {
+			defer f.Close()
+			_, err = f.Write([]byte(content))
+			if err == nil {
+				return nil
+			}
+		}
+	}
+
+	// Fallback via shell session with tee
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	session.Stdin = strings.NewReader(content)
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+	cmd := fmt.Sprintf("tee %s > /dev/null", cleanPath)
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("failed to write file '%s': %w (stderr: %s)", cleanPath, err, stderr.String())
+	}
+	return nil
+}
+
 func (s *SSHService) idleConnectionCleaner() {
 	ticker := time.NewTicker(1 * time.Minute)
 	for range ticker.C {

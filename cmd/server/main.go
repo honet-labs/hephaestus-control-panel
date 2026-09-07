@@ -223,6 +223,8 @@ func main() {
 		// Prometheus & PromQL (Feature: prometheus_config)
 		api.GET("/prometheus/query", middleware.RequirePermission("prometheus_config", "read"), promHandler.Query)
 		api.POST("/prometheus/reload", middleware.RequirePermission("prometheus_config", "manage"), promHandler.Reload)
+		api.GET("/prometheus/config", middleware.RequirePermission("prometheus_config", "read"), promHandler.GetConfig)
+		api.POST("/prometheus/config", middleware.RequirePermission("prometheus_config", "manage"), promHandler.SaveConfig)
 
 		// VPS Telemetry, Processes, Services, and Network (Feature: remote_servers)
 		api.GET("/vps/:id/metrics", middleware.RequirePermission("remote_servers", "read"), vpsHandler.GetMetrics)
@@ -271,6 +273,8 @@ func main() {
 		api.GET("/settings/prometheus", middleware.RequirePermission("connections", "read"), settingsHandler.ListPrometheus)
 		api.POST("/settings/prometheus", middleware.RequirePermission("connections", "manage"), settingsHandler.SavePrometheus)
 		api.POST("/settings/prometheus/:id/active", middleware.RequirePermission("connections", "manage"), settingsHandler.SetActivePrometheus)
+		api.DELETE("/settings/prometheus/:id", middleware.RequirePermission("connections", "manage"), settingsHandler.DeletePrometheus)
+		api.POST("/settings/prometheus/test", middleware.RequirePermission("connections", "read"), promHandler.TestConnection)
 		api.GET("/settings/database", middleware.RequirePermission("settings", "read"), settingsHandler.GetDatabaseConfig)
 		api.POST("/settings/database", middleware.RequirePermission("settings", "manage"), settingsHandler.UpdateDatabaseConfig)
 		api.POST("/settings/database/test", middleware.RequirePermission("settings", "read"), settingsHandler.TestDatabaseConnection)

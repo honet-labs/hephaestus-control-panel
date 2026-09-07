@@ -146,3 +146,68 @@ func (h *PrometheusHandler) Reload(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Prometheus configuration reloaded."})
 }
+
+func (h *PrometheusHandler) TestConnection(c *gin.Context) {
+	var cfg domain.PrometheusConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input format: " + err.Error()})
+		return
+	}
+
+	ok, msg, err := h.promService.TestConnection(c.Request.Context(), cfg)
+	if !ok || err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   msg,
+			"message": msg,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": msg,
+	})
+}
+
+func (h *PrometheusHandler) GetConfig(c *gin.Context) {
+	instanceID := c.Query("instanceId")
+	content, cfg, err := h.promService.GetConfigFile(c.Request.Context(), instanceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"instanceId":   cfg.ID,
+			"instanceName": cfg.Name,
+			"path":         cfg.Path,
+			"mode":         cfg.Mode,
+			"content":      content,
+		},
+	})
+}
+
+func (h *PrometheusHandler) SaveConfig(c *gin.Context) {
+	var req struct {
+		InstanceID string `json:"instanceId"`
+		YAML       string `json:"yaml"`
+		Reload     bool   `json:"reload"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	if err := h.promService.SaveConfigFile(c.Request.Context(), req.InstanceID, req.YAML, req.Reload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	msg := "Prometheus configuration saved."
+	if req.Reload {
+		msg = "Prometheus configuration saved and reload triggered."
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": msg})
+}
