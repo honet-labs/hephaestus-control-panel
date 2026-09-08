@@ -176,6 +176,8 @@ func handleResetPassword(args []string) {
 		}
 
 		_ = userRepo.LogActivity(ctx, "CLI", "User Created", fmt.Sprintf("Admin user '%s' created via CLI", username), "SUCCESS", &newUser.ID)
+		configRepo := repository.NewConfigRepository()
+		_ = configRepo.SetAppConfig(ctx, "setup_completed", "true")
 
 		fmt.Println(`======================================================================
  HEPHAESTUS CONTROL PANEL - USER CREATED
@@ -210,6 +212,8 @@ func handleResetPassword(args []string) {
 
 	// 5. Record activity log
 	_ = userRepo.LogActivity(ctx, "CLI", "Password Reset", fmt.Sprintf("Password for user '%s' was reset via CLI", username), "SUCCESS", &user.ID)
+	configRepo := repository.NewConfigRepository()
+	_ = configRepo.SetAppConfig(ctx, "setup_completed", "true")
 
 	fmt.Println(`======================================================================
  HEPHAESTUS CONTROL PANEL - PASSWORD RESET SUCCESS
