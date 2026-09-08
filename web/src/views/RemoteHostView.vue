@@ -2250,11 +2250,11 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <button
               @click="swapSourceAndDest"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-brand-400 font-bold text-xs border border-brand-500/30 transition shadow-sm"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition shadow-sm"
               title="Swap Source and Destination Host"
             >
-              <RotateCw class="w-3.5 h-3.5" />
-              <span>🔀 SWAP SOURCE & DESTINATION</span>
+              <RotateCw class="w-3.5 h-3.5 text-slate-400" />
+              <span>SWAP SOURCE & DESTINATION</span>
             </button>
 
             <!-- Fullscreen / Window Toggle Button -->
@@ -2321,9 +2321,9 @@ onUnmounted(() => {
                   @change="fetchSourceSftpFiles('/')"
                   class="bg-[#0f1219] border border-slate-700 rounded-lg px-2 py-1 text-white font-semibold focus:outline-none focus:border-brand-500 text-xs"
                 >
-                  <option value="local">💻 Local Computer (Upload)</option>
+                  <option value="local">Local Computer (Upload)</option>
                   <option v-for="h in hosts" :key="h.id" :value="h.id">
-                    🏢 {{ h.name }} ({{ h.host }})
+                    {{ h.name }} ({{ h.host }})
                   </option>
                 </select>
               </div>
@@ -2344,7 +2344,7 @@ onUnmounted(() => {
                   class="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow transition"
                 >
                   <ArrowRight class="w-3.5 h-3.5" />
-                  <span>Upload All ➔</span>
+                  <span>Upload All</span>
                 </button>
               </div>
 
@@ -2421,7 +2421,7 @@ onUnmounted(() => {
                         :disabled="staged.status === 'uploading'"
                         class="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold transition"
                       >
-                        {{ staged.status === 'uploading' ? '...' : 'Transfer ➔' }}
+                        {{ staged.status === 'uploading' ? '...' : 'Transfer' }}
                       </button>
                       <button @click="removeLocalStagedFile(staged.id)" class="p-1 text-slate-500 hover:text-red-400 ml-1">
                         <Trash2 class="w-3 h-3" />
@@ -2466,11 +2466,11 @@ onUnmounted(() => {
                       <button
                         v-if="!file.isDir"
                         @click.stop="transferSourceFileToDest(file.name)"
-                        class="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 text-sky-400 border border-sky-500/30 text-[10px] font-semibold transition flex items-center gap-1 ml-auto"
+                        class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold transition flex items-center gap-1 ml-auto"
                         title="Transfer to active folder on Destination Host"
                       >
-                        <ArrowRight class="w-3 h-3" />
-                        <span>Transfer ➔</span>
+                        <ArrowRight class="w-3 h-3 text-slate-400" />
+                        <span>Transfer</span>
                       </button>
                       <button
                         v-else
@@ -2509,9 +2509,9 @@ onUnmounted(() => {
                   class="bg-[#0f1219] border border-slate-700 rounded-lg px-2 py-1 text-white font-semibold focus:outline-none focus:border-brand-500 text-xs"
                 >
                   <option v-for="h in hosts" :key="h.id" :value="h.id">
-                    🏢 {{ h.name }} ({{ h.host }})
+                    {{ h.name }} ({{ h.host }})
                   </option>
-                  <option value="local">💻 Local Computer (Direct Download)</option>
+                  <option value="local">Local Computer (Direct Download)</option>
                 </select>
               </div>
 
@@ -2613,10 +2613,10 @@ onUnmounted(() => {
 
               <!-- Destination is Local Mode -->
               <div v-else class="p-14 text-center text-slate-500 text-xs">
-                <Monitor class="w-8 h-8 text-sky-500 mx-auto mb-2" />
+                <Monitor class="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <p class="font-bold text-white text-sm">Local Computer (Browser Download Target)</p>
                 <p class="text-slate-400 mt-1 max-w-sm mx-auto">
-                  Clicking "Transfer ➔" on any file from the Source VM will download the file directly to your local computer downloads folder.
+                  Clicking "Transfer" on any file from the Source VM will download the file directly to your local computer downloads folder.
                 </p>
               </div>
             </div>

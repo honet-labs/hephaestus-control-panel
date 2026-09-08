@@ -537,7 +537,7 @@ onUnmounted(() => {
             @click="toggleAutoRotate"
             :disabled="activeEmbeds.length <= 1"
             :class="[
-              isAutoRotating ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 hover:text-white',
+              isAutoRotating ? 'text-slate-200 bg-slate-800 border border-slate-700' : 'text-slate-400 hover:text-white',
               'px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1 transition'
             ]"
             :title="isAutoRotating ? 'Pause Rotation (Space)' : 'Play Auto-Rotation (Space)'"
@@ -580,13 +580,13 @@ onUnmounted(() => {
           @click="toggleAutoHide"
           :class="[
             autoHideEnabled
-              ? 'text-sky-400 bg-sky-500/10 border-sky-500/40'
+              ? 'text-slate-200 bg-slate-800 border-slate-600'
               : 'text-slate-400 hover:text-white border-slate-700 bg-[#090d16]',
             'px-2 py-1.5 rounded-lg border text-xs font-semibold transition flex items-center gap-1.5'
           ]"
           :title="autoHideEnabled ? 'Auto-Hide Controls: Aktif (Header & toolbar sembunyi otomatis setelah 3 detik)' : 'Auto-Hide Controls: Nonaktif (Header selalu terlihat)'"
         >
-          <EyeOff v-if="autoHideEnabled" class="w-3.5 h-3.5 text-sky-400" />
+          <EyeOff v-if="autoHideEnabled" class="w-3.5 h-3.5 text-slate-300" />
           <Eye v-else class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden xl:inline text-[11px]">{{ autoHideEnabled ? 'Auto-Hide' : 'Pinned' }}</span>
         </button>
@@ -595,10 +595,10 @@ onUnmounted(() => {
         <button
           v-if="isCurrentEmbedPnaRisky"
           @click="showPnaHelpModal = true"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold transition"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition"
           title="Panduan mengatasi pesan 'connection blocked by browser'"
         >
-          <AlertTriangle class="w-3.5 h-3.5 text-amber-400" />
+          <AlertTriangle class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden md:inline">Fix Browser Blocked</span>
         </button>
 
@@ -683,7 +683,7 @@ onUnmounted(() => {
           <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
           <span class="font-bold text-white truncate max-w-[200px]">{{ currentEmbed.name }}</span>
           <span class="text-[11px] text-slate-400 font-mono truncate max-w-xs">{{ currentEmbed.url }}</span>
-          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 font-semibold border border-slate-700/60 shrink-0">
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-semibold border border-slate-700/60 shrink-0">
             {{ currentActiveIndex + 1 }} / {{ activeEmbeds.length }}
           </span>
 
@@ -693,7 +693,7 @@ onUnmounted(() => {
             class="ml-1 px-2 py-0.5 hover:bg-slate-700 rounded text-slate-300 hover:text-white transition flex items-center gap-1 text-[11px] border border-slate-700"
             title="Buka URL ini langsung di Tab Baru"
           >
-            <ExternalLink class="w-3 h-3 text-blue-400" />
+            <ExternalLink class="w-3 h-3 text-slate-400" />
             <span class="hidden sm:inline">Buka di Tab Baru</span>
           </button>
 
@@ -701,10 +701,10 @@ onUnmounted(() => {
           <button
             v-if="isCurrentEmbedPnaRisky"
             @click="showPnaHelpModal = true"
-            class="ml-1 px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[11px] font-semibold flex items-center gap-1 transition"
+            class="ml-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition"
             title="Koneksi diblokir oleh browser karena mengakses IP lokal dari IP publik? Klik untuk panduan solusi"
           >
-            <AlertTriangle class="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <AlertTriangle class="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span class="hidden sm:inline">Koneksi Diblokir Browser? (Solusi)</span>
             <span class="sm:hidden">Blocked Fix</span>
           </button>
@@ -717,7 +717,7 @@ onUnmounted(() => {
           class="absolute top-3 right-4 z-30 px-3 py-1.5 rounded-xl bg-[#13161f]/70 hover:bg-[#13161f]/95 border border-slate-800/80 backdrop-blur-md text-[11px] text-slate-300 hover:text-white flex items-center gap-1.5 transition-all duration-300 opacity-60 hover:opacity-100 shadow-xl"
           title="Klik atau gerakkan kursor mouse ke atas untuk menampilkan menu & toolbar"
         >
-          <Eye class="w-3.5 h-3.5 text-brand-400" />
+          <Eye class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden sm:inline font-medium">Show Controls</span>
         </button>
       </template>
@@ -725,7 +725,7 @@ onUnmounted(() => {
       <!-- Empty State When No Embed URLs Added -->
       <div v-else class="w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
         <div class="w-16 h-16 rounded-2xl bg-[#171a23] border border-slate-800 flex items-center justify-center text-slate-600 shadow-xl">
-          <Globe class="w-8 h-8 text-brand-400" />
+          <Globe class="w-8 h-8 text-slate-500" />
         </div>
         <div class="space-y-1 max-w-md">
           <h3 class="text-base font-bold text-white">No Embed URLs Configured</h3>
@@ -793,17 +793,17 @@ onUnmounted(() => {
               </td>
 
               <td class="p-3.5 font-bold text-white flex items-center gap-2">
-                <Globe class="w-4 h-4 text-brand-400 shrink-0" />
+                <Globe class="w-4 h-4 text-slate-400 shrink-0" />
                 <span>{{ item.name }}</span>
               </td>
 
               <td class="p-3.5 font-mono text-[11px] text-slate-400">
-                <a :href="item.url" target="_blank" class="hover:text-brand-400 hover:underline truncate block max-w-md">
+                <a :href="item.url" target="_blank" class="hover:text-slate-200 hover:underline truncate block max-w-md">
                   {{ item.url }}
                 </a>
               </td>
 
-              <td class="p-3.5 font-mono text-amber-400 font-bold">
+              <td class="p-3.5 font-mono text-slate-300 font-bold">
                 {{ item.interval }}s
               </td>
 
@@ -856,7 +856,7 @@ onUnmounted(() => {
       <div class="w-full max-w-lg bg-[#171a23] border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans text-white">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <h3 class="text-sm font-bold flex items-center gap-2">
-            <Globe class="w-4 h-4 text-brand-400" />
+            <Globe class="w-4 h-4 text-slate-400" />
             <span>{{ editingId ? 'Edit Embed URL' : 'Add New Embed URL' }}</span>
           </h3>
           <button @click="isModalOpen = false" class="text-slate-400 hover:text-white">
@@ -994,24 +994,24 @@ onUnmounted(() => {
             <div class="bg-[#171a23] border border-slate-800 rounded-lg p-3 space-y-2">
               <div class="flex items-center justify-between">
                 <span class="font-bold text-white flex items-center gap-1.5">
-                  <Globe class="w-4 h-4 text-sky-400" />
+                  <Globe class="w-4 h-4 text-slate-400" />
                   <span>Untuk Microsoft Edge:</span>
                 </span>
                 <button
                   @click="copyFlagUrl('edge://flags/#block-insecure-private-network-requests')"
-                  class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 flex items-center gap-1 transition"
+                  class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 flex items-center gap-1 transition"
                 >
                   <Copy class="w-3 h-3" />
                   <span>{{ copiedFlag === 'edge://flags/#block-insecure-private-network-requests' ? 'Tersalin!' : 'Salin URL Flag' }}</span>
                 </button>
               </div>
-              <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-sky-200 select-all">
+              <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-slate-300 select-all">
                 edge://flags/#block-insecure-private-network-requests
               </div>
               <ol class="list-decimal list-inside space-y-1 text-slate-300 text-[11px] pl-1">
                 <li>Buka tab baru di Edge, paste teks di atas lalu tekan <strong>Enter</strong>.</li>
-                <li>Ubah setting <strong class="text-amber-300">Block insecure private network requests</strong> dari <em>Default</em> menjadi <strong class="text-emerald-400">Disabled</strong>.</li>
-                <li>Klik tombol <strong class="text-blue-400">Restart / Relaunch</strong> di pojok kanan bawah browser.</li>
+                <li>Ubah setting <strong class="text-slate-200">Block insecure private network requests</strong> dari <em>Default</em> menjadi <strong class="text-emerald-400">Disabled</strong>.</li>
+                <li>Klik tombol <strong class="text-white">Restart / Relaunch</strong> di pojok kanan bawah browser.</li>
               </ol>
             </div>
 
@@ -1019,18 +1019,18 @@ onUnmounted(() => {
             <div class="bg-[#171a23] border border-slate-800 rounded-lg p-3 space-y-2">
               <div class="flex items-center justify-between">
                 <span class="font-bold text-white flex items-center gap-1.5">
-                  <Globe class="w-4 h-4 text-amber-400" />
+                  <Globe class="w-4 h-4 text-slate-400" />
                   <span>Untuk Google Chrome:</span>
                 </span>
                 <button
                   @click="copyFlagUrl('chrome://flags/#block-insecure-private-network-requests')"
-                  class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-300 flex items-center gap-1 transition"
+                  class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 flex items-center gap-1 transition"
                 >
                   <Copy class="w-3 h-3" />
                   <span>{{ copiedFlag === 'chrome://flags/#block-insecure-private-network-requests' ? 'Tersalin!' : 'Salin URL Flag' }}</span>
                 </button>
               </div>
-              <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-amber-200 select-all">
+              <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-slate-300 select-all">
                 chrome://flags/#block-insecure-private-network-requests
               </div>
               <ol class="list-decimal list-inside space-y-1 text-slate-300 text-[11px] pl-1">

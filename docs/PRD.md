@@ -106,6 +106,17 @@ Legacy control panels (often built with dynamic interpreted runtimes) suffer fro
 - **REQ-8.2 (Live Web Stream)**: In-memory Pub/Sub channel broadcasting log entries via WebSocket `/ws/logs`.
 - **REQ-8.3 (Live Viewer UI)**: Web UI view with live pause/resume, log level filtering (`INFO`, `WARN`, `ERROR`, `DEBUG`), and module search.
 
+### 4.9 Module 9: Wallboard Slide Show & Dynamic Embed URL Manager
+- **REQ-9.1 (Iframe Dashboard Rotation)**: Automated cyclic rotation between multiple web dashboards (Grafana, Kibana, OpenSearch, Prometheus, Uptime Kuma) with configurable per-slide intervals (e.g. 15s, 30s, 60s).
+- **REQ-9.2 (Auto-Hide Controls & Transitions)**: Immersive NOC display mode that automatically hides navigation headers, countdown bars, and floating controls after 3 seconds of inactivity with smooth CSS transitions (`transition-all duration-500 ease-in-out`), waking up on cursor motion or touch.
+- **REQ-9.3 (Zoom & Density Scaling)**: CSS scale transforms (`100%`, `90%`, `80%`, `75%`, `67%`, `50%`) to display dense NOC metrics grids without layout distortion.
+- **REQ-9.4 (PNA Mitigation & Helper)**: Detection of Chromium Private Network Access (PNA) blocks when accessing private IP targets from a public host, with integrated clipboard copy utilities and browser flag instructions.
+
+### 4.10 Module 10: Granular Feature-Level RBAC Matrix
+- **REQ-10.1 (Per-Feature Permissions)**: Fine-grained permission tiers (`none`, `read`, `manage`) across all 15 system features (Terminal, Backups, Topology, Queue, Logs, Settings, SNMP, SlideShow, etc.).
+- **REQ-10.2 (Multi-Tier Enforcement)**: Enforced both at API route middleware (`RequireFeaturePermission`) and frontend UI layer (hiding or disabling restricted buttons and routes).
+- **REQ-10.3 (Non-Destructive Schema)**: Stored as `JSONB` in `system_roles` with safe fallback defaults for backward compatibility.
+
 ---
 
 ## 5. Non-Functional Requirements (NFR)
@@ -168,3 +179,16 @@ Legacy control panels (often built with dynamic interpreted runtimes) suffer fro
 - **Automated Installer**: Single-line installation via `curl -sSL .../installer.sh | sudo bash`.
 - **CI/CD Automation**: GitHub Actions workflow (`.github/workflows/ci.yml`) compiling multi-arch images (`linux/amd64`, `linux/arm64`) on every push to `main`.
 - **License**: MIT License (HONET Labs & Hephaestus Contributors).
+
+---
+
+## 8. Developer Guides & Engineering References
+
+For engineers extending Hephaestus Control Panel with new features, database tables, or configurations, refer to the following companion guides:
+
+- **[Developer & UI/UX Engineering Guide](DEVELOPMENT_GUIDE.md)**: Clean code conventions, UI/UX design tokens, Lucide monochrome icon rules, zero-emoji policy, and the 7-step blueprint for adding new features.
+- **[System Architecture Documentation](01-architecture.md)**: Detailed Go backend and Nginx reverse proxy architecture.
+- **[Database Schema & Migration Guide](02-database-schema.md)**: Tables, indexing strategy, and encryption standards.
+- **[API Reference](03-api-reference.md)**: Core REST endpoints and WebSocket channels.
+- **[Background Jobs & Queue Engine](04-background-jobs-queue.md)**: In-memory worker pool mechanics and progress tracking.
+- **[Deployment & Operations Guide](06-deployment-guide.md)**: Production deployment, multi-container orchestration, and SSL/TLS configuration.

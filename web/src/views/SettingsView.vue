@@ -946,8 +946,8 @@ onUnmounted(() => {
                 </td>
                 <td class="p-3">
                   <div class="flex items-center gap-1.5 flex-wrap">
-                    <span v-if="u.role === 'ADMIN'" class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-500/30">
-                      ⚡ Full Unrestricted Access (All Features)
+                    <span v-if="u.role === 'ADMIN'" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                      Full Unrestricted Access (All Features)
                     </span>
                     <template v-else>
                       <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30">
@@ -1490,21 +1490,21 @@ onUnmounted(() => {
               @click="setAllPermissions('manage')"
               class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 transition"
             >
-              ⚡ Manage All
+              Manage All
             </button>
             <button
               type="button"
               @click="setAllPermissions('read')"
               class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-sky-100 hover:bg-sky-200 dark:bg-sky-500/20 dark:hover:bg-sky-500/30 text-sky-700 dark:text-sky-300 transition"
             >
-              👁 Read Only All
+              Read Only All
             </button>
             <button
               type="button"
               @click="setAllPermissions('none')"
               class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
             >
-              ✕ No Access All
+              No Access All
             </button>
           </div>
         </div>
@@ -1517,7 +1517,7 @@ onUnmounted(() => {
             class="p-3 rounded-xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-[#151821] border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
           >
             <div class="flex items-start gap-3">
-              <div class="w-8 h-8 rounded-lg bg-white dark:bg-[#1f232d] border border-slate-200 dark:border-slate-700 text-blue-500 flex items-center justify-center shrink-0 mt-0.5">
+              <div class="w-8 h-8 rounded-lg bg-white dark:bg-[#1f232d] border border-slate-200 dark:border-slate-700 text-slate-400 flex items-center justify-center shrink-0 mt-0.5">
                 <component :is="f.icon" class="w-4 h-4" />
               </div>
               <div>
@@ -1540,7 +1540,8 @@ onUnmounted(() => {
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 ]"
               >
-                <span>✕ None</span>
+                <X class="w-3 h-3" />
+                <span>None</span>
               </button>
 
               <!-- Tier 2: Read Only -->

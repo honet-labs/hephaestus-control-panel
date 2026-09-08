@@ -39,7 +39,7 @@ onMounted(() => {
         @click="fetchData"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
       >
-        <RefreshCw class="w-3.5 h-3.5 text-brand-400" />
+        <RefreshCw class="w-3.5 h-3.5 text-slate-400" />
         Refresh
       </button>
     </div>
