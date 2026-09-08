@@ -142,6 +142,19 @@ func ensureDatabaseExists(ctx context.Context, dbCfg config.DBConfig) error {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	// Pre-migration upgrades: ensure existing tables receive new columns before schemaSQL seeds them
+	preUpgradeSQL := `
+		DO $$ 
+		BEGIN 
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'system_roles') THEN 
+				ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
+			END IF; 
+		END $$;
+	`
+	if _, err := pool.Exec(ctx, preUpgradeSQL); err != nil {
+		logger.Warn("Database", fmt.Sprintf("Pre-migration upgrade warning: %v", err))
+	}
+
 	if schemaSQL == "" {
 		return fmt.Errorf("schema migration SQL is empty")
 	}

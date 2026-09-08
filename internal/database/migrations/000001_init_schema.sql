@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS system_roles (
     is_default BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
 
 -- 3. Users - Local user accounts
 CREATE TABLE IF NOT EXISTS users (
@@ -320,6 +321,8 @@ CREATE INDEX IF NOT EXISTS idx_backup_history_started_at ON backup_history(start
 -- ==============================================================================
 -- SEED DEFAULT DATA
 -- ==============================================================================
+ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
+
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
     ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "read"}'::jsonb),
