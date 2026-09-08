@@ -25,6 +25,8 @@ import {
   AlertTriangle,
   HelpCircle,
   Copy,
+  Eye,
+  EyeOff,
 } from 'lucide-vue-next';
 
 interface EmbedItem {
@@ -77,6 +79,47 @@ const isAutoRotating = ref<boolean>(true);
 const isFullscreen = ref<boolean>(false);
 const progressPercent = ref<number>(0);
 const iframeKey = ref<number>(0);
+
+// Auto-hide Controls State (for immersive Slideshow / NOC Presentation)
+const isControlsVisible = ref<boolean>(true);
+const autoHideEnabled = ref<boolean>(true);
+let inactivityTimer: any = null;
+const INACTIVITY_DELAY = 3000; // 3 seconds
+
+const showControls = () => {
+  isControlsVisible.value = true;
+  resetInactivityTimer();
+};
+
+const resetInactivityTimer = () => {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (!autoHideEnabled.value || activeTab.value !== 'viewer') {
+    isControlsVisible.value = true;
+    return;
+  }
+  inactivityTimer = setTimeout(() => {
+    if (activeTab.value === 'viewer' && autoHideEnabled.value && activeEmbeds.value.length > 0) {
+      isControlsVisible.value = false;
+    }
+  }, INACTIVITY_DELAY);
+};
+
+const onUserActivity = () => {
+  if (!isControlsVisible.value) {
+    isControlsVisible.value = true;
+  }
+  resetInactivityTimer();
+};
+
+const toggleAutoHide = () => {
+  autoHideEnabled.value = !autoHideEnabled.value;
+  if (!autoHideEnabled.value) {
+    isControlsVisible.value = true;
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+  } else {
+    resetInactivityTimer();
+  }
+};
 
 let progressTimer: any = null;
 
@@ -278,11 +321,13 @@ const prevEmbed = () => {
 
 const selectEmbed = (idx: number) => {
   currentActiveIndex.value = idx;
+  showControls();
   resetTimer();
 };
 
 const toggleAutoRotate = () => {
   isAutoRotating.value = !isAutoRotating.value;
+  showControls();
   if (isAutoRotating.value) {
     startRotationTimer();
   } else {
@@ -292,6 +337,7 @@ const toggleAutoRotate = () => {
 
 const refreshCurrentIframe = () => {
   iframeKey.value++;
+  showControls();
   resetTimer();
 };
 
@@ -329,13 +375,16 @@ const startRotationTimer = () => {
 const toggleFullscreen = () => {
   const el = document.getElementById('embed-slideshow-container');
   if (!el) return;
+  showControls();
   if (!document.fullscreenElement) {
     el.requestFullscreen().then(() => {
       isFullscreen.value = true;
+      showControls();
     }).catch(() => {});
   } else {
     document.exitFullscreen().then(() => {
       isFullscreen.value = false;
+      showControls();
     }).catch(() => {});
   }
 };
@@ -350,21 +399,27 @@ const openInNewTab = (url?: string) => {
 // Keyboard navigation
 const handleKeyDown = (e: KeyboardEvent) => {
   if (activeTab.value !== 'viewer') return;
+  onUserActivity();
   if (e.key === ' ' && e.target === document.body) {
     e.preventDefault();
     toggleAutoRotate();
   } else if (e.key === 'ArrowRight') {
     nextEmbed();
+    showControls();
   } else if (e.key === 'ArrowLeft') {
     prevEmbed();
+    showControls();
   }
 };
 
 watch(activeTab, (newTab) => {
   if (newTab === 'viewer') {
     resetTimer();
+    showControls();
   } else {
     clearTimer();
+    isControlsVisible.value = true;
+    if (inactivityTimer) clearTimeout(inactivityTimer);
   }
 });
 
@@ -374,19 +429,48 @@ onMounted(async () => {
     startRotationTimer();
   }
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('mousemove', onUserActivity);
+  window.addEventListener('touchstart', onUserActivity);
+  resetInactivityTimer();
 });
 
 onUnmounted(() => {
   clearTimer();
+  if (inactivityTimer) clearTimeout(inactivityTimer);
   window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('mousemove', onUserActivity);
+  window.removeEventListener('touchstart', onUserActivity);
 });
 </script>
 
 <template>
-  <div id="embed-slideshow-container" class="h-full flex flex-col font-sans select-none bg-[#090d16] text-white">
-    
+  <div
+    id="embed-slideshow-container"
+    class="h-full flex flex-col font-sans select-none bg-[#090d16] text-white relative overflow-hidden"
+    @mousemove="onUserActivity"
+  >
+    <!-- Top Invisible Hover Zone to immediately reveal controls on mouse move to top -->
+    <div
+      v-if="activeTab === 'viewer' && autoHideEnabled"
+      @mouseenter="showControls"
+      @mousemove="showControls"
+      class="absolute top-0 left-0 right-0 h-6 z-40 cursor-pointer pointer-events-auto"
+      title="Hover to reveal slideshow controls"
+    ></div>
+
     <!-- Top Bar -->
-    <div class="px-4 py-3 bg-[#13161f] border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+    <div
+      :class="[
+        activeTab === 'viewer'
+          ? 'absolute top-0 left-0 right-0 z-40 bg-[#13161f]/95 backdrop-blur-md border-b border-slate-800/80 shadow-2xl transition-all duration-500 ease-in-out'
+          : 'px-4 py-3 bg-[#13161f] border-b border-slate-800 shrink-0',
+        activeTab === 'viewer' && autoHideEnabled && !isControlsVisible
+          ? '-translate-y-full opacity-0 pointer-events-none'
+          : 'translate-y-0 opacity-100 pointer-events-auto',
+        'px-4 py-3 flex flex-wrap items-center justify-between gap-3'
+      ]"
+      @mouseenter="showControls"
+    >
       
       <!-- Title & Tab Switcher -->
       <div class="flex items-center gap-4">
@@ -491,6 +575,22 @@ onUnmounted(() => {
           <ExternalLink class="w-3.5 h-3.5" />
         </button>
 
+        <!-- Auto-Hide Controls Toggle Button -->
+        <button
+          @click="toggleAutoHide"
+          :class="[
+            autoHideEnabled
+              ? 'text-sky-400 bg-sky-500/10 border-sky-500/40'
+              : 'text-slate-400 hover:text-white border-slate-700 bg-[#090d16]',
+            'px-2 py-1.5 rounded-lg border text-xs font-semibold transition flex items-center gap-1.5'
+          ]"
+          :title="autoHideEnabled ? 'Auto-Hide Controls: Aktif (Header & toolbar sembunyi otomatis setelah 3 detik)' : 'Auto-Hide Controls: Nonaktif (Header selalu terlihat)'"
+        >
+          <EyeOff v-if="autoHideEnabled" class="w-3.5 h-3.5 text-sky-400" />
+          <Eye v-else class="w-3.5 h-3.5 text-slate-400" />
+          <span class="hidden xl:inline text-[11px]">{{ autoHideEnabled ? 'Auto-Hide' : 'Pinned' }}</span>
+        </button>
+
         <!-- If PNA Risky, show Help Button -->
         <button
           v-if="isCurrentEmbedPnaRisky"
@@ -536,7 +636,14 @@ onUnmounted(() => {
     </div>
 
     <!-- Top Countdown Progress Bar (When Auto-Rotating) -->
-    <div v-if="activeTab === 'viewer' && isAutoRotating && activeEmbeds.length > 1" class="w-full h-1 bg-slate-900 shrink-0">
+    <div
+      v-if="activeTab === 'viewer' && isAutoRotating && activeEmbeds.length > 1"
+      :class="[
+        'w-full h-1 bg-slate-900/60 z-50 transition-all duration-500 ease-in-out',
+        activeTab === 'viewer' ? 'absolute top-0 left-0 right-0' : 'shrink-0',
+        activeTab === 'viewer' && autoHideEnabled && !isControlsVisible ? 'opacity-30' : 'opacity-100'
+      ]"
+    >
       <div
         class="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-emerald-400 transition-all duration-100 ease-linear"
         :style="{ width: `${progressPercent}%` }"
@@ -564,7 +671,15 @@ onUnmounted(() => {
         ></iframe>
 
         <!-- Bottom Float Indicator Bar -->
-        <div class="absolute bottom-3 left-4 z-30 bg-[#13161f]/90 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 flex items-center gap-2.5 shadow-xl pointer-events-auto">
+        <div
+          :class="[
+            'absolute bottom-3 left-4 z-30 bg-[#13161f]/90 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 flex items-center gap-2.5 shadow-xl transition-all duration-500 ease-in-out',
+            activeTab === 'viewer' && autoHideEnabled && !isControlsVisible
+              ? 'translate-y-12 opacity-0 pointer-events-none'
+              : 'translate-y-0 opacity-100 pointer-events-auto'
+          ]"
+          @mouseenter="showControls"
+        >
           <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
           <span class="font-bold text-white truncate max-w-[200px]">{{ currentEmbed.name }}</span>
           <span class="text-[11px] text-slate-400 font-mono truncate max-w-xs">{{ currentEmbed.url }}</span>
@@ -594,6 +709,17 @@ onUnmounted(() => {
             <span class="sm:hidden">Blocked Fix</span>
           </button>
         </div>
+
+        <!-- Subtle Ambient Show Controls Button (when controls are hidden in viewer mode) -->
+        <button
+          v-if="activeTab === 'viewer' && autoHideEnabled && !isControlsVisible"
+          @click="showControls"
+          class="absolute top-3 right-4 z-30 px-3 py-1.5 rounded-xl bg-[#13161f]/70 hover:bg-[#13161f]/95 border border-slate-800/80 backdrop-blur-md text-[11px] text-slate-300 hover:text-white flex items-center gap-1.5 transition-all duration-300 opacity-60 hover:opacity-100 shadow-xl"
+          title="Klik atau gerakkan kursor mouse ke atas untuk menampilkan menu & toolbar"
+        >
+          <Eye class="w-3.5 h-3.5 text-brand-400" />
+          <span class="hidden sm:inline font-medium">Show Controls</span>
+        </button>
       </template>
 
       <!-- Empty State When No Embed URLs Added -->
