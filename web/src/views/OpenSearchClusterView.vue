@@ -545,7 +545,7 @@ onUnmounted(() => {
       <!-- Left: Title and Status -->
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
-          <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+          <Database class="w-4 h-4 text-slate-400" />
           <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">
             OpenSearch Cluster Monitor
             <span v-if="isEmbedMode && configForm.name" class="text-slate-400 font-normal"> · {{ configForm.name }}</span>
@@ -577,7 +577,7 @@ onUnmounted(() => {
           class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition"
           title="Refresh Data Now"
         >
-          <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-brand-400' : '']" />
+          <RotateCw :class="['w-4 h-4', isRefreshing ? 'animate-spin text-slate-300' : '']" />
         </button>
 
         <!-- Settings Gear Modal Button (Only if not embed) -->
@@ -597,10 +597,10 @@ onUnmounted(() => {
         <button
           v-if="!isEmbedMode"
           @click="isShareModalOpen = true"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-700 dark:text-blue-400 font-medium transition"
+          class="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#242833] border border-slate-300 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition font-medium"
           title="Share & Embed Overview URL"
         >
-          <Share2 class="w-3.5 h-3.5" />
+          <Share2 class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden sm:inline">Share</span>
         </button>
 
@@ -659,26 +659,6 @@ onUnmounted(() => {
       <!-- TAB 1: OVERVIEW -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'overview'" class="space-y-6">
-        <!-- Overview Tab Action Toolbar -->
-        <div v-if="!isEmbedMode" class="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-slate-200/60 dark:border-slate-800/60">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Cluster Overview</span>
-            <span v-if="configForm.name" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-400">
-              {{ configForm.name }} ({{ configForm.host }}:{{ configForm.port }})
-            </span>
-          </div>
-
-          <!-- Prominent Share & Embed URL button on Overview tab -->
-          <button
-            @click="isShareModalOpen = true"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30 text-xs font-semibold transition shadow-sm"
-            title="Get Embeddable URL & iframe code for Overview tab"
-          >
-            <Share2 class="w-3.5 h-3.5" />
-            <span>Share / Embed Overview</span>
-          </button>
-        </div>
-
         <!-- Not Connected Notice -->
         <div v-if="!clusterHealth" class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
           <div class="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
