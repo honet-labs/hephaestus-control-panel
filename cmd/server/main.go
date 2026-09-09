@@ -176,6 +176,10 @@ func main() {
 		api.POST("/remote-host/:id/firewall/rules", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.AddFirewallRule)
 		api.DELETE("/remote-host/:id/firewall/rules/:ruleId", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.DeleteFirewallRule)
 		api.POST("/remote-host/:id/firewall/toggle", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.ToggleFirewall)
+		api.GET("/remote-host/users", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.ListAvailableUsers)
+		api.GET("/remote-host/:id/shares", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.ListShares)
+		api.POST("/remote-host/:id/shares", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.AddShare)
+		api.DELETE("/remote-host/:id/shares/:userId", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.DeleteShare)
 
 		// Topology (Feature: network_topology)
 		api.GET("/topology", middleware.RequirePermission("network_topology", "read"), topologyHandler.GetGraph)

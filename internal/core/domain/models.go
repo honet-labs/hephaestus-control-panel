@@ -168,17 +168,33 @@ type SnmpQueryResult struct {
 // ==================== REMOTE HOST DOMAIN ====================
 
 type RemoteHostConfig struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Username  string    `json:"username"`
-	AuthType  string    `json:"authType"`
-	Password  *string   `json:"password,omitempty"`
-	SSHKey    *string   `json:"sshKey,omitempty"`
-	GroupName string    `json:"groupName"`
-	Tags      []string  `json:"tags"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Host          string    `json:"host"`
+	Port          int       `json:"port"`
+	Username      string    `json:"username"`
+	AuthType      string    `json:"authType"`
+	Password      *string   `json:"password,omitempty"`
+	SSHKey        *string   `json:"sshKey,omitempty"`
+	GroupName     string    `json:"groupName"`
+	Tags          []string  `json:"tags"`
+	UserID        *int      `json:"userId,omitempty"`
+	OwnerUsername string    `json:"ownerUsername,omitempty"`
+	IsOwner       bool      `json:"isOwner"`
+	SharedAccess  string    `json:"sharedAccess,omitempty"` // "owner", "admin", "read", "manage"
+	SharesCount   int       `json:"sharesCount"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+type RemoteHostShare struct {
+	ID               string    `json:"id"`
+	HostID           string    `json:"hostId"`
+	UserID           int       `json:"userId"`
+	Username         string    `json:"username"`
+	Permission       string    `json:"permission"` // "read" or "manage"
+	SharedBy         *int      `json:"sharedBy,omitempty"`
+	SharedByUsername string    `json:"sharedByUsername,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type SftpFileEntry struct {

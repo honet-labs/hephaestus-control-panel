@@ -53,8 +53,46 @@ func NewRemoteHostHandler(
 	}
 }
 
+func getUserContext(c *gin.Context) (int, string) {
+	var userID int
+	var userRole string
+	if val, exists := c.Get("userId"); exists {
+		if id, ok := val.(int); ok {
+			userID = id
+		}
+	}
+	if val, exists := c.Get("userRole"); exists {
+		if r, ok := val.(string); ok {
+			userRole = r
+		}
+	}
+	return userID, userRole
+}
+
+func (h *RemoteHostHandler) ensureAccess(c *gin.Context, hostID string, requiredPermission string) bool {
+	userID, userRole := getUserContext(c)
+	hasAccess, isOwner, perm, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Access denied: you do not have permission to access this remote server",
+		})
+		return false
+	}
+
+	if requiredPermission == "manage" && !isOwner && !strings.EqualFold(userRole, "ADMIN") && perm != "manage" {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Access denied: full management permission is required for this action",
+		})
+		return false
+	}
+	return true
+}
+
 func (h *RemoteHostHandler) List(c *gin.Context) {
-	list, err := h.remoteRepo.List(c.Request.Context())
+	userID, userRole := getUserContext(c)
+	list, err := h.remoteRepo.List(c.Request.Context(), userID, userRole)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -64,9 +102,10 @@ func (h *RemoteHostHandler) List(c *gin.Context) {
 
 func (h *RemoteHostHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
-	cfg, err := h.remoteRepo.GetByID(c.Request.Context(), id)
+	userID, userRole := getUserContext(c)
+	cfg, err := h.remoteRepo.GetByID(c.Request.Context(), id, userID, userRole)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Host not found"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Host not found or access denied"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": cfg})
@@ -79,6 +118,8 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 		return
 	}
 
+	userID, userRole := getUserContext(c)
+
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("rhc-%s", uuid.New().String()[:8])
 	}
@@ -89,8 +130,8 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 		req.GroupName = "Default"
 	}
 
-	if err := h.remoteRepo.Save(c.Request.Context(), req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	if err := h.remoteRepo.Save(c.Request.Context(), req, userID, userRole); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
@@ -99,8 +140,9 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 
 func (h *RemoteHostHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.remoteRepo.Delete(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	userID, userRole := getUserContext(c)
+	if err := h.remoteRepo.Delete(c.Request.Context(), id, userID, userRole); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Host deleted successfully."})
@@ -135,6 +177,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	defer ws.Close()
 
 	var userID int
+	var userRole string
 	var hostID string = queryHostID
 	var isAuthenticated bool
 
@@ -143,6 +186,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		user, err := h.authService.ValidateSession(c.Request.Context(), queryToken)
 		if err == nil && user != nil {
 			userID = user.ID
+			userRole = user.Role
 			isAuthenticated = true
 		} else {
 			_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
@@ -170,6 +214,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 				return
 			}
 			userID = user.ID
+			userRole = user.Role
 			isAuthenticated = true
 		}
 
@@ -199,6 +244,14 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 
+	// Multi-tenant Access Check for Terminal Session
+	hasAccess, _, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess {
+		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Access denied. You do not have permission to access this remote server."})
+		_ = ws.Close()
+		return
+	}
+
 	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
 	if err != nil {
 		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: fmt.Sprintf("Remote host '%s' not found.", hostID)})
@@ -212,63 +265,69 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 // SFTP Endpoints
 func (h *RemoteHostHandler) SftpList(c *gin.Context) {
 	hostID := c.Param("id")
-	remotePath := c.DefaultQuery("path", "/")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
 
+	remotePath := c.DefaultQuery("path", "/")
 	files, err := h.sshService.SftpListDir(c.Request.Context(), hostID, remotePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": files})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": files, "currentPath": remotePath})
 }
 
 func (h *RemoteHostHandler) SftpUpload(c *gin.Context) {
 	hostID := c.Param("id")
-	remotePath := c.Query("path")
-	if remotePath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Query param 'path' is required"})
+	if !h.ensureAccess(c, hostID, "manage") {
 		return
 	}
 
+	targetDir := c.DefaultPostForm("path", "/")
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "No file uploaded"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "file is required"})
 		return
 	}
 	defer file.Close()
 
-	targetPath := remotePath
-	if targetPath == "" || targetPath == "/" {
-		targetPath = "/" + header.Filename
-	}
-
-	if err := h.sshService.SftpUpload(c.Request.Context(), hostID, targetPath, file); err != nil {
+	remotePath := filepath.ToSlash(filepath.Join(targetDir, header.Filename))
+	if err := h.sshService.SftpUpload(c.Request.Context(), hostID, remotePath, file); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("File '%s' uploaded successfully.", header.Filename)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "File uploaded successfully."})
 }
 
 func (h *RemoteHostHandler) SftpDownload(c *gin.Context) {
 	hostID := c.Param("id")
-	remotePath := c.Query("path")
-	if remotePath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Path required"})
+	if !h.ensureAccess(c, hostID, "read") {
 		return
 	}
 
-	reader, size, err := h.sshService.SftpDownload(c.Request.Context(), hostID, remotePath)
+	remotePath := c.Query("path")
+	if remotePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "path is required"})
+		return
+	}
+
+	rc, size, err := h.sshService.SftpDownload(c.Request.Context(), hostID, remotePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	defer reader.Close()
+	defer rc.Close()
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(remotePath)))
+	filename := filepath.Base(remotePath)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Length", fmt.Sprintf("%d", size))
-	_, _ = io.Copy(c.Writer, reader)
+	if size > 0 {
+		c.Header("Content-Length", strconv.FormatInt(size, 10))
+	}
+
+	_, _ = io.Copy(c.Writer, rc)
 }
 
 type SftpRemoteTransferReq struct {
@@ -285,6 +344,13 @@ func (h *RemoteHostHandler) SftpTransferRemote(c *gin.Context) {
 		return
 	}
 
+	if !h.ensureAccess(c, req.SrcHostID, "read") {
+		return
+	}
+	if !h.ensureAccess(c, req.DstHostID, "manage") {
+		return
+	}
+
 	if err := h.sshService.SftpTransferRemoteToRemote(c.Request.Context(), req.SrcHostID, req.SrcPath, req.DstHostID, req.DstPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -293,10 +359,14 @@ func (h *RemoteHostHandler) SftpTransferRemote(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Server-to-Server file transfer completed successfully."})
 }
 
-// Telemetry & Linux System Monitoring Endpoints
+// Telemetry & Systems Endpoints
 func (h *RemoteHostHandler) GetMetrics(c *gin.Context) {
 	hostID := c.Param("id")
-	metrics, err := h.vpsService.GetMetrics(c.Request.Context(), hostID)
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
+	metrics, err := h.vpsService.GetSystemUtilization(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -306,6 +376,10 @@ func (h *RemoteHostHandler) GetMetrics(c *gin.Context) {
 
 func (h *RemoteHostHandler) GetProcesses(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
 	procs, err := h.vpsService.GetProcesses(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -316,6 +390,10 @@ func (h *RemoteHostHandler) GetProcesses(c *gin.Context) {
 
 func (h *RemoteHostHandler) KillProcess(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
 	pidStr := c.Param("pid")
 	pid, err := strconv.Atoi(pidStr)
 	if err != nil {
@@ -332,6 +410,10 @@ func (h *RemoteHostHandler) KillProcess(c *gin.Context) {
 
 func (h *RemoteHostHandler) GetServices(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
 	svcs, err := h.vpsService.GetServices(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -342,6 +424,10 @@ func (h *RemoteHostHandler) GetServices(c *gin.Context) {
 
 func (h *RemoteHostHandler) ControlService(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
 	var req struct {
 		ServiceName string `json:"serviceName" binding:"required"`
 		Action      string `json:"action" binding:"required"`
@@ -361,6 +447,10 @@ func (h *RemoteHostHandler) ControlService(c *gin.Context) {
 
 func (h *RemoteHostHandler) GetNetworkInfo(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
 	netInfo, err := h.vpsService.GetNetworkInfo(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -371,6 +461,10 @@ func (h *RemoteHostHandler) GetNetworkInfo(c *gin.Context) {
 
 func (h *RemoteHostHandler) GetFirewallStatus(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
 	res, err := h.firewallService.GetFirewallStatus(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -381,6 +475,10 @@ func (h *RemoteHostHandler) GetFirewallStatus(c *gin.Context) {
 
 func (h *RemoteHostHandler) AddFirewallRule(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
 	var rule domain.RemoteHostFirewallRule
 	if err := c.ShouldBindJSON(&rule); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid firewall rule payload"})
@@ -397,6 +495,10 @@ func (h *RemoteHostHandler) AddFirewallRule(c *gin.Context) {
 
 func (h *RemoteHostHandler) DeleteFirewallRule(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
 	ruleID := c.Param("ruleId")
 	if ruleID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "ruleId is required"})
@@ -412,6 +514,10 @@ func (h *RemoteHostHandler) DeleteFirewallRule(c *gin.Context) {
 
 func (h *RemoteHostHandler) ToggleFirewall(c *gin.Context) {
 	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
 	var req struct {
 		Enable bool `json:"enable"`
 	}
@@ -428,5 +534,87 @@ func (h *RemoteHostHandler) ToggleFirewall(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Firewall status toggled successfully.", "output": out})
 }
 
+// ==================== SHARE ACCESS HANDLERS ====================
 
+func (h *RemoteHostHandler) ListShares(c *gin.Context) {
+	hostID := c.Param("id")
+	userID, userRole := getUserContext(c)
 
+	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can view shared access"})
+		return
+	}
+
+	shares, err := h.remoteRepo.ListShares(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": shares})
+}
+
+func (h *RemoteHostHandler) AddShare(c *gin.Context) {
+	hostID := c.Param("id")
+	userID, userRole := getUserContext(c)
+
+	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can share access"})
+		return
+	}
+
+	var req struct {
+		UserID     int    `json:"userId" binding:"required"`
+		Permission string `json:"permission"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
+		return
+	}
+
+	if req.UserID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "You cannot share a server with yourself"})
+		return
+	}
+
+	if err := h.remoteRepo.AddShare(c.Request.Context(), hostID, req.UserID, req.Permission, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Access granted successfully."})
+}
+
+func (h *RemoteHostHandler) DeleteShare(c *gin.Context) {
+	hostID := c.Param("id")
+	targetUserIDStr := c.Param("userId")
+	targetUserID, err := strconv.Atoi(targetUserIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user ID"})
+		return
+	}
+
+	userID, userRole := getUserContext(c)
+	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can revoke access"})
+		return
+	}
+
+	if err := h.remoteRepo.DeleteShare(c.Request.Context(), hostID, targetUserID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Access revoked successfully."})
+}
+
+func (h *RemoteHostHandler) ListAvailableUsers(c *gin.Context) {
+	users, err := h.remoteRepo.ListAvailableUsers(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": users})
+}

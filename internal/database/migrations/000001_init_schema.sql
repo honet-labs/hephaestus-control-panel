@@ -176,10 +176,25 @@ CREATE TABLE IF NOT EXISTS remote_host_configs (
     ssh_key TEXT,
     group_name VARCHAR(255) DEFAULT 'Default',
     tags TEXT[] DEFAULT '{}',
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_remote_host_configs_user_id ON remote_host_configs(user_id);
 
--- 15b. RemoteHostFirewallRules - Firewall access control rules per host
+-- 15b. RemoteHostShares - Multi-user access sharing for remote hosts
+CREATE TABLE IF NOT EXISTS remote_host_shares (
+    id VARCHAR(50) PRIMARY KEY,
+    host_id VARCHAR(50) NOT NULL REFERENCES remote_host_configs(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission VARCHAR(20) NOT NULL DEFAULT 'read',
+    shared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(host_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_remote_host_shares_host_id ON remote_host_shares(host_id);
+CREATE INDEX IF NOT EXISTS idx_remote_host_shares_user_id ON remote_host_shares(user_id);
+
+-- 15c. RemoteHostFirewallRules - Firewall access control rules per host
 CREATE TABLE IF NOT EXISTS remote_host_firewall_rules (
     id VARCHAR(50) PRIMARY KEY,
     host_id VARCHAR(50) NOT NULL REFERENCES remote_host_configs(id) ON DELETE CASCADE,

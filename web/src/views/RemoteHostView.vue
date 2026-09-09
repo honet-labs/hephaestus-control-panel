@@ -58,6 +58,8 @@ import {
   ChevronDown,
   Palette,
   GripVertical,
+  Share2,
+  Users,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -120,6 +122,22 @@ interface RemoteHost {
   authType: string;
   groupName: string;
   tags: string[];
+  userId?: number;
+  ownerUsername?: string;
+  isOwner?: boolean;
+  sharedAccess?: string;
+  sharesCount?: number;
+}
+
+interface RemoteHostShare {
+  id: string;
+  hostId: string;
+  userId: number;
+  username: string;
+  permission: string;
+  sharedBy?: number;
+  sharedByUsername?: string;
+  createdAt: string;
 }
 
 interface TabGroup {
@@ -188,6 +206,19 @@ const portProtoFilter = ref<'all' | 'tcp' | 'udp'>('all');
 const portSearch = ref('');
 const interfaceSearch = ref('');
 
+// Host Ownership & Sharing State
+const hostOwnershipFilter = ref<'all' | 'mine' | 'shared'>('all');
+const isShareModalOpen = ref(false);
+const selectedHostForShare = ref<RemoteHost | null>(null);
+const hostShares = ref<RemoteHostShare[]>([]);
+const availableUsers = ref<{ id: number; username: string; role: string }[]>([]);
+const isShareLoading = ref(false);
+const isShareSubmitting = ref(false);
+const shareForm = ref<{ userId: number | ''; permission: 'read' | 'manage' }>({
+  userId: '',
+  permission: 'read',
+});
+
 // New Group Form
 const newGroupName = ref('');
 
@@ -232,16 +263,29 @@ const existingGroupNames = computed(() => {
   return Array.from(set);
 });
 
+// Ownership counts
+const myHostsCount = computed(() => hosts.value.filter((h) => h.isOwner).length);
+const sharedHostsCount = computed(() => hosts.value.filter((h) => !h.isOwner).length);
+
 // Filtered hosts
 const filteredHosts = computed(() => {
   let list = hosts.value;
   if (selectedGroupFilter.value) {
     list = list.filter((h) => h.groupName === selectedGroupFilter.value);
   }
+  if (hostOwnershipFilter.value === 'mine') {
+    list = list.filter((h) => h.isOwner);
+  } else if (hostOwnershipFilter.value === 'shared') {
+    list = list.filter((h) => !h.isOwner);
+  }
   if (!searchHostQuery.value) return list;
   const q = searchHostQuery.value.toLowerCase();
   return list.filter(
-    (h) => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q) || h.username.toLowerCase().includes(q)
+    (h) =>
+      h.name.toLowerCase().includes(q) ||
+      h.host.toLowerCase().includes(q) ||
+      h.username.toLowerCase().includes(q) ||
+      (h.ownerUsername && h.ownerUsername.toLowerCase().includes(q))
   );
 });
 
@@ -1608,6 +1652,105 @@ const handleSaveHost = async () => {
   }
 };
 
+// Share Access Handlers
+const openShareModal = async (host: RemoteHost, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  selectedHostForShare.value = host;
+  isShareModalOpen.value = true;
+  shareForm.value = { userId: '', permission: 'read' };
+  await Promise.all([fetchHostShares(host.id), fetchAvailableUsers()]);
+};
+
+const fetchHostShares = async (hostId: string) => {
+  isShareLoading.value = true;
+  try {
+    const res = await axios.get(`/api/v1/remote-host/${hostId}/shares`);
+    if (res.data.success) {
+      hostShares.value = res.data.data || [];
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch shares:', err);
+    hostShares.value = [];
+  } finally {
+    isShareLoading.value = false;
+  }
+};
+
+const fetchAvailableUsers = async () => {
+  try {
+    const res = await axios.get('/api/v1/remote-host/users');
+    if (res.data.success) {
+      availableUsers.value = res.data.data || [];
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch available users:', err);
+  }
+};
+
+const handleGrantShare = async () => {
+  if (!selectedHostForShare.value || !shareForm.value.userId) return;
+  isShareSubmitting.value = true;
+  try {
+    const res = await axios.post(`/api/v1/remote-host/${selectedHostForShare.value.id}/shares`, {
+      userId: Number(shareForm.value.userId),
+      permission: shareForm.value.permission,
+    });
+    if (res.data.success) {
+      shareForm.value.userId = '';
+      await fetchHostShares(selectedHostForShare.value.id);
+      await fetchHosts();
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to grant share access');
+  } finally {
+    isShareSubmitting.value = false;
+  }
+};
+
+const handleRevokeShare = async (targetUserId: number) => {
+  if (!selectedHostForShare.value) return;
+  if (!confirm('Are you sure you want to revoke access for this user?')) return;
+  try {
+    const res = await axios.delete(`/api/v1/remote-host/${selectedHostForShare.value.id}/shares/${targetUserId}`);
+    if (res.data.success) {
+      await fetchHostShares(selectedHostForShare.value.id);
+      await fetchHosts();
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to revoke access');
+  }
+};
+
+const openEditHostModal = (host: RemoteHost, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  hostForm.value = {
+    id: host.id,
+    name: host.name,
+    host: host.host,
+    port: host.port,
+    username: host.username,
+    authType: host.authType || 'password',
+    password: '',
+    sshKey: '',
+    groupName: host.groupName || 'Default',
+    tags: host.tags || [],
+  };
+  isHostModalOpen.value = true;
+};
+
+const handleDeleteHost = async (host: RemoteHost, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  if (!confirm(`Are you sure you want to delete server "${host.name}" (${host.host})?`)) return;
+  try {
+    const res = await axios.delete(`/api/v1/remote-host/${host.id}`);
+    if (res.data.success) {
+      await fetchHosts();
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to delete host');
+  }
+};
+
 const handleCreateGroup = () => {
   if (newGroupName.value.trim()) {
     isGroupModalOpen.value = false;
@@ -1967,40 +2110,129 @@ onUnmounted(() => {
         </div>
 
         <!-- Hosts Section -->
-        <div v-if="hosts.length > 0" class="space-y-2">
-          <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Hosts ({{ filteredHosts.length }})
-          </h3>
+        <div v-if="hosts.length > 0" class="space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              Hosts ({{ filteredHosts.length }})
+            </h3>
+
+            <!-- Ownership Filter Tabs -->
+            <div class="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+              <button
+                @click="hostOwnershipFilter = 'all'"
+                :class="hostOwnershipFilter === 'all' ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
+              >
+                ALL ({{ hosts.length }})
+              </button>
+              <button
+                @click="hostOwnershipFilter = 'mine'"
+                :class="hostOwnershipFilter === 'mine' ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                MY HOSTS ({{ myHostsCount }})
+              </button>
+              <button
+                @click="hostOwnershipFilter = 'shared'"
+                :class="hostOwnershipFilter === 'shared' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                SHARED ({{ sharedHostsCount }})
+              </button>
+            </div>
+          </div>
+
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group"
+              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative"
             >
               <div class="flex items-center gap-3 overflow-hidden">
                 <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
                   {{ host.name.substring(0, 2).toUpperCase() }}
                 </div>
-                <div class="overflow-hidden">
+                <div class="overflow-hidden space-y-1">
                   <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
                   <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
-                  <div class="flex items-center gap-1.5 mt-1.5">
-                    <span class="px-2 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
+                  
+                  <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span class="px-1.5 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
                       {{ host.groupName || 'Default' }}
+                    </span>
+
+                    <!-- Ownership Badge -->
+                    <span
+                      v-if="host.isOwner"
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold"
+                    >
+                      My Host
+                    </span>
+                    <span
+                      v-else
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/15 text-sky-400 border border-sky-500/30 font-semibold truncate max-w-[130px]"
+                      :title="`Shared by @${host.ownerUsername || 'User'} (${host.sharedAccess === 'manage' ? 'Full Control' : 'Read Only'})`"
+                    >
+                      Shared &bull; @{{ host.ownerUsername || 'User' }}
+                    </span>
+
+                    <!-- Shares Count Badge -->
+                    <span
+                      v-if="host.sharesCount && host.sharesCount > 0 && (host.isOwner || authStore.user?.role === 'ADMIN')"
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1 font-mono"
+                      title="Users shared with this server"
+                    >
+                      <Users class="w-2.5 h-2.5" />
+                      {{ host.sharesCount }}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <!-- Quick Duplicate / New Tab -->
-              <button
-                @click.stop="connectHost(host, true)"
-                title="Open New Terminal Tab"
-                class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-brand-600 transition shrink-0"
-              >
-                <Plus class="w-3.5 h-3.5" />
-              </button>
+              <!-- Action Buttons -->
+              <div class="flex items-center gap-1 shrink-0">
+                <!-- Share Button (Only Owner or Admin) -->
+                <button
+                  v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
+                  @click.stop="openShareModal(host, $event)"
+                  title="Share access with other users"
+                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-purple-300 hover:bg-purple-950/60 border border-slate-700/60 transition"
+                >
+                  <Share2 class="w-3.5 h-3.5" />
+                </button>
+
+                <!-- Edit Button (Only Owner or Admin) -->
+                <button
+                  v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
+                  @click.stop="openEditHostModal(host, $event)"
+                  title="Edit Server Configuration"
+                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-sky-300 hover:bg-sky-950/60 border border-slate-700/60 transition"
+                >
+                  <Settings class="w-3.5 h-3.5" />
+                </button>
+
+                <!-- Delete Button (Only Owner or Admin) -->
+                <button
+                  v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
+                  @click.stop="handleDeleteHost(host, $event)"
+                  title="Delete Server"
+                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-rose-400 hover:bg-rose-950/60 border border-slate-700/60 transition"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+
+                <!-- Quick Duplicate / New Tab -->
+                <button
+                  @click.stop="connectHost(host, true)"
+                  title="Open New Terminal Tab"
+                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-emerald-600 transition"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3560,6 +3792,157 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- SHARE ACCESS MODAL -->
+    <!-- ================================================================= -->
+    <div
+      v-if="isShareModalOpen && selectedHostForShare"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+    >
+      <div class="bg-[#1b1e26] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#20242e]">
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/25">
+              <Share2 class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white tracking-wide">Share Server Access</h3>
+              <p class="text-xs text-slate-400">
+                {{ selectedHostForShare.name }} &bull; <span class="font-mono text-slate-300">{{ selectedHostForShare.host }}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            @click="isShareModalOpen = false"
+            class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="p-6 space-y-4">
+          <!-- Server Owner Banner -->
+          <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs font-sans">
+            <span class="text-slate-400 font-medium">Server Owner</span>
+            <span class="text-emerald-400 font-semibold font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+              @{{ selectedHostForShare.ownerUsername || 'You' }} (Full Ownership)
+            </span>
+          </div>
+
+          <!-- Grant Access Form -->
+          <div class="p-4 bg-[#14161b] border border-slate-800/90 rounded-xl space-y-3">
+            <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2 font-sans">
+              <Users class="w-3.5 h-3.5 text-purple-400" />
+              <span>Grant Access to User</span>
+            </h4>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div class="sm:col-span-6 space-y-1">
+                <label class="block text-[11px] text-slate-400 font-medium">Select User</label>
+                <select
+                  v-model="shareForm.userId"
+                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition font-sans"
+                >
+                  <option value="" disabled>Choose user...</option>
+                  <option
+                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && (!selectedHostForShare.userId || u.id !== selectedHostForShare.userId))"
+                    :key="u.id"
+                    :value="u.id"
+                  >
+                    {{ u.username }} ({{ u.role }})
+                  </option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-4 space-y-1">
+                <label class="block text-[11px] text-slate-400 font-medium">Access Level</label>
+                <select
+                  v-model="shareForm.permission"
+                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition font-sans"
+                >
+                  <option value="read">Read Only (SSH & Telemetry)</option>
+                  <option value="manage">Full Control (Manage & SFTP)</option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-2 flex items-end">
+                <button
+                  type="button"
+                  @click="handleGrantShare"
+                  :disabled="!shareForm.userId || isShareSubmitting"
+                  class="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition shadow-md shadow-purple-600/20 flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <RotateCw v-if="isShareSubmitting" class="w-3.5 h-3.5 animate-spin" />
+                  <span>{{ isShareSubmitting ? '...' : 'Grant' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Shares List -->
+          <div class="space-y-2">
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider font-sans">
+              Currently Shared Users ({{ hostShares.length }})
+            </h4>
+
+            <div v-if="isShareLoading" class="p-6 text-center text-xs text-slate-500">
+              Loading access list...
+            </div>
+            <div v-else-if="hostShares.length === 0" class="p-6 text-center text-xs text-slate-500 bg-[#14161b] rounded-xl border border-slate-800">
+              This server is private. Only you can view and connect to it.
+            </div>
+            <div v-else class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div
+                v-for="s in hostShares"
+                :key="s.id"
+                class="p-3 bg-[#14161b] border border-slate-800/80 rounded-xl flex items-center justify-between gap-3 text-xs"
+              >
+                <div class="flex items-center gap-2.5">
+                  <div class="w-7 h-7 rounded-full bg-purple-600/80 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                    {{ s.username.substring(0, 2).toUpperCase() }}
+                  </div>
+                  <div>
+                    <p class="font-semibold text-white">@{{ s.username }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono">
+                      Granted by @{{ s.sharedByUsername || 'Admin' }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <span
+                    :class="s.permission === 'manage' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'"
+                    class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase"
+                  >
+                    {{ s.permission === 'manage' ? 'Full Control' : 'Read Only' }}
+                  </span>
+                  <button
+                    @click="handleRevokeShare(s.userId)"
+                    title="Revoke access"
+                    class="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end px-6 py-3 border-t border-slate-800 bg-[#20242e] font-sans">
+          <button
+            type="button"
+            @click="isShareModalOpen = false"
+            class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
 

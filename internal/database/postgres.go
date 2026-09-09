@@ -185,6 +185,25 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_remote_host_firewall_rules_host_id ON remote_host_firewall_rules(host_id);
+
+		ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+		CREATE INDEX IF NOT EXISTS idx_remote_host_configs_user_id ON remote_host_configs(user_id);
+
+		UPDATE remote_host_configs 
+		SET user_id = (SELECT id FROM users WHERE role = 'ADMIN' ORDER BY id ASC LIMIT 1)
+		WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users WHERE role = 'ADMIN');
+
+		CREATE TABLE IF NOT EXISTS remote_host_shares (
+			id VARCHAR(50) PRIMARY KEY,
+			host_id VARCHAR(50) NOT NULL REFERENCES remote_host_configs(id) ON DELETE CASCADE,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(20) NOT NULL DEFAULT 'read',
+			shared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(host_id, user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_remote_host_shares_host_id ON remote_host_shares(host_id);
+		CREATE INDEX IF NOT EXISTS idx_remote_host_shares_user_id ON remote_host_shares(user_id);
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 
