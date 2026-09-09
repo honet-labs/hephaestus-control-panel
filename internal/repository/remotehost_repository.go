@@ -26,7 +26,6 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 	}
 
 	var query string
-	var rows database.Rows
 
 	if strings.EqualFold(userRole, "ADMIN") {
 		query = `
@@ -40,7 +39,6 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 			LEFT JOIN users u ON r.user_id = u.id
 			ORDER BY r.group_name ASC, r.name ASC
 		`
-		rows, err = pool.Query(ctx, query, userID)
 	} else {
 		query = `
 			SELECT 
@@ -58,8 +56,9 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 			WHERE r.user_id = $1 OR rhs.user_id = $1
 			ORDER BY r.group_name ASC, r.name ASC
 		`
-		rows, err = pool.Query(ctx, query, userID)
 	}
+
+	rows, err := pool.Query(ctx, query, userID)
 
 	if err != nil {
 		return nil, err
