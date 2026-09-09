@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -366,7 +367,7 @@ func (h *RemoteHostHandler) GetMetrics(c *gin.Context) {
 		return
 	}
 
-	metrics, err := h.vpsService.GetSystemUtilization(c.Request.Context(), hostID)
+	metrics, err := h.vpsService.GetMetrics(c.Request.Context(), hostID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

@@ -222,6 +222,11 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 	}, nil
 }
 
+// GetSystemUtilization returns real-time hardware telemetry and utilization (alias to GetMetrics)
+func (s *VpsService) GetSystemUtilization(ctx context.Context, hostID string) (map[string]interface{}, error) {
+	return s.GetMetrics(ctx, hostID)
+}
+
 func (s *VpsService) GetProcesses(ctx context.Context, hostID string) ([]map[string]interface{}, error) {
 	cfg, err := s.remoteRepo.GetRawByID(ctx, hostID)
 	if err != nil {
