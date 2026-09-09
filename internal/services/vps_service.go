@@ -394,15 +394,12 @@ func (s *VpsService) GetNetworkInfo(ctx context.Context, hostID string) (map[str
 		return nil, err
 	}
 
-	var sudoPrefix string
+	var escapedPass string
 	if cfg.Password != nil && *cfg.Password != "" {
-		escaped := strings.ReplaceAll(*cfg.Password, "'", "'\\''")
-		sudoPrefix = fmt.Sprintf("(echo '%s' | sudo -S -p '' 2>/dev/null || sudo -n ) ", escaped)
-	} else {
-		sudoPrefix = "sudo -n "
+		escapedPass = strings.ReplaceAll(*cfg.Password, "'", "'\\''")
 	}
 
-	cmd := fmt.Sprintf(`ip -o addr 2>/dev/null; echo "===LINK==="; ip -o link 2>/dev/null; echo "===PORTS==="; (%[1]sss -tulnp 2>/dev/null || ss -tulnp 2>/dev/null || %[1]snetstat -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null); echo "===LSOF==="; (%[1]slsof -iTCP -iUDP -sTCP:LISTEN -P -n 2>/dev/null || lsof -iTCP -iUDP -sTCP:LISTEN -P -n 2>/dev/null | head -n 50); echo "===CONNS==="; (%[1]sss -tunp 2>/dev/null || ss -tunp 2>/dev/null | head -n 45)`, sudoPrefix)
+	cmd := fmt.Sprintf(`_P='%s'; _s() { if [ -n "$_P" ]; then echo "$_P" | sudo -S -p '' "$@" 2>/dev/null || sudo -n "$@" 2>/dev/null || "$@" 2>/dev/null; else sudo -n "$@" 2>/dev/null || "$@" 2>/dev/null; fi; }; ip -o addr 2>/dev/null; echo "===LINK==="; ip -o link 2>/dev/null; echo "===PORTS==="; (_s ss -tulnp || ss -tulnp || _s netstat -tulnp || netstat -tulnp) 2>/dev/null; echo "===LSOF==="; (_s lsof -iTCP -iUDP -P -n || lsof -iTCP -iUDP -P -n) 2>/dev/null | head -n 60; echo "===CONNS==="; (_s ss -tunp || ss -tunp) 2>/dev/null | head -n 45`, escapedPass)
 
 	stdout, _, _, err := s.sshService.ExecuteCommand(cfg, cmd)
 	if err != nil || strings.TrimSpace(stdout) == "" {

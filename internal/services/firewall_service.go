@@ -25,12 +25,13 @@ func NewFirewallService(remoteRepo *repository.RemoteHostRepository, sshService 
 	}
 }
 
-func (s *FirewallService) getSudoPrefix(cfg *domain.RemoteHostConfig) string {
+func (s *FirewallService) executeWithSudo(cfg *domain.RemoteHostConfig, innerCmd string) (string, string, int, error) {
+	var escapedPass string
 	if cfg.Password != nil && *cfg.Password != "" {
-		escaped := strings.ReplaceAll(*cfg.Password, "'", "'\\''")
-		return fmt.Sprintf("(echo '%s' | sudo -S -p '' 2>/dev/null || sudo -n ) ", escaped)
+		escapedPass = strings.ReplaceAll(*cfg.Password, "'", "'\\''")
 	}
-	return "sudo -n "
+	cmd := fmt.Sprintf(`_P='%s'; _s() { if [ -n "$_P" ]; then echo "$_P" | sudo -S -p '' "$@" 2>/dev/null || sudo -n "$@" 2>/dev/null || "$@" 2>/dev/null; else sudo -n "$@" 2>/dev/null || "$@" 2>/dev/null; fi; }; %s`, escapedPass, innerCmd)
+	return s.sshService.ExecuteCommand(cfg, cmd)
 }
 
 func (s *FirewallService) GetFirewallStatus(ctx context.Context, hostID string) (map[string]interface{}, error) {
@@ -39,10 +40,9 @@ func (s *FirewallService) GetFirewallStatus(ctx context.Context, hostID string) 
 		return nil, err
 	}
 
-	sudo := s.getSudoPrefix(cfg)
-	cmd := fmt.Sprintf(`(%[1]sufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null); echo "===FIREWALLD==="; (%[1]sfirewall-cmd --state 2>/dev/null || firewall-cmd --state 2>/dev/null); echo "===IPTABLES==="; (%[1]siptables -S INPUT 2>/dev/null || iptables -S INPUT 2>/dev/null | head -n 30)`, sudo)
+	cmd := `(_s ufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null); echo "===FIREWALLD==="; (_s firewall-cmd --state 2>/dev/null || firewall-cmd --state 2>/dev/null); echo "===IPTABLES==="; (_s iptables -S INPUT 2>/dev/null || iptables -S INPUT 2>/dev/null | head -n 30)`
 
-	stdout, _, _, _ := s.sshService.ExecuteCommand(cfg, cmd)
+	stdout, _, _, _ := s.executeWithSudo(cfg, cmd)
 
 	active := false
 	serviceName := "none"
@@ -257,7 +257,6 @@ func (s *FirewallService) AddFirewallRule(ctx context.Context, hostID string, ru
 	}
 
 	// 2. Apply on remote server via SSH
-	sudo := s.getSudoPrefix(cfg)
 	actionLower := strings.ToLower(rule.Action) // allow or deny
 
 	var cmd string
@@ -266,28 +265,28 @@ func (s *FirewallService) AddFirewallRule(ctx context.Context, hostID string, ru
 
 	if rule.Protocol == "ICMP" || port == "ALL" {
 		if rule.SourceIP == "0.0.0.0/0" || rule.SourceIP == "ALL" {
-			cmd = fmt.Sprintf("%[1]sufw %[2]s proto icmp 2>/dev/null || %[1]siptables -A INPUT -p icmp -j %[3]s 2>/dev/null", sudo, actionLower, rule.Action)
+			cmd = fmt.Sprintf(`_s ufw %[1]s proto icmp 2>/dev/null || _s iptables -A INPUT -p icmp -j %[2]s 2>/dev/null`, actionLower, rule.Action)
 		} else {
-			cmd = fmt.Sprintf("%[1]sufw %[2]s from %[3]s 2>/dev/null || %[1]siptables -A INPUT -s %[3]s -j %[4]s 2>/dev/null", sudo, actionLower, rule.SourceIP, rule.Action)
+			cmd = fmt.Sprintf(`_s ufw %[1]s from %[2]s 2>/dev/null || _s iptables -A INPUT -s %[2]s -j %[3]s 2>/dev/null`, actionLower, rule.SourceIP, rule.Action)
 		}
 	} else {
 		// Port based rule
 		if rule.SourceIP == "0.0.0.0/0" || rule.SourceIP == "ALL" {
 			if protoLower == "all" {
-				cmd = fmt.Sprintf("%[1]sufw %[2]s %[3]s 2>/dev/null || %[1]sfirewall-cmd --add-port=%[3]s/tcp --permanent 2>/dev/null", sudo, actionLower, port)
+				cmd = fmt.Sprintf(`_s ufw %[1]s %[2]s 2>/dev/null || _s firewall-cmd --add-port=%[2]s/tcp --permanent 2>/dev/null`, actionLower, port)
 			} else {
-				cmd = fmt.Sprintf("%[1]sufw %[2]s %[3]s/%[4]s 2>/dev/null || %[1]sfirewall-cmd --add-port=%[3]s/%[4]s --permanent 2>/dev/null || %[1]siptables -A INPUT -p %[4]s --dport %[3]s -j %[5]s 2>/dev/null", sudo, actionLower, port, protoLower, rule.Action)
+				cmd = fmt.Sprintf(`_s ufw %[1]s %[2]s/%[3]s 2>/dev/null || _s firewall-cmd --add-port=%[2]s/%[3]s --permanent 2>/dev/null || _s iptables -A INPUT -p %[3]s --dport %[2]s -j %[4]s 2>/dev/null`, actionLower, port, protoLower, rule.Action)
 			}
 		} else {
 			if protoLower == "all" {
-				cmd = fmt.Sprintf("%[1]sufw %[2]s from %[3]s to any port %[4]s 2>/dev/null || %[1]siptables -A INPUT -s %[3]s -p tcp --dport %[4]s -j %[5]s 2>/dev/null", sudo, actionLower, rule.SourceIP, port, rule.Action)
+				cmd = fmt.Sprintf(`_s ufw %[1]s from %[2]s to any port %[3]s 2>/dev/null || _s iptables -A INPUT -s %[2]s -p tcp --dport %[3]s -j %[4]s 2>/dev/null`, actionLower, rule.SourceIP, port, rule.Action)
 			} else {
-				cmd = fmt.Sprintf("%[1]sufw %[2]s proto %[3]s from %[4]s to any port %[5]s 2>/dev/null || %[1]siptables -A INPUT -s %[4]s -p %[3]s --dport %[5]s -j %[6]s 2>/dev/null", sudo, actionLower, protoLower, rule.SourceIP, port, rule.Action)
+				cmd = fmt.Sprintf(`_s ufw %[1]s proto %[2]s from %[3]s to any port %[4]s 2>/dev/null || _s iptables -A INPUT -s %[3]s -p %[2]s --dport %[4]s -j %[5]s 2>/dev/null`, actionLower, protoLower, rule.SourceIP, port, rule.Action)
 			}
 		}
 	}
 
-	_, _, _, _ = s.sshService.ExecuteCommand(cfg, cmd)
+	_, _, _, _ = s.executeWithSudo(cfg, cmd)
 	return &rule, nil
 }
 
@@ -307,7 +306,6 @@ func (s *FirewallService) DeleteFirewallRule(ctx context.Context, hostID string,
 	err = pool.QueryRow(ctx, query, ruleID, hostID).Scan(&r.ID, &r.HostID, &r.Protocol, &r.PortRange, &r.SourceIP, &r.Action, &r.Description)
 	if err == nil {
 		// Attempt removal via SSH
-		sudo := s.getSudoPrefix(cfg)
 		actionLower := strings.ToLower(r.Action)
 		protoLower := strings.ToLower(r.Protocol)
 		port := strings.TrimSpace(r.PortRange)
@@ -315,14 +313,14 @@ func (s *FirewallService) DeleteFirewallRule(ctx context.Context, hostID string,
 		var cmd string
 		if r.SourceIP == "0.0.0.0/0" || r.SourceIP == "ALL" {
 			if protoLower == "all" {
-				cmd = fmt.Sprintf("%[1]sufw delete %[2]s %[3]s 2>/dev/null || %[1]sfirewall-cmd --remove-port=%[3]s/tcp --permanent 2>/dev/null", sudo, actionLower, port)
+				cmd = fmt.Sprintf(`_s ufw delete %[1]s %[2]s 2>/dev/null || _s firewall-cmd --remove-port=%[2]s/tcp --permanent 2>/dev/null`, actionLower, port)
 			} else {
-				cmd = fmt.Sprintf("%[1]sufw delete %[2]s %[3]s/%[4]s 2>/dev/null || %[1]sfirewall-cmd --remove-port=%[3]s/%[4]s --permanent 2>/dev/null || %[1]siptables -D INPUT -p %[4]s --dport %[3]s -j %[5]s 2>/dev/null", sudo, actionLower, port, protoLower, r.Action)
+				cmd = fmt.Sprintf(`_s ufw delete %[1]s %[2]s/%[3]s 2>/dev/null || _s firewall-cmd --remove-port=%[2]s/%[3]s --permanent 2>/dev/null || _s iptables -D INPUT -p %[3]s --dport %[2]s -j %[4]s 2>/dev/null`, actionLower, port, protoLower, r.Action)
 			}
 		} else {
-			cmd = fmt.Sprintf("%[1]sufw delete %[2]s proto %[3]s from %[4]s to any port %[5]s 2>/dev/null || %[1]siptables -D INPUT -s %[4]s -p %[3]s --dport %[5]s -j %[6]s 2>/dev/null", sudo, actionLower, protoLower, r.SourceIP, port, r.Action)
+			cmd = fmt.Sprintf(`_s ufw delete %[1]s proto %[2]s from %[3]s to any port %[4]s 2>/dev/null || _s iptables -D INPUT -s %[3]s -p %[2]s --dport %[4]s -j %[5]s 2>/dev/null`, actionLower, protoLower, r.SourceIP, port, r.Action)
 		}
-		_, _, _, _ = s.sshService.ExecuteCommand(cfg, cmd)
+		_, _, _, _ = s.executeWithSudo(cfg, cmd)
 	}
 
 	// Delete from DB
@@ -337,15 +335,14 @@ func (s *FirewallService) ToggleFirewall(ctx context.Context, hostID string, ena
 		return "", err
 	}
 
-	sudo := s.getSudoPrefix(cfg)
 	var cmd string
 	if enable {
-		cmd = fmt.Sprintf("%[1]sufw --force enable 2>/dev/null || %[1]ssystemctl start firewalld 2>/dev/null", sudo)
+		cmd = `_s ufw --force enable 2>/dev/null || _s systemctl start firewalld 2>/dev/null`
 	} else {
-		cmd = fmt.Sprintf("%[1]sufw disable 2>/dev/null || %[1]ssystemctl stop firewalld 2>/dev/null", sudo)
+		cmd = `_s ufw disable 2>/dev/null || _s systemctl stop firewalld 2>/dev/null`
 	}
 
-	stdout, stderr, _, err := s.sshService.ExecuteCommand(cfg, cmd)
+	stdout, stderr, _, err := s.executeWithSudo(cfg, cmd)
 	if err != nil && stdout == "" {
 		return stderr, err
 	}

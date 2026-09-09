@@ -294,6 +294,20 @@ const filteredListeningPorts = computed(() => {
   return list;
 });
 
+const tcpPortsCount = computed(() => {
+  if (!activeSession.value?.networkInfo?.listeningPorts) return 0;
+  return activeSession.value.networkInfo.listeningPorts.filter(
+    (p) => p.proto && p.proto.toUpperCase().includes('TCP')
+  ).length;
+});
+
+const udpPortsCount = computed(() => {
+  if (!activeSession.value?.networkInfo?.listeningPorts) return 0;
+  return activeSession.value.networkInfo.listeningPorts.filter(
+    (p) => p.proto && p.proto.toUpperCase().includes('UDP')
+  ).length;
+});
+
 // Filtered Network Interfaces
 const filteredInterfaces = computed(() => {
   if (!activeSession.value?.networkInfo?.interfaces) return [];
@@ -2414,16 +2428,58 @@ onUnmounted(() => {
             <!-- 5. NETWORK & PORTS VIEW -->
             <div v-if="session.activeView === 'network'" class="flex-1 p-6 overflow-y-auto space-y-6">
               <div class="space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <h3 class="text-xs font-bold text-white uppercase tracking-wider">Listening Ports ({{ filteredListeningPorts.length }})</h3>
-                  <button
-                    @click="fetchHostTelemetry(session)"
-                    :disabled="isTelemetryLoading"
-                    class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-                    title="Refresh Listening Ports"
-                  >
-                    <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
-                  </button>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div class="flex flex-wrap items-center gap-3">
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">
+                      Listening Ports ({{ filteredListeningPorts.length }})
+                    </h3>
+                    <!-- Protocol Filter Tabs -->
+                    <div class="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                      <button
+                        @click="portProtoFilter = 'all'"
+                        :class="portProtoFilter === 'all' ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
+                      >
+                        ALL ({{ activeSession?.networkInfo?.listeningPorts?.length || 0 }})
+                      </button>
+                      <button
+                        @click="portProtoFilter = 'tcp'"
+                        :class="portProtoFilter === 'tcp' ? 'bg-sky-600/30 text-sky-300 border border-sky-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                        TCP ({{ tcpPortsCount }})
+                      </button>
+                      <button
+                        @click="portProtoFilter = 'udp'"
+                        :class="portProtoFilter === 'udp' ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                        UDP ({{ udpPortsCount }})
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <div class="relative w-48 sm:w-60">
+                      <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                      <input
+                        v-model="portSearch"
+                        type="text"
+                        placeholder="Search port, process, PID..."
+                        class="w-full bg-[#161922] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition font-sans"
+                      />
+                    </div>
+                    <button
+                      @click="fetchHostTelemetry(session)"
+                      :disabled="isTelemetryLoading"
+                      class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                      title="Refresh Listening Ports"
+                    >
+                      <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                    </button>
+                  </div>
                 </div>
 
                 <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
@@ -2437,11 +2493,30 @@ onUnmounted(() => {
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60 text-slate-300">
-                      <tr v-for="p in filteredListeningPorts" :key="`${p.proto}-${p.port}-${p.pid}-${p.localAddr}`" class="hover:bg-slate-800/30">
-                        <td class="p-3 text-emerald-400 font-bold uppercase">{{ p.proto }}</td>
-                        <td class="p-3 text-white font-bold">{{ p.localAddr || '*' }}:{{ p.port }}</td>
+                      <tr v-for="p in filteredListeningPorts" :key="`${p.proto}-${p.port}-${p.pid}-${p.localAddr}`" class="hover:bg-slate-800/30 transition-colors">
                         <td class="p-3">
-                          <span v-if="p.process && p.process !== '-'" class="px-2 py-0.5 rounded bg-slate-800 text-sky-400 border border-slate-700 font-mono text-[11px] font-semibold">
+                          <span
+                            v-if="p.proto && p.proto.toUpperCase().includes('TCP')"
+                            class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold text-[10px] uppercase"
+                          >
+                            {{ p.proto }}
+                          </span>
+                          <span
+                            v-else-if="p.proto && p.proto.toUpperCase().includes('UDP')"
+                            class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold text-[10px] uppercase"
+                          >
+                            {{ p.proto }}
+                          </span>
+                          <span v-else class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-bold text-[10px] uppercase">
+                            {{ p.proto }}
+                          </span>
+                        </td>
+                        <td class="p-3 text-white font-bold">
+                          {{ p.localAddr || '*' }}:{{ p.port }}
+                          <span v-if="p.state === 'UNCONN'" class="ml-2 text-[10px] text-slate-400 font-normal font-sans">(UDP Listen)</span>
+                        </td>
+                        <td class="p-3">
+                          <span v-if="p.process && p.process !== '-'" class="px-2 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700 font-mono text-[11px] font-semibold">
                             {{ p.process }}
                           </span>
                           <span v-else class="text-slate-500 font-mono">-</span>
@@ -2455,7 +2530,7 @@ onUnmounted(() => {
                       </tr>
                       <tr v-if="filteredListeningPorts.length === 0">
                         <td colspan="4" class="p-12 text-center text-slate-500 text-xs">
-                          {{ isTelemetryLoading ? 'Polling open network ports...' : 'No listening ports detected.' }}
+                          {{ isTelemetryLoading ? 'Polling open network ports...' : 'No listening ports detected matching current filters.' }}
                         </td>
                       </tr>
                     </tbody>
