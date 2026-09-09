@@ -1083,6 +1083,32 @@ const isFirewallModalOpen = ref(false);
 const isFirewallSubmitting = ref(false);
 const isFirewallToggling = ref(false);
 const firewallSearch = ref('');
+const firewallAppType = ref('Custom');
+
+const APPLICATION_TYPES: Record<string, { protocol: string; port: string; desc: string }> = {
+  Custom: { protocol: 'TCP', port: '', desc: '' },
+  SSH: { protocol: 'TCP', port: '22', desc: 'Allow SSH' },
+  TELNET: { protocol: 'TCP', port: '23', desc: 'Allow Telnet' },
+  MySQL: { protocol: 'TCP', port: '3306', desc: 'Allow MySQL' },
+  'SQL Server': { protocol: 'TCP', port: '1433', desc: 'Allow SQL Server' },
+  HTTP: { protocol: 'TCP', port: '80', desc: 'Allow HTTP' },
+  HTTPS: { protocol: 'TCP', port: '443', desc: 'Allow HTTPS' },
+  'All TCP': { protocol: 'TCP', port: 'ALL', desc: 'Allow All TCP' },
+  'All UDP': { protocol: 'UDP', port: 'ALL', desc: 'Allow All UDP' },
+  ALL: { protocol: 'ALL', port: 'ALL', desc: 'Allow All Request' },
+};
+
+const handleAppTypeChange = () => {
+  const preset = APPLICATION_TYPES[firewallAppType.value];
+  if (preset) {
+    firewallForm.value.protocol = preset.protocol;
+    firewallForm.value.portRange = preset.port;
+    if (preset.desc) {
+      firewallForm.value.description = preset.desc;
+    }
+  }
+};
+
 const firewallForm = ref({
   protocol: 'TCP',
   portRange: '',
@@ -1092,6 +1118,7 @@ const firewallForm = ref({
 });
 
 const openAddRuleModal = () => {
+  firewallAppType.value = 'Custom';
   firewallForm.value = {
     protocol: 'TCP',
     portRange: '',
@@ -3318,16 +3345,13 @@ onUnmounted(() => {
       v-if="isFirewallModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150"
     >
-      <div class="bg-[#1b1e26] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+      <div class="bg-[#1b1e26] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
         <!-- Modal Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#20242e]">
-          <div class="flex items-center gap-2.5">
-            <Shield class="w-4 h-4 text-blue-400" />
-            <h3 class="text-sm font-bold text-white tracking-wide">Add Firewall Rule</h3>
-          </div>
+          <h3 class="text-sm font-bold text-white tracking-wide">Add Firewall Rule</h3>
           <button
             @click="isFirewallModalOpen = false"
-            class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition"
+            class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition"
           >
             <X class="w-4 h-4" />
           </button>
@@ -3335,15 +3359,38 @@ onUnmounted(() => {
 
         <!-- Form Body -->
         <form @submit.prevent="handleAddFirewallRule" class="p-6 space-y-4 text-xs font-mono">
-          <!-- Protocol & Action in 2 cols -->
-          <div class="grid grid-cols-2 gap-4">
+          <!-- Application Type -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1.5 font-sans">
+              Application Type
+            </label>
+            <select
+              v-model="firewallAppType"
+              @change="handleAppTypeChange"
+              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans text-xs"
+            >
+              <option value="Custom">Custom</option>
+              <option value="SSH">SSH</option>
+              <option value="TELNET">TELNET</option>
+              <option value="MySQL">MySQL</option>
+              <option value="SQL Server">SQL Server</option>
+              <option value="HTTP">HTTP</option>
+              <option value="HTTPS">HTTPS</option>
+              <option value="All TCP">All TCP</option>
+              <option value="All UDP">All UDP</option>
+              <option value="ALL">ALL</option>
+            </select>
+          </div>
+
+          <!-- Protocol & Port Range (Visible when Custom or preset overview) -->
+          <div v-if="firewallAppType === 'Custom'" class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+              <label class="block text-[11px] font-medium text-slate-400 mb-1 font-sans">
                 Protocol <span class="text-rose-400">*</span>
               </label>
               <select
                 v-model="firewallForm.protocol"
-                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans text-xs"
               >
                 <option value="TCP">TCP</option>
                 <option value="UDP">UDP</option>
@@ -3353,62 +3400,69 @@ onUnmounted(() => {
             </div>
 
             <div>
-              <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
-                Action <span class="text-rose-400">*</span>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1 font-sans">
+                Port Range <span class="text-rose-400">*</span>
               </label>
-              <select
-                v-model="firewallForm.action"
-                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans"
-              >
-                <option value="ALLOW">ALLOW (Accept)</option>
-                <option value="DENY">DENY (Drop / Reject)</option>
-              </select>
+              <input
+                v-model="firewallForm.portRange"
+                type="text"
+                placeholder="e.g. 22, 80,443, or ALL"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs"
+                :disabled="firewallForm.protocol === 'ICMP'"
+              />
             </div>
           </div>
 
-          <!-- Port Range -->
-          <div>
-            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
-              Port Range <span class="text-rose-400">*</span>
-            </label>
-            <input
-              v-model="firewallForm.portRange"
-              type="text"
-              placeholder="e.g. 22, 80,443, 8000:8500, or ALL"
-              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              :disabled="firewallForm.protocol === 'ICMP'"
-            />
-            <p class="text-[10px] text-slate-500 mt-1 font-sans">
-              Enter a single port (22), comma-separated list (80,443), range (8000:8500), or ALL.
-            </p>
+          <!-- Preset Details Indicator when not Custom -->
+          <div v-else class="p-2.5 bg-[#13161f] border border-slate-800 rounded-lg flex items-center justify-between text-xs font-mono">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">Protocol:</span>
+              <span class="text-sky-400 font-bold">{{ firewallForm.protocol }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">Port Range:</span>
+              <span class="text-emerald-400 font-bold">{{ firewallForm.portRange }}</span>
+            </div>
           </div>
 
-          <!-- Source IP Address / CIDR -->
-          <div>
-            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
-              Source IP Address / CIDR <span class="text-rose-400">*</span>
-            </label>
-            <input
-              v-model="firewallForm.sourceIp"
-              type="text"
-              placeholder="0.0.0.0/0 (Anywhere) or 192.168.1.0/24"
-              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-            <p class="text-[10px] text-slate-500 mt-1 font-sans">
-              Default is 0.0.0.0/0 to allow/deny traffic from any external source.
-            </p>
+          <!-- Action & Source IP Address -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1 font-sans">
+                Action
+              </label>
+              <select
+                v-model="firewallForm.action"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans text-xs"
+              >
+                <option value="ALLOW">ALLOW</option>
+                <option value="DENY">DENY</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1 font-sans">
+                Source IP Address
+              </label>
+              <input
+                v-model="firewallForm.sourceIp"
+                type="text"
+                placeholder="0.0.0.0/0"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs"
+              />
+            </div>
           </div>
 
-          <!-- Description / Remarks -->
+          <!-- Description (matching reference "Optional description") -->
           <div>
-            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
-              Description / Notes
+            <label class="block text-[11px] font-medium text-slate-400 mb-1 font-sans">
+              Description
             </label>
             <input
               v-model="firewallForm.description"
               type="text"
-              placeholder="e.g. Allow SSH administration access"
-              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans"
+              placeholder="Optional description"
+              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans text-xs"
             />
           </div>
 
@@ -3427,8 +3481,7 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition disabled:opacity-50"
             >
               <RotateCw v-if="isFirewallSubmitting" class="w-3.5 h-3.5 animate-spin" />
-              <Check v-else class="w-3.5 h-3.5" />
-              <span>{{ isFirewallSubmitting ? 'Applying Rule...' : 'Save & Apply Rule' }}</span>
+              <span>{{ isFirewallSubmitting ? 'Adding...' : 'Add Rule' }}</span>
             </button>
           </div>
         </form>
