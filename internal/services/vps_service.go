@@ -708,8 +708,17 @@ func parseNetworkOutput(output string, cfg *domain.RemoteHostConfig) map[string]
 			procName = match[1]
 		}
 
-		if proc, exists := lsofProcMap[portStr]; exists && (procName == "-" || procName == "") {
-			procName = proc
+		var connPort string
+		if lastColon := strings.LastIndex(localAddr, ":"); lastColon != -1 {
+			connPort = localAddr[lastColon+1:]
+		}
+		if connPort != "" {
+			if proc, exists := lsofProcMap[connPort]; exists && (procName == "-" || procName == "") {
+				procName = proc
+			}
+			if pid, exists := lsofPidMap[connPort]; exists && (pidStr == "-" || pidStr == "") {
+				pidStr = pid
+			}
 		}
 
 		if localAddr != "" && remoteAddr != "" {

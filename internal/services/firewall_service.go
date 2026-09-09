@@ -40,7 +40,7 @@ func (s *FirewallService) GetFirewallStatus(ctx context.Context, hostID string) 
 	}
 
 	sudo := s.getSudoPrefix(cfg)
-	cmd := fmt.Sprintf(`(%[1]sufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null); echo "===FIREWALLD==="; (%[1]sfirewall-cmd --state 2>/dev/null || firewall-cmd --state 2>/dev/null); echo "===IPTABLES==="; (%[1siptables -S INPUT 2>/dev/null || iptables -S INPUT 2>/dev/null | head -n 30)`, sudo)
+	cmd := fmt.Sprintf(`(%[1]sufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null); echo "===FIREWALLD==="; (%[1]sfirewall-cmd --state 2>/dev/null || firewall-cmd --state 2>/dev/null); echo "===IPTABLES==="; (%[1]siptables -S INPUT 2>/dev/null || iptables -S INPUT 2>/dev/null | head -n 30)`, sudo)
 
 	stdout, _, _, _ := s.sshService.ExecuteCommand(cfg, cmd)
 
