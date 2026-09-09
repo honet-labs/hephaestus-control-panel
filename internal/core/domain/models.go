@@ -199,6 +199,18 @@ type WsTerminalMessage struct {
 	Message      string `json:"message,omitempty"`
 }
 
+type RemoteHostFirewallRule struct {
+	ID          string    `json:"id"`
+	HostID      string    `json:"hostId"`
+	Protocol    string    `json:"protocol"`    // ALL, TCP, UDP, ICMP
+	PortRange   string    `json:"portRange"`   // ALL, 22, 80,443, 8000:8500
+	SourceIP    string    `json:"sourceIp"`    // 0.0.0.0/0, CIDR, IP
+	Action      string    `json:"action"`      // ALLOW, DENY
+	Description string    `json:"description"` // User notes/remarks
+	IsActive    bool      `json:"isActive"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // ==================== TOPOLOGY DOMAIN ====================
 
 type TopologySheet struct {

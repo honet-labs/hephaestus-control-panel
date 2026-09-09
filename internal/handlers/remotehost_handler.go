@@ -27,11 +27,12 @@ var upgrader = websocket.Upgrader{
 }
 
 type RemoteHostHandler struct {
-	remoteRepo  *repository.RemoteHostRepository
-	sshService  *services.SSHService
-	wsService   *services.WsTerminalService
-	authService *services.AuthService
-	vpsService  *services.VpsService
+	remoteRepo      *repository.RemoteHostRepository
+	sshService      *services.SSHService
+	wsService       *services.WsTerminalService
+	authService     *services.AuthService
+	vpsService      *services.VpsService
+	firewallService *services.FirewallService
 }
 
 func NewRemoteHostHandler(
@@ -40,13 +41,15 @@ func NewRemoteHostHandler(
 	wsService *services.WsTerminalService,
 	authService *services.AuthService,
 	vpsService *services.VpsService,
+	firewallService *services.FirewallService,
 ) *RemoteHostHandler {
 	return &RemoteHostHandler{
-		remoteRepo:  remoteRepo,
-		sshService:  sshService,
-		wsService:   wsService,
-		authService: authService,
-		vpsService:  vpsService,
+		remoteRepo:      remoteRepo,
+		sshService:      sshService,
+		wsService:       wsService,
+		authService:     authService,
+		vpsService:      vpsService,
+		firewallService: firewallService,
 	}
 }
 
@@ -365,5 +368,65 @@ func (h *RemoteHostHandler) GetNetworkInfo(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": netInfo})
 }
+
+func (h *RemoteHostHandler) GetFirewallStatus(c *gin.Context) {
+	hostID := c.Param("id")
+	res, err := h.firewallService.GetFirewallStatus(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
+}
+
+func (h *RemoteHostHandler) AddFirewallRule(c *gin.Context) {
+	hostID := c.Param("id")
+	var rule domain.RemoteHostFirewallRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid firewall rule payload"})
+		return
+	}
+
+	created, err := h.firewallService.AddFirewallRule(c.Request.Context(), hostID, rule)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Firewall rule created and applied successfully.", "data": created})
+}
+
+func (h *RemoteHostHandler) DeleteFirewallRule(c *gin.Context) {
+	hostID := c.Param("id")
+	ruleID := c.Param("ruleId")
+	if ruleID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "ruleId is required"})
+		return
+	}
+
+	if err := h.firewallService.DeleteFirewallRule(c.Request.Context(), hostID, ruleID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Firewall rule deleted successfully."})
+}
+
+func (h *RemoteHostHandler) ToggleFirewall(c *gin.Context) {
+	hostID := c.Param("id")
+	var req struct {
+		Enable bool `json:"enable"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid toggle payload"})
+		return
+	}
+
+	out, err := h.firewallService.ToggleFirewall(c.Request.Context(), hostID, req.Enable)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error(), "output": out})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Firewall status toggled successfully.", "output": out})
+}
+
 
 

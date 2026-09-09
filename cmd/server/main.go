@@ -83,6 +83,7 @@ func main() {
 	openSearchService.RegisterWorker(workerPool)
 	promService := services.NewPrometheusService(configRepo, sshService)
 	vpsService := services.NewVpsService(remoteRepo, sshService)
+	firewallService := services.NewFirewallService(remoteRepo, sshService)
 	grokService := services.NewGrokService()
 	dpService := services.NewDataPrepperService(sshService)
 	systemService := services.NewSystemService()
@@ -90,7 +91,7 @@ func main() {
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	setupHandler := handlers.NewSetupHandler(authService)
-	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService, vpsService)
+	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService, vpsService, firewallService)
 	topologyHandler := handlers.NewTopologyHandler(topologyRepo, topologyService, icmpService)
 	backupHandler := handlers.NewBackupHandler(backupRepo, backupService, cronSched)
 	snmpHandler := handlers.NewSnmpHandler(snmpRepo, snmpService)
@@ -171,6 +172,10 @@ func main() {
 		api.GET("/remote-host/:id/services", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetServices)
 		api.POST("/remote-host/:id/services/control", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.ControlService)
 		api.GET("/remote-host/:id/network", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetNetworkInfo)
+		api.GET("/remote-host/:id/firewall", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetFirewallStatus)
+		api.POST("/remote-host/:id/firewall/rules", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.AddFirewallRule)
+		api.DELETE("/remote-host/:id/firewall/rules/:ruleId", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.DeleteFirewallRule)
+		api.POST("/remote-host/:id/firewall/toggle", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.ToggleFirewall)
 
 		// Topology (Feature: network_topology)
 		api.GET("/topology", middleware.RequirePermission("network_topology", "read"), topologyHandler.GetGraph)

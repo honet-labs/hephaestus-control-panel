@@ -179,6 +179,20 @@ CREATE TABLE IF NOT EXISTS remote_host_configs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 15b. RemoteHostFirewallRules - Firewall access control rules per host
+CREATE TABLE IF NOT EXISTS remote_host_firewall_rules (
+    id VARCHAR(50) PRIMARY KEY,
+    host_id VARCHAR(50) NOT NULL REFERENCES remote_host_configs(id) ON DELETE CASCADE,
+    protocol VARCHAR(20) NOT NULL DEFAULT 'ALL',
+    port_range VARCHAR(50) NOT NULL DEFAULT 'ALL',
+    source_ip VARCHAR(50) NOT NULL DEFAULT '0.0.0.0/0',
+    action VARCHAR(20) NOT NULL DEFAULT 'ALLOW',
+    description TEXT DEFAULT '',
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_remote_host_firewall_rules_host_id ON remote_host_firewall_rules(host_id);
+
 -- 16. TopologySheets - Workspace sheets for organizing topology maps
 CREATE TABLE IF NOT EXISTS topology_sheets (
     id SERIAL PRIMARY KEY,

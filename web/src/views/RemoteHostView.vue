@@ -145,7 +145,7 @@ interface OpenSession {
   id: string;
   host: RemoteHost;
   displayName?: string;
-  activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp';
+  activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp' | 'firewall';
   term?: Terminal;
   fitAddon?: FitAddon;
   resizeObserver?: ResizeObserver;
@@ -159,6 +159,12 @@ interface OpenSession {
     interfaces?: any[];
     listeningPorts?: any[];
     connections?: any[];
+  };
+  firewall?: {
+    active: boolean;
+    service: string;
+    rawStatus: string;
+    rules: any[];
   };
   groupId?: string;
 }
@@ -1050,23 +1056,112 @@ const fetchHostTelemetry = async (session: OpenSession) => {
   if (!session || !session.host?.id) return;
   isTelemetryLoading.value = true;
   try {
-    const [metricsRes, procRes, srvRes, netRes] = await Promise.all([
+    const [metricsRes, procRes, srvRes, netRes, fwRes] = await Promise.all([
       axios.get(`/api/v1/remote-host/${session.host.id}/metrics`).catch(() => ({ data: { success: false } })),
       axios.get(`/api/v1/remote-host/${session.host.id}/processes`).catch(() => ({ data: { success: false } })),
       axios.get(`/api/v1/remote-host/${session.host.id}/services`).catch(() => ({ data: { success: false } })),
       axios.get(`/api/v1/remote-host/${session.host.id}/network`).catch(() => ({ data: { success: false } })),
+      axios.get(`/api/v1/remote-host/${session.host.id}/firewall`).catch(() => ({ data: { success: false } })),
     ]);
 
     if (metricsRes.data?.success && metricsRes.data.data) session.metrics = metricsRes.data.data;
     if (procRes.data?.success && Array.isArray(procRes.data.data)) session.processes = procRes.data.data;
     if (srvRes.data?.success && Array.isArray(srvRes.data.data)) session.services = srvRes.data.data;
     if (netRes.data?.success && netRes.data.data) session.networkInfo = netRes.data.data;
+    if (fwRes.data?.success && fwRes.data.data) session.firewall = fwRes.data.data;
   } catch (err) {
     console.warn('Telemetry poll error:', err);
   } finally {
     isTelemetryLoading.value = false;
   }
 };
+
+// =================================================================
+// FIREWALL MANAGEMENT STATE & ACTIONS
+// =================================================================
+const isFirewallModalOpen = ref(false);
+const isFirewallSubmitting = ref(false);
+const isFirewallToggling = ref(false);
+const firewallSearch = ref('');
+const firewallForm = ref({
+  protocol: 'TCP',
+  portRange: '',
+  sourceIp: '0.0.0.0/0',
+  action: 'ALLOW',
+  description: '',
+});
+
+const openAddRuleModal = () => {
+  firewallForm.value = {
+    protocol: 'TCP',
+    portRange: '',
+    sourceIp: '0.0.0.0/0',
+    action: 'ALLOW',
+    description: '',
+  };
+  isFirewallModalOpen.value = true;
+};
+
+const handleAddFirewallRule = async () => {
+  if (!activeSession.value) return;
+  if (!firewallForm.value.portRange && firewallForm.value.protocol !== 'ICMP') {
+    alert('Please enter a port range (e.g., 22, 80,443, 8000:8500, or ALL)');
+    return;
+  }
+  isFirewallSubmitting.value = true;
+  try {
+    const res = await axios.post(`/api/v1/remote-host/${activeSession.value.host.id}/firewall/rules`, firewallForm.value);
+    if (res.data?.success) {
+      isFirewallModalOpen.value = false;
+      await fetchHostTelemetry(activeSession.value);
+    }
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to add firewall rule');
+  } finally {
+    isFirewallSubmitting.value = false;
+  }
+};
+
+const handleDeleteFirewallRule = async (ruleId: string) => {
+  if (!activeSession.value) return;
+  if (!confirm('Are you sure you want to delete this firewall rule?')) return;
+  try {
+    await axios.delete(`/api/v1/remote-host/${activeSession.value.host.id}/firewall/rules/${ruleId}`);
+    await fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to delete firewall rule');
+  }
+};
+
+const handleToggleFirewall = async (enable: boolean) => {
+  if (!activeSession.value) return;
+  const actionText = enable ? 'enable' : 'disable';
+  if (!confirm(`Are you sure you want to ${actionText} the firewall service on ${activeSession.value.host.name}?`)) return;
+  isFirewallToggling.value = true;
+  try {
+    await axios.post(`/api/v1/remote-host/${activeSession.value.host.id}/firewall/toggle`, { enable });
+    await fetchHostTelemetry(activeSession.value);
+  } catch (err: any) {
+    alert(err.response?.data?.error || `Failed to ${actionText} firewall`);
+  } finally {
+    isFirewallToggling.value = false;
+  }
+};
+
+const filteredFirewallRules = computed(() => {
+  if (!activeSession.value?.firewall?.rules) return [];
+  let list = activeSession.value.firewall.rules;
+  if (firewallSearch.value) {
+    const q = firewallSearch.value.toLowerCase();
+    list = list.filter((r: any) =>
+      (r.protocol && r.protocol.toLowerCase().includes(q)) ||
+      (r.portRange && r.portRange.toLowerCase().includes(q)) ||
+      (r.sourceIp && r.sourceIp.toLowerCase().includes(q)) ||
+      (r.description && r.description.toLowerCase().includes(q))
+    );
+  }
+  return list;
+});
 
 const handleKillProcess = async (pid: number) => {
   if (!activeSession.value) return;
@@ -1890,7 +1985,7 @@ onUnmounted(() => {
 
             <button
               @click="switchActiveView(session, 'dashboard')"
-              title="Host Dashboard & Metrics"
+              title="Utilization"
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'dashboard'
@@ -1941,6 +2036,19 @@ onUnmounted(() => {
             </button>
 
             <button
+              @click="switchActiveView(session, 'firewall')"
+              title="Firewall Manager"
+              :class="[
+                'p-2.5 rounded-lg transition',
+                session.activeView === 'firewall'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+            >
+              <Shield class="w-4 h-4" />
+            </button>
+
+            <button
               @click="switchActiveView(session, 'sftp')"
               title="FileZilla Dual-Pane SFTP Transfer"
               class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
@@ -1979,11 +2087,11 @@ onUnmounted(() => {
               <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden"></div>
             </div>
 
-            <!-- 2. DASHBOARD VIEW -->
+            <!-- 2. UTILIZATION VIEW -->
             <div v-if="session.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
               <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
-                  <h2 class="text-sm font-bold text-white tracking-wide">Dashboard & System Telemetry</h2>
+                  <h2 class="text-sm font-bold text-white tracking-wide">Utilization</h2>
                   <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
                 </div>
 
@@ -1997,13 +2105,57 @@ onUnmounted(() => {
                 </button>
               </div>
 
+              <!-- System Information Strip -->
+              <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-5 gap-3 shadow-lg text-xs font-mono">
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">OS Distribution</p>
+                  <p class="text-white font-semibold truncate mt-0.5" :title="session.metrics?.osName || 'Linux'">
+                    {{ session.metrics?.osName || 'Linux' }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Kernel Version</p>
+                  <p class="text-slate-300 font-semibold truncate mt-0.5" :title="session.metrics?.kernel || '-'">
+                    {{ session.metrics?.kernel || '-' }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Architecture</p>
+                  <p class="text-slate-300 font-semibold mt-0.5">{{ session.metrics?.arch || '-' }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Hostname</p>
+                  <p class="text-slate-300 font-semibold truncate mt-0.5" :title="session.metrics?.hostname || session.host.name">
+                    {{ session.metrics?.hostname || session.host.name }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">System Uptime</p>
+                  <p class="text-emerald-400 font-semibold truncate mt-0.5" :title="session.metrics?.uptime || '-'">
+                    {{ session.metrics?.uptime || '-' }}
+                  </p>
+                </div>
+              </div>
+
+              <!-- Utilization Cards -->
               <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
+                <!-- CPU Usage -->
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2 shadow-lg">
+                  <div class="flex justify-between items-center">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CPU Usage</p>
+                    <span class="text-[11px] font-mono text-slate-400">{{ session.metrics?.cpuCores || 1 }} cores</span>
+                  </div>
                   <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.cpuUsage || 0 }}%</p>
-                  <p class="text-[10px] text-slate-500">{{ session.metrics?.cpuCores || 1 }} cores</p>
+                  <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      class="h-full transition-all duration-300"
+                      :class="(session.metrics?.cpuUsage || 0) > 85 ? 'bg-rose-500' : (session.metrics?.cpuUsage || 0) > 70 ? 'bg-amber-400' : 'bg-blue-500'"
+                      :style="{ width: `${Math.min(session.metrics?.cpuUsage || 0, 100)}%` }"
+                    ></div>
+                  </div>
                 </div>
 
+                <!-- Memory Usage -->
                 <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2 shadow-lg">
                   <div class="flex justify-between items-center">
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Memory</p>
@@ -2011,19 +2163,88 @@ onUnmounted(() => {
                   </div>
                   <p class="text-2xl font-black text-white font-mono">{{ Math.round(session.metrics?.memPercent || 0) }}%</p>
                   <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div class="h-full bg-emerald-400" :style="{ width: `${session.metrics?.memPercent || 0}%` }"></div>
+                    <div
+                      class="h-full transition-all duration-300"
+                      :class="(session.metrics?.memPercent || 0) > 90 ? 'bg-rose-500' : (session.metrics?.memPercent || 0) > 75 ? 'bg-amber-400' : 'bg-emerald-400'"
+                      :style="{ width: `${Math.min(session.metrics?.memPercent || 0, 100)}%` }"
+                    ></div>
                   </div>
+                  <p class="text-[10px] font-mono text-slate-500">Avail: {{ session.metrics?.memAvailable || '-' }}</p>
                 </div>
 
+                <!-- Swap Usage -->
+                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-2 shadow-lg">
+                  <div class="flex justify-between items-center">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Swap Memory</p>
+                    <span class="text-xs font-mono text-slate-300">{{ session.metrics?.swapUsed || '0 B' }} / {{ session.metrics?.swapTotal || '0 B' }}</span>
+                  </div>
+                  <p class="text-2xl font-black text-white font-mono">{{ Math.round(session.metrics?.swapPercent || 0) }}%</p>
+                  <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      class="h-full bg-purple-500 transition-all duration-300"
+                      :style="{ width: `${Math.min(session.metrics?.swapPercent || 0, 100)}%` }"
+                    ></div>
+                  </div>
+                  <p class="text-[10px] font-mono text-slate-500">Total: {{ session.metrics?.swapTotal || '0 B' }}</p>
+                </div>
+
+                <!-- Load Average -->
                 <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average</p>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Load Average (1m, 5m, 15m)</p>
                   <p class="text-xl font-bold text-white font-mono mt-1">{{ session.metrics?.loadAverage || '0.00 / 0.00 / 0.00' }}</p>
+                  <p class="text-[10px] font-mono text-slate-500 mt-2">Target &le; {{ session.metrics?.cpuCores || 1 }}.00</p>
+                </div>
+              </div>
+
+              <!-- Storage & Mounted Disks Table -->
+              <div class="space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <h3 class="text-xs font-bold text-white uppercase tracking-wider">
+                    Filesystem Disks & Mounts ({{ session.metrics?.disks?.length || 0 }})
+                  </h3>
                 </div>
 
-                <div class="p-4 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-1 shadow-lg">
-                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Disks</p>
-                  <p class="text-2xl font-black text-white font-mono">{{ session.metrics?.disksCount || 0 }}</p>
-                  <p class="text-[10px] text-slate-500">mounted</p>
+                <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
+                  <table class="w-full text-left text-xs font-mono">
+                    <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th class="p-3">Mount Point</th>
+                        <th class="p-3">Filesystem Device</th>
+                        <th class="p-3 w-28">Total Size</th>
+                        <th class="p-3 w-28">Used</th>
+                        <th class="p-3 w-28">Available</th>
+                        <th class="p-3 w-44">Usage %</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                      <tr v-for="d in session.metrics?.disks || []" :key="d.mount" class="hover:bg-slate-800/30">
+                        <td class="p-3 text-white font-bold">{{ d.mount }}</td>
+                        <td class="p-3 text-slate-400">{{ d.filesystem || '-' }}</td>
+                        <td class="p-3 font-semibold">{{ d.total }}</td>
+                        <td class="p-3 text-slate-300">{{ d.used }}</td>
+                        <td class="p-3 text-emerald-400 font-semibold">{{ d.avail }}</td>
+                        <td class="p-3">
+                          <div class="flex items-center gap-2">
+                            <span class="w-10 text-right font-bold" :class="d.percent > 85 ? 'text-rose-400' : d.percent > 70 ? 'text-amber-400' : 'text-slate-300'">
+                              {{ d.percent }}%
+                            </span>
+                            <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                class="h-full rounded-full transition-all duration-300"
+                                :class="d.percent > 85 ? 'bg-rose-500' : d.percent > 70 ? 'bg-amber-400' : 'bg-emerald-400'"
+                                :style="{ width: `${Math.min(d.percent, 100)}%` }"
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr v-if="!session.metrics?.disks || session.metrics.disks.length === 0">
+                        <td colspan="6" class="p-8 text-center text-slate-500 text-xs">
+                          {{ isTelemetryLoading ? 'Polling filesystem mounts...' : 'No mounted filesystems detected.' }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -2189,11 +2410,21 @@ onUnmounted(() => {
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60 text-slate-300">
-                      <tr v-for="p in filteredListeningPorts" :key="`${p.proto}-${p.port}-${p.pid}`" class="hover:bg-slate-800/30">
+                      <tr v-for="p in filteredListeningPorts" :key="`${p.proto}-${p.port}-${p.pid}-${p.localAddr}`" class="hover:bg-slate-800/30">
                         <td class="p-3 text-emerald-400 font-bold uppercase">{{ p.proto }}</td>
                         <td class="p-3 text-white font-bold">{{ p.localAddr || '*' }}:{{ p.port }}</td>
-                        <td class="p-3 text-brand-400">{{ p.process || '-' }}</td>
-                        <td class="p-3 text-slate-400">{{ p.pid || '-' }}</td>
+                        <td class="p-3">
+                          <span v-if="p.process && p.process !== '-'" class="px-2 py-0.5 rounded bg-slate-800 text-sky-400 border border-slate-700 font-mono text-[11px] font-semibold">
+                            {{ p.process }}
+                          </span>
+                          <span v-else class="text-slate-500 font-mono">-</span>
+                        </td>
+                        <td class="p-3 text-slate-400 font-mono">
+                          <span v-if="p.pid && p.pid !== '-'" class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
+                            {{ p.pid }}
+                          </span>
+                          <span v-else class="text-slate-600">-</span>
+                        </td>
                       </tr>
                       <tr v-if="filteredListeningPorts.length === 0">
                         <td colspan="4" class="p-12 text-center text-slate-500 text-xs">
@@ -2203,6 +2434,150 @@ onUnmounted(() => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <!-- 6. FIREWALL VIEW -->
+            <div v-if="session.activeView === 'firewall'" class="flex-1 p-6 overflow-y-auto space-y-6">
+              <!-- Header & Service Status Indicator -->
+              <div class="flex flex-wrap items-center justify-between border-b border-slate-800 pb-4 gap-4">
+                <div>
+                  <div class="flex items-center gap-3">
+                    <h2 class="text-sm font-bold text-white tracking-wide">Firewall & Security Rules</h2>
+                    <!-- Status Service Indicator (Active / Inactive) -->
+                    <span
+                      v-if="session.firewall?.active"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[11px] font-semibold border border-emerald-500/20"
+                    >
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      ACTIVE ({{ session.firewall?.service?.toUpperCase() || 'RUNNING' }})
+                    </span>
+                    <span
+                      v-else
+                      class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-400 text-[11px] font-semibold border border-rose-500/20"
+                    >
+                      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                      INACTIVE (STOPPED / DISABLED)
+                    </span>
+                  </div>
+                  <p class="text-xs font-mono text-slate-400 mt-1">
+                    {{ session.host.name }} ({{ session.host.host }}) &bull; {{ session.firewall?.rawStatus || 'Querying firewall daemon status...' }}
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <!-- Start / Stop Firewall Service -->
+                  <button
+                    v-if="session.firewall?.active"
+                    @click="handleToggleFirewall(false)"
+                    :disabled="isFirewallToggling"
+                    class="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition shadow flex items-center gap-1.5"
+                    title="Stop / Disable Firewall Service on Remote Host"
+                  >
+                    <StopCircle class="w-3.5 h-3.5" :class="{ 'animate-spin': isFirewallToggling }" />
+                    <span>Disable Firewall</span>
+                  </button>
+                  <button
+                    v-else
+                    @click="handleToggleFirewall(true)"
+                    :disabled="isFirewallToggling"
+                    class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition shadow flex items-center gap-1.5"
+                    title="Start / Enable Firewall Service on Remote Host"
+                  >
+                    <PlayCircle class="w-3.5 h-3.5" :class="{ 'animate-spin': isFirewallToggling }" />
+                    <span>Enable Firewall</span>
+                  </button>
+
+                  <!-- Refresh Stats -->
+                  <button
+                    @click="fetchHostTelemetry(session)"
+                    :disabled="isTelemetryLoading"
+                    class="p-2 rounded-lg bg-[#1b1e26] hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                    title="Refresh Firewall Rules"
+                  >
+                    <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
+                  </button>
+
+                  <!-- Add Rule Button -->
+                  <button
+                    @click="openAddRuleModal"
+                    class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition"
+                  >
+                    <Plus class="w-3.5 h-3.5" />
+                    <span>Add Rule</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Filter Search -->
+              <div class="flex items-center justify-between gap-3">
+                <div class="relative flex-1 max-w-sm">
+                  <Search class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    v-model="firewallSearch"
+                    placeholder="Search by protocol, port, IP, description..."
+                    class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500"
+                  />
+                </div>
+                <span class="text-xs text-slate-400 font-mono">{{ filteredFirewallRules.length }} rules defined</span>
+              </div>
+
+              <!-- Rules Table (PROTOCOL, PORT RANGE, SOURCE IP ADDRESS, ACTION, DESCRIPTION, ACTIONS) -->
+              <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-x-auto shadow-xl">
+                <table class="w-full text-left text-xs font-mono">
+                  <thead class="bg-[#20242e] text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th class="p-3 w-28">Protocol</th>
+                      <th class="p-3 w-36">Port Range</th>
+                      <th class="p-3">Source IP Address</th>
+                      <th class="p-3 w-28">Action</th>
+                      <th class="p-3">Description</th>
+                      <th class="p-3 w-24 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                    <tr v-for="r in filteredFirewallRules" :key="r.id" class="hover:bg-slate-800/30">
+                      <td class="p-3">
+                        <span
+                          class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider"
+                          :class="{
+                            'bg-blue-500/10 text-blue-400 border border-blue-500/30': r.protocol === 'TCP',
+                            'bg-purple-500/10 text-purple-400 border border-purple-500/30': r.protocol === 'UDP',
+                            'bg-amber-500/10 text-amber-400 border border-amber-500/30': r.protocol === 'ICMP',
+                            'bg-slate-700/50 text-slate-300 border border-slate-600': r.protocol === 'ALL'
+                          }"
+                        >
+                          {{ r.protocol }}
+                        </span>
+                      </td>
+                      <td class="p-3 text-white font-bold">{{ r.portRange }}</td>
+                      <td class="p-3 text-slate-300">{{ r.sourceIp }}</td>
+                      <td class="p-3">
+                        <span
+                          class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+                          :class="r.action === 'ALLOW' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'"
+                        >
+                          {{ r.action }}
+                        </span>
+                      </td>
+                      <td class="p-3 text-slate-400 truncate max-w-xs">{{ r.description || '-' }}</td>
+                      <td class="p-3 text-right">
+                        <button
+                          @click="handleDeleteFirewallRule(r.id)"
+                          class="p-1.5 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                          title="Delete Firewall Rule"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="filteredFirewallRules.length === 0">
+                      <td colspan="6" class="p-12 text-center text-slate-500 text-xs">
+                        {{ isTelemetryLoading ? 'Querying firewall configuration...' : 'No firewall rules configured.' }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -2933,6 +3308,130 @@ onUnmounted(() => {
           <Trash2 class="w-3.5 h-3.5" />
           <span>Close group</span>
         </button>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- ADD FIREWALL RULE MODAL -->
+    <!-- ================================================================= -->
+    <div
+      v-if="isFirewallModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+    >
+      <div class="bg-[#1b1e26] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#20242e]">
+          <div class="flex items-center gap-2.5">
+            <Shield class="w-4 h-4 text-blue-400" />
+            <h3 class="text-sm font-bold text-white tracking-wide">Add Firewall Rule</h3>
+          </div>
+          <button
+            @click="isFirewallModalOpen = false"
+            class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Form Body -->
+        <form @submit.prevent="handleAddFirewallRule" class="p-6 space-y-4 text-xs font-mono">
+          <!-- Protocol & Action in 2 cols -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+                Protocol <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model="firewallForm.protocol"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans"
+              >
+                <option value="TCP">TCP</option>
+                <option value="UDP">UDP</option>
+                <option value="ALL">ALL</option>
+                <option value="ICMP">ICMP</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+                Action <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model="firewallForm.action"
+                class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-sans"
+              >
+                <option value="ALLOW">ALLOW (Accept)</option>
+                <option value="DENY">DENY (Drop / Reject)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Port Range -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+              Port Range <span class="text-rose-400">*</span>
+            </label>
+            <input
+              v-model="firewallForm.portRange"
+              type="text"
+              placeholder="e.g. 22, 80,443, 8000:8500, or ALL"
+              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              :disabled="firewallForm.protocol === 'ICMP'"
+            />
+            <p class="text-[10px] text-slate-500 mt-1 font-sans">
+              Enter a single port (22), comma-separated list (80,443), range (8000:8500), or ALL.
+            </p>
+          </div>
+
+          <!-- Source IP Address / CIDR -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+              Source IP Address / CIDR <span class="text-rose-400">*</span>
+            </label>
+            <input
+              v-model="firewallForm.sourceIp"
+              type="text"
+              placeholder="0.0.0.0/0 (Anywhere) or 192.168.1.0/24"
+              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+            <p class="text-[10px] text-slate-500 mt-1 font-sans">
+              Default is 0.0.0.0/0 to allow/deny traffic from any external source.
+            </p>
+          </div>
+
+          <!-- Description / Remarks -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 font-sans">
+              Description / Notes
+            </label>
+            <input
+              v-model="firewallForm.description"
+              type="text"
+              placeholder="e.g. Allow SSH administration access"
+              class="w-full bg-[#13161f] border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans"
+            />
+          </div>
+
+          <!-- Modal Footer -->
+          <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-800 font-sans">
+            <button
+              type="button"
+              @click="isFirewallModalOpen = false"
+              class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="isFirewallSubmitting"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition disabled:opacity-50"
+            >
+              <RotateCw v-if="isFirewallSubmitting" class="w-3.5 h-3.5 animate-spin" />
+              <Check v-else class="w-3.5 h-3.5" />
+              <span>{{ isFirewallSubmitting ? 'Applying Rule...' : 'Save & Apply Rule' }}</span>
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 
