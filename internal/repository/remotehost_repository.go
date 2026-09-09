@@ -79,6 +79,11 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 	return list, nil
 }
 
+// ListAll returns all registered remote hosts regardless of user for internal services (e.g. topology sync)
+func (r *RemoteHostRepository) ListAll(ctx context.Context) ([]domain.RemoteHostConfig, error) {
+	return r.List(ctx, 0, "ADMIN")
+}
+
 func (r *RemoteHostRepository) GetByID(ctx context.Context, id string, userID int, userRole string) (*domain.RemoteHostConfig, error) {
 	pool, err := database.GetPool()
 	if err != nil {

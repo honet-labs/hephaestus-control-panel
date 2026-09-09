@@ -239,7 +239,7 @@ func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *in
 		return nil, fmt.Errorf("remote host repository not configured")
 	}
 
-	hosts, err := s.remoteRepo.List(ctx)
+	hosts, err := s.remoteRepo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list remote hosts: %w", err)
 	}
