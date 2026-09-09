@@ -154,6 +154,20 @@ func (h *TopologyHandler) DeleteDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Device deleted."})
 }
 
+func (h *TopologyHandler) RemoveDeviceFromCanvas(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		SheetID *int `json:"sheetId"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	if err := h.topologyRepo.RemoveDeviceFromCanvas(c.Request.Context(), id, req.SheetID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Device removed from canvas."})
+}
+
 // Edges
 func (h *TopologyHandler) SaveEdge(c *gin.Context) {
 	var edge domain.TopologyEdge

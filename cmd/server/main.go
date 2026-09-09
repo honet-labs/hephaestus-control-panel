@@ -181,6 +181,7 @@ func main() {
 		api.POST("/topology/devices", middleware.RequirePermission("network_topology", "manage"), topologyHandler.SaveDevice)
 		api.PUT("/topology/devices/:id/position", middleware.RequirePermission("network_topology", "manage"), topologyHandler.UpdatePosition)
 		api.DELETE("/topology/devices/:id", middleware.RequirePermission("network_topology", "manage"), topologyHandler.DeleteDevice)
+		api.POST("/topology/devices/:id/remove-from-canvas", middleware.RequirePermission("network_topology", "manage"), topologyHandler.RemoveDeviceFromCanvas)
 		api.POST("/topology/edges", middleware.RequirePermission("network_topology", "manage"), topologyHandler.SaveEdge)
 		api.DELETE("/topology/edges/:id", middleware.RequirePermission("network_topology", "manage"), topologyHandler.DeleteEdge)
 		api.GET("/topology/discover/prometheus", middleware.RequirePermission("network_topology", "read"), topologyHandler.DiscoverPrometheus)

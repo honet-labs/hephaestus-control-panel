@@ -354,19 +354,49 @@ const handleClearSelectedDiscovered = () => {
   selectedDiscoveredIds.value = [];
 };
 
+// Open Add Device Modal
+const handleOpenAddDevice = () => {
+  deviceForm.value = {
+    id: '',
+    name: '',
+    ipAddress: '',
+    deviceType: 'server',
+    status: 'unknown',
+    sources: ['MANUAL'],
+    sheetId: null,
+    x: null,
+    y: null,
+  };
+  isEditDeviceModal.value = false;
+  isDeviceModalOpen.value = true;
+};
+
 // Save / Update Device
 const handleSaveDevice = async () => {
   try {
+    const isEdit = isEditDeviceModal.value;
     const payload = {
       ...deviceForm.value,
-      sheetId: activeSheetId.value,
-      x: deviceForm.value.x || 350,
-      y: deviceForm.value.y || 200,
+      // When adding a new device: sheetId, x, and y are NULL so it's NOT placed on canvas automatically!
+      sheetId: isEdit ? (deviceForm.value.sheetId ?? null) : null,
+      x: isEdit ? (deviceForm.value.x ?? null) : null,
+      y: isEdit ? (deviceForm.value.y ?? null) : null,
     };
     const res = await axios.post('/api/v1/topology/devices', payload);
     if (res.data.success) {
       isDeviceModalOpen.value = false;
       isEditDeviceModal.value = false;
+      deviceForm.value = {
+        id: '',
+        name: '',
+        ipAddress: '',
+        deviceType: 'server',
+        status: 'unknown',
+        sources: ['MANUAL'],
+        sheetId: null,
+        x: null,
+        y: null,
+      };
       await fetchGraph();
     }
   } catch (err: any) {
@@ -374,15 +404,36 @@ const handleSaveDevice = async () => {
   }
 };
 
-// Delete Device
+// Remove Device from Active Canvas Sheet (Keeps device in sidebar inventory!)
+const handleRemoveDeviceFromCanvas = async (deviceId: string) => {
+  try {
+    await axios.post(`/api/v1/topology/devices/${deviceId}/remove-from-canvas`, {
+      sheetId: activeSheetId.value,
+    });
+    if (selectedNode.value?.id === deviceId) {
+      selectedNode.value = null;
+    }
+    await fetchGraph();
+  } catch (err: any) {
+    console.error('Failed to remove device from canvas:', err);
+    alert(err.response?.data?.error || 'Failed to remove device from canvas');
+  }
+};
+
+// Permanently Delete Device from Inventory and System
 const handleDeleteDevice = async (deviceId: string) => {
-  if (!confirm(`Are you sure you want to delete this device?`)) return;
+  const dev = allDevices.value.find(d => d.id === deviceId);
+  const devName = dev ? dev.name : deviceId;
+  if (!confirm(`Are you sure you want to permanently delete "${devName}" from the system inventory?`)) return;
   try {
     await axios.delete(`/api/v1/topology/devices/${deviceId}`);
-    selectedNode.value = null;
+    if (selectedNode.value?.id === deviceId) {
+      selectedNode.value = null;
+    }
     await fetchGraph();
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to delete device:', err);
+    alert(err.response?.data?.error || 'Failed to delete device');
   }
 };
 
@@ -395,6 +446,7 @@ const handleOpenEditDevice = (dev: Device) => {
     deviceType: dev.deviceType,
     status: dev.status,
     sources: dev.sources || ['MANUAL'],
+    sheetId: dev.sheetId,
     x: dev.x,
     y: dev.y,
   };
@@ -889,7 +941,7 @@ onUnmounted(() => {
         </button>
 
         <button
-          @click="isDeviceModalOpen = true"
+          @click="handleOpenAddDevice"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition"
         >
           <Plus class="w-3.5 h-3.5" />
@@ -1115,24 +1167,35 @@ onUnmounted(() => {
 
             <!-- Action Status -->
             <div class="shrink-0 flex items-center gap-1">
-              <span
+              <button
                 v-if="isDeviceOnCanvas(dev.id)"
-                class="text-[10px] font-mono text-slate-500 mr-1"
+                @click="handleRemoveDeviceFromCanvas(dev.id)"
+                class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-600 dark:text-slate-400 hover:text-amber-400 text-[10px] font-mono transition"
+                title="Click to remove from canvas sheet (keeps in sidebar inventory)"
               >
-                Added
-              </span>
+                Added ✕
+              </button>
               <button
                 v-else
                 @click="handleAddDeviceToCanvas(dev)"
                 class="px-2 py-0.5 rounded border border-cyan-500/60 text-cyan-400 hover:bg-cyan-500/10 text-[10px] font-bold transition"
+                title="Add to canvas sheet"
               >
-                Add
+                + Add
               </button>
               <button
                 @click="handleOpenEditDevice(dev)"
                 class="p-1 hover:text-white text-slate-500 transition"
+                title="Edit device info"
               >
                 <Edit2 class="w-3 h-3" />
+              </button>
+              <button
+                @click="handleDeleteDevice(dev.id)"
+                class="p-1 hover:text-rose-400 text-slate-500 transition"
+                title="Permanently delete device from inventory"
+              >
+                <Trash2 class="w-3 h-3" />
               </button>
             </div>
           </div>
@@ -1407,10 +1470,11 @@ onUnmounted(() => {
           </button>
 
           <button
-            @click="handleDeleteDevice(selectedNode.id)"
-            class="py-2 rounded bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 text-xs font-bold tracking-wide transition flex items-center justify-center gap-1"
+            @click="handleRemoveDeviceFromCanvas(selectedNode.id)"
+            class="py-2 rounded bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-bold tracking-wide transition flex items-center justify-center gap-1"
+            title="Remove device from canvas sheet (device remains in sidebar inventory)"
           >
-            <span>DEL</span>
+            <span>REMOVE</span>
           </button>
         </div>
       </aside>
@@ -1469,14 +1533,27 @@ onUnmounted(() => {
       </button>
 
       <button
+        @click="handleRemoveDeviceFromCanvas(contextMenu.node.id); contextMenu.visible = false"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-amber-400 hover:bg-amber-500/10 transition border-t border-slate-800 mt-1 pt-1.5"
+        title="Remove node from active canvas sheet (device stays in sidebar inventory)"
+      >
+        <span class="flex items-center gap-2">
+          <XCircle class="w-3.5 h-3.5" />
+          <span>Remove from Canvas</span>
+        </span>
+        <span class="text-[10px] text-amber-400/80 font-mono">Unplace</span>
+      </button>
+
+      <button
         @click="handleDeleteDevice(contextMenu.node.id); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-red-400 hover:bg-red-500/10 transition border-t border-slate-800 mt-1 pt-1.5"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-rose-400 hover:bg-rose-500/10 transition"
+        title="Permanently delete device from inventory"
       >
         <span class="flex items-center gap-2">
           <Trash2 class="w-3.5 h-3.5" />
-          <span>Delete</span>
+          <span>Delete Permanently</span>
         </span>
-        <span class="text-[10px] text-red-400 font-mono">Del</span>
+        <span class="text-[10px] text-rose-400 font-mono">Del</span>
       </button>
     </div>
 
@@ -1658,20 +1735,32 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-between pt-3 border-t border-slate-800">
             <button
+              v-if="isEditDeviceModal && deviceForm.id"
               type="button"
-              @click="isDeviceModalOpen = false; isEditDeviceModal = false"
-              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs"
+              @click="handleDeleteDevice(deviceForm.id); isEditDeviceModal = false"
+              class="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-medium rounded-lg text-xs transition"
             >
-              Cancel
+              Delete Permanently
             </button>
-            <button
-              type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs"
-            >
-              Save Device
-            </button>
+            <div v-else></div>
+
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="isDeviceModalOpen = false; isEditDeviceModal = false"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs"
+              >
+                Save Device
+              </button>
+            </div>
           </div>
         </form>
       </div>

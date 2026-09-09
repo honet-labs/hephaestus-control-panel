@@ -143,6 +143,24 @@ func (r *TopologyRepository) DeleteDevice(ctx context.Context, id string) error 
 	return err
 }
 
+func (r *TopologyRepository) RemoveDeviceFromCanvas(ctx context.Context, id string, sheetID *int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+
+	// 1. Delete edges attached to this device on this sheet
+	if sheetID != nil {
+		_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE (source_id = $1 OR target_id = $1) AND (sheet_id = $2 OR sheet_id IS NULL)`, id, *sheetID)
+	} else {
+		_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE source_id = $1 OR target_id = $1`, id)
+	}
+
+	// 2. Set sheet_id to NULL, x to NULL, y to NULL (unplaced from canvas)
+	_, err = pool.Exec(ctx, `UPDATE topology_devices SET sheet_id = NULL, x = NULL, y = NULL WHERE id = $1`, id)
+	return err
+}
+
 // Edges
 func (r *TopologyRepository) ListEdges(ctx context.Context, sheetID *int) ([]domain.TopologyEdge, error) {
 	pool, err := database.GetPool()
