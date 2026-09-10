@@ -239,6 +239,30 @@ func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, f
 	return s.sshService.WriteFile(remoteCfg, targetPath, content)
 }
 
+func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID, fileName string) error {
+	cfg, err := s.GetActiveConfig(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	cleanFileName := filepath.Base(fileName)
+	if cleanFileName == "" || cleanFileName == "." || cleanFileName == "/" {
+		return fmt.Errorf("invalid pipeline file name")
+	}
+	targetPath := filepath.ToSlash(filepath.Join(cfg.PipelinesDir, cleanFileName))
+
+	mode := strings.ToLower(cfg.Mode)
+	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
+		if err := os.Remove(targetPath); err != nil {
+			return fmt.Errorf("failed to delete local pipeline file '%s': %w", targetPath, err)
+		}
+		return nil
+	}
+
+	remoteCfg := s.makeRemoteHostConfig(cfg)
+	return s.sshService.DeleteFile(remoteCfg, targetPath)
+}
+
 func (s *DataPrepperService) ValidateYAML(content string) (bool, string) {
 	var body interface{}
 	err := yaml.Unmarshal([]byte(content), &body)

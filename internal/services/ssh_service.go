@@ -508,6 +508,47 @@ exit $status`, sudoWrapper, escapedCleanPath, tmpPath, escapedCleanPath, tmpPath
 	return nil
 }
 
+// DeleteFile deletes a remote file via SFTP or with sudo elevation fallback
+func (s *SSHService) DeleteFile(cfg *domain.RemoteHostConfig, remotePath string) error {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+
+	// 1. Direct delete attempt via SFTP (succeeds if user is root or owns the file)
+	sftpClient, sftpErr := sftp.NewClient(client)
+	if sftpErr == nil {
+		defer sftpClient.Close()
+		if err := sftpClient.Remove(cleanPath); err == nil {
+			return nil
+		}
+	}
+
+	// 2. Privileged delete via shell session with sudo elevation
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+_run_sudo rm -f '%s'`, sudoWrapper, escapedCleanPath)
+
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("failed to delete file '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
+	}
+	return nil
+}
+
 // CheckPath checks if a remote path exists, and whether it is a directory or regular file
 func (s *SSHService) CheckPath(cfg *domain.RemoteHostConfig, remotePath string) (exists bool, isDir bool, err error) {
 	client, err := s.Dial(cfg)

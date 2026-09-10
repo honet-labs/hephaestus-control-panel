@@ -252,6 +252,7 @@ func main() {
 		api.GET("/dataprepper/pipelines", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ListPipelines)
 		api.GET("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.GetPipelineFile)
 		api.POST("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.SavePipelineFile)
+		api.DELETE("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.DeletePipelineFile)
 		api.POST("/dataprepper/validate", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ValidateYAML)
 
 		// Live Logs, Services & Queue (Feature: settings)

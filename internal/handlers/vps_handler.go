@@ -172,6 +172,34 @@ func (h *DataPrepperHandler) SavePipelineFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' saved successfully.", req.File)})
 }
 
+func (h *DataPrepperHandler) DeletePipelineFile(c *gin.Context) {
+	instanceID := c.Query("instanceId")
+	file := c.Query("file")
+	if file == "" {
+		var req struct {
+			InstanceID string `json:"instanceId"`
+			File       string `json:"file"`
+		}
+		if err := c.ShouldBindJSON(&req); err == nil {
+			if instanceID == "" {
+				instanceID = req.InstanceID
+			}
+			file = req.File
+		}
+	}
+
+	if file == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "file parameter is required"})
+		return
+	}
+
+	if err := h.dpService.DeletePipelineFile(c.Request.Context(), instanceID, file); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' deleted successfully.", file)})
+}
+
 func (h *DataPrepperHandler) ValidateYAML(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`

@@ -8,6 +8,7 @@ import {
   Check,
   Save,
   Plus,
+  Trash2,
   ArrowLeft,
   ExternalLink,
   CheckCircle2,
@@ -36,6 +37,8 @@ const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
 const yamlContent = ref('');
 const saving = ref(false);
+const deleting = ref(false);
+const showDeleteConfirm = ref(false);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
 const gutterRef = ref<HTMLDivElement | null>(null);
 
@@ -184,6 +187,46 @@ const handleSave = async () => {
   }
 };
 
+const handleDeleteClick = () => {
+  if (selectedPipelineFile.value) {
+    showDeleteConfirm.value = true;
+  }
+};
+
+const confirmDelete = async () => {
+  if (!selectedPipelineFile.value || !selectedInstanceId.value) return;
+  deleting.value = true;
+  validationMessage.value = null;
+  const fileToDelete = selectedPipelineFile.value;
+  try {
+    const res = await axios.delete(`/api/v1/dataprepper/pipeline?instanceId=${selectedInstanceId.value}&file=${encodeURIComponent(fileToDelete)}`);
+    if (res.data?.success) {
+      showDeleteConfirm.value = false;
+      validationMessage.value = `Pipeline "${fileToDelete}" deleted successfully from remote host.`;
+      isValidationSuccess.value = true;
+      await fetchPipelineFiles();
+      if (!pipelineFiles.value.includes(selectedPipelineFile.value)) {
+        if (pipelineFiles.value.length > 0) {
+          selectedPipelineFile.value = pipelineFiles.value[0];
+          await loadPipelineContent(selectedPipelineFile.value);
+        } else {
+          selectedPipelineFile.value = '';
+          yamlContent.value = '';
+        }
+      }
+    } else {
+      validationMessage.value = res.data?.error || 'Failed to delete pipeline.';
+      isValidationSuccess.value = false;
+    }
+  } catch (err: any) {
+    validationMessage.value = err.response?.data?.error || err.message || 'Failed to delete pipeline.';
+    isValidationSuccess.value = false;
+  } finally {
+    deleting.value = false;
+    showDeleteConfirm.value = false;
+  }
+};
+
 const lineNumbers = computed(() => {
   if (!yamlContent.value) return [];
   const count = yamlContent.value.split('\n').length;
@@ -274,6 +317,17 @@ onMounted(() => {
             <Plus class="w-3.5 h-3.5" />
             <span>NEW FILE</span>
           </button>
+
+          <button
+            v-if="pipelineFiles.length > 0 && selectedPipelineFile"
+            @click="handleDeleteClick"
+            :disabled="deleting || loading"
+            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold border border-rose-800/60 transition disabled:opacity-50"
+            title="Delete selected pipeline file"
+          >
+            <Trash2 class="w-3.5 h-3.5 text-rose-400" />
+            <span>DELETE FILE</span>
+          </button>
         </div>
 
         <!-- New File Input Dialog Inline -->
@@ -332,6 +386,16 @@ onMounted(() => {
             </button>
 
             <button
+              @click="handleDeleteClick"
+              :disabled="deleting || loading || !selectedPipelineFile"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold border border-rose-800/60 transition disabled:opacity-50"
+              title="Delete selected pipeline file"
+            >
+              <Trash2 class="w-3.5 h-3.5 text-rose-400" />
+              <span>DELETE</span>
+            </button>
+
+            <button
               @click="handleSave"
               :disabled="saving || loading"
               class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition"
@@ -375,6 +439,48 @@ onMounted(() => {
         </div>
       </div>
 
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div
+      v-if="showDeleteConfirm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+    >
+      <div class="bg-[#171a23] border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 font-sans animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
+            <AlertTriangle class="w-5 h-5" />
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Delete Pipeline File</h3>
+            <p class="text-xs text-slate-400">This action will permanently delete the file from the remote host.</p>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-300 leading-relaxed">
+          Are you sure you want to delete
+          <span class="font-mono font-semibold text-rose-300 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/60">{{ selectedPipelineFile }}</span>?
+        </p>
+
+        <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+          <button
+            @click="showDeleteConfirm = false"
+            :disabled="deleting"
+            class="px-3.5 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="confirmDelete"
+            :disabled="deleting"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition disabled:opacity-50"
+          >
+            <RotateCw v-if="deleting" class="w-3.5 h-3.5 animate-spin" />
+            <Trash2 v-else class="w-3.5 h-3.5" />
+            <span>{{ deleting ? 'Deleting...' : 'Confirm Delete' }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
