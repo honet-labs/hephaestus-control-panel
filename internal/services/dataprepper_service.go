@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -232,11 +233,19 @@ func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, f
 
 	mode := strings.ToLower(cfg.Mode)
 	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
-		return os.WriteFile(targetPath, []byte(content), 0644)
+		if err := os.WriteFile(targetPath, []byte(content), 0644); err != nil {
+			return err
+		}
+		_ = s.RestartService(ctx, cfg)
+		return nil
 	}
 
 	remoteCfg := s.makeRemoteHostConfig(cfg)
-	return s.sshService.WriteFile(remoteCfg, targetPath, content)
+	if err := s.sshService.WriteFile(remoteCfg, targetPath, content); err != nil {
+		return err
+	}
+	_ = s.RestartService(ctx, cfg)
+	return nil
 }
 
 func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID, fileName string) error {
@@ -256,11 +265,40 @@ func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID,
 		if err := os.Remove(targetPath); err != nil {
 			return fmt.Errorf("failed to delete local pipeline file '%s': %w", targetPath, err)
 		}
+		_ = s.RestartService(ctx, cfg)
 		return nil
 	}
 
 	remoteCfg := s.makeRemoteHostConfig(cfg)
-	return s.sshService.DeleteFile(remoteCfg, targetPath)
+	if err := s.sshService.DeleteFile(remoteCfg, targetPath); err != nil {
+		return err
+	}
+	_ = s.RestartService(ctx, cfg)
+	return nil
+}
+
+// RestartService restarts the Data Prepper service via systemd or docker
+func (s *DataPrepperService) RestartService(ctx context.Context, cfg *domain.DataPrepperConfig) error {
+	mode := strings.ToLower(cfg.Mode)
+	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
+		cmd := exec.CommandContext(ctx, "sh", "-c", "systemctl restart data-prepper 2>/dev/null || systemctl restart dataprepper 2>/dev/null || service data-prepper restart 2>/dev/null || true")
+		_ = cmd.Run()
+		return nil
+	}
+
+	remoteCfg := s.makeRemoteHostConfig(cfg)
+	restartCmd := `
+if command -v systemctl >/dev/null 2>&1 && (systemctl list-unit-files 2>/dev/null | grep -qE '^data-?prepper\.service' || systemctl is-active --quiet data-prepper 2>/dev/null || systemctl is-active --quiet dataprepper 2>/dev/null); then
+    _run_sudo systemctl restart data-prepper 2>/dev/null || _run_sudo systemctl restart dataprepper 2>/dev/null
+elif command -v docker >/dev/null 2>&1 && (_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -qiE 'data-?prepper'); then
+    dp_c=$(_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'data-?prepper' | head -n 1)
+    _run_sudo docker restart "$dp_c"
+else
+    _run_sudo systemctl restart data-prepper 2>/dev/null || _run_sudo systemctl restart dataprepper 2>/dev/null || _run_sudo service data-prepper restart 2>/dev/null || true
+fi
+`
+	_, _, _, err := s.sshService.ExecuteElevatedCommand(remoteCfg, restartCmd)
+	return err
 }
 
 func (s *DataPrepperService) ValidateYAML(content string) (bool, string) {

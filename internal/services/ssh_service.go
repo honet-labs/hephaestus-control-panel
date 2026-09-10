@@ -130,6 +130,13 @@ func (s *SSHService) ExecuteCommand(cfg *domain.RemoteHostConfig, command string
 	return stdoutBuf.String(), stderrBuf.String(), exitCode, nil
 }
 
+// ExecuteElevatedCommand executes a command with the sudo wrapper prepended
+func (s *SSHService) ExecuteElevatedCommand(cfg *domain.RemoteHostConfig, command string) (string, string, int, error) {
+	cmd := fmt.Sprintf(`%s
+%s`, buildSudoWrapper(cfg.Password), command)
+	return s.ExecuteCommand(cfg, cmd)
+}
+
 func (s *SSHService) TestConnection(cfg *domain.RemoteHostConfig) (bool, string) {
 	client, err := s.Dial(cfg)
 	if err != nil {

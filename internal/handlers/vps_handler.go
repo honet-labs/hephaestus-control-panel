@@ -169,7 +169,7 @@ func (h *DataPrepperHandler) SavePipelineFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' saved successfully.", req.File)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' saved and Data Prepper service restarted.", req.File)})
 }
 
 func (h *DataPrepperHandler) DeletePipelineFile(c *gin.Context) {
@@ -197,7 +197,7 @@ func (h *DataPrepperHandler) DeletePipelineFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' deleted successfully.", file)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' deleted and Data Prepper service restarted.", file)})
 }
 
 func (h *DataPrepperHandler) ValidateYAML(c *gin.Context) {

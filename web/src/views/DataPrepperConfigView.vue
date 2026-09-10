@@ -173,7 +173,7 @@ const handleSave = async () => {
       content: yamlContent.value,
     });
     if (res.data?.success) {
-      validationMessage.value = `Pipeline "${selectedPipelineFile.value}" saved to remote host successfully.`;
+      validationMessage.value = res.data?.message || `Pipeline "${selectedPipelineFile.value}" saved and Data Prepper service restarted.`;
       isValidationSuccess.value = true;
     } else {
       validationMessage.value = res.data?.error || 'Failed to save pipeline.';
@@ -402,7 +402,7 @@ onMounted(() => {
             >
               <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
               <Save v-else class="w-3.5 h-3.5" />
-              <span>{{ saving ? 'SAVING...' : 'SAVE' }}</span>
+              <span>{{ saving ? 'SAVING & RESTARTING...' : 'SAVE' }}</span>
             </button>
           </div>
         </div>
