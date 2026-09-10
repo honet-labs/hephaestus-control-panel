@@ -33,7 +33,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, token, err := h.authService.Login(c.Request.Context(), req.Username, req.Password)
+	user, token, err := h.authService.Login(c.Request.Context(), strings.TrimSpace(req.Username), req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,

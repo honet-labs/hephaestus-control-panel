@@ -27,8 +27,8 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*d
                      COALESCE(sr.permissions, '{}'::jsonb)
               FROM users u
               LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
-              WHERE u.username = $1`
-	row := pool.QueryRow(ctx, query, username)
+              WHERE LOWER(u.username) = LOWER($1)`
+	row := pool.QueryRow(ctx, query, strings.TrimSpace(username))
 
 	var u domain.User
 	var rawPerms []byte
