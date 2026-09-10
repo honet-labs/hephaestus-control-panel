@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -32,6 +32,15 @@ const handleLogout = async () => {
   await authStore.logout();
   router.push('/login');
 };
+
+watch(
+  () => authStore.isAuthenticated,
+  (isAuth) => {
+    if (!isAuth) {
+      router.push({ name: 'login', query: { redirect: route.fullPath } });
+    }
+  }
+);
 
 onMounted(() => {
   authStore.fetchUser();
@@ -282,14 +291,17 @@ onMounted(() => {
       <!-- User Profile & Logout -->
       <div class="p-3 border-t border-slate-200 dark:border-[#1b2234] bg-slate-50 dark:bg-[#090d16] shrink-0">
         <div class="flex items-center justify-between px-2 py-1.5 rounded-lg">
-          <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="flex items-center gap-2.5 overflow-hidden" v-if="authStore.user">
             <div class="w-7 h-7 rounded-lg bg-blue-100 dark:bg-[#141b2d] border border-blue-200 dark:border-[#293681] flex items-center justify-center font-bold text-xs text-blue-800 dark:text-[#95CCDD] shrink-0">
-              {{ authStore.user?.username?.charAt(0).toUpperCase() || 'A' }}
+              {{ authStore.user?.username?.charAt(0).toUpperCase() || 'U' }}
             </div>
             <div class="overflow-hidden">
-              <p class="text-xs font-semibold text-slate-800 dark:text-[#D0E7E6] truncate">{{ authStore.user?.username || 'sysadministrator' }}</p>
-              <p class="text-[10px] text-blue-700 dark:text-[#95CCDD]/70 uppercase tracking-wider font-mono">{{ authStore.user?.role || 'ADMIN' }}</p>
+              <p class="text-xs font-semibold text-slate-800 dark:text-[#D0E7E6] truncate">{{ authStore.user?.username }}</p>
+              <p class="text-[10px] text-blue-700 dark:text-[#95CCDD]/70 uppercase tracking-wider font-mono">{{ authStore.user?.role }}</p>
             </div>
+          </div>
+          <div class="flex items-center gap-2.5 overflow-hidden text-xs text-slate-400" v-else>
+            <span class="italic">Guest</span>
           </div>
 
           <div class="flex items-center gap-1">

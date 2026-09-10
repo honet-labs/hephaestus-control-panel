@@ -109,6 +109,37 @@ const router = createRouter({
   ],
 });
 
+// Request Interceptor: Ensure Authorization header is present if token exists
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('hephaestus_token');
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Response Interceptor: Automatically redirect to login on 401 Unauthorized globally
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      const url = error.config?.url || '';
+      const isAuthUrl = url.includes('/api/v1/auth/login') || url.includes('/api/v1/setup');
+      if (!isAuthUrl) {
+        const authStore = useAuthStore();
+        authStore.clearAuth();
+        if (router.currentRoute.value.name !== 'login') {
+          router.push({
+            name: 'login',
+            query: { redirect: router.currentRoute.value.fullPath },
+          });
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
@@ -124,9 +155,19 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    return next({ name: 'login', query: { redirect: to.fullPath } });
+  if (to.meta.requiresAuth) {
+    if (!authStore.isAuthenticated) {
+      return next({ name: 'login', query: { redirect: to.fullPath } });
+    }
+    // If authenticated token exists but user object is not yet loaded, load it before rendering
+    if (!authStore.user) {
+      const u = await authStore.fetchUser();
+      if (!u && !authStore.isAuthenticated) {
+        return next({ name: 'login', query: { redirect: to.fullPath } });
+      }
+    }
   }
+
   if (to.meta.guestOnly && authStore.isAuthenticated) {
     return next({ name: 'dashboard' });
   }

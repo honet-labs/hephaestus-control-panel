@@ -55,8 +55,16 @@ export const useAuthStore = defineStore('auth', () => {
         localStorage.setItem('hephaestus_user', JSON.stringify(res.data.data));
         return user.value;
       }
-    } catch {
-      clearAuth();
+    } catch (err: any) {
+      // ONLY clear auth if the server explicitly returned 401 Unauthorized or 403 Forbidden!
+      // Do NOT wipe auth if the server is temporarily unreachable (network error, timeout, 502/503 during backend restart)
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        clearAuth();
+        return null;
+      }
+      // For network errors or temporary 5xx downtime, keep existing cached user state from localStorage
+      console.warn('Backend temporarily unreachable, retaining cached auth session:', err?.message);
+      return user.value;
     }
     return null;
   };
