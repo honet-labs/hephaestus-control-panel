@@ -152,29 +152,51 @@ func (s *PrometheusService) TestConnection(ctx context.Context, cfg domain.Prome
 		}
 		defer client.Close()
 
-		// 2. Test File Existence and Readability
+		// 2. Test File or Directory Existence and Readability
 		filePath := cfg.Path
 		if filePath == "" {
 			filePath = "/etc/prometheus/prometheus.yml"
 		}
+
+		isDataPrepper := strings.Contains(strings.ToLower(cfg.Name), "data prepper") ||
+			strings.Contains(strings.ToLower(cfg.Name), "dataprepper") ||
+			strings.Contains(strings.ToLower(filePath), "pipeline")
+
+		exists, isDir, err := s.sshService.CheckPath(remoteCfg, filePath)
+		if err != nil || !exists {
+			itemType := "file"
+			if isDataPrepper || strings.Contains(filePath, "pipeline") {
+				itemType = "pipelines directory"
+			}
+			return false, fmt.Sprintf("SSH authenticated to %s@%s:%d, but failed to access remote %s '%s': %v", user, *cfg.SSHHost, port, itemType, err), err
+		}
+
+		if isDir {
+			return true, fmt.Sprintf("Connection verified: SSH authenticated to %s@%s:%d and remote directory '%s' is accessible.", user, *cfg.SSHHost, port, filePath), nil
+		}
+
 		_, err = s.sshService.ReadFile(remoteCfg, filePath)
 		if err != nil {
-			return false, fmt.Sprintf("SSH authenticated to %s@%s:%d, but failed to read prometheus file '%s': %v", user, *cfg.SSHHost, port, filePath, err), err
+			return false, fmt.Sprintf("SSH authenticated to %s@%s:%d, but failed to read remote file '%s': %v", user, *cfg.SSHHost, port, filePath, err), err
 		}
 
 		return true, fmt.Sprintf("Connection verified: SSH authenticated to %s@%s:%d and '%s' is accessible.", user, *cfg.SSHHost, port, filePath), nil
 	}
 
-	// Local file mode
+	// Local file / directory mode
 	filePath := cfg.Path
 	if filePath == "" {
 		filePath = "/etc/prometheus/prometheus.yml"
 	}
-	if _, err := os.Stat(filePath); err != nil {
-		return false, fmt.Sprintf("Local prometheus file not found at '%s': %v", filePath, err), err
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return false, fmt.Sprintf("Local path not found at '%s': %v", filePath, err), err
+	}
+	if stat.IsDir() {
+		return true, fmt.Sprintf("Local directory verified at '%s'", filePath), nil
 	}
 
-	return true, fmt.Sprintf("Local prometheus configuration file verified at '%s'", filePath), nil
+	return true, fmt.Sprintf("Local configuration file verified at '%s'", filePath), nil
 }
 
 // GetConfigFile reads the prometheus.yml file from the remote SSH server or local file system

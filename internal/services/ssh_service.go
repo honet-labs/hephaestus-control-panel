@@ -356,6 +356,25 @@ func (s *SSHService) SftpUploadWithConfig(cfg *domain.RemoteHostConfig, remotePa
 	return err
 }
 
+func buildSudoWrapper(password *string) string {
+	var escapedPass string
+	if password != nil && *password != "" {
+		escapedPass = strings.ReplaceAll(*password, "'", "'\\''")
+	}
+	return fmt.Sprintf(`_P='%s'
+_run_sudo() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif [ -n "$_P" ]; then
+        echo "$_P" | sudo -S -p '' "$@"
+    elif sudo -n true 2>/dev/null; then
+        sudo -n "$@"
+    else
+        "$@"
+    fi
+}`, escapedPass)
+}
+
 func (s *SSHService) ReadFile(cfg *domain.RemoteHostConfig, remotePath string) (string, error) {
 	client, err := s.Dial(cfg)
 	if err != nil {
@@ -377,7 +396,7 @@ func (s *SSHService) ReadFile(cfg *domain.RemoteHostConfig, remotePath string) (
 		}
 	}
 
-	// Fallback to command execution
+	// Fallback to command execution with sudo elevation
 	session, err := client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("failed to create SSH session: %w", err)
@@ -387,9 +406,15 @@ func (s *SSHService) ReadFile(cfg *domain.RemoteHostConfig, remotePath string) (
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
 	session.Stderr = &stderr
-	cmd := fmt.Sprintf("cat %s", cleanPath)
+
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+_run_sudo cat '%s'`, sudoWrapper, escapedCleanPath)
+
 	if err := session.Run(cmd); err != nil {
-		return "", fmt.Errorf("failed to read remote file '%s': %w (stderr: %s)", cleanPath, err, stderr.String())
+		return "", fmt.Errorf("failed to read remote file '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
@@ -402,37 +427,197 @@ func (s *SSHService) WriteFile(cfg *domain.RemoteHostConfig, remotePath string, 
 	defer client.Close()
 
 	cleanPath := sanitizeRemotePath(remotePath)
-	sftpClient, err := sftp.NewClient(client)
-	if err == nil {
-		defer sftpClient.Close()
+
+	// 1. Direct write attempt via SFTP (succeeds if user is root or owns the target path)
+	sftpClient, sftpErr := sftp.NewClient(client)
+	if sftpErr == nil {
 		dir := filepath.ToSlash(filepath.Dir(cleanPath))
 		_ = sftpClient.MkdirAll(dir)
 
 		f, err := sftpClient.Create(cleanPath)
 		if err == nil {
-			defer f.Close()
-			_, err = f.Write([]byte(content))
-			if err == nil {
+			_, writeErr := f.Write([]byte(content))
+			_ = f.Close()
+			if writeErr == nil {
+				_ = sftpClient.Close()
 				return nil
 			}
 		}
 	}
 
-	// Fallback via shell session with tee
+	// 2. Privileged write via temporary file in /tmp and sudo elevation
+	// /tmp is world-writable (mode 1777), allowing any authenticated user to create a temporary file.
+	tmpPath := fmt.Sprintf("/tmp/.hcp_write_%d.tmp", time.Now().UnixNano())
+	var uploadedToTmp bool
+
+	if sftpClient != nil {
+		tmpFile, err := sftpClient.Create(tmpPath)
+		if err == nil {
+			if _, err := tmpFile.Write([]byte(content)); err == nil {
+				uploadedToTmp = true
+			}
+			_ = tmpFile.Close()
+		}
+		_ = sftpClient.Close()
+	}
+
+	if !uploadedToTmp {
+		session, err := client.NewSession()
+		if err != nil {
+			return fmt.Errorf("failed to create SSH session for temp file: %w", err)
+		}
+		session.Stdin = strings.NewReader(content)
+		var stderr bytes.Buffer
+		session.Stderr = &stderr
+		if err := session.Run(fmt.Sprintf("cat > '%s'", tmpPath)); err != nil {
+			_ = session.Close()
+			return fmt.Errorf("failed to write temporary file '%s': %w (stderr: %s)", tmpPath, err, strings.TrimSpace(stderr.String()))
+		}
+		_ = session.Close()
+	}
+
+	// 3. Move/copy temp file to destination using sudo elevation
 	session, err := client.NewSession()
 	if err != nil {
+		// Clean up tmpPath
+		cleanupSess, _ := client.NewSession()
+		if cleanupSess != nil {
+			_ = cleanupSess.Run(fmt.Sprintf("rm -f '%s'", tmpPath))
+			_ = cleanupSess.Close()
+		}
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
 
-	session.Stdin = strings.NewReader(content)
-	var stderr bytes.Buffer
-	session.Stderr = &stderr
-	cmd := fmt.Sprintf("tee %s > /dev/null", cleanPath)
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+dir=$(dirname '%s')
+_run_sudo sh -c 'mkdir -p "$1" && cp -f "$2" "$3" && chmod 644 "$3" && (chgrp --reference="$1" "$3" 2>/dev/null || true)' -- "$dir" '%s' '%s'
+status=$?
+rm -f '%s'
+exit $status`, sudoWrapper, escapedCleanPath, tmpPath, escapedCleanPath, tmpPath)
+
 	if err := session.Run(cmd); err != nil {
-		return fmt.Errorf("failed to write file '%s': %w (stderr: %s)", cleanPath, err, stderr.String())
+		return fmt.Errorf("failed to write file '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
 	}
 	return nil
+}
+
+// CheckPath checks if a remote path exists, and whether it is a directory or regular file
+func (s *SSHService) CheckPath(cfg *domain.RemoteHostConfig, remotePath string) (exists bool, isDir bool, err error) {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return false, false, fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	sftpClient, err := sftp.NewClient(client)
+	if err == nil {
+		defer sftpClient.Close()
+		stat, err := sftpClient.Stat(cleanPath)
+		if err == nil {
+			return true, stat.IsDir(), nil
+		}
+	}
+
+	// Fallback via shell session with sudo elevation
+	session, err := client.NewSession()
+	if err != nil {
+		return false, false, fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+if _run_sudo test -d '%s'; then
+    echo 'DIR'
+elif _run_sudo test -f '%s' || _run_sudo test -e '%s'; then
+    echo 'FILE'
+else
+    exit 1
+fi`, sudoWrapper, escapedCleanPath, escapedCleanPath, escapedCleanPath)
+
+	out, err := session.Output(cmd)
+	if err != nil {
+		return false, false, fmt.Errorf("remote path '%s' does not exist or is not accessible", cleanPath)
+	}
+
+	res := strings.TrimSpace(string(out))
+	if res == "DIR" {
+		return true, true, nil
+	}
+	return true, false, nil
+}
+
+// SftpListDirWithConfig lists files in a remote directory directly using config credentials
+func (s *SSHService) SftpListDirWithConfig(cfg *domain.RemoteHostConfig, remotePath string) ([]domain.SftpFileEntry, error) {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	sftpClient, err := sftp.NewClient(client)
+	if err == nil {
+		defer sftpClient.Close()
+		files, err := sftpClient.ReadDir(cleanPath)
+		if err == nil {
+			var entries []domain.SftpFileEntry
+			for _, f := range files {
+				entries = append(entries, domain.SftpFileEntry{
+					Name:    f.Name(),
+					IsDir:   f.IsDir(),
+					Size:    f.Size(),
+					ModTime: f.ModTime(),
+				})
+			}
+			return entries, nil
+		}
+	}
+
+	// Fallback to ls command with sudo elevation
+	session, sessErr := client.NewSession()
+	if sessErr != nil {
+		return nil, fmt.Errorf("failed to create SSH session: %w", sessErr)
+	}
+	defer session.Close()
+
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+_run_sudo ls -1Ap '%s'`, sudoWrapper, escapedCleanPath)
+
+	out, runErr := session.Output(cmd)
+	if runErr != nil {
+		return nil, fmt.Errorf("failed to read remote directory '%s': %w", cleanPath, runErr)
+	}
+
+	var entries []domain.SftpFileEntry
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		isDir := strings.HasSuffix(line, "/")
+		name := strings.TrimSuffix(line, "/")
+		entries = append(entries, domain.SftpFileEntry{
+			Name:    name,
+			IsDir:   isDir,
+			ModTime: time.Now(),
+		})
+	}
+	return entries, nil
 }
 
 func (s *SSHService) idleConnectionCleaner() {

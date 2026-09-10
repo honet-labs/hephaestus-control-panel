@@ -34,8 +34,16 @@ const newFileName = ref('');
 const loading = ref(false);
 const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
-
 const yamlContent = ref('');
+const saving = ref(false);
+const editorRef = ref<HTMLTextAreaElement | null>(null);
+const gutterRef = ref<HTMLDivElement | null>(null);
+
+const syncScroll = () => {
+  if (editorRef.value && gutterRef.value) {
+    gutterRef.value.scrollTop = editorRef.value.scrollTop;
+  }
+};
 
 // Fetch real Data Prepper instances from database connections
 const fetchInstances = async () => {
@@ -78,12 +86,14 @@ const fetchInstances = async () => {
 };
 
 const fetchPipelineFiles = async () => {
+  if (!selectedInstanceId.value) return;
+  loading.value = true;
   try {
-    const res = await axios.get('/api/v1/dataprepper/pipelines').catch(() => null);
+    const res = await axios.get(`/api/v1/dataprepper/pipelines?instanceId=${selectedInstanceId.value}`).catch(() => null);
     if (res && res.data && res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
       pipelineFiles.value = res.data.data;
       selectedPipelineFile.value = pipelineFiles.value[0];
-      loadPipelineContent(selectedPipelineFile.value);
+      await loadPipelineContent(selectedPipelineFile.value);
     } else {
       pipelineFiles.value = [];
       yamlContent.value = '';
@@ -91,29 +101,27 @@ const fetchPipelineFiles = async () => {
   } catch (err) {
     pipelineFiles.value = [];
     yamlContent.value = '';
+  } finally {
+    loading.value = false;
   }
 };
 
-const loadPipelineContent = (fileName: string) => {
-  yamlContent.value = `# Data Prepper Pipeline: ${fileName}
-version: "2"
-log-pipeline:
-  source:
-    http:
-      path: "/log/ingest"
-  processor:
-    - grok:
-        match:
-          message: ["%{COMMONAPACHELOG}"]
-    - date:
-        from_time_received: true
-        destination: "@timestamp"
-  sink:
-    - opensearch:
-        hosts: ["https://localhost:9200"]
-        insecure: true
-        index: "logs-dataprepper-%{yyyy.MM.dd}"
-`;
+const loadPipelineContent = async (fileName: string) => {
+  if (!fileName) return;
+  loading.value = true;
+  validationMessage.value = null;
+  try {
+    const res = await axios.get(`/api/v1/dataprepper/pipeline?instanceId=${selectedInstanceId.value}&file=${encodeURIComponent(fileName)}`).catch(() => null);
+    if (res && res.data && res.data.success && res.data.data?.content) {
+      yamlContent.value = res.data.data.content;
+    } else {
+      yamlContent.value = `# Data Prepper Pipeline: ${fileName}\nversion: "2"\n`;
+    }
+  } catch (err) {
+    yamlContent.value = `# Data Prepper Pipeline: ${fileName}\nversion: "2"\n`;
+  } finally {
+    loading.value = false;
+  }
 };
 
 const handleValidate = async () => {
@@ -152,9 +160,28 @@ const handleCreateFile = () => {
 };
 
 const handleSave = async () => {
-  if (!selectedPipelineFile.value) return;
-  validationMessage.value = `Pipeline "${selectedPipelineFile.value}" saved to remote host successfully.`;
-  isValidationSuccess.value = true;
+  if (!selectedPipelineFile.value || !selectedInstanceId.value) return;
+  saving.value = true;
+  validationMessage.value = null;
+  try {
+    const res = await axios.post('/api/v1/dataprepper/pipeline', {
+      instanceId: selectedInstanceId.value,
+      file: selectedPipelineFile.value,
+      content: yamlContent.value,
+    });
+    if (res.data?.success) {
+      validationMessage.value = `Pipeline "${selectedPipelineFile.value}" saved to remote host successfully.`;
+      isValidationSuccess.value = true;
+    } else {
+      validationMessage.value = res.data?.error || 'Failed to save pipeline.';
+      isValidationSuccess.value = false;
+    }
+  } catch (err: any) {
+    validationMessage.value = err.response?.data?.error || err.message || 'Failed to save pipeline.';
+    isValidationSuccess.value = false;
+  } finally {
+    saving.value = false;
+  }
 };
 
 const lineNumbers = computed(() => {
@@ -306,10 +333,12 @@ onMounted(() => {
 
             <button
               @click="handleSave"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
+              :disabled="saving || loading"
+              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition"
             >
-              <Save class="w-3.5 h-3.5" />
-              <span>SAVE</span>
+              <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+              <Save v-else class="w-3.5 h-3.5" />
+              <span>{{ saving ? 'SAVING...' : 'SAVE' }}</span>
             </button>
           </div>
         </div>
@@ -326,17 +355,21 @@ onMounted(() => {
         </div>
 
         <!-- Textarea Code Editor with Line Numbers -->
-        <div class="flex bg-[#0b0e14] border border-slate-800 rounded-xl overflow-hidden font-mono text-xs select-text shadow-inner">
+        <div class="flex bg-[#0b0e14] border border-slate-800 rounded-xl overflow-hidden font-mono text-xs select-text shadow-inner h-[calc(100vh-320px)] min-h-[460px] relative">
           <!-- Line Numbers Gutter -->
-          <div class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 space-y-0.5 min-w-[45px] leading-relaxed">
-            <div v-for="n in lineNumbers" :key="n">{{ n }}</div>
+          <div
+            ref="gutterRef"
+            class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 min-w-[50px] leading-relaxed overflow-hidden shrink-0 pointer-events-none"
+          >
+            <div v-for="n in lineNumbers" :key="n" class="leading-relaxed">{{ n }}</div>
           </div>
 
           <!-- Code Textarea Area -->
           <textarea
+            ref="editorRef"
             v-model="yamlContent"
-            rows="22"
-            class="flex-1 bg-transparent p-3.5 text-sky-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30"
+            @scroll="syncScroll"
+            class="flex-1 bg-transparent p-3.5 text-sky-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30 overflow-y-auto overflow-x-auto whitespace-pre outline-none h-full"
             spellcheck="false"
           ></textarea>
         </div>

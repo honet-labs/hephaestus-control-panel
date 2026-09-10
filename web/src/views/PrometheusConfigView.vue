@@ -160,6 +160,15 @@ const lineNumbers = computed(() => {
   return Array.from({ length: Math.max(count, 20) }, (_, i) => i + 1);
 });
 
+const editorRef = ref<HTMLTextAreaElement | null>(null);
+const gutterRef = ref<HTMLDivElement | null>(null);
+
+const syncScroll = () => {
+  if (editorRef.value && gutterRef.value) {
+    gutterRef.value.scrollTop = editorRef.value.scrollTop;
+  }
+};
+
 onMounted(() => {
   fetchPrometheusInstances();
 });
@@ -304,17 +313,21 @@ onMounted(() => {
         </div>
 
         <!-- Textarea Code Editor with Line Numbers -->
-        <div class="flex bg-[#0b0e14] border border-slate-800 rounded-xl overflow-hidden font-mono text-xs select-text shadow-inner">
+        <div class="flex bg-[#0b0e14] border border-slate-800 rounded-xl overflow-hidden font-mono text-xs select-text shadow-inner h-[calc(100vh-320px)] min-h-[460px] relative">
           <!-- Line Numbers Gutter -->
-          <div class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 space-y-0.5 min-w-[45px] leading-relaxed">
-            <div v-for="n in lineNumbers" :key="n">{{ n }}</div>
+          <div
+            ref="gutterRef"
+            class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 min-w-[50px] leading-relaxed overflow-hidden shrink-0 pointer-events-none"
+          >
+            <div v-for="n in lineNumbers" :key="n" class="leading-relaxed">{{ n }}</div>
           </div>
 
           <!-- Code Textarea Area -->
           <textarea
+            ref="editorRef"
             v-model="yamlContent"
-            rows="22"
-            class="flex-1 bg-transparent p-3.5 text-amber-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30"
+            @scroll="syncScroll"
+            class="flex-1 bg-transparent p-3.5 text-amber-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30 overflow-y-auto overflow-x-auto whitespace-pre outline-none h-full"
             spellcheck="false"
           ></textarea>
         </div>

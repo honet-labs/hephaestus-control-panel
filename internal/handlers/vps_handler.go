@@ -128,7 +128,8 @@ func NewDataPrepperHandler(dpService *services.DataPrepperService) *DataPrepperH
 }
 
 func (h *DataPrepperHandler) ListPipelines(c *gin.Context) {
-	list, err := h.dpService.ListPipelines(c.Request.Context())
+	instanceID := c.Query("instanceId")
+	list, err := h.dpService.ListPipelines(c.Request.Context(), instanceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -136,15 +137,55 @@ func (h *DataPrepperHandler) ListPipelines(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
+func (h *DataPrepperHandler) GetPipelineFile(c *gin.Context) {
+	instanceID := c.Query("instanceId")
+	file := c.Query("file")
+	if file == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "file parameter is required"})
+		return
+	}
+
+	content, err := h.dpService.GetPipelineFile(c.Request.Context(), instanceID, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"file": file, "content": content}})
+}
+
+func (h *DataPrepperHandler) SavePipelineFile(c *gin.Context) {
+	var req struct {
+		InstanceID string `json:"instanceId"`
+		File       string `json:"file" binding:"required"`
+		Content    string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := h.dpService.SavePipelineFile(c.Request.Context(), req.InstanceID, req.File, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' saved successfully.", req.File)})
+}
+
 func (h *DataPrepperHandler) ValidateYAML(c *gin.Context) {
 	var req struct {
-		Content string `json:"content" binding:"required"`
+		Content string `json:"content"`
+		Yaml    string `json:"yaml"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "content is required"})
 		return
 	}
 
-	valid, msg := h.dpService.ValidateYAML(req.Content)
-	c.JSON(http.StatusOK, gin.H{"success": valid, "message": msg})
+	content := req.Content
+	if content == "" && req.Yaml != "" {
+		content = req.Yaml
+	}
+
+	valid, msg := h.dpService.ValidateYAML(content)
+	c.JSON(http.StatusOK, gin.H{"success": true, "valid": valid, "message": msg})
 }

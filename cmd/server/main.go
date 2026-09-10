@@ -250,6 +250,8 @@ func main() {
 
 		// Data Prepper (Feature: dataprepper_config)
 		api.GET("/dataprepper/pipelines", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ListPipelines)
+		api.GET("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.GetPipelineFile)
+		api.POST("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.SavePipelineFile)
 		api.POST("/dataprepper/validate", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ValidateYAML)
 
 		// Live Logs, Services & Queue (Feature: settings)

@@ -183,7 +183,7 @@ const handleTestConnection = async () => {
     } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
       if (form.value.accessMode === 'ssh') {
         const payload: any = {
-          name: form.value.name,
+          name: `${form.value.name || 'DataPrepper'} (Data Prepper)`,
           mode: 'ssh',
           path: form.value.pipelinesDir || '/opt/data-prepper/pipelines',
           sshHost: form.value.sshHost,
@@ -322,7 +322,7 @@ const handleRegisterEndpoint = async () => {
         name: `${form.value.name} (Data Prepper)`,
         mode: form.value.accessMode,
         path: form.value.pipelinesDir || '/opt/data-prepper/pipelines',
-        reloadUrl: form.value.reloadUrl || '',
+        reloadUrl: '',
         sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
         sshPort: form.value.accessMode === 'ssh' ? Number(form.value.sshPort) : null,
         sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
@@ -599,15 +599,6 @@ onMounted(() => {
                 v-model="form.pipelinesDir"
                 required
                 placeholder="/opt/data-prepper/pipelines"
-                class="w-full bg-[#141824] border border-[#1b2234] rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] text-xs font-mono"
-              />
-            </div>
-
-            <div>
-              <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Reload URL (Optional)</label>
-              <input
-                v-model="form.reloadUrl"
-                placeholder="e.g. http://localhost:2021/plugins/reload"
                 class="w-full bg-[#141824] border border-[#1b2234] rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] text-xs font-mono"
               />
             </div>
