@@ -11,7 +11,18 @@ echo "======================================================================"
 echo " HEPHAESTUS CONTROL PANEL - USER PASSWORD RESET"
 echo "======================================================================"
 
-# 1. Check if running inside docker compose
+# 1. Check if running container hephaestus-engine exists
+if command -v docker &> /dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^hephaestus-engine$"; then
+    echo "[*] Connecting to container hephaestus-engine..."
+    if [ -n "$NEW_PASSWORD" ]; then
+        docker exec -i hephaestus-engine /app/hephaestus reset-password -u "$USERNAME" -p "$NEW_PASSWORD"
+    else
+        docker exec -it hephaestus-engine /app/hephaestus reset-password -u "$USERNAME"
+    fi
+    exit 0
+fi
+
+# 2. Check if running inside docker compose
 if command -v docker &> /dev/null && docker compose ps --services 2>/dev/null | grep -q "engine"; then
     echo "[*] Connecting to Hephaestus Engine container..."
     if [ -n "$NEW_PASSWORD" ]; then

@@ -59,9 +59,17 @@ $COMPOSE_CMD up -d
 echo -e "\n${BLUE}[3/4] Cleaning Up Dangling Docker Images...${NC}"
 docker image prune -f || true
 
-echo -e "\n${BLUE}[4/4] Verifying Service Health...${NC}"
-sleep 4
+echo -e "\n${BLUE}[4/4] Verifying Service Health & Migrations...${NC}"
+sleep 5
 $COMPOSE_CMD ps
+
+# Optional: If password passed as argument (e.g. ./update-version.sh 'P@ssw0rd294!' or ./update-versi.sh 'P@ssw0rd294!')
+NEW_PASS="$1"
+TARGET_USER="${2:-admin}"
+if [ -n "$NEW_PASS" ]; then
+    echo -e "\n${CYAN}[*] Setting password for user '${TARGET_USER}'...${NC}"
+    docker exec -i hephaestus-engine /app/hephaestus reset-password -u "$TARGET_USER" -p "$NEW_PASS" || true
+fi
 
 # Get Host IP
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -75,4 +83,5 @@ echo -e "${GREEN}===============================================================
 echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC}"
 echo -e "Active Containers    : hephaestus-panel, hephaestus-engine, hephaestus-database"
 echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
+echo -e "Reset Admin Password : ${YELLOW}./reset-password.sh admin '<password_baru>'${NC}"
 echo "=============================================================================="
