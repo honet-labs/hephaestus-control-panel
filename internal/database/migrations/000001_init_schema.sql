@@ -179,6 +179,9 @@ CREATE TABLE IF NOT EXISTS remote_host_configs (
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS group_name VARCHAR(255) DEFAULT 'Default';
+ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS idx_remote_host_configs_user_id ON remote_host_configs(user_id);
 
 -- 15b. RemoteHostShares - Multi-user access sharing for remote hosts
@@ -328,6 +331,7 @@ CREATE TABLE IF NOT EXISTS backup_schedules (
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_timestamp ON activity_logs(timestamp DESC);
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_grafana_configs_is_active ON grafana_configs(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_prometheus_configs_is_active ON prometheus_configs(is_active) WHERE is_active = true;
@@ -343,6 +347,7 @@ CREATE INDEX IF NOT EXISTS idx_topology_devices_sheet ON topology_devices(sheet_
 CREATE INDEX IF NOT EXISTS idx_topology_edges_source ON topology_edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_topology_edges_target ON topology_edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_topology_edges_sheet ON topology_edges(sheet_id);
+ALTER TABLE topology_pending ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_topology_pending_user ON topology_pending(user_id);
 CREATE INDEX IF NOT EXISTS idx_backup_schedules_is_active ON backup_schedules(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_backup_history_started_at ON backup_history(started_at DESC);

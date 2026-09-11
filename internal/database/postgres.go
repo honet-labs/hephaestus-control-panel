@@ -149,6 +149,20 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'system_roles') THEN 
 				ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
 			END IF; 
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN 
+				ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change BOOLEAN DEFAULT false;
+			END IF; 
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'remote_host_configs') THEN 
+				ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+				ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS group_name VARCHAR(255) DEFAULT 'Default';
+				ALTER TABLE remote_host_configs ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
+			END IF; 
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'activity_logs') THEN 
+				ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+			END IF; 
+			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'topology_pending') THEN 
+				ALTER TABLE topology_pending ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+			END IF; 
 		END $$;
 	`
 	if _, err := pool.Exec(ctx, preUpgradeSQL); err != nil {
