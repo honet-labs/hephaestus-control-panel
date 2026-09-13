@@ -356,6 +356,14 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 			}
 		}
 
+		// Sanitize endpoint: trim trailing slashes and bucket name if copied directly from Cloudflare S3 API URL
+		if endpoint != "" {
+			endpoint = strings.TrimRight(endpoint, "/")
+			if bucket != "" && strings.HasSuffix(endpoint, "/"+bucket) {
+				endpoint = strings.TrimSuffix(endpoint, "/"+bucket)
+			}
+		}
+
 		customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 			if endpoint != "" {
 				return aws.Endpoint{URL: endpoint, SigningRegion: "auto"}, nil
@@ -386,6 +394,13 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 	default:
 		return fmt.Errorf("unsupported backup destination type: %s", dest.DestType)
 	}
+}
+
+// TestDestination verifies write capability to any backup storage target
+func (s *BackupService) TestDestination(ctx context.Context, dest *domain.BackupDestination) error {
+	testData := []byte(fmt.Sprintf("Hephaestus Connection Test at %s", time.Now().Format(time.RFC3339)))
+	testFilename := fmt.Sprintf(".hephaestus_test_%d.txt", time.Now().Unix())
+	return s.uploadToDestination(ctx, testData, testFilename, dest)
 }
 
 func compressGzip(data []byte) ([]byte, error) {

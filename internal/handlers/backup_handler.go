@@ -111,6 +111,25 @@ func (h *BackupHandler) SaveDestination(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Destination saved.", "data": dest})
 }
 
+func (h *BackupHandler) TestDestination(c *gin.Context) {
+	var dest domain.BackupDestination
+	if err := c.ShouldBindJSON(&dest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: " + err.Error()})
+		return
+	}
+
+	if dest.Name == "" {
+		dest.Name = "Test Destination"
+	}
+
+	if err := h.backupService.TestDestination(c.Request.Context(), &dest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fmt.Sprintf("Connection test failed: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Storage connection successful! Test file successfully uploaded."})
+}
+
 func (h *BackupHandler) DeleteDestination(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.backupRepo.DeleteDestination(c.Request.Context(), id); err != nil {

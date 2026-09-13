@@ -205,6 +205,7 @@ func main() {
 		api.DELETE("/backup/databases/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteDBConfig)
 		api.GET("/backup/destinations", middleware.RequirePermission("backup", "read"), backupHandler.ListDestinations)
 		api.POST("/backup/destinations", middleware.RequirePermission("backup", "manage"), backupHandler.SaveDestination)
+		api.POST("/backup/destinations/test", middleware.RequirePermission("backup", "manage"), backupHandler.TestDestination)
 		api.DELETE("/backup/destinations/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteDestination)
 		api.GET("/backup/schedules", middleware.RequirePermission("backup", "read"), backupHandler.ListSchedules)
 		api.POST("/backup/schedules", middleware.RequirePermission("backup", "manage"), backupHandler.SaveSchedule)

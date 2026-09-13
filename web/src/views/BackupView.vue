@@ -172,30 +172,71 @@ const deleteDBConfig = async (id: string) => {
   }
 };
 
+const testingDest = ref(false);
+const testDestResult = ref<{ text: string; success: boolean } | null>(null);
+
+const prepareDestConfigData = () => {
+  const configData: any = {};
+  if (destForm.value.destType === 'nas' || destForm.value.destType === 'nfs') {
+    configData.host = destForm.value.host;
+    configData.port = Number(destForm.value.port) || 22;
+    configData.username = destForm.value.username;
+    configData.authType = destForm.value.authType;
+    configData.password = destForm.value.password;
+    configData.sshKey = destForm.value.sshKey;
+    configData.path = destForm.value.path || '/opt/backups';
+  } else if (destForm.value.destType === 'local') {
+    configData.path = destForm.value.path || '/opt/backups';
+  } else {
+    let endpoint = destForm.value.endpoint ? destForm.value.endpoint.trim() : '';
+    const bucket = destForm.value.bucket ? destForm.value.bucket.trim() : '';
+    const accountId = destForm.value.accountId ? destForm.value.accountId.trim() : '';
+    // Auto-generate Cloudflare R2 endpoint if endpoint is omitted
+    if (!endpoint && accountId && destForm.value.destType === 'r2') {
+      endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    }
+    // Clean trailing slashes and bucket suffix if user pasted full S3 API url from Cloudflare
+    if (bucket && endpoint.endsWith('/' + bucket)) {
+      endpoint = endpoint.slice(0, -(bucket.length + 1));
+    }
+    endpoint = endpoint.replace(/\/+$/, '');
+
+    configData.bucket = bucket;
+    configData.endpoint = endpoint;
+    configData.accessKeyId = destForm.value.accessKeyId ? destForm.value.accessKeyId.trim() : '';
+    configData.secretAccessKey = destForm.value.secretAccessKey ? destForm.value.secretAccessKey.trim() : '';
+    configData.accountId = accountId;
+  }
+  return configData;
+};
+
+const testDestination = async () => {
+  const configData = prepareDestConfigData();
+  testingDest.value = true;
+  testDestResult.value = null;
+  try {
+    const res = await axios.post('/api/v1/backup/destinations/test', {
+      name: destForm.value.name || 'Test Destination',
+      destType: destForm.value.destType,
+      config: configData,
+    });
+    if (res.data.success) {
+      testDestResult.value = { text: res.data.message || 'Storage connection succeeded! Test file uploaded.', success: true };
+    }
+  } catch (err: any) {
+    testDestResult.value = { text: err.response?.data?.error || err.message || 'Connection test failed', success: false };
+  } finally {
+    testingDest.value = false;
+  }
+};
+
 const saveDestination = async () => {
   if (!destForm.value.name) {
     alert('Destination name is required.');
     return;
   }
   try {
-    const configData: any = {};
-    if (destForm.value.destType === 'nas' || destForm.value.destType === 'nfs') {
-      configData.host = destForm.value.host;
-      configData.port = Number(destForm.value.port) || 22;
-      configData.username = destForm.value.username;
-      configData.authType = destForm.value.authType;
-      configData.password = destForm.value.password;
-      configData.sshKey = destForm.value.sshKey;
-      configData.path = destForm.value.path || '/opt/backups';
-    } else if (destForm.value.destType === 'local') {
-      configData.path = destForm.value.path || '/opt/backups';
-    } else {
-      configData.bucket = destForm.value.bucket;
-      configData.endpoint = destForm.value.endpoint;
-      configData.accessKeyId = destForm.value.accessKeyId;
-      configData.secretAccessKey = destForm.value.secretAccessKey;
-      configData.accountId = destForm.value.accountId;
-    }
+    const configData = prepareDestConfigData();
     const res = await axios.post('/api/v1/backup/destinations', {
       name: destForm.value.name,
       destType: destForm.value.destType,
@@ -203,6 +244,7 @@ const saveDestination = async () => {
     });
     if (res.data.success) {
       isDestModalOpen.value = false;
+      testDestResult.value = null;
       destForm.value.name = '';
       destForm.value.host = '';
       destForm.value.password = '';
@@ -851,35 +893,107 @@ onMounted(() => {
           <template v-else>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Bucket Name</label>
-                <input v-model="destForm.bucket" required placeholder="hephaestus-backups" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">
+                  {{ destForm.destType === 'r2' ? 'R2 Bucket Name' : 'S3 Bucket Name' }}
+                </label>
+                <input
+                  v-model="destForm.bucket"
+                  required
+                  :placeholder="destForm.destType === 'r2' ? 'e.g. hcp-storage' : 'hephaestus-backups'"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+                />
               </div>
               <div>
-                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Account ID / Region</label>
-                <input v-model="destForm.accountId" placeholder="e.g. auto / acct-id" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">
+                  {{ destForm.destType === 'r2' ? 'Cloudflare Account ID' : 'Region' }}
+                </label>
+                <input
+                  v-model="destForm.accountId"
+                  :placeholder="destForm.destType === 'r2' ? 'e.g. 1f133699545b4bb29b45928a5ed86724' : 'auto'"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+                />
               </div>
             </div>
 
             <div>
-              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">S3 / R2 Endpoint URL</label>
-              <input v-model="destForm.endpoint" placeholder="https://<id>.r2.cloudflarestorage.com" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">
+                {{ destForm.destType === 'r2' ? 'S3 API Endpoint URL' : 'S3 Endpoint URL' }}
+                <span v-if="destForm.destType === 'r2'" class="text-[10px] font-normal text-slate-500">
+                  (Omit bucket name from URL)
+                </span>
+              </label>
+              <input
+                v-model="destForm.endpoint"
+                :placeholder="destForm.destType === 'r2' ? 'https://<account-id>.r2.cloudflarestorage.com' : 'https://s3.amazonaws.com'"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+              />
             </div>
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Access Key ID</label>
-                <input v-model="destForm.accessKeyId" required placeholder="AKIAIOSFODNN7EXAMPLE" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">
+                  {{ destForm.destType === 'r2' ? 'R2 Access Key ID' : 'Access Key ID' }}
+                </label>
+                <input
+                  v-model="destForm.accessKeyId"
+                  required
+                  placeholder="Access Key ID from R2 Token"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+                />
               </div>
               <div>
-                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Secret Access Key</label>
-                <input v-model="destForm.secretAccessKey" type="password" required placeholder="••••••••••••••••" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+                <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">
+                  {{ destForm.destType === 'r2' ? 'R2 Secret Access Key' : 'Secret Access Key' }}
+                </label>
+                <input
+                  v-model="destForm.secretAccessKey"
+                  type="password"
+                  required
+                  placeholder="Secret Access Key from R2 Token"
+                  class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+                />
               </div>
             </div>
           </template>
 
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isDestModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Destination</button>
+          <!-- Connection Test Feedback Banner -->
+          <div
+            v-if="testDestResult"
+            :class="[
+              'p-2.5 rounded-lg text-xs font-mono flex items-center gap-2 border transition',
+              testDestResult.success
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                : 'bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+            ]"
+          >
+            <CheckCircle2 v-if="testDestResult.success" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <AlertCircle v-else class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span>{{ testDestResult.text }}</span>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              @click="isDestModalOpen = false; testDestResult = null"
+              class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="testDestination"
+              :disabled="testingDest"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': testingDest }" />
+              <span>{{ testingDest ? 'Testing...' : 'Test Connection' }}</span>
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow transition cursor-pointer text-xs"
+            >
+              Save Destination
+            </button>
           </div>
         </form>
       </div>
