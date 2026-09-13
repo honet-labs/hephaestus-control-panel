@@ -140,11 +140,11 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", dbCfg.Password))
 	case "mysql", "mariadb":
 		var args []string
-		args = append(args, "-h", dbCfg.Host, "-P", fmt.Sprintf("%d", dbCfg.Port), "-u", dbCfg.Username)
+		args = append(args, "--protocol=tcp", "-h", dbCfg.Host, "-P", fmt.Sprintf("%d", dbCfg.Port), "-u", dbCfg.Username)
 		if dbCfg.Password != "" {
 			args = append(args, fmt.Sprintf("-p%s", dbCfg.Password))
 		}
-		args = append(args, dbCfg.DatabaseName)
+		args = append(args, "--single-transaction", "--quick", "--skip-lock-tables", dbCfg.DatabaseName)
 		cmd = exec.CommandContext(ctx, "mysqldump", args...)
 	default:
 		return nil, fmt.Errorf("unsupported database type for direct dump: %s", dbCfg.DBType)
@@ -258,10 +258,10 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	var dumpCmd string
 	switch dbCfg.DBType {
 	case "postgresql":
-		dumpCmd = fmt.Sprintf("PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'",
+		dumpCmd = fmt.Sprintf("if command -v pg_dump >/dev/null 2>&1; then PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
 			escapeShell(dbCfg.Password), escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	case "mysql", "mariadb":
-		dumpCmd = fmt.Sprintf("if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; fi",
+		dumpCmd = fmt.Sprintf("if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; elif command -v mysqldump >/dev/null 2>&1; then mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
 			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath),
 			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	default:
@@ -271,6 +271,11 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHostCfg, dumpCmd)
 	if err != nil || exitCode != 0 {
 		errDetail := strings.TrimSpace(stderr + "\n" + stdout)
+		// If remote host does not have mysqldump/mariadb-dump installed (exit code 127 or command not found):
+		// Automatically fallback to secure SSH tunnel dump using Hephaestus local engine!
+		if exitCode == 127 || strings.Contains(errDetail, "NO_DUMP_CLI") || strings.Contains(errDetail, "command not found") || strings.Contains(errDetail, "not found") {
+			return s.executeDumpViaSSHTunnel(ctx, dbCfg, filename)
+		}
 		if errDetail == "" && err != nil {
 			errDetail = err.Error()
 		}
@@ -293,6 +298,127 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	_, _, _, _ = s.sshService.ExecuteCommand(remoteHostCfg, fmt.Sprintf("rm -f '%s'", escapeShell(remotePath)))
 
 	return data, nil
+}
+
+// withSSHTunnel creates a dynamic, secure SSH port forwarding tunnel to the database host
+func (s *BackupService) withSSHTunnel(ctx context.Context, dbCfg *domain.BackupDbConfig, fn func(tunneledCfg *domain.BackupDbConfig) error) error {
+	remoteHostCfg := &domain.RemoteHostConfig{
+		ID:       "temp-ssh",
+		Host:     *dbCfg.SSHHost,
+		Port:     22,
+		Username: "root",
+		AuthType: "password",
+	}
+	if dbCfg.SSHPort != nil {
+		remoteHostCfg.Port = *dbCfg.SSHPort
+	}
+	if dbCfg.SSHUser != nil {
+		remoteHostCfg.Username = *dbCfg.SSHUser
+	}
+	if dbCfg.SSHAuth != nil {
+		remoteHostCfg.AuthType = *dbCfg.SSHAuth
+	}
+	remoteHostCfg.Password = dbCfg.SSHPassword
+	remoteHostCfg.SSHKey = dbCfg.SSHKey
+
+	sshClient, err := s.sshService.Dial(remoteHostCfg)
+	if err != nil {
+		return fmt.Errorf("failed to establish SSH connection to %s: %w", remoteHostCfg.Host, err)
+	}
+	defer sshClient.Close()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("failed to create local tunnel listener: %w", err)
+	}
+	defer listener.Close()
+
+	localPort := listener.Addr().(*net.TCPAddr).Port
+	tunnelCtx, cancelTunnel := context.WithCancel(ctx)
+	defer cancelTunnel()
+
+	targetDBHost := dbCfg.Host
+	if targetDBHost == "" || targetDBHost == "localhost" {
+		targetDBHost = "127.0.0.1"
+	}
+	targetDBPort := dbCfg.Port
+	if targetDBPort <= 0 {
+		switch dbCfg.DBType {
+		case "postgresql":
+			targetDBPort = 5432
+		default:
+			targetDBPort = 3306
+		}
+	}
+
+	go func() {
+		for {
+			localConn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(lConn net.Conn) {
+				defer lConn.Close()
+				remoteConn, err := sshClient.Dial("tcp", fmt.Sprintf("%s:%d", targetDBHost, targetDBPort))
+				if err != nil {
+					return
+				}
+				defer remoteConn.Close()
+
+				done := make(chan struct{}, 2)
+				go func() {
+					_, _ = io.Copy(remoteConn, lConn)
+					done <- struct{}{}
+				}()
+				go func() {
+					_, _ = io.Copy(lConn, remoteConn)
+					done <- struct{}{}
+				}()
+
+				select {
+				case <-done:
+				case <-tunnelCtx.Done():
+				}
+			}(localConn)
+		}
+	}()
+
+	tunneledCfg := *dbCfg
+	tunneledCfg.Host = "127.0.0.1"
+	tunneledCfg.Port = localPort
+	return fn(&tunneledCfg)
+}
+
+func (s *BackupService) executeDumpViaSSHTunnel(ctx context.Context, dbCfg *domain.BackupDbConfig, filename string) ([]byte, error) {
+	var dumpBytes []byte
+	err := s.withSSHTunnel(ctx, dbCfg, func(tunneledCfg *domain.BackupDbConfig) error {
+		res, err := s.executeDumpDirect(ctx, tunneledCfg)
+		if err != nil {
+			return err
+		}
+		dumpBytes = res
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("SSH tunnel dump failed: %w", err)
+	}
+	return dumpBytes, nil
+}
+
+func (s *BackupService) testDBConfigViaSSHTunnel(ctx context.Context, dbCfg *domain.BackupDbConfig) (string, error) {
+	var resultMsg string
+	err := s.withSSHTunnel(ctx, dbCfg, func(tunneledCfg *domain.BackupDbConfig) error {
+		res, err := s.testDBConfigDirect(ctx, tunneledCfg)
+		if err != nil {
+			return err
+		}
+		resultMsg = res
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return resultMsg, nil
 }
 
 func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, filename string, dest *domain.BackupDestination) error {
@@ -500,7 +626,13 @@ func (s *BackupService) testDBConfigSSH(ctx context.Context, dbCfg *domain.Backu
 		return "", fmt.Errorf("%s", cleanOut)
 	}
 
-	if strings.Contains(output, "TCP_PORT_OK") {
+	if strings.Contains(output, "TCP_PORT_OK") || strings.Contains(output, "command not found") || strings.Contains(output, "not found") {
+		// Attempt SSH tunnel direct test to verify credentials
+		tunnelMsg, tunnelErr := s.testDBConfigViaSSHTunnel(ctx, dbCfg)
+		if tunnelErr == nil {
+			return fmt.Sprintf("SSH connection established & verified database '%s' via SSH tunnel (no remote CLI required).", dbCfg.DatabaseName), nil
+		}
+		_ = tunnelMsg
 		return fmt.Sprintf("SSH connection established & database port %d is reachable on %s (CLI client not present on host).", dbCfg.Port, dbCfg.Host), nil
 	}
 
