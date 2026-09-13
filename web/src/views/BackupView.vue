@@ -524,7 +524,7 @@ onMounted(() => {
         @click="activeTab = 'databases'"
         :class="[
           activeTab === 'databases'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
@@ -537,7 +537,7 @@ onMounted(() => {
         @click="activeTab = 'destinations'"
         :class="[
           activeTab === 'destinations'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
@@ -550,7 +550,7 @@ onMounted(() => {
         @click="activeTab = 'schedules'"
         :class="[
           activeTab === 'schedules'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
@@ -563,7 +563,7 @@ onMounted(() => {
         @click="activeTab = 'history'"
         :class="[
           activeTab === 'history'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/30 shadow-sm'
+            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
           'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
         ]"
@@ -800,7 +800,7 @@ onMounted(() => {
               <button
                 v-if="h.status === 'failed'"
                 @click="openLogModal(h)"
-                class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30 cursor-pointer transition"
+                class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800/50 cursor-pointer transition"
                 title="Click to view failure log"
               >
                 <AlertCircle class="w-3 h-3 text-rose-600 dark:text-rose-400" />
@@ -809,8 +809,8 @@ onMounted(() => {
               <span
                 v-else
                 :class="[
-                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30' :
-                  'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/30',
+                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800/50' :
+                  'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/50',
                   'px-2 py-0.5 rounded text-[10px] font-bold uppercase border inline-flex items-center gap-1'
                 ]"
               >
