@@ -371,6 +371,10 @@ const filteredInterfaces = computed(() => {
 // Session State Persistence Helpers
 const saveSessionsState = () => {
   try {
+    if (openSessions.value.length === 0) {
+      localStorage.removeItem('hcp_remote_sessions_state');
+      return;
+    }
     const state = {
       sessions: openSessions.value.map((s) => ({
         hostId: s.host.id,
@@ -391,6 +395,8 @@ const restorePersistedSessions = async () => {
 
   const queryHostId = route.query.hostId as string;
   if (queryHostId) {
+    // Clear query parameter immediately so refreshing the page won't force re-opening
+    router.replace({ path: route.path, query: {} });
     const target = hosts.value.find((h) => h.id === queryHostId);
     if (target) {
       await connectHost(target);
@@ -550,8 +556,18 @@ const ensureTerminalReady = async (session: OpenSession) => {
 };
 
 // Close Session
-const closeSession = (idx: number, event?: MouseEvent) => {
+const closeSession = (sessionOrIdx: OpenSession | number | string, event?: MouseEvent) => {
   if (event) event.stopPropagation();
+  let idx = -1;
+  if (typeof sessionOrIdx === 'number') {
+    idx = sessionOrIdx;
+  } else if (typeof sessionOrIdx === 'string') {
+    idx = openSessions.value.findIndex((s) => s.id === sessionOrIdx);
+  } else if (sessionOrIdx && typeof sessionOrIdx === 'object') {
+    idx = openSessions.value.findIndex((s) => s.id === sessionOrIdx.id);
+  }
+  if (idx < 0 || idx >= openSessions.value.length) return;
+
   const s = openSessions.value[idx];
   if (s) {
     if (s.heartbeatTimer) {
@@ -585,6 +601,12 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   if (activeSessionIndex.value >= openSessions.value.length) {
     activeSessionIndex.value = openSessions.value.length - 1;
   }
+
+  // Clear query parameter if route has hostId so refresh doesn't reopen it
+  if (route.query.hostId) {
+    router.replace({ path: route.path, query: {} });
+  }
+
   saveSessionsState();
 };
 
@@ -2073,7 +2095,7 @@ onUnmounted(() => {
 
                 <!-- Close Tab Button -->
                 <button
-                  @click.stop="closeSession(sItem.globalIndex)"
+                  @click.stop="closeSession(sItem.session)"
                   title="Close Tab"
                   class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
                 >
@@ -2121,7 +2143,7 @@ onUnmounted(() => {
 
             <!-- Close Tab Button -->
             <button
-              @click.stop="closeSession(cluster.globalIndex)"
+              @click.stop="closeSession(cluster.session)"
               title="Close Tab"
               class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
             >
@@ -3700,7 +3722,7 @@ onUnmounted(() => {
 
       <!-- Close Tab -->
       <button
-        @click="closeSession(tabContextMenu.globalIndex); closeAllContextMenus()"
+        @click="closeSession(tabContextMenu.session || tabContextMenu.globalIndex); closeAllContextMenus()"
         class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition"
       >
         <X class="w-3.5 h-3.5" />
