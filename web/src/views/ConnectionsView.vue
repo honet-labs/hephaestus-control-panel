@@ -745,28 +745,28 @@ onMounted(() => {
                   <!-- Type Badge -->
                   <span
                     :class="[
-                      'px-1.5 py-0.2 rounded text-[9px] font-bold uppercase',
-                      item.type === 'GRAFANA API' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30' :
-                      item.type === 'PROMETHEUS' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
-                      item.type === 'DATA PREPPER' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                      'bg-purple-500/10 text-purple-400 border border-purple-500/30'
+                      'px-1.5 py-0.5 rounded text-[9px] font-bold uppercase',
+                      item.type === 'GRAFANA API' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30' :
+                      item.type === 'PROMETHEUS' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30' :
+                      item.type === 'DATA PREPPER' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' :
+                      'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'
                     ]"
                   >
                     {{ item.type }}
                   </span>
 
                   <!-- Auth Type Badge -->
-                  <span v-if="item.authType" class="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-mono">
+                  <span v-if="item.authType" class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 text-[9px] font-mono">
                     {{ item.authType }}
                   </span>
 
                   <!-- Active Status -->
-                  <span v-if="item.isActive" class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-bold uppercase">
+                  <span v-if="item.isActive" class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-bold uppercase">
                     ACTIVE
                   </span>
                 </div>
 
-                <p class="text-[11px] text-slate-400 font-mono truncate">
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
                   {{ item.url }}
                 </p>
               </div>
@@ -778,9 +778,9 @@ onMounted(() => {
               <span
                 :class="[
                   'px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono uppercase flex items-center gap-1',
-                  item.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                  item.status === 'checking' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
-                  'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                  item.status === 'connected' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' :
+                  item.status === 'checking' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30' :
+                  'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
                 ]"
               >
                 <CheckCircle2 v-if="item.status === 'connected'" class="w-3 h-3" />
@@ -798,27 +798,27 @@ onMounted(() => {
               <!-- Edit Button -->
               <button
                 @click="handleEditConnection(item)"
-                class="p-1.5 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-[#95CCDD] rounded-lg hover:bg-slate-100 dark:hover:bg-[#293681]/30 transition cursor-pointer"
+                class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-blue-50 dark:bg-slate-800/80 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-blue-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 title="Edit Connection"
               >
-                <Pencil class="w-3.5 h-3.5" />
+                <Pencil :size="15" class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               </button>
 
               <!-- Delete Button -->
               <button
                 @click="handleDeleteConnection(item)"
-                class="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition"
+                class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 title="Delete Connection"
               >
-                <Trash2 class="w-3.5 h-3.5" />
+                <Trash2 :size="15" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
               </button>
             </div>
           </div>
 
           <!-- Empty State -->
-          <div v-if="registry.length === 0 && !loading" class="p-12 text-center bg-[#0e121c] border border-[#1b2234] rounded-xl space-y-2">
-            <Server class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p class="text-xs font-bold text-slate-300">No Service Endpoints Registered</p>
+          <div v-if="registry.length === 0 && !loading" class="p-12 text-center bg-slate-50 dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-2">
+            <Server class="w-8 h-8 text-slate-500 dark:text-slate-600 mx-auto mb-2" />
+            <p class="text-xs font-bold text-slate-800 dark:text-slate-300">No Service Endpoints Registered</p>
             <p class="text-[11px] text-slate-500 max-w-sm mx-auto">
               Fill out the form on the left to register your first Grafana, Prometheus, Data Prepper, or OpenSearch instance.
             </p>
