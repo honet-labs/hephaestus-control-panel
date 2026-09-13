@@ -386,6 +386,9 @@ const saveSessionsState = () => {
 };
 
 const restorePersistedSessions = async () => {
+  // Guard: Never re-run restoration if sessions are already loaded in memory
+  if (openSessions.value.length > 0) return;
+
   const queryHostId = route.query.hostId as string;
   if (queryHostId) {
     const target = hosts.value.find((h) => h.id === queryHostId);
@@ -407,7 +410,11 @@ const restorePersistedSessions = async () => {
 
     if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return;
 
+    // Deduplicate sessions by hostId to clean up any past corrupted storage
+    const seenHostIds = new Set<string>();
     for (const sInfo of parsed.sessions) {
+      if (seenHostIds.has(sInfo.hostId)) continue;
+      seenHostIds.add(sInfo.hostId);
       const host = hosts.value.find((h) => h.id === sInfo.hostId);
       if (host) {
         const session: OpenSession = reactive({
@@ -424,22 +431,23 @@ const restorePersistedSessions = async () => {
     }
 
     if (openSessions.value.length > 0) {
-      let targetIdx = 0;
+      let targetIdx = -1;
       if (
         typeof parsed.activeSessionIndex === 'number' &&
-        parsed.activeSessionIndex >= 0 &&
+        parsed.activeSessionIndex >= -1 &&
         parsed.activeSessionIndex < openSessions.value.length
       ) {
         targetIdx = parsed.activeSessionIndex;
       }
       activeSessionIndex.value = targetIdx;
 
-      await nextTick();
-      if (openSessions.value[targetIdx]) {
+      if (targetIdx >= 0 && openSessions.value[targetIdx]) {
+        await nextTick();
         await ensureTerminalReady(openSessions.value[targetIdx]);
         fetchHostTelemetry(openSessions.value[targetIdx]);
       }
     }
+    saveSessionsState();
   } catch (e) {
     console.error('Failed to restore sessions:', e);
   }
@@ -451,7 +459,6 @@ const fetchHosts = async () => {
     const res = await axios.get('/api/v1/remote-host');
     if (res.data.success && res.data.data) {
       hosts.value = res.data.data;
-      await restorePersistedSessions();
     } else {
       hosts.value = [];
     }
@@ -1720,9 +1727,11 @@ const handleBackToPortal = () => {
 
 const handleSaveHost = async () => {
   try {
+    const isNew = !hostForm.value.id;
     const res = await axios.post('/api/v1/remote-host', hostForm.value);
     if (res.data.success) {
       isHostModalOpen.value = false;
+      const savedHost = res.data.data;
       hostForm.value = {
         id: '',
         name: '',
@@ -1736,6 +1745,18 @@ const handleSaveHost = async () => {
         tags: [],
       };
       await fetchHosts();
+      if (isNew && savedHost) {
+        const targetHost = hosts.value.find((h) => h.id === savedHost.id) || savedHost;
+        await connectHost(targetHost);
+      } else if (!isNew && savedHost) {
+        openSessions.value.forEach((s) => {
+          if (s.host.id === savedHost.id) {
+            s.host = { ...s.host, ...savedHost };
+            s.displayName = savedHost.name;
+          }
+        });
+        saveSessionsState();
+      }
     }
   } catch (err: any) {
     alert(err.response?.data?.error || 'Failed to save host');
@@ -1834,6 +1855,11 @@ const handleDeleteHost = async (host: RemoteHost, event?: MouseEvent) => {
   try {
     const res = await axios.delete(`/api/v1/remote-host/${host.id}`);
     if (res.data.success) {
+      for (let i = openSessions.value.length - 1; i >= 0; i--) {
+        if (openSessions.value[i].host.id === host.id) {
+          closeSession(i);
+        }
+      }
       await fetchHosts();
     }
   } catch (err: any) {
@@ -1873,8 +1899,9 @@ const handleWindowResize = () => {
   }
 };
 
-onMounted(() => {
-  fetchHosts();
+onMounted(async () => {
+  await fetchHosts();
+  await restorePersistedSessions();
   window.addEventListener('click', closeAllContextMenus);
   window.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('resize', handleWindowResize);
