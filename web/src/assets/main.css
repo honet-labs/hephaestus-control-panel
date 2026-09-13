@@ -291,16 +291,26 @@ html.light aside nav button:hover {
   background-color: #f1f5f9 !important;
   color: #0f172a !important;
 }
-html.light aside [class*="bg-[#293681]/40"] {
+html.light aside [class*="bg-[#293681]/40"],
+html.light aside nav a.bg-blue-50,
+html.light aside nav a[class~="bg-blue-50"] {
   background-color: #eff6ff !important;
   border-color: #93c5fd !important;
   color: #1d4ed8 !important;
   font-weight: 700 !important;
 }
-html.light aside [class*="bg-[#293681]/40"] svg {
+html.light aside [class*="bg-[#293681]/40"] svg,
+html.light aside [class*="bg-[#293681]/40"] svg *,
+html.light aside nav a.bg-blue-50 svg,
+html.light aside nav a.bg-blue-50 svg *,
+html.light aside nav a[class~="bg-blue-50"] svg,
+html.light aside nav a[class~="bg-blue-50"] svg * {
   color: #2563eb !important;
+  stroke: #2563eb !important;
 }
-html.light aside [class*="bg-[#293681]/40"] span {
+html.light aside [class*="bg-[#293681]/40"] span,
+html.light aside nav a.bg-blue-50 span,
+html.light aside nav a[class~="bg-blue-50"] span {
   color: #1d4ed8 !important;
 }
 

@@ -99,7 +99,7 @@ onMounted(() => {
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <LayoutDashboard class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+            <LayoutDashboard class="w-4 h-4 shrink-0 transition" :class="route.path === '/' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
             <span>Overview</span>
           </router-link>
 
@@ -114,7 +114,7 @@ onMounted(() => {
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Link2 class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+            <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
             <span>Connections</span>
           </router-link>
 
@@ -207,7 +207,7 @@ onMounted(() => {
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Database class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+            <Database class="w-4 h-4 shrink-0 transition" :class="route.path === '/backup' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
             <span>Backup Manager</span>
           </router-link>
 
@@ -281,7 +281,7 @@ onMounted(() => {
               'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Settings class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+            <Settings class="w-4 h-4 shrink-0 transition" :class="route.path === '/settings' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
             <span>System Settings</span>
           </router-link>
 
