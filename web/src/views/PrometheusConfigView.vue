@@ -188,7 +188,7 @@ onMounted(() => {
       <!-- Go to Connections button -->
       <button
         @click="router.push('/connections')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
       >
         <ExternalLink class="w-3.5 h-3.5" />
         <span>GO TO CONNECTIONS</span>
@@ -219,7 +219,7 @@ onMounted(() => {
 
           <button
             @click="fetchPrometheusInstances"
-            class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             title="Refresh Instances"
           >
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
@@ -274,18 +274,18 @@ onMounted(() => {
             <button
               @click="handleValidate"
               :disabled="loading || !isLoaded"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <Check class="w-3.5 h-3.5 text-emerald-400" />
+              <Check class="w-3.5 h-3.5 text-emerald-500" />
               <span>VALIDATE</span>
             </button>
 
             <button
               @click="handleReset"
               :disabled="loading"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <RotateCw class="w-3.5 h-3.5 text-amber-400" :class="{ 'animate-spin': loading }" />
+              <RotateCw class="w-3.5 h-3.5 text-amber-500" :class="{ 'animate-spin': loading }" />
               <span>RESET</span>
             </button>
 

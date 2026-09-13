@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
@@ -17,6 +17,7 @@ import {
   Plus,
   X,
   RotateCw,
+  Loader2,
   Trash2,
   Radio,
   Maximize2,
@@ -169,6 +170,7 @@ interface OpenSession {
   resizeObserver?: ResizeObserver;
   ws?: WebSocket;
   connected: boolean;
+  connecting?: boolean;
   heartbeatTimer?: any;
   metrics?: any;
   processes?: any[];
@@ -408,14 +410,15 @@ const restorePersistedSessions = async () => {
     for (const sInfo of parsed.sessions) {
       const host = hosts.value.find((h) => h.id === sInfo.hostId);
       if (host) {
-        const session: OpenSession = {
+        const session: OpenSession = reactive({
           id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           host,
           displayName: sInfo.displayName || host.name,
           activeView: sInfo.activeView || 'terminal',
           connected: false,
+          connecting: false,
           groupId: sInfo.groupId,
-        };
+        });
         openSessions.value.push(session);
       }
     }
@@ -432,9 +435,9 @@ const restorePersistedSessions = async () => {
       activeSessionIndex.value = targetIdx;
 
       await nextTick();
-      for (const session of openSessions.value) {
-        initXterm(session);
-        fetchHostTelemetry(session);
+      if (openSessions.value[targetIdx]) {
+        await ensureTerminalReady(openSessions.value[targetIdx]);
+        fetchHostTelemetry(openSessions.value[targetIdx]);
       }
     }
   } catch (e) {
@@ -476,14 +479,15 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
   const count = openSessions.value.filter((s) => s.host.id === host.id).length;
   const tabName = count > 0 ? `${host.name} #${count + 1}` : host.name;
 
-  const session: OpenSession = {
+  const session: OpenSession = reactive({
     id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     host,
     displayName: tabName,
     activeView: 'terminal',
     connected: false,
+    connecting: true,
     groupId: defaultGroupId,
-  };
+  });
 
   openSessions.value.push(session);
   activeSessionIndex.value = openSessions.value.length - 1;
@@ -543,21 +547,31 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   if (event) event.stopPropagation();
   const s = openSessions.value[idx];
   if (s) {
-    if (s.heartbeatTimer) clearInterval(s.heartbeatTimer);
+    if (s.heartbeatTimer) {
+      clearInterval(s.heartbeatTimer);
+      s.heartbeatTimer = undefined;
+    }
     if (s.resizeObserver) {
       try {
         s.resizeObserver.disconnect();
       } catch (e) {}
+      s.resizeObserver = undefined;
     }
     if (s.ws) {
       try {
+        s.ws.onopen = null;
+        s.ws.onmessage = null;
+        s.ws.onerror = null;
+        s.ws.onclose = null;
         s.ws.close();
       } catch (e) {}
+      s.ws = undefined;
     }
     if (s.term) {
       try {
         s.term.dispose();
       } catch (e) {}
+      s.term = undefined;
     }
   }
   openSessions.value.splice(idx, 1);
@@ -569,32 +583,79 @@ const closeSession = (idx: number, event?: MouseEvent) => {
 
 // Reconnect Terminal
 const reconnectTerminal = (session: OpenSession) => {
-  if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+  session.connected = false;
+  session.connecting = true;
+  if (session.heartbeatTimer) {
+    clearInterval(session.heartbeatTimer);
+    session.heartbeatTimer = undefined;
+  }
   if (session.resizeObserver) {
     try {
       session.resizeObserver.disconnect();
     } catch (e) {}
+    session.resizeObserver = undefined;
   }
   if (session.ws) {
     try {
+      session.ws.onopen = null;
+      session.ws.onmessage = null;
+      session.ws.onerror = null;
+      session.ws.onclose = null;
       session.ws.close();
     } catch (e) {}
+    session.ws = undefined;
+  }
+  if (session.term) {
+    try {
+      session.term.dispose();
+    } catch (e) {}
+    session.term = undefined;
   }
   initXterm(session);
 };
 
 // Initialize xterm.js Terminal with WebSocket & Heartbeats
 const initXterm = (session: OpenSession) => {
-  const container = document.getElementById(`terminal-container-${session.id}`);
-  if (!container) return;
-  container.innerHTML = '';
+  // If WebSocket is already open or connecting, do not re-create
+  if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
+    try {
+      session.fitAddon?.fit();
+      session.term?.focus();
+    } catch (e) {}
+    return;
+  }
 
-  if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+  // Teardown any leftover listeners or resources on re-init
+  if (session.heartbeatTimer) {
+    clearInterval(session.heartbeatTimer);
+    session.heartbeatTimer = undefined;
+  }
   if (session.resizeObserver) {
     try {
       session.resizeObserver.disconnect();
     } catch (e) {}
+    session.resizeObserver = undefined;
   }
+  if (session.ws) {
+    try {
+      session.ws.onopen = null;
+      session.ws.onmessage = null;
+      session.ws.onerror = null;
+      session.ws.onclose = null;
+      session.ws.close();
+    } catch (e) {}
+    session.ws = undefined;
+  }
+  if (session.term) {
+    try {
+      session.term.dispose();
+    } catch (e) {}
+    session.term = undefined;
+  }
+
+  const container = document.getElementById(`terminal-container-${session.id}`);
+  if (!container) return;
+  container.innerHTML = '';
 
   const term = new Terminal({
     cursorBlink: true,
@@ -617,9 +678,11 @@ const initXterm = (session: OpenSession) => {
 
   session.term = term;
   session.fitAddon = fitAddon;
+  session.connecting = true;
+  session.connected = false;
 
   // Open WebSocket with token and detected initial terminal dimensions
-  const token = authStore.token || localStorage.getItem('hcp_token') || '';
+  const token = authStore.token || localStorage.getItem('hephaestus_token') || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const initialCols = term.cols > 0 ? term.cols : 80;
   const initialRows = term.rows > 0 ? term.rows : 24;
@@ -627,6 +690,8 @@ const initXterm = (session: OpenSession) => {
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
+    if (session.ws !== ws) return;
+    session.connecting = false;
     session.connected = true;
     term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
 
@@ -657,6 +722,7 @@ const initXterm = (session: OpenSession) => {
       );
     }
 
+    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
     session.heartbeatTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
@@ -665,11 +731,17 @@ const initXterm = (session: OpenSession) => {
   };
 
   ws.onmessage = (ev) => {
+    if (session.ws !== ws) return;
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'data' && msg.data) {
+        if (!session.connected) {
+          session.connecting = false;
+          session.connected = true;
+        }
         term.write(msg.data);
       } else if (msg.type === 'connected') {
+        session.connecting = false;
         session.connected = true;
         // On connected ack, ensure remote PTY matches client dimensions
         if (term.cols > 0 && term.rows > 0 && ws.readyState === WebSocket.OPEN) {
@@ -678,24 +750,42 @@ const initXterm = (session: OpenSession) => {
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'disconnected') {
+        session.connecting = false;
         session.connected = false;
-        if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+        if (session.heartbeatTimer) {
+          clearInterval(session.heartbeatTimer);
+          session.heartbeatTimer = undefined;
+        }
         term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
       }
     } catch (e) {
+      if (!session.connected) {
+        session.connecting = false;
+        session.connected = true;
+      }
       term.write(ev.data);
     }
   };
 
   ws.onclose = () => {
+    if (session.ws !== ws) return;
+    session.connecting = false;
     session.connected = false;
-    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+    if (session.heartbeatTimer) {
+      clearInterval(session.heartbeatTimer);
+      session.heartbeatTimer = undefined;
+    }
     term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
   };
 
   ws.onerror = () => {
+    if (session.ws !== ws) return;
+    session.connecting = false;
     session.connected = false;
-    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+    if (session.heartbeatTimer) {
+      clearInterval(session.heartbeatTimer);
+      session.heartbeatTimer = undefined;
+    }
     term.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
   };
 
@@ -1807,20 +1897,20 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-screen w-screen bg-[#14161b] text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
+  <div class="h-screen w-screen bg-slate-100 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-brand-500/30">
     
     <!-- Top Header Bar -->
-    <header class="h-12 bg-[#1b1e26] border-b border-slate-800 px-4 flex items-center justify-between shrink-0">
+    <header class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 shadow-sm">
       <div class="flex items-center gap-2.5">
-        <SquareTerminal class="w-4 h-4 text-brand-400" />
-        <h1 class="text-xs font-semibold text-white tracking-wide">Remote Server (SSH & SFTP)</h1>
+        <SquareTerminal class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+        <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">Remote Server (SSH & SFTP)</h1>
       </div>
 
       <div class="flex items-center gap-2">
         <ThemeToggle variant="button" />
         <button
           @click="handleBackToPortal"
-          class="flex items-center gap-1.5 px-3 py-1 rounded bg-[#242833] border border-slate-700/60 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition font-medium"
+          class="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#242833] border border-slate-300 dark:border-slate-700/60 text-xs text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white dark:hover:border-slate-500 transition font-medium shadow-sm"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
           <span>Back to Portal</span>
@@ -1829,18 +1919,18 @@ onUnmounted(() => {
     </header>
 
     <!-- Sub-Header Tabs & Quick Actions Bar -->
-    <div class="bg-[#1b1e26] border-b border-slate-800/80 px-4 flex items-center gap-2 text-xs shrink-0 py-1.5 overflow-x-auto">
+    <div class="bg-slate-50 dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800/80 px-4 flex items-center gap-2 text-xs shrink-0 py-1.5 overflow-x-auto">
       <!-- Servers Menu Button -->
       <button
         @click="activeSessionIndex = -1"
         :class="[
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition text-xs',
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition text-xs border',
           activeSessionIndex === -1
-            ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            ? 'bg-white text-blue-700 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-sm font-bold'
+            : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
         ]"
       >
-        <Server class="w-3.5 h-3.5 text-slate-400" />
+        <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
         <span>SERVERS</span>
       </button>
 
@@ -1848,7 +1938,7 @@ onUnmounted(() => {
       <button
         @click="isHostModalOpen = true"
         title="Add New Remote Server"
-        class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+        class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition"
       >
         <Plus class="w-3.5 h-3.5" />
       </button>
@@ -1856,10 +1946,10 @@ onUnmounted(() => {
       <!-- Dual-Pane SFTP Transfer Button -->
       <button
         @click="openSftpModal()"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white bg-[#20242e] border border-slate-700/80 hover:border-brand-500/50 transition font-medium text-xs shadow-sm"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/80 hover:border-blue-500/50 dark:hover:border-brand-500/50 transition font-medium text-xs shadow-sm"
         title="Open FileZilla Dual-Pane SFTP Transfer"
       >
-        <Upload class="w-3.5 h-3.5 text-brand-400" />
+        <Upload class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400" />
         <span>SFTP TRANSFER</span>
       </button>
 
@@ -1938,7 +2028,11 @@ onUnmounted(() => {
                 }"
               >
                 <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
-                <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: cluster.group.color }"></span>
+                <span
+                  class="w-1.5 h-1.5 rounded-full transition-all"
+                  :class="sItem.session.connected ? '' : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
+                  :style="{ backgroundColor: sItem.session.connected ? cluster.group.color : (sItem.session.connecting ? cluster.group.color : '#ef4444') }"
+                ></span>
                 <span>{{ sItem.session.displayName || sItem.session.host.name }}</span>
 
                 <!-- Duplicate Tab Button -->
@@ -1983,7 +2077,10 @@ onUnmounted(() => {
             ]"
           >
             <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span
+              class="w-2 h-2 rounded-full transition-colors"
+              :class="cluster.session.connected ? 'bg-emerald-500' : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
+            ></span>
             <span>{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
             <!-- Duplicate Tab Button -->
@@ -2041,14 +2138,14 @@ onUnmounted(() => {
             <input
               v-model="searchHostQuery"
               placeholder="Find a host or ssh user@hostname..."
-              class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+              class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 transition shadow-sm"
             />
           </div>
 
           <div class="flex items-center gap-3">
             <button
               @click="isHostModalOpen = true"
-              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition shadow-sm"
             >
               <Plus class="w-4 h-4" />
               <span>NEW HOST</span>
@@ -2056,20 +2153,20 @@ onUnmounted(() => {
 
             <button
               @click="isGroupModalOpen = true"
-              class="flex items-center gap-2 px-4 py-2 bg-[#1b1e26] hover:bg-[#242833] text-slate-300 hover:text-white text-xs font-semibold rounded-lg border border-slate-800 transition"
+              class="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-[#1b1e26] dark:hover:bg-[#242833] text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-800 transition shadow-sm"
             >
-              <FolderPlus class="w-4 h-4 text-brand-400" />
+              <FolderPlus class="w-4 h-4 text-blue-600 dark:text-brand-400" />
               <span>NEW GROUP</span>
             </button>
           </div>
         </div>
 
-        <div v-if="hosts.length === 0" class="p-12 bg-[#1b1e26] border border-slate-800/80 rounded-xl text-center space-y-3">
-          <div class="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+        <div v-if="hosts.length === 0" class="p-12 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl text-center space-y-3 shadow-sm">
+          <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto">
             <Server class="w-6 h-6" />
           </div>
-          <h3 class="text-sm font-bold text-white">No Remote Servers Configured</h3>
-          <p class="text-xs text-slate-400 max-w-sm mx-auto">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">No Remote Servers Configured</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
             Add your first SSH server or VPS to manage interactive terminal sessions, telemetry metrics, and system services.
           </p>
         </div>
@@ -2077,11 +2174,11 @@ onUnmounted(() => {
         <!-- Groups Section -->
         <div v-if="hosts.length > 0" class="space-y-2">
           <div class="flex items-center justify-between">
-            <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Groups</h3>
+            <h3 class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Groups</h3>
             <button
               v-if="selectedGroupFilter"
               @click="selectedGroupFilter = null"
-              class="text-[11px] text-brand-400 hover:underline"
+              class="text-[11px] text-blue-600 dark:text-brand-400 hover:underline font-medium"
             >
               Clear Filter (Show All)
             </button>
@@ -2092,17 +2189,17 @@ onUnmounted(() => {
               :key="gName"
               @click="selectedGroupFilter = selectedGroupFilter === gName ? null : gName"
               :class="[
-                'p-4 bg-[#1b1e26] border rounded-xl flex items-center gap-3 cursor-pointer transition',
+                'p-4 bg-white dark:bg-[#1b1e26] border rounded-xl flex items-center gap-3 cursor-pointer transition shadow-sm',
                 selectedGroupFilter === gName
-                  ? 'border-blue-500 bg-[#202534]'
-                  : 'border-slate-800/80 hover:border-slate-700'
+                  ? 'border-blue-500 bg-blue-50/50 dark:bg-[#202534]'
+                  : 'border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
               ]"
             >
-              <div class="p-2.5 rounded-lg bg-slate-800 text-slate-400">
+              <div class="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                 <Server class="w-5 h-5" />
               </div>
               <div>
-                <p class="text-xs font-bold text-white">{{ gName }}</p>
+                <p class="text-xs font-bold text-slate-900 dark:text-white">{{ gName }}</p>
                 <p class="text-[11px] text-slate-500">{{ gHosts.length }} Host{{ gHosts.length > 1 ? 's' : '' }}</p>
               </div>
             </div>
@@ -2112,33 +2209,33 @@ onUnmounted(() => {
         <!-- Hosts Section -->
         <div v-if="hosts.length > 0" class="space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <h3 class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Hosts ({{ filteredHosts.length }})
             </h3>
 
             <!-- Ownership Filter Tabs -->
-            <div class="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-sm">
               <button
                 @click="hostOwnershipFilter = 'all'"
-                :class="hostOwnershipFilter === 'all' ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                :class="hostOwnershipFilter === 'all' ? 'bg-white text-blue-700 dark:bg-slate-700 dark:text-white font-bold shadow-sm border border-slate-200 dark:border-transparent' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                 class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
               >
                 ALL ({{ hosts.length }})
               </button>
               <button
                 @click="hostOwnershipFilter = 'mine'"
-                :class="hostOwnershipFilter === 'mine' ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                :class="hostOwnershipFilter === 'mine' ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-600/30 dark:text-emerald-300 dark:border-emerald-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                 class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
               >
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 MY HOSTS ({{ myHostsCount }})
               </button>
               <button
                 @click="hostOwnershipFilter = 'shared'"
-                :class="hostOwnershipFilter === 'shared' ? 'bg-purple-600/30 text-purple-300 border border-purple-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                :class="hostOwnershipFilter === 'shared' ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-600/30 dark:text-purple-300 dark:border-purple-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                 class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
               >
-                <span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
                 SHARED ({{ sharedHostsCount }})
               </button>
             </div>
@@ -2149,31 +2246,31 @@ onUnmounted(() => {
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-[#1b1e26] border border-slate-800 hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative"
+              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-sm"
             >
               <div class="flex items-center gap-3 overflow-hidden">
-                <div class="w-10 h-10 rounded-full bg-blue-600/90 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
+                <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
                   {{ host.name.substring(0, 2).toUpperCase() }}
                 </div>
                 <div class="overflow-hidden space-y-1">
-                  <p class="text-xs font-bold text-white group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
-                  <p class="text-[10px] text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
+                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
+                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
                   
                   <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span class="px-1.5 py-0.2 rounded text-[9px] bg-slate-800 text-slate-400 font-medium">
+                    <span class="px-1.5 py-0.2 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-transparent">
                       {{ host.groupName || 'Default' }}
                     </span>
 
                     <!-- Ownership Badge -->
                     <span
                       v-if="host.isOwner"
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold"
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30 font-semibold"
                     >
                       My Host
                     </span>
                     <span
                       v-else
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/15 text-sky-400 border border-sky-500/30 font-semibold truncate max-w-[130px]"
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-500/15 dark:text-sky-400 dark:border-sky-500/30 font-semibold truncate max-w-[130px]"
                       :title="`Shared by @${host.ownerUsername || 'User'} (${host.sharedAccess === 'manage' ? 'Full Control' : 'Read Only'})`"
                     >
                       Shared &bull; @{{ host.ownerUsername || 'User' }}
@@ -2182,7 +2279,7 @@ onUnmounted(() => {
                     <!-- Shares Count Badge -->
                     <span
                       v-if="host.sharesCount && host.sharesCount > 0 && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1 font-mono"
+                      class="px-1.5 py-0.2 rounded text-[9px] bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/30 flex items-center gap-1 font-mono"
                       title="Users shared with this server"
                     >
                       <Users class="w-2.5 h-2.5" />
@@ -2199,7 +2296,7 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openShareModal(host, $event)"
                   title="Share access with other users"
-                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-purple-300 hover:bg-purple-950/60 border border-slate-700/60 transition"
+                  class="p-2 rounded-lg bg-slate-100 hover:bg-purple-50 dark:bg-slate-800/80 text-slate-600 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-300 dark:hover:bg-purple-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
                 >
                   <Share2 class="w-3.5 h-3.5" />
                 </button>
@@ -2209,7 +2306,7 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openEditHostModal(host, $event)"
                   title="Edit Server Configuration"
-                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-sky-300 hover:bg-sky-950/60 border border-slate-700/60 transition"
+                  class="p-2 rounded-lg bg-slate-100 hover:bg-sky-50 dark:bg-slate-800/80 text-slate-600 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-sky-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
                 >
                   <Settings class="w-3.5 h-3.5" />
                 </button>
@@ -2219,7 +2316,7 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="handleDeleteHost(host, $event)"
                   title="Delete Server"
-                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-rose-400 hover:bg-rose-950/60 border border-slate-700/60 transition"
+                  class="p-2 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
                 >
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
@@ -2228,7 +2325,7 @@ onUnmounted(() => {
                 <button
                   @click.stop="connectHost(host, true)"
                   title="Open New Terminal Tab"
-                  class="p-2 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white hover:bg-emerald-600 transition"
+                  class="p-2 rounded-lg bg-slate-100 hover:bg-emerald-500 hover:text-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 dark:hover:text-white dark:hover:bg-emerald-600 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
                 >
                   <Plus class="w-3.5 h-3.5" />
                 </button>
@@ -2242,15 +2339,15 @@ onUnmounted(() => {
       <template v-for="(session, sIdx) in openSessions" :key="session.id">
         <div v-show="activeSessionIndex === sIdx" class="flex-1 flex overflow-hidden">
           <!-- Left Vertical Icon Nav Bar -->
-          <aside class="w-12 bg-[#1b1e26] border-r border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0">
+          <aside class="w-12 bg-white dark:bg-[#1b1e26] border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0 shadow-sm">
             <button
               @click="session.activeView = 'terminal'"
               title="Interactive Terminal"
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'terminal'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <SquareTerminal class="w-4 h-4" />
@@ -2262,8 +2359,8 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'dashboard'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <LayoutGrid class="w-4 h-4" />
@@ -2275,8 +2372,8 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'processes'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <Activity class="w-4 h-4" />
@@ -2288,8 +2385,8 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'services'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <Settings class="w-4 h-4" />
@@ -2301,8 +2398,8 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'network'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <Wifi class="w-4 h-4" />
@@ -2314,8 +2411,8 @@ onUnmounted(() => {
               :class="[
                 'p-2.5 rounded-lg transition',
                 session.activeView === 'firewall'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
               ]"
             >
               <Shield class="w-4 h-4" />
@@ -2324,7 +2421,7 @@ onUnmounted(() => {
             <button
               @click="switchActiveView(session, 'sftp')"
               title="FileZilla Dual-Pane SFTP Transfer"
-              class="p-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              class="p-2.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             >
               <Folder class="w-4 h-4" />
             </button>
@@ -2338,19 +2435,26 @@ onUnmounted(() => {
               <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
                 <span
                   v-if="session.connected"
-                  class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 flex items-center gap-1.5"
+                  class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-mono dark:border-emerald-500/30 flex items-center gap-1.5 shadow-sm"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   Connected
                 </span>
+                <span
+                  v-else-if="session.connecting"
+                  class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-mono dark:border-amber-500/30 flex items-center gap-1.5 shadow-sm"
+                >
+                  <Loader2 class="w-3 h-3 animate-spin text-amber-500" />
+                  Connecting...
+                </span>
                 <div v-else class="flex items-center gap-2">
-                  <span class="px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[10px] font-mono border border-red-500/30 flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                  <span class="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/10 dark:text-red-400 text-[10px] font-mono dark:border-red-500/30 flex items-center gap-1.5 shadow-sm">
+                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                     Disconnected
                   </span>
                   <button
                     @click="reconnectTerminal(session)"
-                    class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition"
+                    class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 dark:bg-brand-500 dark:hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition cursor-pointer"
                   >
                     <RotateCw class="w-3 h-3" />
                     <span>Reconnect</span>
@@ -2362,16 +2466,16 @@ onUnmounted(() => {
 
             <!-- 2. UTILIZATION VIEW -->
             <div v-if="session.activeView === 'dashboard'" class="flex-1 p-6 overflow-y-auto space-y-6">
-              <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                 <div>
-                  <h2 class="text-sm font-bold text-white tracking-wide">Utilization</h2>
-                  <span class="text-xs font-mono text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
+                  <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Utilization</h2>
+                  <span class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ session.host.name }} ({{ session.host.host }})</span>
                 </div>
 
                 <button
                   @click="fetchHostTelemetry(session)"
                   :disabled="isTelemetryLoading"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1b1e26] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition shadow"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#1b1e26] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition shadow-sm"
                 >
                   <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
                   <span>Refresh Stats</span>
@@ -2666,28 +2770,28 @@ onUnmounted(() => {
                       Listening Ports ({{ filteredListeningPorts.length }})
                     </h3>
                     <!-- Protocol Filter Tabs -->
-                    <div class="flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                    <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-sm">
                       <button
                         @click="portProtoFilter = 'all'"
-                        :class="portProtoFilter === 'all' ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        :class="portProtoFilter === 'all' ? 'bg-white text-blue-700 dark:bg-slate-700 dark:text-white font-bold shadow-sm border border-slate-200 dark:border-transparent' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                         class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
                       >
                         ALL ({{ activeSession?.networkInfo?.listeningPorts?.length || 0 }})
                       </button>
                       <button
                         @click="portProtoFilter = 'tcp'"
-                        :class="portProtoFilter === 'tcp' ? 'bg-sky-600/30 text-sky-300 border border-sky-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                        :class="portProtoFilter === 'tcp' ? 'bg-sky-50 text-sky-700 border border-sky-300 dark:bg-sky-600/30 dark:text-sky-300 dark:border-sky-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                         class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
                       >
-                        <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
                         TCP ({{ tcpPortsCount }})
                       </button>
                       <button
                         @click="portProtoFilter = 'udp'"
-                        :class="portProtoFilter === 'udp' ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                        :class="portProtoFilter === 'udp' ? 'bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-600/30 dark:text-amber-300 dark:border-amber-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
                         class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
                       >
-                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                         UDP ({{ udpPortsCount }})
                       </button>
                     </div>
@@ -2700,13 +2804,13 @@ onUnmounted(() => {
                         v-model="portSearch"
                         type="text"
                         placeholder="Search port, process, PID..."
-                        class="w-full bg-[#161922] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition font-sans"
+                        class="w-full bg-white dark:bg-[#161922] border border-slate-300 dark:border-slate-700/80 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-sky-500 transition font-sans shadow-sm"
                       />
                     </div>
                     <button
                       @click="fetchHostTelemetry(session)"
                       :disabled="isTelemetryLoading"
-                      class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                      class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition shadow-sm"
                       title="Refresh Listening Ports"
                     >
                       <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isTelemetryLoading }" />
@@ -2959,24 +3063,24 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <button
               @click="swapSourceAndDest"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition shadow-sm"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 font-bold text-xs border border-slate-300 dark:border-slate-700 transition shadow-sm cursor-pointer"
               title="Swap Source and Destination Host"
             >
-              <RotateCw class="w-3.5 h-3.5 text-slate-400" />
+              <RotateCw class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               <span>SWAP SOURCE & DESTINATION</span>
             </button>
 
             <!-- Fullscreen / Window Toggle Button -->
             <button
               @click="isSftpFullScreen = !isSftpFullScreen"
-              class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              class="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
               :title="isSftpFullScreen ? 'Restore Window (Exit Full Screen)' : 'Full Screen'"
             >
               <Minimize2 v-if="isSftpFullScreen" class="w-4 h-4" />
               <Maximize2 v-else class="w-4 h-4" />
             </button>
 
-            <button @click="isSftpModalOpen = false" class="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+            <button @click="isSftpModalOpen = false" class="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer">
               <X class="w-5 h-5" />
             </button>
           </div>
@@ -3066,18 +3170,18 @@ onUnmounted(() => {
                     fetchSourceSftpFiles(parts.length === 0 ? '/' : '/' + parts.join('/'));
                   }"
                   :disabled="sftpSourceCurrentPath === '/' || !sftpSourceCurrentPath"
-                  class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 text-[11px] font-mono border border-slate-700"
+                  class="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-30 text-[11px] font-mono border border-slate-300 dark:border-slate-700 transition cursor-pointer"
                 >
                   <CornerLeftUp class="w-3.5 h-3.5" />
                 </button>
                 <form @submit.prevent="fetchSourceSftpFiles(sftpSourceInputPath)" class="flex items-center gap-1 flex-1">
                   <input
                     v-model="sftpSourceInputPath"
-                    class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-0.5 text-xs text-white font-mono"
+                    class="w-full bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-900 dark:text-white font-mono"
                   />
-                  <button type="submit" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs">Go</button>
+                  <button type="submit" class="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs border border-slate-300 dark:border-transparent font-medium transition cursor-pointer">Go</button>
                 </form>
-                <button @click="fetchSourceSftpFiles()" class="p-1 rounded bg-slate-800 text-slate-300">
+                <button @click="fetchSourceSftpFiles()" class="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer">
                   <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpSourceLoading }" />
                 </button>
               </div>
@@ -3092,11 +3196,11 @@ onUnmounted(() => {
               <template v-else>
                 <div class="flex items-center gap-1">
                   <span class="text-slate-500 text-[10px]">Quick:</span>
-                  <button @click="fetchSourceSftpFiles('/')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/</button>
-                  <button @click="fetchSourceSftpFiles('/root')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/root</button>
-                  <button @click="fetchSourceSftpFiles('/etc')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/etc</button>
-                  <button @click="fetchSourceSftpFiles('/var/log')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/var/log</button>
-                  <button @click="fetchSourceSftpFiles('/home')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/home</button>
+                  <button @click="fetchSourceSftpFiles('/')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/</button>
+                  <button @click="fetchSourceSftpFiles('/root')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/root</button>
+                  <button @click="fetchSourceSftpFiles('/etc')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/etc</button>
+                  <button @click="fetchSourceSftpFiles('/var/log')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/var/log</button>
+                  <button @click="fetchSourceSftpFiles('/home')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/home</button>
                 </div>
                 <input
                   v-model="sftpSourceFilter"
@@ -3233,18 +3337,18 @@ onUnmounted(() => {
                     fetchDestSftpFiles(parts.length === 0 ? '/' : '/' + parts.join('/'));
                   }"
                   :disabled="sftpDestCurrentPath === '/' || !sftpDestCurrentPath"
-                  class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 text-[11px] font-mono border border-slate-700"
+                  class="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-30 text-[11px] font-mono border border-slate-300 dark:border-slate-700 transition cursor-pointer"
                 >
                   <CornerLeftUp class="w-3.5 h-3.5" />
                 </button>
                 <form @submit.prevent="fetchDestSftpFiles(sftpDestInputPath)" class="flex items-center gap-1 flex-1">
                   <input
                     v-model="sftpDestInputPath"
-                    class="w-full bg-[#0f1219] border border-slate-700 rounded px-2 py-0.5 text-xs text-white font-mono"
+                    class="w-full bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-900 dark:text-white font-mono"
                   />
-                  <button type="submit" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs">Go</button>
+                  <button type="submit" class="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs border border-slate-300 dark:border-transparent font-medium transition cursor-pointer">Go</button>
                 </form>
-                <button @click="fetchDestSftpFiles()" class="p-1 rounded bg-slate-800 text-slate-300">
+                <button @click="fetchDestSftpFiles()" class="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer">
                   <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': sftpDestLoading }" />
                 </button>
               </div>
@@ -3259,12 +3363,12 @@ onUnmounted(() => {
               <template v-else>
                 <div class="flex items-center gap-1">
                   <span class="text-slate-500 text-[10px]">Quick:</span>
-                  <button @click="fetchDestSftpFiles('/')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/</button>
-                  <button @click="fetchDestSftpFiles('/root')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/root</button>
-                  <button @click="fetchDestSftpFiles('/etc')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/etc</button>
-                  <button @click="fetchDestSftpFiles('/var/log')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/var/log</button>
-                  <button @click="fetchDestSftpFiles('/home')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/home</button>
-                  <button @click="fetchDestSftpFiles('/tmp')" class="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">/tmp</button>
+                  <button @click="fetchDestSftpFiles('/')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/</button>
+                  <button @click="fetchDestSftpFiles('/root')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/root</button>
+                  <button @click="fetchDestSftpFiles('/etc')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/etc</button>
+                  <button @click="fetchDestSftpFiles('/var/log')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/var/log</button>
+                  <button @click="fetchDestSftpFiles('/home')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/home</button>
+                  <button @click="fetchDestSftpFiles('/tmp')" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer">/tmp</button>
                 </div>
                 <input
                   v-model="sftpDestFilter"
@@ -3421,11 +3525,11 @@ onUnmounted(() => {
             />
           </div>
 
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               @click="isHostModalOpen = false"
-              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg"
+              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
             >
               Cancel
             </button>
@@ -3467,11 +3571,11 @@ onUnmounted(() => {
             />
           </div>
 
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               @click="isGroupModalOpen = false"
-              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg"
+              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
             >
               Cancel
             </button>
@@ -3774,11 +3878,11 @@ onUnmounted(() => {
           </div>
 
           <!-- Modal Footer -->
-          <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-800 font-sans">
+          <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800 font-sans">
             <button
               type="button"
               @click="isFirewallModalOpen = false"
-              class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
             >
               Cancel
             </button>
@@ -3934,11 +4038,11 @@ onUnmounted(() => {
         </div>
 
         <!-- Modal Footer -->
-        <div class="flex items-center justify-end px-6 py-3 border-t border-slate-800 bg-[#20242e] font-sans">
+        <div class="flex items-center justify-end px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#20242e] font-sans">
           <button
             type="button"
             @click="isShareModalOpen = false"
-            class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+            class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
           >
             Done
           </button>

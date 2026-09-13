@@ -142,6 +142,7 @@ html.light [class*="bg-[#1c202b]"] {
 
 /* 5. Insets / Sub-surfaces / Inset Boxes / Table Headers -> #f8fafc */
 html.light .bg-slate-800,
+html.light .bg-slate-700,
 html.light .bg-\[\#0f1219\],
 html.light .bg-\[\#121620\],
 html.light .bg-\[\#121826\],
@@ -154,6 +155,8 @@ html.light .bg-\[\#20242e\],
 html.light .bg-\[\#202534\],
 html.light .bg-\[\#242833\],
 html.light .bg-\[\#282d3a\],
+html.light [class*="bg-slate-800"],
+html.light [class*="bg-slate-700"],
 html.light [class*="bg-[#0f1219]"],
 html.light [class*="bg-[#121620]"],
 html.light [class*="bg-[#121826]"],
@@ -174,13 +177,16 @@ html.light [class*="bg-[#282d3a]"] {
 html.light .hover\:bg-slate-800:hover,
 html.light .hover\:bg-slate-700:hover,
 html.light [class*="hover:bg-slate-800"]:hover,
-html.light [class*="hover:bg-slate-700"]:hover {
+html.light [class*="hover:bg-slate-700"]:hover,
+html.light [class*="hover:bg-[#20242e]"]:hover,
+html.light [class*="hover:bg-[#242833]"]:hover {
   background-color: #f1f5f9 !important;
 }
 
 /* 7. VISIBLE & CRISP BORDERS IN LIGHT MODE */
 html.light .border-slate-800,
 html.light .border-slate-700,
+html.light .border-slate-600,
 html.light .border-slate-200,
 html.light .border-\[\#1b2234\],
 html.light .border-\[\#293681\],
@@ -188,6 +194,7 @@ html.light [class*="border-[#1b2234]"],
 html.light [class*="border-[#293681]"],
 html.light [class*="border-slate-800"],
 html.light [class*="border-slate-700"],
+html.light [class*="border-slate-600"],
 html.light [class*="border-slate-200"] {
   border-color: #cbd5e1 !important;
 }
@@ -482,37 +489,248 @@ html.light [class*="bg-[#171a21]/90"] {
 }
 
 /* 15. SOLID ACTION BUTTONS - TARGETED CLEAN WHITE TEXT (NO UNINTENDED WILDCARD MATCHES) */
-html.light button.bg-blue-600,
-html.light button.bg-blue-500,
-html.light button.bg-blue-700,
-html.light button.bg-emerald-600,
-html.light button.bg-emerald-500,
-html.light button.bg-rose-600,
-html.light button.bg-red-600,
-html.light button.bg-brand-500,
-html.light button.bg-brand-600,
-html.light a.bg-blue-600,
-html.light a.bg-blue-500,
-html.light a.bg-brand-500,
-html.light a.bg-brand-600,
+html.light button[class*="bg-blue-"],
+html.light button[class*="bg-emerald-"],
+html.light button[class*="bg-rose-"],
+html.light button[class*="bg-red-"],
+html.light button[class*="bg-brand-"],
+html.light button[class*="bg-purple-"],
+html.light button[class*="bg-indigo-"],
+html.light button[class*="bg-[#4274D9]"],
+html.light a[class*="bg-blue-"],
+html.light a[class*="bg-emerald-"],
+html.light a[class*="bg-rose-"],
+html.light a[class*="bg-red-"],
+html.light a[class*="bg-brand-"],
+html.light a[class*="bg-purple-"],
+html.light a[class*="bg-indigo-"],
+html.light a[class*="bg-[#4274D9]"],
 html.light .btn-primary {
   color: #ffffff !important;
 }
 
-html.light button.bg-blue-600 *,
-html.light button.bg-blue-500 *,
-html.light button.bg-blue-700 *,
-html.light button.bg-emerald-600 *,
-html.light button.bg-rose-600 *,
-html.light button.bg-red-600 *,
-html.light button.bg-brand-500 *,
-html.light button.bg-brand-600 *,
-html.light a.bg-blue-600 *,
-html.light a.bg-blue-500 *,
-html.light a.bg-brand-500 *,
-html.light a.bg-brand-600 *,
+html.light button[class*="bg-blue-"] *,
+html.light button[class*="bg-emerald-"] *,
+html.light button[class*="bg-rose-"] *,
+html.light button[class*="bg-red-"] *,
+html.light button[class*="bg-brand-"] *,
+html.light button[class*="bg-purple-"] *,
+html.light button[class*="bg-indigo-"] *,
+html.light button[class*="bg-[#4274D9]"] *,
+html.light a[class*="bg-blue-"] *,
+html.light a[class*="bg-emerald-"] *,
+html.light a[class*="bg-rose-"] *,
+html.light a[class*="bg-red-"] *,
+html.light a[class*="bg-brand-"] *,
+html.light a[class*="bg-purple-"] *,
+html.light a[class*="bg-indigo-"] *,
+html.light a[class*="bg-[#4274D9]"] *,
 html.light .btn-primary * {
   color: #ffffff !important;
+}
+
+/* 15b. SECONDARY, GHOST, ICON & ACTION BUTTONS IN LIGHT MODE */
+html.light button[class*="bg-slate-8"],
+html.light button[class*="bg-slate-7"],
+html.light button[class*="bg-slate-9"],
+html.light button[class*="bg-[#1b1e26]"],
+html.light button[class*="bg-[#20242e]"],
+html.light button[class*="bg-[#242833]"],
+html.light button[class*="bg-[#141824]"],
+html.light button[class*="bg-[#141b2d]"],
+html.light button[class*="bg-[#14161b]"],
+html.light button[class*="bg-[#090d16]"],
+html.light button[class*="bg-[#171a21]"],
+html.light button[class*="bg-[#171a23]"],
+html.light button[class*="bg-[#12151e]"],
+html.light button[class*="bg-[#0f1219]"],
+html.light button[class*="bg-[#1b2234]"],
+html.light button[class*="bg-[#1a1d26]"],
+html.light a[class*="bg-slate-8"],
+html.light a[class*="bg-slate-7"],
+html.light a[class*="bg-slate-9"],
+html.light a[class*="bg-[#1b1e26]"],
+html.light a[class*="bg-[#20242e]"],
+html.light a[class*="bg-[#242833]"],
+html.light a[class*="bg-[#141824]"],
+html.light a[class*="bg-[#141b2d]"],
+html.light a[class*="bg-[#14161b]"],
+html.light a[class*="bg-[#090d16]"],
+html.light a[class*="bg-[#171a21]"],
+html.light a[class*="bg-[#171a23]"],
+html.light a[class*="bg-[#12151e]"],
+html.light a[class*="bg-[#0f1219]"],
+html.light a[class*="bg-[#1b2234]"],
+html.light a[class*="bg-[#1a1d26]"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+}
+
+html.light button[class*="bg-slate-8"]:hover,
+html.light button[class*="bg-slate-7"]:hover,
+html.light button[class*="bg-slate-9"]:hover,
+html.light button[class*="bg-[#1b1e26]"]:hover,
+html.light button[class*="bg-[#20242e]"]:hover,
+html.light button[class*="bg-[#242833]"]:hover,
+html.light button[class*="bg-[#141824]"]:hover,
+html.light button[class*="bg-[#141b2d]"]:hover,
+html.light button[class*="bg-[#14161b]"]:hover,
+html.light button[class*="bg-[#090d16]"]:hover,
+html.light button[class*="bg-[#171a21]"]:hover,
+html.light button[class*="bg-[#171a23]"]:hover,
+html.light button[class*="bg-[#12151e]"]:hover,
+html.light button[class*="bg-[#0f1219]"]:hover,
+html.light button[class*="bg-[#1b2234]"]:hover,
+html.light button[class*="bg-[#1a1d26]"]:hover,
+html.light a[class*="bg-slate-8"]:hover,
+html.light a[class*="bg-slate-7"]:hover,
+html.light a[class*="bg-slate-9"]:hover,
+html.light a[class*="bg-[#1b1e26]"]:hover,
+html.light a[class*="bg-[#20242e]"]:hover,
+html.light a[class*="bg-[#242833]"]:hover,
+html.light a[class*="bg-[#141824]"]:hover,
+html.light a[class*="bg-[#141b2d]"]:hover,
+html.light a[class*="bg-[#14161b]"]:hover,
+html.light a[class*="bg-[#090d16]"]:hover,
+html.light a[class*="bg-[#171a21]"]:hover,
+html.light a[class*="bg-[#171a23]"]:hover,
+html.light a[class*="bg-[#12151e]"]:hover,
+html.light a[class*="bg-[#0f1219]"]:hover,
+html.light a[class*="bg-[#1b2234]"]:hover,
+html.light a[class*="bg-[#1a1d26]"]:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+html.light button[class*="bg-slate-8"] svg,
+html.light button[class*="bg-slate-7"] svg,
+html.light button[class*="bg-slate-9"] svg,
+html.light button[class*="bg-[#1b1e26]"] svg,
+html.light button[class*="bg-[#20242e]"] svg,
+html.light button[class*="bg-[#242833]"] svg,
+html.light button[class*="bg-[#141824]"] svg,
+html.light button[class*="bg-[#141b2d]"] svg,
+html.light button[class*="bg-[#14161b]"] svg,
+html.light button[class*="bg-[#090d16]"] svg,
+html.light button[class*="bg-[#171a21]"] svg,
+html.light button[class*="bg-[#171a23]"] svg,
+html.light button[class*="bg-[#12151e]"] svg,
+html.light button[class*="bg-[#0f1219]"] svg,
+html.light button[class*="bg-[#1b2234]"] svg,
+html.light button[class*="bg-[#1a1d26]"] svg {
+  color: #475569 !important;
+}
+
+html.light button[class*="bg-slate-8"]:hover svg,
+html.light button[class*="bg-slate-7"]:hover svg,
+html.light button[class*="bg-slate-9"]:hover svg,
+html.light button[class*="bg-[#1b1e26]"]:hover svg,
+html.light button[class*="bg-[#20242e]"]:hover svg,
+html.light button[class*="bg-[#242833]"]:hover svg,
+html.light button[class*="bg-[#141824]"]:hover svg,
+html.light button[class*="bg-[#141b2d]"]:hover svg,
+html.light button[class*="bg-[#14161b]"]:hover svg,
+html.light button[class*="bg-[#090d16]"]:hover svg,
+html.light button[class*="bg-[#171a21]"]:hover svg,
+html.light button[class*="bg-[#171a23]"]:hover svg,
+html.light button[class*="bg-[#12151e]"]:hover svg,
+html.light button[class*="bg-[#0f1219]"]:hover svg,
+html.light button[class*="bg-[#1b2234]"]:hover svg,
+html.light button[class*="bg-[#1a1d26]"]:hover svg {
+  color: #0f172a !important;
+}
+
+/* Hover-only dark background buttons (e.g. icon buttons with hover:bg-slate-800) */
+html.light button[class*="hover:bg-slate-800"]:hover,
+html.light button[class*="hover:bg-slate-700"]:hover,
+html.light button[class*="hover:bg-slate-900"]:hover,
+html.light a[class*="hover:bg-slate-800"]:hover,
+html.light a[class*="hover:bg-slate-700"]:hover,
+html.light a[class*="hover:bg-slate-900"]:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html.light button[class*="hover:bg-slate-800"]:hover svg,
+html.light button[class*="hover:bg-slate-700"]:hover svg,
+html.light button[class*="hover:bg-slate-900"]:hover svg {
+  color: #0f172a !important;
+}
+
+/* Specific colored hover actions on secondary icon buttons */
+html.light button[class*="hover:text-purple"]:hover {
+  background-color: #faf5ff !important;
+  border-color: #d8b4fe !important;
+  color: #7e22ce !important;
+}
+html.light button[class*="hover:text-purple"]:hover svg {
+  color: #7e22ce !important;
+}
+
+html.light button[class*="hover:text-sky"]:hover,
+html.light button[class*="hover:text-blue"]:hover {
+  background-color: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0284c7 !important;
+}
+html.light button[class*="hover:text-sky"]:hover svg,
+html.light button[class*="hover:text-blue"]:hover svg {
+  color: #0284c7 !important;
+}
+
+html.light button[class*="hover:text-rose"]:hover,
+html.light button[class*="hover:text-red"]:hover {
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #dc2626 !important;
+}
+html.light button[class*="hover:text-rose"]:hover svg,
+html.light button[class*="hover:text-red"]:hover svg {
+  color: #dc2626 !important;
+}
+
+html.light button[class*="hover:bg-emerald"]:hover {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+}
+html.light button[class*="hover:bg-emerald"]:hover svg {
+  color: #ffffff !important;
+}
+
+/* 15c. SEGMENTED FILTER BUTTONS & PILLS (e.g. ALL / MY HOSTS / SHARED) */
+html.light [class*="bg-slate-900"][class*="rounded-lg"],
+html.light [class*="bg-slate-900"][class*="rounded-md"],
+html.light [class*="bg-slate-100"][class*="rounded-lg"],
+html.light [class*="bg-slate-100"][class*="rounded-md"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light [class*="bg-slate-900"] button[class*="bg-slate-700"],
+html.light [class*="bg-slate-900"] button[class*="bg-slate-800"],
+html.light [class*="bg-slate-800"] button[class*="bg-slate-700"],
+html.light [class*="bg-slate-100"] button[class*="bg-white"],
+html.light div[class*="border-slate-800"] button[class*="bg-slate-700"],
+html.light div[class*="border-slate-800"] button[class*="bg-slate-800"] {
+  background-color: #ffffff !important;
+  color: #1d4ed8 !important;
+  border-color: #cbd5e1 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
+}
+
+/* Inactive filter buttons in segmented bar */
+html.light [class*="bg-slate-900"] button:not([class*="bg-slate-700"]):not([class*="bg-white"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
+html.light [class*="bg-slate-100"] button:not([class*="bg-slate-700"]):not([class*="bg-white"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]) {
+  color: #64748b !important;
+}
+html.light [class*="bg-slate-900"] button:not([class*="bg-slate-700"]):not([class*="bg-white"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):hover,
+html.light [class*="bg-slate-100"] button:not([class*="bg-slate-700"]):not([class*="bg-white"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):hover {
+  color: #0f172a !important;
 }
 
 /* 16. MODERN CARD ELEVATION & CRISP SHADOWS */

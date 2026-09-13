@@ -656,8 +656,8 @@ onUnmounted(() => {
             <button
               @click="isLogPaused = !isLogPaused"
               :class="[
-                isLogPaused ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
-                'flex items-center gap-1 px-2.5 py-1 rounded border border-slate-700 text-[11px] transition'
+                isLogPaused ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300',
+                'flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-[11px] transition cursor-pointer'
               ]"
             >
               <component :is="isLogPaused ? Play : Pause" class="w-3 h-3" />
@@ -666,7 +666,7 @@ onUnmounted(() => {
 
             <button
               @click="copyLogsToClipboard"
-              class="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition"
+              class="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[11px] transition cursor-pointer"
               title="Copy All Filtered Logs"
             >
               <Copy class="w-3 h-3" />
@@ -675,7 +675,7 @@ onUnmounted(() => {
 
             <button
               @click="clearCurrentLogs"
-              class="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition"
+              class="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[11px] transition cursor-pointer"
             >
               <Trash2 class="w-3 h-3" />
               <span>Clear</span>
@@ -734,7 +734,7 @@ onUnmounted(() => {
           <span>Module: {{ activeLogService.moduleKey }} | Live WebSocket stream active</span>
           <button
             @click="closeViewLogModal"
-            class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition"
+            class="px-4 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-transparent transition cursor-pointer"
           >
             Close
           </button>

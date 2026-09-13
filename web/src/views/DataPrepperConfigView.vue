@@ -252,7 +252,7 @@ onMounted(() => {
       <!-- Go to Connections button -->
       <button
         @click="router.push('/connections')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
       >
         <ExternalLink class="w-3.5 h-3.5" />
         <span>GO TO CONNECTIONS</span>
@@ -283,7 +283,7 @@ onMounted(() => {
 
           <button
             @click="fetchInstances"
-            class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             title="Refresh Instances"
           >
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
@@ -312,7 +312,7 @@ onMounted(() => {
 
           <button
             @click="isCreatingNewFile = !isCreatingNewFile"
-            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
           >
             <Plus class="w-3.5 h-3.5" />
             <span>NEW FILE</span>
@@ -322,7 +322,7 @@ onMounted(() => {
             v-if="pipelineFiles.length > 0 && selectedPipelineFile"
             @click="handleDeleteClick"
             :disabled="deleting || loading"
-            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold border border-rose-800/60 transition disabled:opacity-50"
+            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition disabled:opacity-50 cursor-pointer"
             title="Delete selected pipeline file"
           >
             <Trash2 class="w-3.5 h-3.5 text-rose-400" />
@@ -371,27 +371,27 @@ onMounted(() => {
           <div class="flex items-center gap-2">
             <button
               @click="handleValidate"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <Check class="w-3.5 h-3.5 text-emerald-400" />
+              <Check class="w-3.5 h-3.5 text-emerald-500" />
               <span>VALIDATE</span>
             </button>
 
             <button
               @click="handleReset"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <RotateCw class="w-3.5 h-3.5 text-amber-400" />
+              <RotateCw class="w-3.5 h-3.5 text-amber-500" />
               <span>RESET</span>
             </button>
 
             <button
               @click="handleDeleteClick"
               :disabled="deleting || loading || !selectedPipelineFile"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold border border-rose-800/60 transition disabled:opacity-50"
+              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition disabled:opacity-50 cursor-pointer"
               title="Delete selected pipeline file"
             >
-              <Trash2 class="w-3.5 h-3.5 text-rose-400" />
+              <Trash2 class="w-3.5 h-3.5 text-rose-500" />
               <span>DELETE</span>
             </button>
 
@@ -466,7 +466,7 @@ onMounted(() => {
           <button
             @click="showDeleteConfirm = false"
             :disabled="deleting"
-            class="px-3.5 py-1.5 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+            class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
           >
             Cancel
           </button>

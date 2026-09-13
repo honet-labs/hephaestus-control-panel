@@ -1329,7 +1329,7 @@ onUnmounted(() => {
         </div>
 
         <div class="flex justify-end pt-2">
-          <button @click="selectedIndexModal = null" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs">
+          <button @click="selectedIndexModal = null" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 rounded-lg text-xs font-semibold border border-slate-300 dark:border-transparent transition cursor-pointer">
             Close
           </button>
         </div>
@@ -1370,8 +1370,8 @@ onUnmounted(() => {
             :class="[
               'w-full p-2.5 rounded-lg text-xs text-left transition flex items-center justify-between border',
               refreshIntervalSec === opt.sec
-                ? 'bg-brand-500/10 border-brand-500/40 text-brand-400 font-bold'
-                : 'bg-[#14161b] border-slate-800 text-slate-300 hover:border-slate-700'
+                ? 'bg-brand-500/10 border-brand-500/40 text-brand-600 dark:text-brand-400 font-bold'
+                : 'bg-slate-50 hover:bg-slate-100 dark:bg-[#14161b] dark:hover:bg-[#1b2234] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer'
             ]"
           >
             <span>{{ opt.label }}</span>

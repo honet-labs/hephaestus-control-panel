@@ -656,7 +656,7 @@ onMounted(() => {
               type="button"
               @click="handleTestConnection"
               :disabled="testing"
-              class="px-4 py-2.5 bg-[#20242e] hover:bg-[#282d3a] text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition disabled:opacity-50"
+              class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 transition disabled:opacity-50 cursor-pointer"
             >
               {{ testing ? 'TESTING...' : 'TEST CONNECTION' }}
             </button>
@@ -676,7 +676,7 @@ onMounted(() => {
             <button
               type="button"
               @click="cancelEdit"
-              class="w-full py-1.5 text-center text-xs text-slate-400 hover:text-white bg-[#141824] hover:bg-[#1b2234] rounded-lg border border-slate-700/80 transition"
+              class="w-full py-1.5 text-center text-xs text-slate-700 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#141824] dark:hover:bg-[#1b2234] rounded-lg border border-slate-300 dark:border-slate-700/80 transition cursor-pointer"
             >
               Cancel Edit Mode
             </button>
@@ -790,7 +790,7 @@ onMounted(() => {
               <!-- Ping Test Button -->
               <button
                 @click="handlePingTest(item)"
-                class="px-2.5 py-1 rounded-lg bg-[#141b2d] hover:bg-[#1f2842] text-slate-300 text-[11px] font-medium border border-[#293681] transition"
+                class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#141b2d] dark:hover:bg-[#1f2842] text-slate-700 hover:text-slate-900 dark:text-slate-300 text-[11px] font-medium border border-slate-300 dark:border-[#293681] transition cursor-pointer"
               >
                 Ping Test
               </button>
@@ -798,7 +798,7 @@ onMounted(() => {
               <!-- Edit Button -->
               <button
                 @click="handleEditConnection(item)"
-                class="p-1.5 text-slate-400 hover:text-[#95CCDD] rounded-lg hover:bg-[#293681]/30 transition"
+                class="p-1.5 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-[#95CCDD] rounded-lg hover:bg-slate-100 dark:hover:bg-[#293681]/30 transition cursor-pointer"
                 title="Edit Connection"
               >
                 <Pencil class="w-3.5 h-3.5" />

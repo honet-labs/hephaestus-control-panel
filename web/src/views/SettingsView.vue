@@ -1132,7 +1132,7 @@ onUnmounted(() => {
             type="button"
             @click="testDbConnection"
             :disabled="dbTesting"
-            class="px-4 py-2 bg-[#20242e] hover:bg-[#282d3a] text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition disabled:opacity-50"
+            class="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 transition disabled:opacity-50 cursor-pointer"
           >
             {{ dbTesting ? 'TESTING...' : 'Test Connection' }}
           </button>
@@ -1333,7 +1333,7 @@ onUnmounted(() => {
 
         <div class="p-2.5 px-4 bg-[#141720] border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-sans">
           <span>Module: {{ activeLogService?.moduleKey }}</span>
-          <button @click="closeViewLogModal" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Close</button>
+          <button @click="closeViewLogModal" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-white rounded-lg border border-slate-300 dark:border-transparent font-medium transition cursor-pointer">Close</button>
         </div>
       </div>
     </div>
