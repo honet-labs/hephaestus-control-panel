@@ -1087,19 +1087,19 @@ onUnmounted(() => {
           <button
             @click="handleAddSelectedToCanvas"
             :disabled="selectedDiscoveredIds.length === 0"
-            class="flex-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-[10px] tracking-wider uppercase transition shadow-sm"
+            class="flex-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed dark:disabled:bg-slate-800 dark:disabled:text-slate-500 text-white font-bold text-[10px] tracking-wider uppercase transition shadow-sm cursor-pointer"
           >
             Add Selected
           </button>
           <button
             @click="handleSelectAllDiscovered"
-            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium transition"
+            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium border border-slate-300 dark:border-slate-700 transition cursor-pointer"
           >
             Select All
           </button>
           <button
             @click="handleClearSelectedDiscovered"
-            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium transition"
+            class="px-2.5 py-1.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium border border-slate-300 dark:border-slate-700 transition cursor-pointer"
           >
             Clear
           </button>

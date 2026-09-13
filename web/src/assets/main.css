@@ -869,6 +869,29 @@ html.light [class~="bg-sky-100"] * {
   color: #0369a1 !important;
 }
 
+/* 15e. DISABLED BUTTONS & INPUTS IN LIGHT MODE (CRITICAL HIGH-CONTRAST READABILITY) */
+html.light button:disabled,
+html.light button[disabled],
+html.light a:disabled,
+html.light a[disabled],
+html.light input:disabled,
+html.light select:disabled {
+  opacity: 1 !important;
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+html.light button:disabled *,
+html.light button[disabled] *,
+html.light a:disabled *,
+html.light a[disabled] * {
+  color: #64748b !important;
+  stroke: #64748b !important;
+}
+
 /* 16. MODERN CARD ELEVATION & CRISP SHADOWS */
 html.light .shadow-sm {
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08) !important;
