@@ -139,13 +139,13 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 		)
 		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", dbCfg.Password))
 	case "mysql", "mariadb":
-		cmd = exec.CommandContext(ctx, "mysqldump",
-			"-h", dbCfg.Host,
-			"-P", fmt.Sprintf("%d", dbCfg.Port),
-			"-u", dbCfg.Username,
-			fmt.Sprintf("-p%s", dbCfg.Password),
-			dbCfg.DatabaseName,
-		)
+		var args []string
+		args = append(args, "-h", dbCfg.Host, "-P", fmt.Sprintf("%d", dbCfg.Port), "-u", dbCfg.Username)
+		if dbCfg.Password != "" {
+			args = append(args, fmt.Sprintf("-p%s", dbCfg.Password))
+		}
+		args = append(args, dbCfg.DatabaseName)
+		cmd = exec.CommandContext(ctx, "mysqldump", args...)
 	default:
 		return nil, fmt.Errorf("unsupported database type for direct dump: %s", dbCfg.DBType)
 	}
@@ -159,7 +159,11 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 			// Fallback to native pgx connection dump
 			return s.dumpPostgreSQLNative(ctx, dbCfg)
 		}
-		return nil, fmt.Errorf("%v: %s", err, stderr.String())
+		errStr := strings.TrimSpace(stderr.String())
+		if errStr == "" {
+			errStr = err.Error()
+		}
+		return nil, fmt.Errorf("mysqldump failed: %s", errStr)
 	}
 	return stdout.Bytes(), nil
 }
@@ -246,21 +250,31 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	remoteHostCfg.SSHKey = dbCfg.SSHKey
 
 	remotePath := fmt.Sprintf("/tmp/%s", filename)
+	var passFlag string
+	if dbCfg.Password != "" {
+		passFlag = fmt.Sprintf("-p'%s'", escapeShell(dbCfg.Password))
+	}
+
 	var dumpCmd string
 	switch dbCfg.DBType {
 	case "postgresql":
 		dumpCmd = fmt.Sprintf("PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'",
 			escapeShell(dbCfg.Password), escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	case "mysql", "mariadb":
-		dumpCmd = fmt.Sprintf("mysqldump -h '%s' -P %d -u '%s' -p'%s' '%s' > '%s'",
-			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.Password), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
+		dumpCmd = fmt.Sprintf("if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; fi",
+			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath),
+			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	default:
 		return nil, fmt.Errorf("unsupported DB type for SSH dump: %s", dbCfg.DBType)
 	}
 
 	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHostCfg, dumpCmd)
 	if err != nil || exitCode != 0 {
-		return nil, fmt.Errorf("remote dump command failed (exit %d): %s %s %v", exitCode, stdout, stderr, err)
+		errDetail := strings.TrimSpace(stderr + "\n" + stdout)
+		if errDetail == "" && err != nil {
+			errDetail = err.Error()
+		}
+		return nil, fmt.Errorf("remote dump command failed (exit %d): %s", exitCode, errDetail)
 	}
 
 	// Download dump file via SFTP with config directly

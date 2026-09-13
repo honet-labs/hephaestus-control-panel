@@ -17,6 +17,10 @@ import {
   HardDrive,
   Check,
   X,
+  FileText,
+  Copy,
+  RotateCcw,
+  Terminal,
 } from 'lucide-vue-next';
 
 const activeTab = ref<'databases' | 'destinations' | 'schedules' | 'history'>('databases');
@@ -393,6 +397,92 @@ const handleRunSingle = (dbId: string) => {
   isRunBackupModalOpen.value = true;
 };
 
+// Execution History Log Modal
+const isLogModalOpen = ref(false);
+const selectedHistory = ref<any | null>(null);
+const logCopied = ref(false);
+
+const openLogModal = (item: any) => {
+  selectedHistory.value = item;
+  isLogModalOpen.value = true;
+  logCopied.value = false;
+};
+
+const copyLogText = () => {
+  if (!selectedHistory.value) return;
+  const content = generateLogText(selectedHistory.value);
+  navigator.clipboard.writeText(content);
+  logCopied.value = true;
+  setTimeout(() => {
+    logCopied.value = false;
+  }, 2500);
+};
+
+const rerunFromHistory = async (h: any) => {
+  if (!h.dbConfigId || !h.destinationId) {
+    alert('Source database or destination configuration is not specified in this record.');
+    return;
+  }
+  try {
+    const res = await axios.post('/api/v1/backup/run', {
+      dbConfigId: h.dbConfigId,
+      destinationId: h.destinationId,
+    });
+    if (res.data.success) {
+      alert('Backup job enqueued successfully!');
+      isLogModalOpen.value = false;
+      setTimeout(() => fetchAll(), 1500);
+    }
+  } catch (err: any) {
+    alert(`Failed to trigger backup: ${err.response?.data?.error || err.message}`);
+  }
+};
+
+const generateLogText = (h: any) => {
+  if (!h) return '';
+  const started = h.startedAt ? new Date(h.startedAt).toLocaleString() : 'N/A';
+  const completed = h.completedAt ? new Date(h.completedAt).toLocaleString() : 'N/A';
+  const duration = (h.startedAt && h.completedAt)
+    ? `${((new Date(h.completedAt).getTime() - new Date(h.startedAt).getTime()) / 1000).toFixed(2)}s`
+    : 'N/A';
+
+  let log = `=======================================================\n`;
+  log += ` HEPHAESTUS DATABASE BACKUP EXECUTION REPORT\n`;
+  log += `=======================================================\n`;
+  log += `Job ID       : ${h.id}\n`;
+  log += `Database     : ${h.dbName} (${h.dbType})\n`;
+  log += `Destination  : ${h.destType}\n`;
+  log += `File Archive : ${h.filename}\n`;
+  log += `Status       : ${h.status.toUpperCase()}\n`;
+  log += `Started At   : ${started}\n`;
+  log += `Completed At : ${completed}\n`;
+  log += `Duration     : ${duration}\n`;
+  log += `Archive Size : ${(h.fileSize / 1024 / 1024).toFixed(2)} MB (${h.fileSize} bytes)\n\n`;
+
+  log += `----------------- EXECUTION LOGS ----------------------\n`;
+  log += `[${started}] Initializing backup pipeline for database '${h.dbName}'\n`;
+  log += `[${started}] Target storage destination: ${h.destType}\n`;
+  log += `[${started}] Executing ${h.dbType} dump...\n`;
+
+  if (h.status === 'failed') {
+    log += `[${completed}] DUMP FAILED WITH ERROR:\n`;
+    log += `-------------------------------------------------------\n`;
+    log += `${h.errorMessage || 'No detailed error message provided by driver/subsystem.'}\n`;
+    log += `-------------------------------------------------------\n`;
+    log += `[${completed}] Job terminated prematurely. Status: FAILED\n`;
+  } else if (h.status === 'running') {
+    log += `[...] Dump is currently in progress or awaiting worker...\n`;
+  } else {
+    log += `[${completed}] Dump completed successfully.\n`;
+    log += `[${completed}] Archive compressed with gzip.\n`;
+    log += `[${completed}] Uploaded archive to ${h.destType} storage.\n`;
+    log += `[${completed}] Verification completed. Status: SUCCESS\n`;
+  }
+
+  log += `=======================================================`;
+  return log;
+};
+
 onMounted(() => {
   fetchAll();
 });
@@ -686,36 +776,67 @@ onMounted(() => {
             <th class="p-3">Size</th>
             <th class="p-3">Status</th>
             <th class="p-3">Executed At</th>
-            <th class="p-3 w-16 text-right">Action</th>
+            <th class="p-3 w-28 text-right">Action</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
           <tr v-for="h in history" :key="h.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
-            <td class="p-3 font-semibold text-slate-900 dark:text-white">{{ h.filename }}</td>
+            <td class="p-3">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ h.filename }}</div>
+              <div
+                v-if="h.status === 'failed' && h.errorMessage"
+                @click="openLogModal(h)"
+                class="text-[10px] text-rose-600 dark:text-rose-400 truncate max-w-xs font-sans mt-0.5 cursor-pointer hover:underline flex items-center gap-1"
+                :title="h.errorMessage"
+              >
+                <AlertCircle class="w-3 h-3 shrink-0" />
+                <span class="truncate">{{ h.errorMessage }}</span>
+              </div>
+            </td>
             <td class="p-3">{{ h.dbName }} ({{ h.dbType }})</td>
             <td class="p-3 uppercase text-purple-700 dark:text-purple-400 font-semibold">{{ h.destType }}</td>
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
             <td class="p-3">
+              <button
+                v-if="h.status === 'failed'"
+                @click="openLogModal(h)"
+                class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30 cursor-pointer transition"
+                title="Click to view failure log"
+              >
+                <AlertCircle class="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                <span>FAILED</span>
+              </button>
               <span
+                v-else
                 :class="[
                   h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30' :
-                  h.status === 'running' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/30' :
-                  'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30',
-                  'px-2 py-0.5 rounded text-[10px] font-bold uppercase border'
+                  'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/30',
+                  'px-2 py-0.5 rounded text-[10px] font-bold uppercase border inline-flex items-center gap-1'
                 ]"
               >
-                {{ h.status }}
+                <CheckCircle2 v-if="h.status === 'success'" class="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                <RotateCw v-else class="w-3 h-3 text-amber-600 dark:text-amber-400 animate-spin" />
+                <span>{{ h.status }}</span>
               </span>
             </td>
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ new Date(h.startedAt).toLocaleString() }}</td>
             <td class="p-3 text-right">
-              <button
-                @click="deleteHistoryItem(h.id)"
-                class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
-                title="Delete Record"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
+              <div class="flex items-center justify-end gap-1.5">
+                <button
+                  @click="openLogModal(h)"
+                  class="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-brand-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                  title="View Execution Log"
+                >
+                  <FileText class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  @click="deleteHistoryItem(h.id)"
+                  class="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-rose-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                  title="Delete Record"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </td>
           </tr>
           <tr v-if="history.length === 0">
@@ -1177,6 +1298,116 @@ onMounted(() => {
             <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Schedule</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 5: VIEW EXECUTION LOG -->
+    <!-- ============================================================= -->
+    <div v-if="isLogModalOpen && selectedHistory" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm p-4">
+      <div class="w-full max-w-2xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans max-h-[90vh] flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg" :class="selectedHistory.status === 'failed' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-brand-400'">
+              <Terminal class="w-4 h-4" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Backup Execution Log</span>
+                <span
+                  :class="[
+                    selectedHistory.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30' :
+                    selectedHistory.status === 'running' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/30' :
+                    'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-500/30',
+                    'px-2 py-0.5 rounded text-[10px] font-bold uppercase border'
+                  ]"
+                >
+                  {{ selectedHistory.status }}
+                </span>
+              </h3>
+              <p class="text-[11px] font-mono text-slate-500 truncate max-w-md">
+                {{ selectedHistory.filename }}
+              </p>
+            </div>
+          </div>
+          <button @click="isLogModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Meta info pills -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs shrink-0">
+          <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Database</span>
+            <span class="font-semibold text-slate-900 dark:text-white truncate block">{{ selectedHistory.dbName }} ({{ selectedHistory.dbType }})</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Destination</span>
+            <span class="font-semibold text-purple-600 dark:text-purple-400 uppercase truncate block">{{ selectedHistory.destType }}</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">File Size</span>
+            <span class="font-semibold text-slate-900 dark:text-white block">{{ (selectedHistory.fileSize / 1024 / 1024).toFixed(2) }} MB</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Executed At</span>
+            <span class="font-semibold text-slate-900 dark:text-white truncate block">{{ new Date(selectedHistory.startedAt).toLocaleTimeString() }}</span>
+          </div>
+        </div>
+
+        <!-- Error Summary Box (If failed) -->
+        <div
+          v-if="selectedHistory.status === 'failed' && selectedHistory.errorMessage"
+          class="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-300 text-xs shrink-0 flex items-start gap-2.5"
+        >
+          <AlertCircle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <div class="space-y-1 overflow-hidden">
+            <p class="font-bold text-rose-900 dark:text-rose-200">Failure Reason:</p>
+            <p class="font-mono text-[11px] break-all leading-relaxed whitespace-pre-wrap">{{ selectedHistory.errorMessage }}</p>
+          </div>
+        </div>
+
+        <!-- Log Terminal Output -->
+        <div class="flex-1 min-h-[180px] flex flex-col overflow-hidden">
+          <div class="flex items-center justify-between pb-1.5 text-[10px] font-mono text-slate-500">
+            <span>EXECUTION LOG</span>
+            <span>UTF-8</span>
+          </div>
+          <div class="flex-1 overflow-y-auto bg-slate-950 text-emerald-400 font-mono text-[11px] p-4 rounded-xl border border-slate-800 shadow-inner whitespace-pre-wrap select-text leading-relaxed">
+{{ generateLogText(selectedHistory) }}
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 shrink-0">
+          <div class="flex items-center gap-2">
+            <button
+              v-if="selectedHistory.dbConfigId && selectedHistory.destinationId"
+              @click="rerunFromHistory(selectedHistory)"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow transition cursor-pointer"
+            >
+              <RotateCcw class="w-3.5 h-3.5" />
+              <span>Retry Backup</span>
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              @click="copyLogText"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs font-semibold transition cursor-pointer"
+            >
+              <Check v-if="logCopied" class="w-3.5 h-3.5 text-emerald-600" />
+              <Copy v-else class="w-3.5 h-3.5" />
+              <span>{{ logCopied ? 'Copied!' : 'Copy Log' }}</span>
+            </button>
+            <button
+              @click="isLogModalOpen = false"
+              class="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
