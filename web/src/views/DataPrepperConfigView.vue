@@ -322,40 +322,40 @@ onMounted(() => {
             v-if="pipelineFiles.length > 0 && selectedPipelineFile"
             @click="handleDeleteClick"
             :disabled="deleting || loading"
-            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition disabled:opacity-50 cursor-pointer"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-300 disabled:cursor-not-allowed shadow-xs"
             title="Delete selected pipeline file"
           >
-            <Trash2 class="w-3.5 h-3.5 text-rose-400" />
-            <span>DELETE FILE</span>
+            <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span class="text-rose-700 dark:text-rose-300 font-semibold">DELETE FILE</span>
           </button>
         </div>
 
         <!-- New File Input Dialog Inline -->
-        <div v-if="isCreatingNewFile" class="flex items-center gap-2 p-3 bg-[#0f1219] border border-slate-700 rounded-xl max-w-md">
+        <div v-if="isCreatingNewFile" class="flex items-center gap-2 p-3 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-xl max-w-md shadow-sm">
           <input
             v-model="newFileName"
             placeholder="e.g. metrics-pipeline.yaml"
-            class="flex-1 bg-transparent text-white text-xs font-mono focus:outline-none"
+            class="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 text-xs font-mono focus:outline-none"
           />
-          <button @click="handleCreateFile" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">
+          <button @click="handleCreateFile" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold cursor-pointer">
             Create
           </button>
-          <button @click="isCreatingNewFile = false" class="px-2 py-1 text-slate-400 text-xs">
+          <button @click="isCreatingNewFile = false" class="px-2 py-1 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-xs cursor-pointer">
             Cancel
           </button>
         </div>
       </div>
 
       <!-- IF NO INSTANCE REGISTERED (Clean Empty State) -->
-      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-[#0e1118] border border-slate-800/80 rounded-xl space-y-3">
-        <Server class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-        <p class="text-xs font-bold text-slate-300">No Data Prepper Connection Found</p>
+      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-white dark:bg-[#0e1118] border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-3 shadow-sm">
+        <Server class="w-8 h-8 text-slate-500 dark:text-slate-600 mx-auto mb-2" />
+        <p class="text-xs font-bold text-slate-900 dark:text-slate-300">No Data Prepper Connection Found</p>
         <p class="text-[11px] text-slate-500 max-w-md mx-auto">
           You have not registered any Data Prepper instance in Connections yet. Please add a Data Prepper connection first to manage pipelines.
         </p>
         <button
           @click="router.push('/connections')"
-          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2"
+          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2 cursor-pointer shadow-sm"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Data Prepper Connection</span>
@@ -366,7 +366,7 @@ onMounted(() => {
       <div v-else-if="instances.length > 0 && yamlContent" class="space-y-3">
         <!-- Editor Header Toolbar -->
         <div class="flex items-center justify-between text-xs">
-          <span class="font-mono text-slate-300 font-semibold">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
+          <span class="font-mono text-slate-800 dark:text-slate-200 font-bold text-xs">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
 
           <div class="flex items-center gap-2">
             <button
@@ -388,17 +388,17 @@ onMounted(() => {
             <button
               @click="handleDeleteClick"
               :disabled="deleting || loading || !selectedPipelineFile"
-              class="flex items-center gap-1 px-3 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition disabled:opacity-50 cursor-pointer"
+              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-300 disabled:cursor-not-allowed shadow-xs"
               title="Delete selected pipeline file"
             >
-              <Trash2 class="w-3.5 h-3.5 text-rose-500" />
-              <span>DELETE</span>
+              <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              <span class="text-rose-700 dark:text-rose-300 font-semibold">DELETE</span>
             </button>
 
             <button
               @click="handleSave"
               :disabled="saving || loading"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition"
+              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold transition cursor-pointer shadow-sm"
             >
               <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
               <Save v-else class="w-3.5 h-3.5" />

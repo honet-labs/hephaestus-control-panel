@@ -268,7 +268,7 @@ onMounted(() => {
       <div v-else-if="instances.length > 0" class="space-y-3">
         <!-- Editor Header Toolbar -->
         <div class="flex items-center justify-between text-xs">
-          <span class="font-mono text-slate-300 font-semibold">prometheus.yml</span>
+          <span class="font-mono text-slate-800 dark:text-slate-200 font-bold text-xs">prometheus.yml</span>
 
           <div class="flex items-center gap-2">
             <button
