@@ -705,36 +705,99 @@ html.light button[class*="hover:bg-slate-900"]:hover svg {
   color: #0f172a !important;
 }
 
-/* Specific colored hover actions on secondary icon buttons */
-html.light button[class*="hover:text-purple"]:hover {
+/* Specific colored hover actions on secondary icon buttons and links */
+html.light button[class*="hover:text-purple"]:hover,
+html.light a[class*="hover:text-purple"]:hover,
+html.light div[class*="hover:text-purple"]:hover {
   background-color: #faf5ff !important;
   border-color: #d8b4fe !important;
   color: #7e22ce !important;
 }
-html.light button[class*="hover:text-purple"]:hover svg {
+html.light button[class*="hover:text-purple"]:hover svg,
+html.light a[class*="hover:text-purple"]:hover svg,
+html.light div[class*="hover:text-purple"]:hover svg {
   color: #7e22ce !important;
+  stroke: #7e22ce !important;
 }
 
 html.light button[class*="hover:text-sky"]:hover,
-html.light button[class*="hover:text-blue"]:hover {
+html.light button[class*="hover:text-blue"]:hover,
+html.light a[class*="hover:text-sky"]:hover,
+html.light a[class*="hover:text-blue"]:hover,
+html.light div[class*="hover:text-sky"]:hover,
+html.light div[class*="hover:text-blue"]:hover {
   background-color: #f0f9ff !important;
   border-color: #bae6fd !important;
   color: #0284c7 !important;
 }
 html.light button[class*="hover:text-sky"]:hover svg,
-html.light button[class*="hover:text-blue"]:hover svg {
+html.light button[class*="hover:text-blue"]:hover svg,
+html.light a[class*="hover:text-sky"]:hover svg,
+html.light a[class*="hover:text-blue"]:hover svg,
+html.light div[class*="hover:text-sky"]:hover svg,
+html.light div[class*="hover:text-blue"]:hover svg {
   color: #0284c7 !important;
+  stroke: #0284c7 !important;
 }
 
 html.light button[class*="hover:text-rose"]:hover,
-html.light button[class*="hover:text-red"]:hover {
+html.light button[class*="hover:text-red"]:hover,
+html.light a[class*="hover:text-rose"]:hover,
+html.light a[class*="hover:text-red"]:hover,
+html.light div[class*="hover:text-rose"]:hover,
+html.light div[class*="hover:text-red"]:hover {
   background-color: #fef2f2 !important;
   border-color: #fecaca !important;
   color: #dc2626 !important;
 }
 html.light button[class*="hover:text-rose"]:hover svg,
-html.light button[class*="hover:text-red"]:hover svg {
+html.light button[class*="hover:text-red"]:hover svg,
+html.light a[class*="hover:text-rose"]:hover svg,
+html.light a[class*="hover:text-red"]:hover svg,
+html.light div[class*="hover:text-rose"]:hover svg,
+html.light div[class*="hover:text-red"]:hover svg {
   color: #dc2626 !important;
+  stroke: #dc2626 !important;
+}
+
+html.light button[class*="hover:text-emerald"]:hover,
+html.light button[class*="hover:text-green"]:hover,
+html.light a[class*="hover:text-emerald"]:hover,
+html.light a[class*="hover:text-green"]:hover,
+html.light div[class*="hover:text-emerald"]:hover,
+html.light div[class*="hover:text-green"]:hover {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #059669 !important;
+}
+html.light button[class*="hover:text-emerald"]:hover svg,
+html.light button[class*="hover:text-green"]:hover svg,
+html.light a[class*="hover:text-emerald"]:hover svg,
+html.light a[class*="hover:text-green"]:hover svg,
+html.light div[class*="hover:text-emerald"]:hover svg,
+html.light div[class*="hover:text-green"]:hover svg {
+  color: #059669 !important;
+  stroke: #059669 !important;
+}
+
+html.light button[class*="hover:text-amber"]:hover,
+html.light button[class*="hover:text-yellow"]:hover,
+html.light a[class*="hover:text-amber"]:hover,
+html.light a[class*="hover:text-yellow"]:hover,
+html.light div[class*="hover:text-amber"]:hover,
+html.light div[class*="hover:text-yellow"]:hover {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #d97706 !important;
+}
+html.light button[class*="hover:text-amber"]:hover svg,
+html.light button[class*="hover:text-yellow"]:hover svg,
+html.light a[class*="hover:text-amber"]:hover svg,
+html.light a[class*="hover:text-yellow"]:hover svg,
+html.light div[class*="hover:text-amber"]:hover svg,
+html.light div[class*="hover:text-yellow"]:hover svg {
+  color: #d97706 !important;
+  stroke: #d97706 !important;
 }
 
 html.light button[class*="hover:bg-emerald"]:hover {
@@ -890,6 +953,165 @@ html.light a:disabled *,
 html.light a[disabled] * {
   color: #64748b !important;
   stroke: #64748b !important;
+}
+
+/* =============================================================
+ * SECTION 15f. PREVENT INVISIBLE WHITE TEXT/ICONS ON HOVER IN LIGHT MODE
+ * In light mode, hovering any button, link, menu item, icon or text
+ * must NEVER turn text/svg white. It must be black / dark (#0f172a),
+ * unless it is an explicitly solid vibrant action button.
+ * ============================================================= */
+
+/* 1. Direct hover on elements with hover:text-white or light slate hover */
+html.light .hover\:text-white:hover,
+html.light .hover\:text-slate-100:hover,
+html.light .hover\:text-slate-200:hover,
+html.light .hover\:text-slate-300:hover,
+html.light .hover\:text-gray-100:hover,
+html.light .hover\:text-gray-200:hover,
+html.light [class*="hover:text-white"]:hover,
+html.light [class*="hover:text-slate-100"]:hover,
+html.light [class*="hover:text-slate-200"]:hover,
+html.light [class*="hover:text-slate-300"]:hover,
+html.light [class*="hover:text-gray-100"]:hover,
+html.light [class*="hover:text-gray-200"]:hover {
+  color: #0f172a !important;
+}
+
+/* 2. SVGs inside hovered elements */
+html.light .hover\:text-white:hover svg,
+html.light .hover\:text-slate-100:hover svg,
+html.light .hover\:text-slate-200:hover svg,
+html.light .hover\:text-slate-300:hover svg,
+html.light [class*="hover:text-white"]:hover svg,
+html.light [class*="hover:text-slate-100"]:hover svg,
+html.light [class*="hover:text-slate-200"]:hover svg,
+html.light [class*="hover:text-slate-300"]:hover svg {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
+/* 3. Text spans and children inside hovered elements */
+html.light [class*="hover:text-white"]:hover span,
+html.light [class*="hover:text-white"]:hover p,
+html.light [class*="hover:text-white"]:hover div,
+html.light [class*="hover:text-white"]:hover kbd,
+html.light [class*="hover:text-slate-100"]:hover span,
+html.light [class*="hover:text-slate-200"]:hover span,
+html.light [class*="hover:text-slate-300"]:hover span {
+  color: #0f172a !important;
+}
+
+/* 4. Group Hover States (e.g. .group:hover .group-hover:text-white) */
+html.light .group:hover .group-hover\:text-white,
+html.light .group:hover .group-hover\:text-slate-100,
+html.light .group:hover .group-hover\:text-slate-200,
+html.light .group:hover .group-hover\:text-slate-300,
+html.light [class*="group"]:hover [class*="group-hover:text-white"],
+html.light [class*="group"]:hover [class*="group-hover:text-slate-100"],
+html.light [class*="group"]:hover [class*="group-hover:text-slate-200"],
+html.light [class*="group"]:hover [class*="group-hover:text-slate-300"],
+html.light [class*="group/tab"]:hover [class*="group-hover/tab:text-white"],
+html.light [class*="group/grp"]:hover [class*="group-hover/grp:text-white"],
+html.light [class*="group/item"]:hover [class*="group-hover/item:text-white"],
+html.light [class*="group/btn"]:hover [class*="group-hover/btn:text-white"] {
+  color: #0f172a !important;
+}
+
+html.light .group:hover .group-hover\:text-white svg,
+html.light [class*="group"]:hover [class*="group-hover:text-white"] svg,
+html.light [class*="group/tab"]:hover [class*="group-hover/tab:text-white"] svg {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
+/* 5. Any neutral / dark-hover background elements on hover in light mode */
+html.light [class*="hover:bg-slate-700"]:hover,
+html.light [class*="hover:bg-slate-800"]:hover,
+html.light [class*="hover:bg-slate-900"]:hover,
+html.light [class*="hover:bg-[#1"]:hover,
+html.light [class*="hover:bg-[#2"]:hover,
+html.light [class*="hover:bg-[#0"]:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html.light [class*="hover:bg-slate-700"]:hover *,
+html.light [class*="hover:bg-slate-800"]:hover *,
+html.light [class*="hover:bg-slate-900"]:hover *,
+html.light [class*="hover:bg-[#1"]:hover *,
+html.light [class*="hover:bg-[#2"]:hover *,
+html.light [class*="hover:bg-[#0"]:hover * {
+  color: #0f172a !important;
+}
+
+html.light [class*="hover:bg-slate-700"]:hover svg,
+html.light [class*="hover:bg-slate-800"]:hover svg,
+html.light [class*="hover:bg-slate-900"]:hover svg,
+html.light [class*="hover:bg-[#1"]:hover svg,
+html.light [class*="hover:bg-[#2"]:hover svg,
+html.light [class*="hover:bg-[#0"]:hover svg {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
+/* 6. EXCEPTIONS: Solid vibrant action buttons MUST keep white text on hover */
+html.light button.bg-blue-600:hover,
+html.light button.bg-blue-500:hover,
+html.light button.bg-blue-700:hover,
+html.light button.bg-emerald-600:hover,
+html.light button.bg-emerald-500:hover,
+html.light button.bg-rose-600:hover,
+html.light button.bg-red-600:hover,
+html.light button.bg-brand-500:hover,
+html.light button.bg-brand-600:hover,
+html.light button.bg-purple-600:hover,
+html.light button[class~="bg-[#4274D9]"]:hover,
+html.light button[class~="bg-[#293681]"]:hover,
+html.light a.bg-blue-600:hover,
+html.light a.bg-blue-500:hover,
+html.light a.bg-emerald-600:hover,
+html.light a.bg-rose-600:hover,
+html.light a.bg-red-600:hover,
+html.light a.bg-brand-500:hover,
+html.light a.bg-brand-600:hover,
+html.light a.bg-purple-600:hover,
+html.light .btn-primary:hover,
+html.light .btn-danger:hover,
+html.light .btn-success:hover,
+html.light button.bg-blue-600:hover *,
+html.light button.bg-blue-500:hover *,
+html.light button.bg-blue-700:hover *,
+html.light button.bg-emerald-600:hover *,
+html.light button.bg-emerald-500:hover *,
+html.light button.bg-rose-600:hover *,
+html.light button.bg-red-600:hover *,
+html.light button.bg-brand-500:hover *,
+html.light button.bg-brand-600:hover *,
+html.light button.bg-purple-600:hover *,
+html.light button[class~="bg-[#4274D9]"]:hover *,
+html.light button[class~="bg-[#293681]"]:hover *,
+html.light a.bg-blue-600:hover *,
+html.light a.bg-blue-500:hover *,
+html.light a.bg-emerald-600:hover *,
+html.light a.bg-rose-600:hover *,
+html.light a.bg-red-600:hover *,
+html.light a.bg-brand-500:hover *,
+html.light a.bg-brand-600:hover *,
+html.light a.bg-purple-600:hover *,
+html.light .btn-primary:hover *,
+html.light .btn-danger:hover *,
+html.light .btn-success:hover * {
+  color: #ffffff !important;
+}
+
+html.light button[class*="hover:bg-emerald-6"]:hover,
+html.light button[class*="hover:bg-emerald-6"]:hover *,
+html.light button[class*="hover:bg-blue-6"]:hover,
+html.light button[class*="hover:bg-blue-6"]:hover *,
+html.light button[class*="hover:bg-rose-6"]:hover,
+html.light button[class*="hover:bg-rose-6"]:hover * {
+  color: #ffffff !important;
 }
 
 /* 16. MODERN CARD ELEVATION & CRISP SHADOWS */
