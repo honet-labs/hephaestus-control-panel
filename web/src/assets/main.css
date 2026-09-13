@@ -768,6 +768,97 @@ html.light [class*="bg-slate-100"] button:not([class*="bg-slate-700"]):not([clas
   color: #0f172a !important;
 }
 
+/* 15d. PASTEL BADGES, TABS & SOFT BUTTONS IN LIGHT MODE (CRITICAL HIGH-CONTRAST TEXT) */
+html.light .bg-emerald-50,
+html.light .bg-emerald-100,
+html.light [class~="bg-emerald-50"],
+html.light [class~="bg-emerald-100"] {
+  background-color: #ecfdf5 !important;
+  color: #065f46 !important;
+  border-color: #a7f3d0 !important;
+}
+html.light .bg-emerald-50 *,
+html.light .bg-emerald-100 *,
+html.light [class~="bg-emerald-50"] *,
+html.light [class~="bg-emerald-100"] * {
+  color: #065f46 !important;
+}
+
+html.light .bg-rose-50,
+html.light .bg-rose-100,
+html.light [class~="bg-rose-50"],
+html.light [class~="bg-rose-100"] {
+  background-color: #fef2f2 !important;
+  color: #991b1b !important;
+  border-color: #fecaca !important;
+}
+html.light .bg-rose-50 *,
+html.light .bg-rose-100 *,
+html.light [class~="bg-rose-50"] *,
+html.light [class~="bg-rose-100"] * {
+  color: #991b1b !important;
+}
+
+html.light .bg-blue-50,
+html.light .bg-blue-100,
+html.light [class~="bg-blue-50"],
+html.light [class~="bg-blue-100"] {
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+  border-color: #bfdbfe !important;
+}
+html.light .bg-blue-50 *,
+html.light .bg-blue-100 *,
+html.light [class~="bg-blue-50"] *,
+html.light [class~="bg-blue-100"] * {
+  color: #1d4ed8 !important;
+}
+
+html.light .bg-purple-50,
+html.light .bg-purple-100,
+html.light [class~="bg-purple-50"],
+html.light [class~="bg-purple-100"] {
+  background-color: #faf5ff !important;
+  color: #7e22ce !important;
+  border-color: #e9d5ff !important;
+}
+html.light .bg-purple-50 *,
+html.light .bg-purple-100 *,
+html.light [class~="bg-purple-50"] *,
+html.light [class~="bg-purple-100"] * {
+  color: #7e22ce !important;
+}
+
+html.light .bg-amber-50,
+html.light .bg-amber-100,
+html.light [class~="bg-amber-50"],
+html.light [class~="bg-amber-100"] {
+  background-color: #fffbeb !important;
+  color: #92400e !important;
+  border-color: #fde68a !important;
+}
+html.light .bg-amber-50 *,
+html.light .bg-amber-100 *,
+html.light [class~="bg-amber-50"] *,
+html.light [class~="bg-amber-100"] * {
+  color: #92400e !important;
+}
+
+html.light .bg-sky-50,
+html.light .bg-sky-100,
+html.light [class~="bg-sky-50"],
+html.light [class~="bg-sky-100"] {
+  background-color: #f0f9ff !important;
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+}
+html.light .bg-sky-50 *,
+html.light .bg-sky-100 *,
+html.light [class~="bg-sky-50"] *,
+html.light [class~="bg-sky-100"] * {
+  color: #0369a1 !important;
+}
+
 /* 16. MODERN CARD ELEVATION & CRISP SHADOWS */
 html.light .shadow-sm {
   box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08) !important;
