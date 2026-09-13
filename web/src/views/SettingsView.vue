@@ -743,13 +743,15 @@ onUnmounted(() => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex flex-wrap items-center gap-2 border-b border-slate-300 dark:border-slate-800 pb-2 text-xs">
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-300 dark:border-slate-800 pb-2 text-xs" role="tablist">
       <button
+        role="tab"
+        :aria-selected="activeTab === 'services'"
         @click="activeTab = 'services'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
           activeTab === 'services'
-            ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30 shadow-sm font-bold'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
             : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
@@ -758,11 +760,13 @@ onUnmounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'users'"
         @click="activeTab = 'users'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
           activeTab === 'users'
-            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
             : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
@@ -771,11 +775,13 @@ onUnmounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'database'"
         @click="activeTab = 'database'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
           activeTab === 'database'
-            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
             : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >
@@ -784,11 +790,13 @@ onUnmounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'audit'"
         @click="activeTab = 'audit'"
         :class="[
           'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
           activeTab === 'audit'
-            ? 'bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-white border border-blue-300 dark:border-slate-700 shadow-sm font-bold'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
             : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent'
         ]"
       >

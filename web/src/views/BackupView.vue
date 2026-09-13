@@ -519,14 +519,16 @@ onMounted(() => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium">
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium" role="tablist">
       <button
+        role="tab"
+        :aria-selected="activeTab === 'databases'"
         @click="activeTab = 'databases'"
         :class="[
           activeTab === 'databases'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
-          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
+            ? 'bg-[#4274D9] text-white border-[#4274D9] font-bold shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-slate-200 dark:border-transparent bg-slate-50/50 dark:bg-transparent',
+          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
         ]"
       >
         <Database class="w-3.5 h-3.5" />
@@ -534,12 +536,14 @@ onMounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'destinations'"
         @click="activeTab = 'destinations'"
         :class="[
           activeTab === 'destinations'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
-          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
+            ? 'bg-[#4274D9] text-white border-[#4274D9] font-bold shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-slate-200 dark:border-transparent bg-slate-50/50 dark:bg-transparent',
+          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
         ]"
       >
         <HardDrive class="w-3.5 h-3.5" />
@@ -547,12 +551,14 @@ onMounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'schedules'"
         @click="activeTab = 'schedules'"
         :class="[
           activeTab === 'schedules'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
-          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
+            ? 'bg-[#4274D9] text-white border-[#4274D9] font-bold shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-slate-200 dark:border-transparent bg-slate-50/50 dark:bg-transparent',
+          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
         ]"
       >
         <Clock class="w-3.5 h-3.5" />
@@ -560,12 +566,14 @@ onMounted(() => {
       </button>
 
       <button
+        role="tab"
+        :aria-selected="activeTab === 'history'"
         @click="activeTab = 'history'"
         :class="[
           activeTab === 'history'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800/50 shadow-sm'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-transparent',
-          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5'
+            ? 'bg-[#4274D9] text-white border-[#4274D9] font-bold shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-slate-200 dark:border-transparent bg-slate-50/50 dark:bg-transparent',
+          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
         ]"
       >
         <Calendar class="w-3.5 h-3.5" />
@@ -612,7 +620,7 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <button
                 @click="handleRunSingle(db.id)"
-                class="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition cursor-pointer"
+                class="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-md transition cursor-pointer"
               >
                 <Play class="w-3 h-3 fill-current" />
                 <span>Backup Now</span>
@@ -620,7 +628,7 @@ onMounted(() => {
               <button
                 @click="testExistingDB(db)"
                 :disabled="testingDbId === db.id"
-                class="flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-brand-400 transition cursor-pointer disabled:opacity-50"
+                class="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md transition cursor-pointer disabled:opacity-50"
                 title="Test Connection"
               >
                 <RotateCw class="w-3 h-3" :class="{ 'animate-spin': testingDbId === db.id }" />
@@ -630,7 +638,7 @@ onMounted(() => {
 
             <button
               @click="deleteDBConfig(db.id)"
-              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition cursor-pointer"
+              class="p-1.5 rounded-md transition cursor-pointer"
               title="Delete Database Config"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -689,7 +697,7 @@ onMounted(() => {
           <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
               @click="deleteDestination(dest.id)"
-              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
+              class="p-1.5 rounded-md transition cursor-pointer"
               title="Delete Storage Destination"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -745,7 +753,7 @@ onMounted(() => {
           <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
               @click="deleteSchedule(sched.id)"
-              class="p-1 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 transition"
+              class="p-1.5 rounded-md transition cursor-pointer"
               title="Delete Schedule"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -797,15 +805,16 @@ onMounted(() => {
             <td class="p-3 uppercase text-purple-700 dark:text-purple-400 font-semibold">{{ h.destType }}</td>
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
             <td class="p-3">
-              <button
+              <span
                 v-if="h.status === 'failed'"
                 @click="openLogModal(h)"
-                class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800/50 cursor-pointer transition"
+                role="button"
+                class="status-badge cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800/50 transition"
                 title="Click to view failure log"
               >
                 <AlertCircle class="w-3 h-3 text-rose-600 dark:text-rose-400" />
                 <span>FAILED</span>
-              </button>
+              </span>
               <span
                 v-else
                 :class="[

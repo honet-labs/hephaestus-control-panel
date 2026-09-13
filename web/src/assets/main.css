@@ -630,406 +630,161 @@ html.light [class*="bg-[#171a21]/90"] {
   color: #1e293b !important;
 }
 
-/* 15. SOLID ACTION BUTTONS - TARGETED CLEAN WHITE TEXT (EXACT SOLID BACKGROUND CLASSES ONLY) */
-html.light button.bg-blue-600:not(:disabled),
-html.light button.bg-blue-500:not(:disabled),
-html.light button.bg-blue-700:not(:disabled),
-html.light button.bg-emerald-600:not(:disabled),
-html.light button.bg-emerald-500:not(:disabled),
-html.light button.bg-emerald-700:not(:disabled),
-html.light button.bg-rose-600:not(:disabled),
-html.light button.bg-rose-500:not(:disabled),
-html.light button.bg-red-600:not(:disabled),
-html.light button.bg-red-500:not(:disabled),
-html.light button.bg-brand-500:not(:disabled),
-html.light button.bg-brand-600:not(:disabled),
-html.light button.bg-purple-600:not(:disabled),
-html.light button.bg-purple-500:not(:disabled),
-html.light button.bg-indigo-600:not(:disabled),
-html.light button[class~="bg-[#4274D9]"]:not(:disabled),
-html.light button[class~="bg-[#293681]"]:not(:disabled),
-html.light button[class~="bg-[#3461c2]"]:not(:disabled),
-html.light a.bg-blue-600,
-html.light a.bg-blue-500,
-html.light a.bg-blue-700,
-html.light a.bg-emerald-600,
-html.light a.bg-emerald-500,
-html.light a.bg-rose-600,
-html.light a.bg-red-600,
-html.light a.bg-brand-500,
-html.light a.bg-brand-600,
-html.light a.bg-purple-600,
-html.light a.bg-indigo-600,
-html.light a[class~="bg-[#4274D9]"],
-html.light a[class~="bg-[#293681]"],
-html.light a[class~="bg-[#3461c2]"],
-html.light .btn-primary:not(:disabled),
-html.light .btn-danger:not(:disabled),
-html.light .btn-success:not(:disabled) {
+/* ==========================================================================
+   15. UNIFIED LIGHT MODE ACTION BUTTONS THEME: rgb(66 116 217) WITH WHITE TEXT
+   "untuk tombol background tolong gunakan warna rgb(66 116 217) saja dan fontnya
+    warna putih jangan setiap tombol punya beda warna! dalam mode light (bukan dark!)"
+   ========================================================================== */
+
+/* Universal action buttons in Light Mode */
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close),
+html.light .btn,
+html.light .btn-primary,
+html.light .btn-secondary,
+html.light .btn-danger,
+html.light .btn-success,
+html.light .btn-warning,
+html.light .btn-info,
+html.light a.btn {
+  background-color: rgb(66 116 217) !important;
+  border-color: rgb(66 116 217) !important;
   color: #ffffff !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
-html.light button.bg-blue-600:not(:disabled) *,
-html.light button.bg-blue-500:not(:disabled) *,
-html.light button.bg-blue-700:not(:disabled) *,
-html.light button.bg-emerald-600:not(:disabled) *,
-html.light button.bg-emerald-500:not(:disabled) *,
-html.light button.bg-emerald-700:not(:disabled) *,
-html.light button.bg-rose-600:not(:disabled) *,
-html.light button.bg-rose-500:not(:disabled) *,
-html.light button.bg-red-600:not(:disabled) *,
-html.light button.bg-red-500:not(:disabled) *,
-html.light button.bg-brand-500:not(:disabled) *,
-html.light button.bg-brand-600:not(:disabled) *,
-html.light button.bg-purple-600:not(:disabled) *,
-html.light button.bg-purple-500:not(:disabled) *,
-html.light button.bg-indigo-600:not(:disabled) *,
-html.light button[class~="bg-[#4274D9]"]:not(:disabled) *,
-html.light button[class~="bg-[#293681]"]:not(:disabled) *,
-html.light button[class~="bg-[#3461c2]"]:not(:disabled) *,
-html.light a.bg-blue-600 *,
-html.light a.bg-blue-500 *,
-html.light a.bg-blue-700 *,
-html.light a.bg-emerald-600 *,
-html.light a.bg-rose-600 *,
-html.light a.bg-red-600 *,
-html.light a.bg-brand-500 *,
-html.light a.bg-brand-600 *,
-html.light a.bg-purple-600 *,
-html.light a.bg-indigo-600 *,
-html.light a[class~="bg-[#4274D9]"] *,
-html.light a[class~="bg-[#293681]"] *,
-html.light a[class~="bg-[#3461c2]"] *,
-html.light .btn-primary:not(:disabled) *,
-html.light .btn-danger:not(:disabled) *,
-html.light .btn-success:not(:disabled) * {
+/* Ensure all text, spans, divs, bold tags, labels inside action buttons are white */
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close) *,
+html.light .btn *,
+html.light .btn-primary *,
+html.light .btn-secondary *,
+html.light .btn-danger *,
+html.light .btn-success *,
+html.light .btn-warning *,
+html.light .btn-info *,
+html.light a.btn * {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
 
-
-/* 15b. SECONDARY, WHITE, NEUTRAL & GHOST BUTTONS IN LIGHT MODE */
-html.light button.bg-white:not(aside *),
-html.light button[class~="bg-white"]:not(aside *),
-html.light button.bg-slate-100:not(aside *),
-html.light button[class~="bg-slate-100"]:not(aside *),
-html.light button.bg-slate-50:not(aside *),
-html.light button[class~="bg-slate-50"]:not(aside *),
-html.light button.bg-slate-200:not(aside *),
-html.light button[class~="bg-slate-200"]:not(aside *),
-html.light a.bg-white:not(aside *),
-html.light a[class~="bg-white"]:not(aside *),
-html.light a.bg-slate-100:not(aside *),
-html.light a[class~="bg-slate-100"]:not(aside *),
-html.light a.bg-slate-200:not(aside *),
-html.light a[class~="bg-slate-200"]:not(aside *),
-html.light button:not(aside *)[class*="bg-slate-8"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light button:not(aside *)[class*="bg-slate-7"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light button:not(aside *)[class*="bg-slate-9"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light button:not(aside *)[class~="bg-[#1b1e26]"],
-html.light button:not(aside *)[class~="bg-[#20242e]"],
-html.light button:not(aside *)[class~="bg-[#242833]"],
-html.light button:not(aside *)[class~="bg-[#141824]"],
-html.light button:not(aside *)[class~="bg-[#141b2d]"],
-html.light button:not(aside *)[class~="bg-[#14161b]"],
-html.light button:not(aside *)[class~="bg-[#090d16]"],
-html.light button:not(aside *)[class~="bg-[#171a21]"],
-html.light button:not(aside *)[class~="bg-[#171a23]"],
-html.light button:not(aside *)[class~="bg-[#12151e]"],
-html.light button:not(aside *)[class~="bg-[#0f1219]"],
-html.light button:not(aside *)[class~="bg-[#1b2234]"],
-html.light button:not(aside *)[class~="bg-[#1a1d26]"],
-html.light a:not(aside *)[class*="bg-slate-8"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light a:not(aside *)[class*="bg-slate-7"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light a:not(aside *)[class*="bg-slate-9"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]),
-html.light a:not(aside *)[class~="bg-[#1b1e26]"],
-html.light a:not(aside *)[class~="bg-[#20242e]"],
-html.light a:not(aside *)[class~="bg-[#242833]"],
-html.light a:not(aside *)[class~="bg-[#141824]"],
-html.light a:not(aside *)[class~="bg-[#141b2d]"],
-html.light a:not(aside *)[class~="bg-[#14161b]"],
-html.light a:not(aside *)[class~="bg-[#090d16]"],
-html.light a:not(aside *)[class~="bg-[#171a21]"],
-html.light a:not(aside *)[class~="bg-[#171a23]"],
-html.light a:not(aside *)[class~="bg-[#12151e]"],
-html.light a:not(aside *)[class~="bg-[#0f1219]"],
-html.light a:not(aside *)[class~="bg-[#1b2234]"],
-html.light a:not(aside *)[class~="bg-[#1a1d26]"] {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-}
-
-/* Children of secondary / white / neutral buttons */
-html.light button.bg-white:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button[class~="bg-white"]:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button.bg-slate-100:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button[class~="bg-slate-100"]:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button.bg-slate-200:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button[class~="bg-slate-200"]:not(aside *) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button:not(aside *)[class*="bg-slate-8"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]) *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button:not(aside *)[class~="bg-[#1b1e26]"] *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button:not(aside *)[class~="bg-[#20242e]"] *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]),
-html.light button:not(aside *)[class~="bg-[#242833]"] *:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]):not([class*="bg-"]):not([class*="badge"]) {
-  color: #0f172a !important;
-}
-
-/* Direct text-white inside white/secondary buttons must be dark slate */
-html.light button.bg-white:not(aside *) .text-white,
-html.light button[class~="bg-white"]:not(aside *) .text-white,
-html.light button.bg-slate-100:not(aside *) .text-white,
-html.light button[class~="bg-slate-100"]:not(aside *) .text-white,
-html.light button.bg-slate-200:not(aside *) .text-white,
-html.light button[class~="bg-slate-200"]:not(aside *) .text-white,
-html.light button:not(aside *)[class~="bg-[#1b1e26]"] .text-white,
-html.light button:not(aside *)[class~="bg-[#20242e]"] .text-white {
-  color: #0f172a !important;
-}
-
-/* Default SVG icons inside white / secondary buttons */
-html.light button.bg-white:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button[class~="bg-white"]:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button.bg-slate-100:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button[class~="bg-slate-100"]:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button.bg-slate-200:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button[class~="bg-slate-200"]:not(aside *) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button:not(aside *)[class*="bg-slate-8"]:not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-purple"]) svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button:not(aside *)[class~="bg-[#1b1e26]"] svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button:not(aside *)[class~="bg-[#20242e]"] svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]),
-html.light button:not(aside *)[class~="bg-[#242833]"] svg:not([class*="text-blue"]):not([class*="text-emerald"]):not([class*="text-purple"]):not([class*="text-rose"]):not([class*="text-red"]):not([class*="text-amber"]):not([class*="text-brand"]) {
-  color: #475569 !important;
-  stroke: #475569 !important;
-}
-
-html.light button.bg-white:not(aside *):hover,
-html.light button[class~="bg-white"]:not(aside *):hover,
-html.light button.bg-slate-100:not(aside *):hover,
-html.light button[class~="bg-slate-100"]:not(aside *):hover,
-html.light button.bg-slate-50:not(aside *):hover,
-html.light button[class~="bg-slate-50"]:not(aside *):hover,
-html.light button.bg-slate-200:not(aside *):hover,
-html.light button[class~="bg-slate-200"]:not(aside *):hover,
-html.light a.bg-white:not(aside *):hover,
-html.light a[class~="bg-white"]:not(aside *):hover,
-html.light a.bg-slate-100:not(aside *):hover,
-html.light a[class~="bg-slate-100"]:not(aside *):hover,
-html.light a.bg-slate-200:not(aside *):hover,
-html.light a[class~="bg-slate-200"]:not(aside *):hover,
-html.light button:not(aside *)[class*="bg-slate-8"]:hover,
-html.light button:not(aside *)[class*="bg-slate-7"]:hover,
-html.light button:not(aside *)[class*="bg-slate-9"]:hover,
-html.light button:not(aside *)[class~="bg-[#1b1e26]"]:hover,
-html.light button:not(aside *)[class~="bg-[#20242e]"]:hover,
-html.light button:not(aside *)[class~="bg-[#242833]"]:hover,
-html.light button:not(aside *)[class~="bg-[#141824]"]:hover,
-html.light button:not(aside *)[class~="bg-[#141b2d]"]:hover,
-html.light button:not(aside *)[class~="bg-[#14161b]"]:hover,
-html.light button:not(aside *)[class~="bg-[#090d16]"]:hover,
-html.light button:not(aside *)[class~="bg-[#171a21]"]:hover,
-html.light button:not(aside *)[class~="bg-[#171a23]"]:hover,
-html.light button:not(aside *)[class~="bg-[#12151e]"]:hover,
-html.light button:not(aside *)[class~="bg-[#0f1219]"]:hover,
-html.light button:not(aside *)[class~="bg-[#1b2234]"]:hover,
-html.light button:not(aside *)[class~="bg-[#1a1d26]"]:hover,
-html.light a:not(aside *)[class*="bg-slate-8"]:hover,
-html.light a:not(aside *)[class*="bg-slate-7"]:hover,
-html.light a:not(aside *)[class*="bg-slate-9"]:hover,
-html.light a:not(aside *)[class~="bg-[#1b1e26]"]:hover,
-html.light a:not(aside *)[class~="bg-[#20242e]"]:hover,
-html.light a:not(aside *)[class~="bg-[#242833]"]:hover,
-html.light a:not(aside *)[class~="bg-[#141824]"]:hover,
-html.light a:not(aside *)[class~="bg-[#141b2d]"]:hover,
-html.light a:not(aside *)[class~="bg-[#14161b]"]:hover,
-html.light a:not(aside *)[class~="bg-[#090d16]"]:hover,
-html.light a:not(aside *)[class~="bg-[#171a21]"]:hover,
-html.light a:not(aside *)[class~="bg-[#171a23]"]:hover,
-html.light a:not(aside *)[class~="bg-[#12151e]"]:hover,
-html.light a:not(aside *)[class~="bg-[#0f1219]"]:hover,
-html.light a:not(aside *)[class~="bg-[#1b2234]"]:hover,
-html.light a:not(aside *)[class~="bg-[#1a1d26]"]:hover {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
-  border-color: #94a3b8 !important;
-}
-
-html.light button.bg-white:not(aside *):hover *,
-html.light button[class~="bg-white"]:not(aside *):hover *,
-html.light button.bg-slate-100:not(aside *):hover *,
-html.light button[class~="bg-slate-100"]:not(aside *):hover *,
-html.light button.bg-slate-200:not(aside *):hover *,
-html.light button[class~="bg-slate-200"]:not(aside *):hover * {
-  color: #0f172a !important;
-}
-
-html.light button:not(aside *)[class*="bg-slate-8"]:hover svg,
-html.light button[class*="bg-slate-7"]:hover svg,
-html.light button[class*="bg-slate-9"]:hover svg,
-html.light button[class*="bg-[#1b1e26]"]:hover svg,
-html.light button[class*="bg-[#20242e]"]:hover svg,
-html.light button[class*="bg-[#242833]"]:hover svg,
-html.light button[class*="bg-[#141824]"]:hover svg,
-html.light button[class*="bg-[#141b2d]"]:hover svg,
-html.light button[class*="bg-[#14161b]"]:hover svg,
-html.light button[class*="bg-[#090d16]"]:hover svg,
-html.light button[class*="bg-[#171a21]"]:hover svg,
-html.light button[class*="bg-[#171a23]"]:hover svg,
-html.light button[class*="bg-[#12151e]"]:hover svg,
-html.light button[class*="bg-[#0f1219]"]:hover svg,
-html.light button[class*="bg-[#1b2234]"]:hover svg,
-html.light button[class*="bg-[#1a1d26]"]:hover svg {
-  color: #0f172a !important;
-  stroke: #0f172a !important;
-}
-
-/* Hover-only dark background buttons (e.g. icon buttons with hover:bg-slate-800) */
-html.light button[class*="hover:bg-slate-800"]:hover,
-html.light button[class*="hover:bg-slate-700"]:hover,
-html.light button[class*="hover:bg-slate-900"]:hover,
-html.light a[class*="hover:bg-slate-800"]:hover,
-html.light a[class*="hover:bg-slate-700"]:hover,
-html.light a[class*="hover:bg-slate-900"]:hover {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
-}
-
-html.light button[class*="hover:bg-slate-800"]:hover svg,
-html.light button[class*="hover:bg-slate-700"]:hover svg,
-html.light button[class*="hover:bg-slate-900"]:hover svg {
-  color: #0f172a !important;
-  stroke: #0f172a !important;
-}
-
-/* Specific colored hover actions on secondary icon buttons and links */
-html.light button[class*="hover:text-purple"]:hover,
-html.light a[class*="hover:text-purple"]:hover,
-html.light div[class*="hover:text-purple"]:hover {
-  background-color: #faf5ff !important;
-  border-color: #d8b4fe !important;
-  color: #7e22ce !important;
-}
-html.light button[class*="hover:text-purple"]:hover svg,
-html.light a[class*="hover:text-purple"]:hover svg,
-html.light div[class*="hover:text-purple"]:hover svg {
-  color: #7e22ce !important;
-  stroke: #7e22ce !important;
-}
-
-html.light button[class*="hover:text-sky"]:hover,
-html.light button[class*="hover:text-blue"]:hover,
-html.light a[class*="hover:text-sky"]:hover,
-html.light a[class*="hover:text-blue"]:hover,
-html.light div[class*="hover:text-sky"]:hover,
-html.light div[class*="hover:text-blue"]:hover {
-  background-color: #f0f9ff !important;
-  border-color: #bae6fd !important;
-  color: #0284c7 !important;
-}
-html.light button[class*="hover:text-sky"]:hover svg,
-html.light button[class*="hover:text-blue"]:hover svg,
-html.light a[class*="hover:text-sky"]:hover svg,
-html.light a[class*="hover:text-blue"]:hover svg,
-html.light div[class*="hover:text-sky"]:hover svg,
-html.light div[class*="hover:text-blue"]:hover svg {
-  color: #0284c7 !important;
-  stroke: #0284c7 !important;
-}
-
-html.light button[class*="hover:text-rose"]:hover,
-html.light button[class*="hover:text-red"]:hover,
-html.light a[class*="hover:text-rose"]:hover,
-html.light a[class*="hover:text-red"]:hover,
-html.light div[class*="hover:text-rose"]:hover,
-html.light div[class*="hover:text-red"]:hover {
-  background-color: #fef2f2 !important;
-  border-color: #fecaca !important;
-  color: #dc2626 !important;
-}
-html.light button[class*="hover:text-rose"]:hover svg,
-html.light button[class*="hover:text-red"]:hover svg,
-html.light a[class*="hover:text-rose"]:hover svg,
-html.light a[class*="hover:text-red"]:hover svg,
-html.light div[class*="hover:text-rose"]:hover svg,
-html.light div[class*="hover:text-red"]:hover svg {
-  color: #dc2626 !important;
-  stroke: #dc2626 !important;
-}
-
-html.light button[class*="hover:text-emerald"]:hover,
-html.light button[class*="hover:text-green"]:hover,
-html.light a[class*="hover:text-emerald"]:hover,
-html.light a[class*="hover:text-green"]:hover,
-html.light div[class*="hover:text-emerald"]:hover,
-html.light div[class*="hover:text-green"]:hover {
-  background-color: #ecfdf5 !important;
-  border-color: #a7f3d0 !important;
-  color: #059669 !important;
-}
-html.light button[class*="hover:text-emerald"]:hover svg,
-html.light button[class*="hover:text-green"]:hover svg,
-html.light a[class*="hover:text-emerald"]:hover svg,
-html.light a[class*="hover:text-green"]:hover svg,
-html.light div[class*="hover:text-emerald"]:hover svg,
-html.light div[class*="hover:text-green"]:hover svg {
-  color: #059669 !important;
-  stroke: #059669 !important;
-}
-
-html.light button[class*="hover:text-amber"]:hover,
-html.light button[class*="hover:text-yellow"]:hover,
-html.light a[class*="hover:text-amber"]:hover,
-html.light a[class*="hover:text-yellow"]:hover,
-html.light div[class*="hover:text-amber"]:hover,
-html.light div[class*="hover:text-yellow"]:hover {
-  background-color: #fffbeb !important;
-  border-color: #fde68a !important;
-  color: #d97706 !important;
-}
-html.light button[class*="hover:text-amber"]:hover svg,
-html.light button[class*="hover:text-yellow"]:hover svg,
-html.light a[class*="hover:text-amber"]:hover svg,
-html.light a[class*="hover:text-yellow"]:hover svg,
-html.light div[class*="hover:text-amber"]:hover svg,
-html.light div[class*="hover:text-yellow"]:hover svg {
-  color: #d97706 !important;
-  stroke: #d97706 !important;
-}
-
-html.light button[class*="hover:bg-emerald"]:hover {
-  background-color: #059669 !important;
-  border-color: #059669 !important;
-  color: #ffffff !important;
-}
-html.light button[class*="hover:bg-emerald"]:hover svg {
+/* Hover state: unified deeper blue rgb(52 97 194) with pure white text and icons */
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover,
+html.light .btn:hover,
+html.light .btn-primary:hover,
+html.light .btn-secondary:hover,
+html.light .btn-danger:hover,
+html.light .btn-success:hover,
+html.light .btn-warning:hover,
+html.light .btn-info:hover,
+html.light a.btn:hover {
+  background-color: rgb(52 97 194) !important;
+  border-color: rgb(52 97 194) !important;
   color: #ffffff !important;
 }
 
-/* 15c. SEGMENTED FILTER BUTTONS & PILLS (e.g. ALL / MY HOSTS / SHARED) - STRICTLY SCOPED */
-html.light div[class*="p-0.5"][class*="rounded-lg"] button[class*="bg-white"],
-html.light div[class*="p-0.5"][class*="rounded-lg"] button[class*="bg-slate-700"],
-html.light div[class*="p-0.5"][class*="rounded-lg"] button[class*="bg-slate-800"],
-html.light div[class*="p-0.5"][class*="rounded-md"] button[class*="bg-white"],
-html.light div[class*="p-0.5"][class*="rounded-md"] button[class*="bg-slate-700"],
-html.light div[class*="p-0.5"][class*="rounded-md"] button[class*="bg-slate-800"],
-html.light div[role="tablist"] button[class*="bg-white"],
-html.light div[role="tablist"] button[class*="bg-slate-700"] {
-  background-color: #ffffff !important;
-  color: #1d4ed8 !important;
-  border-color: #cbd5e1 !important;
-  font-weight: 700 !important;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover *,
+html.light .btn:hover *,
+html.light .btn-primary:hover *,
+html.light .btn-secondary:hover *,
+html.light .btn-danger:hover *,
+html.light .btn-success:hover *,
+html.light .btn-warning:hover *,
+html.light .btn-info:hover *,
+html.light a.btn:hover * {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }
 
-/* Inactive filter buttons strictly inside segmented pill bars */
-html.light div[class*="p-0.5"][class*="rounded-lg"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]),
-html.light div[class*="p-0.5"][class*="rounded-md"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]),
-html.light div[role="tablist"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]) {
+/* Disabled state */
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):disabled,
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close)[disabled],
+html.light a.btn:disabled,
+html.light a.btn[disabled] {
+  background-color: rgb(66 116 217) !important;
+  border-color: rgb(66 116 217) !important;
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  color: #ffffff !important;
+}
+
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):disabled *,
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close)[disabled] *,
+html.light a.btn:disabled *,
+html.light a.btn[disabled] * {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* Modal header close "X" buttons (transparent with dark hover) */
+html.light button:has(> svg.lucide-x:only-child):not(.btn):not([class*="px-3"]):not([class*="px-4"]),
+html.light button.modal-close,
+html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px-4"]) {
+  background-color: transparent !important;
+  border-color: transparent !important;
   color: #64748b !important;
 }
-html.light div[class*="p-0.5"][class*="rounded-lg"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]):hover,
-html.light div[class*="p-0.5"][class*="rounded-md"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]):hover,
-html.light div[role="tablist"] button:not([class*="bg-white"]):not([class*="bg-slate-700"]):not([class*="bg-slate-800"]):not([class*="bg-emerald"]):not([class*="bg-purple"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-brand"]):not([class*="btn-"]):hover {
+html.light button:has(> svg.lucide-x:only-child):not(.btn):not([class*="px-3"]):not([class*="px-4"]):hover,
+html.light button.modal-close:hover,
+html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px-4"]):hover {
+  background-color: #f1f5f9 !important;
   color: #0f172a !important;
+}
+html.light button:has(> svg.lucide-x:only-child):not(.btn):not([class*="px-3"]):not([class*="px-4"]) svg,
+html.light button.modal-close svg,
+html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px-4"]) svg {
+  stroke: #64748b !important;
+  color: #64748b !important;
+}
+html.light button:has(> svg.lucide-x:only-child):not(.btn):not([class*="px-3"]):not([class*="px-4"]):hover svg,
+html.light button.modal-close:hover svg,
+html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px-4"]):hover svg {
+  stroke: #0f172a !important;
+  color: #0f172a !important;
+}
+
+/* 15b. NAVIGATION TABS CONTRAST IN LIGHT MODE */
+/* Active Tab: unified brand rgb(66 116 217) background with white font */
+html.light [role="tablist"] button[aria-selected="true"],
+html.light button[role="tab"][aria-selected="true"],
+html.light button[role="tab"].active,
+html.light .tab-btn.active {
+  background-color: rgb(66 116 217) !important;
+  border-color: rgb(66 116 217) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+html.light [role="tablist"] button[aria-selected="true"] *,
+html.light button[role="tab"][aria-selected="true"] *,
+html.light button[role="tab"].active *,
+html.light .tab-btn.active * {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* Inactive Tab: crisp subtle background with dark slate text */
+html.light [role="tablist"] button[aria-selected="false"],
+html.light button[role="tab"][aria-selected="false"],
+html.light button[role="tab"]:not([aria-selected="true"]):not(.active) {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+html.light [role="tablist"] button[aria-selected="false"] *,
+html.light button[role="tab"][aria-selected="false"] *,
+html.light button[role="tab"]:not([aria-selected="true"]):not(.active) * {
+  color: #334155 !important;
+  stroke: #334155 !important;
+}
+html.light [role="tablist"] button[aria-selected="false"]:hover,
+html.light button[role="tab"][aria-selected="false"]:hover,
+html.light button[role="tab"]:not([aria-selected="true"]):not(.active):hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+html.light [role="tablist"] button[aria-selected="false"]:hover *,
+html.light button[role="tab"][aria-selected="false"]:hover *,
+html.light button[role="tab"]:not([aria-selected="true"]):not(.active):hover * {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
 }
 
 /* Remote Host Workspace Tabs Strip in Light Mode */
@@ -1268,6 +1023,13 @@ html.light [class*="hover:bg-[#0"]:hover svg {
 }
 
 /* 6. EXCEPTIONS: Solid vibrant action buttons MUST keep white text on hover */
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover,
+html.light .btn:hover,
+html.light .btn-primary:hover,
+html.light .btn-secondary:hover,
+html.light .btn-danger:hover,
+html.light .btn-success:hover,
+html.light a.btn:hover,
 html.light button.bg-blue-600:not(:disabled):hover,
 html.light button.bg-blue-500:not(:disabled):hover,
 html.light button.bg-blue-700:not(:disabled):hover,
@@ -1306,6 +1068,13 @@ html.light .btn-success:not(:disabled):hover {
   color: #ffffff !important;
 }
 
+html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover *,
+html.light .btn:hover *,
+html.light .btn-primary:hover *,
+html.light .btn-secondary:hover *,
+html.light .btn-danger:hover *,
+html.light .btn-success:hover *,
+html.light a.btn:hover *,
 html.light button.bg-blue-600:not(:disabled):hover *,
 html.light button.bg-blue-500:not(:disabled):hover *,
 html.light button.bg-blue-700:not(:disabled):hover *,
