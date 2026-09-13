@@ -2317,15 +2317,15 @@ onUnmounted(() => {
               </div>
 
               <!-- Action Buttons -->
-              <div class="flex items-center gap-1 shrink-0">
+              <div class="flex items-center gap-1.5 shrink-0">
                 <!-- Share Button (Only Owner or Admin) -->
                 <button
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openShareModal(host, $event)"
                   title="Share access with other users"
-                  class="p-2 rounded-lg bg-slate-100 hover:bg-purple-50 dark:bg-slate-800/80 text-slate-600 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-300 dark:hover:bg-purple-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-purple-50 dark:bg-slate-800/80 text-slate-600 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-300 dark:hover:bg-purple-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 >
-                  <Share2 class="w-3.5 h-3.5" />
+                  <Share2 :size="15" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                 </button>
 
                 <!-- Edit Button (Only Owner or Admin) -->
@@ -2333,9 +2333,9 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openEditHostModal(host, $event)"
                   title="Edit Server Configuration"
-                  class="p-2 rounded-lg bg-slate-100 hover:bg-sky-50 dark:bg-slate-800/80 text-slate-600 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-sky-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-sky-50 dark:bg-slate-800/80 text-slate-600 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-sky-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 >
-                  <Settings class="w-3.5 h-3.5" />
+                  <Settings :size="15" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
                 </button>
 
                 <!-- Delete Button (Only Owner or Admin) -->
@@ -2343,18 +2343,18 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="handleDeleteHost(host, $event)"
                   title="Delete Server"
-                  class="p-2 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 >
-                  <Trash2 class="w-3.5 h-3.5" />
+                  <Trash2 :size="15" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                 </button>
 
                 <!-- Quick Duplicate / New Tab -->
                 <button
                   @click.stop="connectHost(host, true)"
                   title="Open New Terminal Tab"
-                  class="p-2 rounded-lg bg-slate-100 hover:bg-emerald-500 hover:text-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 dark:hover:text-white dark:hover:bg-emerald-600 border border-slate-300 dark:border-slate-700/60 transition shadow-sm"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-emerald-500 hover:text-white dark:bg-slate-800/80 text-slate-600 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-white dark:hover:bg-emerald-600 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 >
-                  <Plus class="w-3.5 h-3.5" />
+                  <Plus :size="15" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 </button>
               </div>
             </div>
