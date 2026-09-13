@@ -159,10 +159,27 @@ func (r *ConfigRepository) GetActivePrometheus(ctx context.Context) (*domain.Pro
 		return nil, err
 	}
 	var c domain.PrometheusConfig
-	err = pool.QueryRow(ctx, `SELECT id, name, mode, path, reload_url, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_password, ssh_key, is_active, created_at FROM prometheus_configs WHERE is_active = true LIMIT 1`).
+	err = pool.QueryRow(ctx, `SELECT id, name, mode, path, reload_url, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_password, ssh_key, is_active, created_at 
+		FROM prometheus_configs 
+		WHERE is_active = true 
+		  AND LOWER(name) NOT LIKE '%data prepper%' 
+		  AND LOWER(name) NOT LIKE '%dataprepper%' 
+		  AND LOWER(path) NOT LIKE '%pipeline%'
+		LIMIT 1`).
 		Scan(&c.ID, &c.Name, &c.Mode, &c.Path, &c.ReloadURL, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuth, &c.SSHPassword, &c.SSHKey, &c.IsActive, &c.CreatedAt)
 	if err != nil {
-		return nil, err
+		// Fallback to any prometheus config that is not data prepper
+		err = pool.QueryRow(ctx, `SELECT id, name, mode, path, reload_url, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_password, ssh_key, is_active, created_at 
+			FROM prometheus_configs 
+			WHERE LOWER(name) NOT LIKE '%data prepper%' 
+			  AND LOWER(name) NOT LIKE '%dataprepper%' 
+			  AND LOWER(path) NOT LIKE '%pipeline%'
+			ORDER BY is_active DESC, created_at DESC 
+			LIMIT 1`).
+			Scan(&c.ID, &c.Name, &c.Mode, &c.Path, &c.ReloadURL, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuth, &c.SSHPassword, &c.SSHKey, &c.IsActive, &c.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if c.SSHPassword != nil && *c.SSHPassword != "" {
 		if dec, err := config.DecryptText(*c.SSHPassword); err == nil {

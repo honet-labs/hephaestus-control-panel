@@ -52,7 +52,7 @@ const syncScroll = () => {
 const fetchInstances = async () => {
   loading.value = true;
   try {
-    const res = await axios.get('/api/v1/settings/prometheus').catch(() => null);
+    const res = await axios.get('/api/v1/settings/prometheus?type=dataprepper').catch(() => null);
     const dpList: DataPrepperInstance[] = [];
     if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
       res.data.data.forEach((p: any) => {

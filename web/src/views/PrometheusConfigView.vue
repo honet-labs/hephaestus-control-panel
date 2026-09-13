@@ -40,16 +40,33 @@ const saving = ref(false);
 const fetchPrometheusInstances = async () => {
   loading.value = true;
   try {
-    const res = await axios.get('/api/v1/settings/prometheus').catch(() => null);
-    if (res && res.data && res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
-      instances.value = res.data.data;
-      selectedInstanceId.value = instances.value[0].id;
-      if (instances.value[0].path) {
-        configFilePath.value = instances.value[0].path;
+    const res = await axios.get('/api/v1/settings/prometheus?type=prometheus').catch(() => null);
+    if (res && res.data && res.data.success && Array.isArray(res.data.data)) {
+      // Filter strictly to Prometheus instances (exclude Data Prepper)
+      const promList = res.data.data.filter((p: any) => {
+        const name = (p.name || '').toLowerCase();
+        const path = (p.path || '').toLowerCase();
+        return !name.includes('data prepper') && !name.includes('dataprepper') && !path.includes('pipeline');
+      });
+
+      if (promList.length > 0) {
+        instances.value = promList;
+        // Prioritize currently selected, or active, or first item
+        const matched = promList.find((i: any) => i.id === selectedInstanceId.value)
+                     || promList.find((i: any) => i.isActive)
+                     || promList[0];
+        selectedInstanceId.value = matched.id;
+        configFilePath.value = matched.path || '/etc/prometheus/prometheus.yml';
+        await fetchConfigContent(matched.id);
+      } else {
+        // ZERO DUMMY DATA: If not registered, leave completely empty
+        instances.value = [];
+        selectedInstanceId.value = '';
+        yamlContent.value = '';
+        isLoaded.value = false;
+        loading.value = false;
       }
-      await fetchConfigContent(instances.value[0].id);
     } else {
-      // ZERO DUMMY DATA: If not registered, leave completely empty
       instances.value = [];
       selectedInstanceId.value = '';
       yamlContent.value = '';
@@ -143,11 +160,11 @@ const handleSave = async () => {
       validationMessage.value = res.data.message || 'Config saved & Prometheus reload trigger sent successfully.';
       isValidationSuccess.value = true;
     } else {
-      validationMessage.value = res.data?.error || 'Failed to save configuration.';
+      validationMessage.value = `Save failed: ${res.data?.error || 'Unknown error'}`;
       isValidationSuccess.value = false;
     }
   } catch (err: any) {
-    validationMessage.value = err.response?.data?.error || err.message || 'Failed to save configuration.';
+    validationMessage.value = `Save failed: ${err.response?.data?.error || err.message}`;
     isValidationSuccess.value = false;
   } finally {
     saving.value = false;
@@ -155,7 +172,6 @@ const handleSave = async () => {
 };
 
 const lineNumbers = computed(() => {
-  if (!yamlContent.value) return [];
   const count = yamlContent.value.split('\n').length;
   return Array.from({ length: Math.max(count, 20) }, (_, i) => i + 1);
 });
@@ -177,10 +193,10 @@ onMounted(() => {
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
-    <div class="border-b border-slate-800 pb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="border-b border-slate-200 dark:border-slate-800 pb-4 flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-tight">Prometheus Config</h1>
-        <p class="text-xs text-slate-400 mt-0.5">
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Prometheus Config</h1>
+        <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
           Edit and validate prometheus.yml configuration directly from the portal.
         </p>
       </div>
@@ -188,7 +204,7 @@ onMounted(() => {
       <!-- Go to Connections button -->
       <button
         @click="router.push('/connections')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer shadow-sm"
       >
         <ExternalLink class="w-3.5 h-3.5" />
         <span>GO TO CONNECTIONS</span>
@@ -196,20 +212,20 @@ onMounted(() => {
     </div>
 
     <!-- Main Card Body -->
-    <div class="p-6 bg-[#171a23] border border-slate-800 rounded-2xl space-y-6 shadow-xl">
-      <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">PROMETHEUS CONFIG</h2>
+    <div class="p-6 bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-2xl space-y-6 shadow-sm">
+      <h2 class="text-xs font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">PROMETHEUS CONFIG</h2>
 
       <!-- Top Controls: Instance Selector & File Path -->
       <div class="flex flex-wrap items-center justify-between gap-4 text-xs">
         <!-- Instance Dropdown -->
         <div class="flex items-center gap-3">
-          <span class="text-slate-400 font-medium">Prometheus Instance:</span>
+          <span class="text-slate-700 dark:text-slate-400 font-medium">Prometheus Instance:</span>
           
           <select
             v-if="instances.length > 0"
             v-model="selectedInstanceId"
             @change="handleInstanceChange"
-            class="bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-semibold focus:outline-none focus:border-brand-500 text-xs min-w-[220px]"
+            class="bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-semibold focus:outline-none focus:border-blue-500 text-xs min-w-[220px] shadow-sm"
           >
             <option v-for="inst in instances" :key="inst.id" :value="inst.id">
               {{ inst.name }}
@@ -219,45 +235,45 @@ onMounted(() => {
 
           <button
             @click="fetchPrometheusInstances"
-            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer shadow-sm"
             title="Refresh Instances"
           >
             <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
           </button>
 
-          <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
+          <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-slate-400 text-[10px] font-mono border border-blue-200 dark:border-slate-700/60 font-semibold">
             SSH Remote
           </span>
         </div>
 
         <!-- Config file status -->
         <div v-if="instances.length > 0" class="flex items-center gap-2 font-mono text-xs">
-          <span class="text-slate-400">Config file:</span>
-          <span class="text-sky-400 font-semibold bg-[#0f1219] px-2.5 py-1 rounded border border-slate-800">
+          <span class="text-slate-600 dark:text-slate-400">Config file:</span>
+          <span class="text-blue-700 dark:text-sky-400 font-semibold bg-slate-100 dark:bg-[#0f1219] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800">
             {{ configFilePath }}
           </span>
-          <span v-if="isLoaded" class="text-emerald-400 font-bold text-[11px]">
-            Loaded
+          <span v-if="isLoaded" class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+            <CheckCircle2 class="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Loaded
           </span>
-          <span v-else-if="loading" class="text-amber-400 font-bold text-[11px] flex items-center gap-1">
+          <span v-else-if="loading" class="text-amber-600 dark:text-amber-400 font-bold text-[11px] flex items-center gap-1">
             <RotateCw class="w-3 h-3 animate-spin" /> Fetching...
           </span>
-          <span v-else class="text-rose-400 font-bold text-[11px]">
+          <span v-else class="text-rose-600 dark:text-rose-400 font-bold text-[11px]">
             Failed
           </span>
         </div>
       </div>
 
       <!-- IF NO INSTANCE CONFIGURED (Clean Empty State) -->
-      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-[#0e1118] border border-slate-800/80 rounded-xl space-y-3">
-        <Server class="w-8 h-8 text-slate-600 mx-auto mb-2" />
-        <p class="text-xs font-bold text-slate-300">No Prometheus Connection Found</p>
-        <p class="text-[11px] text-slate-500 max-w-md mx-auto">
+      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-slate-50 dark:bg-[#0e1118] border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-3">
+        <Server class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+        <p class="text-xs font-bold text-slate-800 dark:text-slate-300">No Prometheus Connection Found</p>
+        <p class="text-[11px] text-slate-600 dark:text-slate-500 max-w-md mx-auto">
           You have not registered any Prometheus server in Connections yet. Please add a Prometheus connection first to edit and reload prometheus.yml.
         </p>
         <button
           @click="router.push('/connections')"
-          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2"
+          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2 cursor-pointer shadow-sm"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Prometheus Connection</span>

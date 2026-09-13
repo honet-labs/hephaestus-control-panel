@@ -216,6 +216,32 @@ func (h *SettingsHandler) ListPrometheus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+
+	filterType := strings.ToLower(c.Query("type"))
+	if filterType == "prometheus" {
+		var filtered []domain.PrometheusConfig
+		for _, item := range list {
+			name := strings.ToLower(item.Name)
+			path := strings.ToLower(item.Path)
+			if !strings.Contains(name, "data prepper") && !strings.Contains(name, "dataprepper") && !strings.Contains(path, "pipeline") {
+				filtered = append(filtered, item)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": filtered})
+		return
+	} else if filterType == "dataprepper" || filterType == "data_prepper" {
+		var filtered []domain.PrometheusConfig
+		for _, item := range list {
+			name := strings.ToLower(item.Name)
+			path := strings.ToLower(item.Path)
+			if strings.Contains(name, "data prepper") || strings.Contains(name, "dataprepper") || strings.Contains(path, "pipeline") {
+				filtered = append(filtered, item)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": filtered})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 

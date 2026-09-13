@@ -212,6 +212,12 @@ func (s *PrometheusService) GetConfigFile(ctx context.Context, instanceID string
 		return "", nil, fmt.Errorf("Prometheus configuration not found: %w", err)
 	}
 
+	nameLower := strings.ToLower(promCfg.Name)
+	pathLower := strings.ToLower(promCfg.Path)
+	if strings.Contains(nameLower, "data prepper") || strings.Contains(nameLower, "dataprepper") || strings.Contains(pathLower, "pipeline") {
+		return "", promCfg, fmt.Errorf("instance '%s' is a Data Prepper pipeline directory, not a Prometheus config file. Please select a valid Prometheus instance", promCfg.Name)
+	}
+
 	filePath := promCfg.Path
 	if filePath == "" {
 		filePath = "/etc/prometheus/prometheus.yml"
@@ -266,6 +272,12 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 	}
 	if err != nil {
 		return fmt.Errorf("Prometheus configuration not found: %w", err)
+	}
+
+	nameLowerSave := strings.ToLower(promCfg.Name)
+	pathLowerSave := strings.ToLower(promCfg.Path)
+	if strings.Contains(nameLowerSave, "data prepper") || strings.Contains(nameLowerSave, "dataprepper") || strings.Contains(pathLowerSave, "pipeline") {
+		return fmt.Errorf("instance '%s' is a Data Prepper pipeline directory, not a Prometheus config file", promCfg.Name)
 	}
 
 	filePath := promCfg.Path
