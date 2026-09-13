@@ -588,60 +588,20 @@ const closeSession = (idx: number, event?: MouseEvent) => {
   saveSessionsState();
 };
 
-// Reconnect Terminal
-const reconnectTerminal = (session: OpenSession) => {
-  session.connected = false;
-  session.connecting = true;
-  if (session.heartbeatTimer) {
-    clearInterval(session.heartbeatTimer);
-    session.heartbeatTimer = undefined;
-  }
-  if (session.resizeObserver) {
-    try {
-      session.resizeObserver.disconnect();
-    } catch (e) {}
-    session.resizeObserver = undefined;
-  }
-  if (session.ws) {
-    try {
-      session.ws.onopen = null;
-      session.ws.onmessage = null;
-      session.ws.onerror = null;
-      session.ws.onclose = null;
-      session.ws.close();
-    } catch (e) {}
-    session.ws = undefined;
-  }
+// Clear Terminal Buffer & Scrollback manually if requested by user
+const clearTerminal = (session: OpenSession) => {
   if (session.term) {
-    try {
-      session.term.dispose();
-    } catch (e) {}
-    session.term = undefined;
+    session.term.clear();
+    session.term.focus();
   }
-  initXterm(session);
 };
 
-// Initialize xterm.js Terminal with WebSocket & Heartbeats
-const initXterm = (session: OpenSession) => {
-  // If WebSocket is already open or connecting, do not re-create
-  if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
-    try {
-      session.fitAddon?.fit();
-      session.term?.focus();
-    } catch (e) {}
-    return;
-  }
-
-  // Teardown any leftover listeners or resources on re-init
+// Connect WebSocket Stream for Terminal Session
+const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) => {
+  // Teardown previous heartbeat & ws if present
   if (session.heartbeatTimer) {
     clearInterval(session.heartbeatTimer);
     session.heartbeatTimer = undefined;
-  }
-  if (session.resizeObserver) {
-    try {
-      session.resizeObserver.disconnect();
-    } catch (e) {}
-    session.resizeObserver = undefined;
   }
   if (session.ws) {
     try {
@@ -653,59 +613,35 @@ const initXterm = (session: OpenSession) => {
     } catch (e) {}
     session.ws = undefined;
   }
-  if (session.term) {
-    try {
-      session.term.dispose();
-    } catch (e) {}
-    session.term = undefined;
-  }
 
-  const container = document.getElementById(`terminal-container-${session.id}`);
-  if (!container) return;
-  container.innerHTML = '';
-
-  const term = new Terminal({
-    cursorBlink: true,
-    fontSize: 13,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: themeStore.isDark ? darkTerminalTheme : lightTerminalTheme,
-    allowProposedApi: true,
-  });
-
-  const fitAddon = new FitAddon();
-  term.loadAddon(fitAddon);
-  term.loadAddon(new WebLinksAddon());
-  term.open(container);
-
-  // Initial fit attempt
-  try {
-    fitAddon.fit();
-    term.focus();
-  } catch (e) {}
-
-  session.term = term;
-  session.fitAddon = fitAddon;
   session.connecting = true;
   session.connected = false;
 
-  // Open WebSocket with token and detected initial terminal dimensions
+  if (isReconnect && session.term) {
+    session.term.write('\r\n\x1b[33m[Reconnecting to ' + session.host.name + '...]\x1b[0m\r\n');
+  }
+
+  // Open WebSocket with token and detected terminal dimensions
   const token = authStore.token || localStorage.getItem('hephaestus_token') || localStorage.getItem('hcp_token') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const initialCols = term.cols > 0 ? term.cols : 80;
-  const initialRows = term.rows > 0 ? term.rows : 24;
+  const initialCols = session.term && session.term.cols > 0 ? session.term.cols : 80;
+  const initialRows = session.term && session.term.rows > 0 ? session.term.rows : 24;
   const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${initialCols}&rows=${initialRows}`;
   const ws = new WebSocket(wsUrl);
+  session.ws = ws;
 
   ws.onopen = () => {
     if (session.ws !== ws) return;
     session.connecting = false;
     session.connected = true;
-    term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
 
-    // Fit again immediately upon WebSocket opening to get true container dimensions
-    try {
-      fitAddon.fit();
-    } catch (e) {}
+    if (session.term) {
+      session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+      try {
+        session.fitAddon?.fit();
+        session.term.focus();
+      } catch (e) {}
+    }
 
     // Send auth handshake
     ws.send(
@@ -713,18 +649,18 @@ const initXterm = (session: OpenSession) => {
         type: 'auth',
         token: token,
         hostConfigId: session.host.id,
-        cols: term.cols,
-        rows: term.rows,
+        cols: session.term?.cols || initialCols,
+        rows: session.term?.rows || initialRows,
       })
     );
 
     // Send explicit resize message to ensure PTY adopts dimensions immediately
-    if (term.cols > 0 && term.rows > 0) {
+    if (session.term && session.term.cols > 0 && session.term.rows > 0) {
       ws.send(
         JSON.stringify({
           type: 'resize',
-          cols: term.cols,
-          rows: term.rows,
+          cols: session.term.cols,
+          rows: session.term.rows,
         })
       );
     }
@@ -746,16 +682,16 @@ const initXterm = (session: OpenSession) => {
           session.connecting = false;
           session.connected = true;
         }
-        term.write(msg.data);
+        session.term?.write(msg.data);
       } else if (msg.type === 'connected') {
         session.connecting = false;
         session.connected = true;
         // On connected ack, ensure remote PTY matches client dimensions
-        if (term.cols > 0 && term.rows > 0 && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        if (session.term && session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
         }
       } else if (msg.type === 'error') {
-        term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
+        session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'disconnected') {
         session.connecting = false;
         session.connected = false;
@@ -763,14 +699,14 @@ const initXterm = (session: OpenSession) => {
           clearInterval(session.heartbeatTimer);
           session.heartbeatTimer = undefined;
         }
-        term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+        session.term?.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
       }
     } catch (e) {
       if (!session.connected) {
         session.connecting = false;
         session.connected = true;
       }
-      term.write(ev.data);
+      session.term?.write(ev.data);
     }
   };
 
@@ -782,7 +718,7 @@ const initXterm = (session: OpenSession) => {
       clearInterval(session.heartbeatTimer);
       session.heartbeatTimer = undefined;
     }
-    term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+    session.term?.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
   };
 
   ws.onerror = () => {
@@ -793,22 +729,85 @@ const initXterm = (session: OpenSession) => {
       clearInterval(session.heartbeatTimer);
       session.heartbeatTimer = undefined;
     }
-    term.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
+    session.term?.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
   };
+};
 
+// Reconnect Terminal preserving output history & scrollback buffer
+const reconnectTerminal = (session: OpenSession) => {
+  // If term already exists in container, reconnect WebSocket directly without wiping buffer or disposing term
+  if (session.term && session.fitAddon) {
+    connectWsTerminal(session, true);
+  } else {
+    initXterm(session);
+  }
+};
+
+// Initialize xterm.js Terminal with WebSocket & Heartbeats
+const initXterm = (session: OpenSession) => {
+  // If WebSocket is already open or connecting, do not re-create
+  if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
+    try {
+      session.fitAddon?.fit();
+      session.term?.focus();
+    } catch (e) {}
+    return;
+  }
+
+  // If terminal instance already exists, reconnect stream without wiping
+  if (session.term && session.fitAddon) {
+    connectWsTerminal(session, false);
+    return;
+  }
+
+  const container = document.getElementById(`terminal-container-${session.id}`);
+  if (!container) return;
+  container.innerHTML = '';
+
+  const term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    theme: themeStore.isDark ? darkTerminalTheme : lightTerminalTheme,
+    allowProposedApi: true,
+    scrollback: 10000,
+  });
+
+  const fitAddon = new FitAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(new WebLinksAddon());
+  term.open(container);
+
+  // Initial fit attempt
+  try {
+    fitAddon.fit();
+    term.focus();
+  } catch (e) {}
+
+  session.term = term;
+  session.fitAddon = fitAddon;
+
+  // Set up listeners on terminal to send data and resize dynamically to active WebSocket
   term.onData((data) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data }));
+    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+      session.ws.send(JSON.stringify({ type: 'input', data }));
     }
   });
 
   term.onResize(({ cols, rows }) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+      session.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
   });
 
   // Attach ResizeObserver to container so any layout change automatically fits terminal
+  if (session.resizeObserver) {
+    try {
+      session.resizeObserver.disconnect();
+    } catch (e) {}
+    session.resizeObserver = undefined;
+  }
+
   const resizeObserver = new ResizeObserver(() => {
     if (session.term && session.fitAddon && session.activeView === 'terminal') {
       try {
@@ -828,7 +827,8 @@ const initXterm = (session: OpenSession) => {
   resizeObserver.observe(container);
   session.resizeObserver = resizeObserver;
 
-  session.ws = ws;
+  // Establish initial WebSocket connection
+  connectWsTerminal(session, false);
 };
 
 // Watch activeSession changes to ensure fitted terminal
@@ -2460,6 +2460,17 @@ onUnmounted(() => {
             <!-- 1. TERMINAL VIEW (Always mounted, no blank screens) -->
             <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden">
               <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
+                <!-- Clear Terminal Button -->
+                <button
+                  v-if="session.term"
+                  @click="clearTerminal(session)"
+                  title="Clear terminal screen & scrollback buffer"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded bg-white/90 hover:bg-slate-100 dark:bg-[#1b1e26]/90 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-mono border border-slate-300/80 dark:border-slate-700 transition cursor-pointer shadow-xs backdrop-blur-xs"
+                >
+                  <Trash2 class="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                  <span>Clear</span>
+                </button>
+
                 <span
                   v-if="session.connected"
                   class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-mono dark:border-emerald-500/30 flex items-center gap-1.5 shadow-sm"
@@ -2481,6 +2492,7 @@ onUnmounted(() => {
                   </span>
                   <button
                     @click="reconnectTerminal(session)"
+                    title="Reconnect (Preserve terminal history & buffer)"
                     class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 dark:bg-brand-500 dark:hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition cursor-pointer"
                   >
                     <RotateCw class="w-3 h-3" />
