@@ -73,6 +73,49 @@ func (h *BackupHandler) SaveDBConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Database config saved.", "data": cfg})
 }
 
+func (h *BackupHandler) TestDBConfig(c *gin.Context) {
+	var cfg domain.BackupDbConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: " + err.Error()})
+		return
+	}
+
+	if cfg.Port <= 0 {
+		switch cfg.DBType {
+		case "postgresql":
+			cfg.Port = 5432
+		case "mysql", "mariadb":
+			cfg.Port = 3306
+		case "sqlserver":
+			cfg.Port = 1433
+		default:
+			cfg.Port = 5432
+		}
+	}
+
+	// If testing an existing configuration without re-entering passwords
+	if cfg.ID != "" && cfg.Password == "" {
+		existing, err := h.backupRepo.GetRawDBConfig(c.Request.Context(), cfg.ID)
+		if err == nil && existing != nil {
+			cfg.Password = existing.Password
+			if cfg.SSHPassword == nil || *cfg.SSHPassword == "" {
+				cfg.SSHPassword = existing.SSHPassword
+			}
+			if cfg.SSHKey == nil || *cfg.SSHKey == "" {
+				cfg.SSHKey = existing.SSHKey
+			}
+		}
+	}
+
+	msg, err := h.backupService.TestDBConfig(c.Request.Context(), &cfg)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fmt.Sprintf("Connection test failed: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": msg})
+}
+
 func (h *BackupHandler) DeleteDBConfig(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.backupRepo.DeleteDBConfig(c.Request.Context(), id); err != nil {

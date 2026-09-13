@@ -202,6 +202,7 @@ func main() {
 		// Backups (Feature: backup)
 		api.GET("/backup/databases", middleware.RequirePermission("backup", "read"), backupHandler.ListDBConfigs)
 		api.POST("/backup/databases", middleware.RequirePermission("backup", "manage"), backupHandler.SaveDBConfig)
+		api.POST("/backup/databases/test", middleware.RequirePermission("backup", "manage"), backupHandler.TestDBConfig)
 		api.DELETE("/backup/databases/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteDBConfig)
 		api.GET("/backup/destinations", middleware.RequirePermission("backup", "read"), backupHandler.ListDestinations)
 		api.POST("/backup/destinations", middleware.RequirePermission("backup", "manage"), backupHandler.SaveDestination)
