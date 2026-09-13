@@ -57,6 +57,15 @@ const router = createRouter({
           component: () => import('../views/ConnectionsView.vue'),
         },
         {
+          path: 'inventory-server',
+          name: 'inventory-server',
+          component: () => import('../views/VmInventoryView.vue'),
+        },
+        {
+          path: 'inventory',
+          redirect: '/inventory-server',
+        },
+        {
           path: 'prometheus-config',
           name: 'prometheus-config',
           component: () => import('../views/PrometheusConfigView.vue'),

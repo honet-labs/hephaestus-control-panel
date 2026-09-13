@@ -6,6 +6,7 @@ import CommandPalette from '../components/CommandPalette.vue';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   LayoutDashboard,
+  Link2,
   Server,
   Network,
   Sliders,
@@ -24,7 +25,8 @@ const authStore = useAuthStore();
 
 // Accordion states - collapsed by default, open only if current route belongs to submenu
 const isServerOpen = ref(
-  route.path.startsWith('/connections') ||
+  route.path.startsWith('/inventory-server') ||
+  route.path.startsWith('/inventory') ||
   route.path.startsWith('/remote-server') ||
   route.path.startsWith('/remote-host')
 );
@@ -45,7 +47,8 @@ const isMonitoringOpen = ref(
 
 // Active indicators for parent accordion headers
 const isServerActive = computed(() =>
-  route.path.startsWith('/connections') ||
+  route.path.startsWith('/inventory-server') ||
+  route.path.startsWith('/inventory') ||
   route.path.startsWith('/remote-server') ||
   route.path.startsWith('/remote-host')
 );
@@ -67,7 +70,7 @@ const isMonitoringActive = computed(() =>
 watch(
   () => route.path,
   (newPath) => {
-    if (newPath.startsWith('/connections') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
+    if (newPath.startsWith('/inventory-server') || newPath.startsWith('/inventory') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
       isServerOpen.value = true;
     }
     if (newPath.startsWith('/network-topology')) {
@@ -160,7 +163,22 @@ onMounted(() => {
             <span>Overview</span>
           </router-link>
 
-          <!-- 2. Server (Accordion) -->
+          <!-- 2. Connections -->
+          <router-link
+            v-if="authStore.can('connections', 'read')"
+            to="/connections"
+            :class="[
+              route.path === '/connections'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
+              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+            ]"
+          >
+            <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
+            <span>Connections</span>
+          </router-link>
+
+          <!-- 3. Server (Accordion) -->
           <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
             <button
               @click="isServerOpen = !isServerOpen"
@@ -182,15 +200,15 @@ onMounted(() => {
             <div v-show="isServerOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <router-link
                 v-if="authStore.can('connections', 'read')"
-                to="/connections"
+                to="/inventory-server"
                 :class="[
-                  route.path === '/connections'
+                  (route.path === '/inventory-server' || route.path === '/inventory')
                     ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
                     : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/connections' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(route.path === '/inventory-server' || route.path === '/inventory') ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>Inventory Server</span>
               </router-link>
 

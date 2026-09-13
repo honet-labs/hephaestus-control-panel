@@ -15,6 +15,7 @@ import {
   Clock,
   Sliders,
   ExternalLink,
+  Link2,
 } from 'lucide-vue-next';
 
 const isOpen = ref(false);
@@ -23,7 +24,8 @@ const router = useRouter();
 
 const items = [
   { name: 'Overview', icon: Activity, route: '/' },
-  { name: 'Inventory Server', icon: Server, route: '/connections' },
+  { name: 'Connections', icon: Link2, route: '/connections' },
+  { name: 'Inventory Server', icon: Server, route: '/inventory-server' },
   { name: 'Remote Server', icon: Terminal, route: '/remote-server', newTab: true },
   { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true },
   { name: 'Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config' },
