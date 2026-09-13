@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   LayoutDashboard,
-  Link2,
-  Sliders,
+  Server,
   Network,
-  Search,
-  Database,
+  Sliders,
   Wrench,
+  Activity,
   Settings,
   LogOut,
   ChevronRight,
   ChevronDown,
-  Terminal,
   Command,
 } from 'lucide-vue-next';
 
@@ -25,8 +23,67 @@ const route = useRoute();
 const authStore = useAuthStore();
 
 // Accordion states - collapsed by default, open only if current route belongs to submenu
-const isRemoteConfigOpen = ref(['/prometheus-config', '/dataprepper-config'].includes(route.path));
-const isToolsOpen = ref(['/snmp', '/grok-debugger', '/slideshow'].includes(route.path));
+const isServerOpen = ref(
+  route.path.startsWith('/connections') ||
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
+);
+const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
+const isRemoteConfigOpen = ref(
+  route.path.startsWith('/dataprepper-config') ||
+  route.path.startsWith('/prometheus-config')
+);
+const isToolsOpen = ref(
+  route.path.startsWith('/snmp') ||
+  route.path.startsWith('/grok-debugger') ||
+  route.path.startsWith('/backup')
+);
+const isMonitoringOpen = ref(
+  route.path.startsWith('/opensearch-cluster') ||
+  route.path.startsWith('/slideshow')
+);
+
+// Active indicators for parent accordion headers
+const isServerActive = computed(() =>
+  route.path.startsWith('/connections') ||
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
+);
+const isNetworkingActive = computed(() => route.path.startsWith('/network-topology'));
+const isRemoteConfigActive = computed(() =>
+  route.path.startsWith('/dataprepper-config') ||
+  route.path.startsWith('/prometheus-config')
+);
+const isToolsActive = computed(() =>
+  route.path.startsWith('/snmp') ||
+  route.path.startsWith('/grok-debugger') ||
+  route.path.startsWith('/backup')
+);
+const isMonitoringActive = computed(() =>
+  route.path.startsWith('/opensearch-cluster') ||
+  route.path.startsWith('/slideshow')
+);
+
+watch(
+  () => route.path,
+  (newPath) => {
+    if (newPath.startsWith('/connections') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
+      isServerOpen.value = true;
+    }
+    if (newPath.startsWith('/network-topology')) {
+      isNetworkingOpen.value = true;
+    }
+    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config')) {
+      isRemoteConfigOpen.value = true;
+    }
+    if (newPath.startsWith('/snmp') || newPath.startsWith('/grok-debugger') || newPath.startsWith('/backup')) {
+      isToolsOpen.value = true;
+    }
+    if (newPath.startsWith('/opensearch-cluster') || newPath.startsWith('/slideshow')) {
+      isMonitoringOpen.value = true;
+    }
+  }
+);
 
 const handleLogout = async () => {
   await authStore.logout();
@@ -88,7 +145,7 @@ onMounted(() => {
         <!-- Navigation Links (With Sub-Menu Accordions) -->
         <nav class="px-3 space-y-1 overflow-y-auto flex-1 select-none pr-2">
           
-          <!-- 1. Overview / Dashboard -->
+          <!-- 1. Overview -->
           <router-link
             v-if="authStore.can('dashboard', 'read')"
             to="/"
@@ -103,40 +160,107 @@ onMounted(() => {
             <span>Overview</span>
           </router-link>
 
-          <!-- 2. Connections -->
-          <router-link
-            v-if="authStore.can('connections', 'read')"
-            to="/connections"
-            :class="[
-              route.path === '/connections'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
-            ]"
-          >
-            <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
-            <span>Connections</span>
-          </router-link>
-
-          <!-- 3. Remote Server (Dedicated Top-Level Menu) -->
-          <a
-            v-if="authStore.can('remote_servers', 'read')"
-            href="/remote-server"
-            target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
-          >
-            <Terminal class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
-            <span>Remote Server</span>
-          </a>
-
-          <!-- 4. Remote Config (Accordion Parent) -->
-          <div v-if="authStore.can('prometheus_config', 'read') || authStore.can('dataprepper_config', 'read')">
+          <!-- 2. Server (Accordion) -->
+          <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
             <button
-              @click="isRemoteConfigOpen = !isRemoteConfigOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
+              @click="isServerOpen = !isServerOpen"
+              :class="[
+                isServerActive
+                  ? 'text-slate-900 dark:text-white font-semibold'
+                  : 'text-slate-700 dark:text-slate-400',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+              ]"
             >
               <div class="flex items-center gap-3">
-                <Sliders class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <Server class="w-4 h-4 shrink-0 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
+                <span>Server</span>
+              </div>
+              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            </button>
+
+            <!-- Server Sub-Menu Items -->
+            <div v-show="isServerOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <router-link
+                v-if="authStore.can('connections', 'read')"
+                to="/connections"
+                :class="[
+                  route.path === '/connections'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/connections' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>Inventory Server</span>
+              </router-link>
+
+              <a
+                v-if="authStore.can('remote_servers', 'read')"
+                href="/remote-server"
+                target="_blank"
+                :class="[
+                  (route.path === '/remote-server' || route.path === '/remote-host')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(route.path === '/remote-server' || route.path === '/remote-host') ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>Remote Server</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- 3. Networking (Accordion) -->
+          <div v-if="authStore.can('network_topology', 'read')">
+            <button
+              @click="isNetworkingOpen = !isNetworkingOpen"
+              :class="[
+                isNetworkingActive
+                  ? 'text-slate-900 dark:text-white font-semibold'
+                  : 'text-slate-700 dark:text-slate-400',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+              ]"
+            >
+              <div class="flex items-center gap-3">
+                <Network class="w-4 h-4 shrink-0 transition" :class="isNetworkingActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
+                <span>Networking</span>
+              </div>
+              <component :is="isNetworkingOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            </button>
+
+            <!-- Networking Sub-Menu Items -->
+            <div v-show="isNetworkingOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <a
+                v-if="authStore.can('network_topology', 'read')"
+                href="/network-topology"
+                target="_blank"
+                :class="[
+                  route.path === '/network-topology'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/network-topology' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>Network Topology</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- 4. Remote Config (Accordion) -->
+          <div v-if="authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read')">
+            <button
+              @click="isRemoteConfigOpen = !isRemoteConfigOpen"
+              :class="[
+                isRemoteConfigActive
+                  ? 'text-slate-900 dark:text-white font-semibold'
+                  : 'text-slate-700 dark:text-slate-400',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+              ]"
+            >
+              <div class="flex items-center gap-3">
+                <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Remote Config</span>
               </div>
               <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
@@ -145,80 +269,48 @@ onMounted(() => {
             <!-- Remote Config Sub-Menu Items -->
             <div v-show="isRemoteConfigOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <router-link
-                v-if="authStore.can('prometheus_config', 'read')"
-                to="/prometheus-config"
-                :class="[
-                  route.path === '/prometheus-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
-                ]"
-              >
-                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/prometheus-config' ? 'bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
-                <span>Prometheus Config</span>
-              </router-link>
-
-              <router-link
                 v-if="authStore.can('dataprepper_config', 'read')"
                 to="/dataprepper-config"
                 :class="[
                   route.path === '/dataprepper-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/dataprepper-config' ? 'bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/dataprepper-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>Data Prepper Pipelines</span>
+              </router-link>
+
+              <router-link
+                v-if="authStore.can('prometheus_config', 'read')"
+                to="/prometheus-config"
+                :class="[
+                  route.path === '/prometheus-config'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/prometheus-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>Prometheus Config</span>
               </router-link>
             </div>
           </div>
 
-          <!-- 4. Network Topology -->
-          <a
-            v-if="authStore.can('network_topology', 'read')"
-            href="/network-topology"
-            target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
-          >
-            <Network class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
-            <span>Network Topology</span>
-          </a>
-
-          <!-- 5. OpenSearch Cluster -->
-          <a
-            v-if="authStore.can('opensearch', 'read')"
-            href="/opensearch-cluster"
-            target="_blank"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 group cursor-pointer"
-          >
-            <Search class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition" />
-            <span>OpenSearch Cluster</span>
-          </a>
-
-          <!-- 6. Backup Manager -->
-          <router-link
-            v-if="authStore.can('backup', 'read')"
-            to="/backup"
-            :class="[
-              route.path === '/backup'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
-            ]"
-          >
-            <Database class="w-4 h-4 shrink-0 transition" :class="route.path === '/backup' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
-            <span>Backup Manager</span>
-          </router-link>
-
-          <!-- 7. Tools (Accordion Parent) -->
-          <div v-if="authStore.can('snmp', 'read') || authStore.can('grok_debugger', 'read') || authStore.can('slideshow', 'read')">
+          <!-- 5. Tools (Accordion) -->
+          <div v-if="authStore.can('snmp', 'read') || authStore.can('grok_debugger', 'read') || authStore.can('backup', 'read')">
             <button
               @click="isToolsOpen = !isToolsOpen"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200"
+              :class="[
+                isToolsActive
+                  ? 'text-slate-900 dark:text-white font-semibold'
+                  : 'text-slate-700 dark:text-slate-400',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+              ]"
             >
               <div class="flex items-center gap-3">
-                <Wrench class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <Wrench class="w-4 h-4 shrink-0 transition" :class="isToolsActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Tools</span>
               </div>
               <component :is="isToolsOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
@@ -231,12 +323,12 @@ onMounted(() => {
                 to="/snmp"
                 :class="[
                   route.path === '/snmp'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/snmp' ? 'bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/snmp' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>SNMP Browser</span>
               </router-link>
 
@@ -245,32 +337,83 @@ onMounted(() => {
                 to="/grok-debugger"
                 :class="[
                   route.path === '/grok-debugger'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/grok-debugger' ? 'bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/grok-debugger' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>Grok Debugger</span>
               </router-link>
+
+              <router-link
+                v-if="authStore.can('backup', 'read')"
+                to="/backup"
+                :class="[
+                  route.path === '/backup'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/backup' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>Backup Manager</span>
+              </router-link>
+            </div>
+          </div>
+
+          <!-- 6. Monitoring (Accordion) -->
+          <div v-if="authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
+            <button
+              @click="isMonitoringOpen = !isMonitoringOpen"
+              :class="[
+                isMonitoringActive
+                  ? 'text-slate-900 dark:text-white font-semibold'
+                  : 'text-slate-700 dark:text-slate-400',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+              ]"
+            >
+              <div class="flex items-center gap-3">
+                <Activity class="w-4 h-4 shrink-0 transition" :class="isMonitoringActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
+                <span>Monitoring</span>
+              </div>
+              <component :is="isMonitoringOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            </button>
+
+            <!-- Monitoring Sub-Menu Items -->
+            <div v-show="isMonitoringOpen" class="pl-7 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <a
+                v-if="authStore.can('opensearch', 'read')"
+                href="/opensearch-cluster"
+                target="_blank"
+                :class="[
+                  route.path === '/opensearch-cluster'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/opensearch-cluster' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>OpenSearch Cluster</span>
+              </a>
 
               <router-link
                 v-if="authStore.can('slideshow', 'read')"
                 to="/slideshow"
                 :class="[
                   route.path === '/slideshow'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
+                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
                   'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
                 ]"
               >
-                <span class="w-1.5 h-1.5 rounded-full" :class="route.path === '/slideshow' ? 'bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/slideshow' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>Slide Show</span>
               </router-link>
             </div>
           </div>
 
-          <!-- 8. System Settings -->
+          <!-- 7. System Settings -->
           <router-link
             v-if="authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN'"
             to="/settings"

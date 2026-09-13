@@ -13,6 +13,7 @@ import {
   Settings, 
   FileText,
   Clock,
+  Sliders,
   ExternalLink,
 } from 'lucide-vue-next';
 
@@ -21,16 +22,17 @@ const searchQuery = ref('');
 const router = useRouter();
 
 const items = [
-  { name: 'Dashboard', icon: Activity, route: '/' },
-  { name: 'Remote Server', icon: Terminal, route: '/remote-host', newTab: true },
+  { name: 'Overview', icon: Activity, route: '/' },
+  { name: 'Inventory Server', icon: Server, route: '/connections' },
+  { name: 'Remote Server', icon: Terminal, route: '/remote-server', newTab: true },
   { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true },
-  { name: 'Database Backup Manager', icon: Database, route: '/backup' },
-  { name: 'SNMP Browser & MIBs', icon: Radio, route: '/snmp' },
-  { name: 'OpenSearch Cluster Monitor', icon: Search, route: '/opensearch-cluster', newTab: true },
-  { name: 'Grok Regex Debugger', icon: ListTree, route: '/grok-debugger' },
-  { name: 'VPS Telemetry & Services', icon: Server, route: '/vps-control' },
-  { name: 'Live Backend Logs', icon: FileText, route: '/logs' },
-  { name: 'Status Services & Daemons', icon: Clock, route: '/queue' },
+  { name: 'Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config' },
+  { name: 'Prometheus Config', icon: Sliders, route: '/prometheus-config' },
+  { name: 'SNMP Browser', icon: Radio, route: '/snmp' },
+  { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger' },
+  { name: 'Backup Manager', icon: Database, route: '/backup' },
+  { name: 'OpenSearch Cluster', icon: Search, route: '/opensearch-cluster', newTab: true },
+  { name: 'Slide Show', icon: Activity, route: '/slideshow' },
   { name: 'System Settings', icon: Settings, route: '/settings' },
 ];
 
