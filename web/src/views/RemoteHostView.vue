@@ -2181,20 +2181,21 @@ onUnmounted(() => {
     <div class="flex-1 flex overflow-hidden">
       
       <!-- VIEW 1: SERVER LIST / DISCOVERY -->
-      <div v-if="activeSessionIndex === -1" class="flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-6">
-        <div class="space-y-3">
-          <div class="relative">
+      <div v-if="activeSessionIndex === -1" class="flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 overflow-y-auto w-full max-w-[1720px] mx-auto space-y-6">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div class="relative flex-1">
+            <Search class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               v-model="searchHostQuery"
               placeholder="Find a host or ssh user@hostname..."
-              class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 transition shadow-sm"
+              class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg pl-10 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 transition shadow-sm"
             />
           </div>
 
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2.5 shrink-0">
             <button
               @click="isHostModalOpen = true"
-              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition shadow-sm"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition shadow-sm cursor-pointer"
             >
               <Plus class="w-4 h-4" />
               <span>NEW HOST</span>
@@ -2202,7 +2203,7 @@ onUnmounted(() => {
 
             <button
               @click="isGroupModalOpen = true"
-              class="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-[#1b1e26] dark:hover:bg-[#242833] text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-800 transition shadow-sm"
+              class="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-[#1b1e26] dark:hover:bg-[#242833] text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-800 transition shadow-sm cursor-pointer"
             >
               <FolderPlus class="w-4 h-4 text-blue-600 dark:text-brand-400" />
               <span>NEW GROUP</span>
@@ -2232,7 +2233,7 @@ onUnmounted(() => {
               Clear Filter (Show All)
             </button>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             <div
               v-for="(gHosts, gName) in groupedHosts"
               :key="gName"
@@ -2290,20 +2291,20 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
             <div
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-sm"
+              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-sm hover:shadow-md"
             >
-              <div class="flex items-center gap-3 overflow-hidden">
+              <div class="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
                 <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
                   {{ host.name.substring(0, 2).toUpperCase() }}
                 </div>
-                <div class="overflow-hidden space-y-1">
-                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-emerald-400 transition truncate">{{ host.name }}</p>
-                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">ssh, {{ host.username }}, {{ host.host }}</p>
+                <div class="overflow-hidden space-y-1 min-w-0 flex-1">
+                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-emerald-400 transition truncate" :title="host.name">{{ host.name }}</p>
+                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="`ssh, ${host.username}, ${host.host}`">ssh, {{ host.username }}, {{ host.host }}</p>
                   
                   <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
                     <span class="px-1.5 py-0.2 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-transparent">
