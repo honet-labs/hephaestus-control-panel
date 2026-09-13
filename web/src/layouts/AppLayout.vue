@@ -154,9 +154,9 @@ onMounted(() => {
             to="/"
             :class="[
               route.path === '/'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+              'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
             <LayoutDashboard class="w-4 h-4 shrink-0 transition" :class="route.path === '/' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
@@ -169,9 +169,9 @@ onMounted(() => {
             to="/connections"
             :class="[
               route.path === '/connections'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+              'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
             <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
@@ -184,16 +184,16 @@ onMounted(() => {
               @click="isServerOpen = !isServerOpen"
               :class="[
                 isServerActive
-                  ? 'text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-700 dark:text-slate-400',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
+                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
                 <Server class="w-4 h-4 shrink-0 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Server</span>
               </div>
-              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Server Sub-Menu Items -->
@@ -203,9 +203,9 @@ onMounted(() => {
                 to="/inventory-server"
                 :class="[
                   (route.path === '/inventory-server' || route.path === '/inventory')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(route.path === '/inventory-server' || route.path === '/inventory') ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -218,9 +218,9 @@ onMounted(() => {
                 target="_blank"
                 :class="[
                   (route.path === '/remote-server' || route.path === '/remote-host')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(route.path === '/remote-server' || route.path === '/remote-host') ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -229,22 +229,22 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 3. Networking (Accordion) -->
+          <!-- 4. Networking (Accordion) -->
           <div v-if="authStore.can('network_topology', 'read')">
             <button
               @click="isNetworkingOpen = !isNetworkingOpen"
               :class="[
                 isNetworkingActive
-                  ? 'text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-700 dark:text-slate-400',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
+                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
                 <Network class="w-4 h-4 shrink-0 transition" :class="isNetworkingActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Networking</span>
               </div>
-              <component :is="isNetworkingOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <component :is="isNetworkingOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isNetworkingActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Networking Sub-Menu Items -->
@@ -255,9 +255,9 @@ onMounted(() => {
                 target="_blank"
                 :class="[
                   route.path === '/network-topology'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/network-topology' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -266,22 +266,22 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 4. Remote Config (Accordion) -->
+          <!-- 5. Remote Config (Accordion) -->
           <div v-if="authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read')">
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               :class="[
                 isRemoteConfigActive
-                  ? 'text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-700 dark:text-slate-400',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
+                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
                 <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Remote Config</span>
               </div>
-              <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Remote Config Sub-Menu Items -->
@@ -291,9 +291,9 @@ onMounted(() => {
                 to="/dataprepper-config"
                 :class="[
                   route.path === '/dataprepper-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/dataprepper-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -305,9 +305,9 @@ onMounted(() => {
                 to="/prometheus-config"
                 :class="[
                   route.path === '/prometheus-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/prometheus-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -316,22 +316,22 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 5. Tools (Accordion) -->
+          <!-- 6. Tools (Accordion) -->
           <div v-if="authStore.can('snmp', 'read') || authStore.can('grok_debugger', 'read') || authStore.can('backup', 'read')">
             <button
               @click="isToolsOpen = !isToolsOpen"
               :class="[
                 isToolsActive
-                  ? 'text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-700 dark:text-slate-400',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
+                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
                 <Wrench class="w-4 h-4 shrink-0 transition" :class="isToolsActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Tools</span>
               </div>
-              <component :is="isToolsOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <component :is="isToolsOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isToolsActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Tools Sub-Menu Items -->
@@ -341,9 +341,9 @@ onMounted(() => {
                 to="/snmp"
                 :class="[
                   route.path === '/snmp'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/snmp' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -355,9 +355,9 @@ onMounted(() => {
                 to="/grok-debugger"
                 :class="[
                   route.path === '/grok-debugger'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/grok-debugger' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -369,9 +369,9 @@ onMounted(() => {
                 to="/backup"
                 :class="[
                   route.path === '/backup'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/backup' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -380,22 +380,22 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 6. Monitoring (Accordion) -->
+          <!-- 7. Monitoring (Accordion) -->
           <div v-if="authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
             <button
               @click="isMonitoringOpen = !isMonitoringOpen"
               :class="[
                 isMonitoringActive
-                  ? 'text-slate-900 dark:text-white font-semibold'
-                  : 'text-slate-700 dark:text-slate-400',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border border-transparent hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
+                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
                 <Activity class="w-4 h-4 shrink-0 transition" :class="isMonitoringActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
                 <span>Monitoring</span>
               </div>
-              <component :is="isMonitoringOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <component :is="isMonitoringOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isMonitoringActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Monitoring Sub-Menu Items -->
@@ -406,9 +406,9 @@ onMounted(() => {
                 target="_blank"
                 :class="[
                   route.path === '/opensearch-cluster'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/opensearch-cluster' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -420,9 +420,9 @@ onMounted(() => {
                 to="/slideshow"
                 :class="[
                   route.path === '/slideshow'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-bold bg-blue-50/70 dark:bg-[#293681]/30'
-                    : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-[#121826]/60',
-                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] transition'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/slideshow' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
@@ -431,15 +431,15 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 7. System Settings -->
+          <!-- 8. System Settings -->
           <router-link
             v-if="authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN'"
             to="/settings"
             :class="[
               route.path === '/settings'
-                ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent',
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
+                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+              'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
             <Settings class="w-4 h-4 shrink-0 transition" :class="route.path === '/settings' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-500 dark:text-slate-400'" />
