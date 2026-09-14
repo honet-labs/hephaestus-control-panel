@@ -155,7 +155,7 @@ onMounted(() => {
             :class="[
               route.path === '/'
                 ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -170,7 +170,7 @@ onMounted(() => {
             :class="[
               route.path === '/connections'
                 ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
@@ -184,8 +184,8 @@ onMounted(() => {
               @click="isServerOpen = !isServerOpen"
               :class="[
                 isServerActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
-                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-sm'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
@@ -235,8 +235,8 @@ onMounted(() => {
               @click="isNetworkingOpen = !isNetworkingOpen"
               :class="[
                 isNetworkingActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
-                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-sm'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
@@ -272,8 +272,8 @@ onMounted(() => {
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               :class="[
                 isRemoteConfigActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
-                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-sm'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
@@ -322,8 +322,8 @@ onMounted(() => {
               @click="isToolsOpen = !isToolsOpen"
               :class="[
                 isToolsActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
-                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-sm'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
@@ -386,8 +386,8 @@ onMounted(() => {
               @click="isMonitoringOpen = !isMonitoringOpen"
               :class="[
                 isMonitoringActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/60 dark:bg-[#293681]/20 border-blue-200/80 dark:border-[#4274D9]/30'
-                  : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-sm'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
@@ -438,7 +438,7 @@ onMounted(() => {
             :class="[
               route.path === '/settings'
                 ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-sm'
-                : 'text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
