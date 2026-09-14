@@ -145,7 +145,14 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 			args = append(args, fmt.Sprintf("-p%s", dbCfg.Password))
 		}
 		args = append(args, "--single-transaction", "--quick", "--skip-lock-tables", dbCfg.DatabaseName)
-		cmd = exec.CommandContext(ctx, "mysqldump", args...)
+
+		dumpBin := "mysqldump"
+		if p, err := exec.LookPath("mariadb-dump"); err == nil {
+			dumpBin = p
+		} else if p, err := exec.LookPath("mysqldump"); err == nil {
+			dumpBin = p
+		}
+		cmd = exec.CommandContext(ctx, dumpBin, args...)
 	default:
 		return nil, fmt.Errorf("unsupported database type for direct dump: %s", dbCfg.DBType)
 	}
@@ -163,7 +170,7 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 		if errStr == "" {
 			errStr = err.Error()
 		}
-		return nil, fmt.Errorf("mysqldump failed: %s", errStr)
+		return nil, fmt.Errorf("database dump failed: %s", errStr)
 	}
 	return stdout.Bytes(), nil
 }
@@ -258,10 +265,10 @@ func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.Backup
 	var dumpCmd string
 	switch dbCfg.DBType {
 	case "postgresql":
-		dumpCmd = fmt.Sprintf("if command -v pg_dump >/dev/null 2>&1; then PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
+		dumpCmd = fmt.Sprintf("export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; if command -v pg_dump >/dev/null 2>&1; then PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
 			escapeShell(dbCfg.Password), escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	case "mysql", "mariadb":
-		dumpCmd = fmt.Sprintf("if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; elif command -v mysqldump >/dev/null 2>&1; then mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
+		dumpCmd = fmt.Sprintf("export PATH=$PATH:/usr/local/bin:/usr/local/mysql/bin:/opt/lampp/bin:/usr/bin:/bin; if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; elif command -v mysqldump >/dev/null 2>&1; then mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
 			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath),
 			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
 	default:
@@ -702,9 +709,13 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 			passArg = fmt.Sprintf("-p%s", dbCfg.Password)
 			args = append(args, passArg)
 		}
-		args = append(args, "-e", "SELECT VERSION();", dbCfg.DatabaseName)
-
-		cmd := exec.CommandContext(testCtx, "mysql", args...)
+		clientBin := "mysql"
+		if p, err := exec.LookPath("mariadb"); err == nil {
+			clientBin = p
+		} else if p, err := exec.LookPath("mysql"); err == nil {
+			clientBin = p
+		}
+		cmd := exec.CommandContext(testCtx, clientBin, args...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -728,9 +739,13 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 			if dbCfg.Password != "" {
 				dumpArgs = append(dumpArgs, passArg)
 			}
-			dumpArgs = append(dumpArgs, dbCfg.DatabaseName)
-
-			dumpCmd := exec.CommandContext(testCtx, "mysqldump", dumpArgs...)
+			dumpBin := "mysqldump"
+			if p, err := exec.LookPath("mariadb-dump"); err == nil {
+				dumpBin = p
+			} else if p, err := exec.LookPath("mysqldump"); err == nil {
+				dumpBin = p
+			}
+			dumpCmd := exec.CommandContext(testCtx, dumpBin, dumpArgs...)
 			var dumpErr bytes.Buffer
 			dumpCmd.Stderr = &dumpErr
 			if dErr := dumpCmd.Run(); dErr != nil {

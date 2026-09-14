@@ -680,12 +680,12 @@ onMounted(() => {
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <HardDrive v-if="dest.destType === 'nas' || dest.destType === 'nfs'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-sky-600 dark:text-sky-400" />
-              <Cloud v-else class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <HardDrive v-if="dest.destType === 'nas' || dest.destType === 'nfs'" class="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              <Folder v-else-if="dest.destType === 'local'" class="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              <Cloud v-else class="w-4 h-4 text-slate-600 dark:text-slate-400" />
               <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ dest.name }}</h4>
             </div>
-            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-purple-50 dark:bg-slate-800 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-slate-700/60 font-semibold">
+            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 font-semibold">
               {{ dest.destType === 'nas' ? 'NAS (SSH)' : dest.destType }}
             </span>
           </div>
@@ -802,7 +802,7 @@ onMounted(() => {
               </div>
             </td>
             <td class="p-3">{{ h.dbName }} ({{ h.dbType }})</td>
-            <td class="p-3 uppercase text-purple-700 dark:text-purple-400 font-semibold">{{ h.destType }}</td>
+            <td class="p-3 uppercase text-slate-700 dark:text-slate-300 font-semibold">{{ h.destType }}</td>
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
             <td class="p-3">
               <span
@@ -1040,7 +1040,7 @@ onMounted(() => {
       <div class="w-full max-w-lg bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Cloud class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <Cloud class="w-4 h-4 text-slate-500 dark:text-slate-400" />
             <span>Add Storage Destination</span>
           </h3>
           <button @click="isDestModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
@@ -1353,7 +1353,7 @@ onMounted(() => {
           </div>
           <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
             <span class="text-[10px] text-slate-500 block uppercase font-bold">Destination</span>
-            <span class="font-semibold text-purple-600 dark:text-purple-400 uppercase truncate block">{{ selectedHistory.destType }}</span>
+            <span class="font-semibold text-slate-900 dark:text-white uppercase truncate block">{{ selectedHistory.destType }}</span>
           </div>
           <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
             <span class="text-[10px] text-slate-500 block uppercase font-bold">File Size</span>
