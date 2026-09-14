@@ -609,77 +609,89 @@ html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px
   color: #0f172a !important;
 }
 
-/* 15b. NAVIGATION TABS CONTRAST IN LIGHT MODE */
-/* Active Tab: unified brand rgb(66 116 217) background with white font */
-html.light [role="tablist"] button[aria-selected="true"],
-html.light button[role="tab"][aria-selected="true"],
-html.light button[role="tab"].active,
-html.light .tab-btn.active {
+/* 15b. NAVIGATION PILL TABS (IN BACKUP & SETTINGS) */
+/* Only target rounded pill tabs that don't have bottom border indicators */
+html.light [role="tablist"] button.rounded-lg[aria-selected="true"]:not([class*="border-b"]),
+html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b"]) {
   background-color: rgb(66 116 217) !important;
   border-color: rgb(66 116 217) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
 }
-html.light [role="tablist"] button[aria-selected="true"] *,
-html.light button[role="tab"][aria-selected="true"] *,
-html.light button[role="tab"].active *,
-html.light .tab-btn.active * {
+html.light [role="tablist"] button.rounded-lg[aria-selected="true"]:not([class*="border-b"]) *,
+html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b"]) * {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
 
-/* Inactive Tab: crisp subtle background with dark slate text */
-html.light [role="tablist"] button[aria-selected="false"],
-html.light button[role="tab"][aria-selected="false"],
-html.light button[role="tab"]:not([aria-selected="true"]):not(.active) {
+html.light [role="tablist"] button.rounded-lg[aria-selected="false"]:not([class*="border-b"]),
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b"]) {
   background-color: #f8fafc !important;
   border-color: #cbd5e1 !important;
   color: #334155 !important;
 }
-html.light [role="tablist"] button[aria-selected="false"] *,
-html.light button[role="tab"][aria-selected="false"] *,
-html.light button[role="tab"]:not([aria-selected="true"]):not(.active) * {
+html.light [role="tablist"] button.rounded-lg[aria-selected="false"]:not([class*="border-b"]) *,
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b"]) * {
   color: #334155 !important;
   stroke: #334155 !important;
 }
-html.light [role="tablist"] button[aria-selected="false"]:hover,
-html.light button[role="tab"][aria-selected="false"]:hover,
-html.light button[role="tab"]:not([aria-selected="true"]):not(.active):hover {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
-}
-html.light [role="tablist"] button[aria-selected="false"]:hover *,
-html.light button[role="tab"][aria-selected="false"]:hover *,
-html.light button[role="tab"]:not([aria-selected="true"]):not(.active):hover * {
-  color: #0f172a !important;
-  stroke: #0f172a !important;
-}
 
-/* 15c. UNDERLINE NAVIGATION TABS (Horizontal bar with bottom indicator) */
-/* Underline navigation tabs must remain transparent and never have solid box backgrounds */
-html.light button[class*="border-b-2"],
-html.light button[class*="border-b-"][class*="border-blue"],
-html.light [role="tablist"] button[class*="border-b"],
-html.light [role="tablist"] button[class*="border-b-2"] {
+/* 15c. HORIZONTAL NAVIGATION BAR & UNDERLINE TABS (OPENSEARCH & PORTAL TABS) */
+/* Navigation bar tabs must always have transparent background, no box borders, and blue text when active */
+html.light nav button,
+html.light nav a,
+html.light button[class*="border-b"],
+html.light [class*="border-b"] > button,
+html.light [role="tablist"] button[class*="border-b"] {
   background-color: transparent !important;
+  border-top-color: transparent !important;
+  border-left-color: transparent !important;
+  border-right-color: transparent !important;
   box-shadow: none !important;
 }
+
+/* Active tab text MUST be bold blue (rgb 37 99 235 / #2563eb), NOT white */
+html.light nav button[class*="text-blue"],
+html.light nav button[class*="border-blue"],
 html.light button[class*="border-b-2"][class*="text-blue"],
 html.light button[class*="border-b-2"][class*="border-blue"],
-html.light [role="tablist"] button[class*="border-b-2"][class*="text-blue"],
-html.light [role="tablist"] button[class*="border-b"][aria-selected="true"] {
+html.light [role="tablist"] button[class*="border-b"][aria-selected="true"],
+html.light nav button[class*="text-blue"] *,
+html.light button[class*="border-b-2"][class*="text-blue"] *,
+html.light button[class*="border-b-2"][class*="border-blue"] *,
+html.light [role="tablist"] button[class*="border-b"][aria-selected="true"] * {
   color: #2563eb !important;
+  stroke: #2563eb !important;
   border-bottom-color: #2563eb !important;
+  font-weight: 700 !important;
 }
-html.light button[class*="border-b-2"]:not([class*="border-blue"]):not([class*="text-blue"]),
-html.light [role="tablist"] button[class*="border-b-2"][class*="border-transparent"],
-html.light [role="tablist"] button[class*="border-b"][aria-selected="false"] {
+
+/* Inactive tab text MUST be slate/grey with transparent bottom border */
+html.light nav button[class*="text-slate"],
+html.light nav button[class*="border-transparent"],
+html.light button[class*="border-b-2"][class*="text-slate"],
+html.light button[class*="border-b-2"][class*="border-transparent"],
+html.light [role="tablist"] button[class*="border-b"][aria-selected="false"],
+html.light nav button[class*="text-slate"] *,
+html.light button[class*="border-b-2"][class*="text-slate"] *,
+html.light button[class*="border-b-2"][class*="border-transparent"] *,
+html.light [role="tablist"] button[class*="border-b"][aria-selected="false"] * {
   color: #64748b !important;
+  stroke: #64748b !important;
   border-bottom-color: transparent !important;
+  background-color: transparent !important;
+  font-weight: 500 !important;
 }
+
+html.light nav button:hover,
 html.light button[class*="border-b-2"]:hover,
 html.light [role="tablist"] button[class*="border-b"]:hover {
   background-color: transparent !important;
+  color: #0f172a !important;
+}
+html.light nav button:hover *,
+html.light button[class*="border-b-2"]:hover *,
+html.light [role="tablist"] button[class*="border-b"]:hover * {
   color: #0f172a !important;
 }
 
