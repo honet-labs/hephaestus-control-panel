@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile.frontend
       network: host
       args:
-        REGISTRY_MIRROR: ${REGISTRY_MIRROR:-public.ecr.aws/docker/library/}
+        REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
     container_name: hephaestus-panel
     restart: unless-stopped
     ports:
@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile.backend
       network: host
       args:
-        REGISTRY_MIRROR: ${REGISTRY_MIRROR:-public.ecr.aws/docker/library/}
+        REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
     container_name: hephaestus-engine
     restart: unless-stopped
     expose:
@@ -57,7 +57,7 @@ services:
   # Hephaestus Database (PostgreSQL 16 Enterprise Storage)
   # -------------------------------------------------------------
   database:
-    image: ${REGISTRY_MIRROR:-public.ecr.aws/docker/library/}postgres:16-alpine
+    image: ${REGISTRY_MIRROR:-}postgres:16-alpine
     container_name: hephaestus-database
     restart: unless-stopped
     environment:

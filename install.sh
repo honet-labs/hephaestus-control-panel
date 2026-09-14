@@ -289,8 +289,8 @@ HTTP_PORT=${INPUT_HTTP_PORT}
 DB_EXTERNAL_PORT=${INPUT_DB_PORT}
 APP_ENV=production
 
-# Registry Mirror (Uses Amazon ECR Public mirror to avoid Docker Hub TLS proxy blocks)
-REGISTRY_MIRROR=public.ecr.aws/docker/library/
+# Registry Mirror (Leave empty for standard Docker Hub, or specify mirror e.g. mirror.gcr.io/library/)
+REGISTRY_MIRROR=
 
 # Database Credentials
 DB_USER=${INPUT_DB_USER}
