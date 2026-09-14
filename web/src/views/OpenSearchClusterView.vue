@@ -628,6 +628,7 @@ onUnmounted(() => {
     <!-- Navigation Tabs Bar (Sticky below header, hidden in embed mode) -->
     <div
       v-if="!isEmbedMode"
+      role="tablist"
       class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md"
     >
       <button
@@ -640,15 +641,17 @@ onUnmounted(() => {
           { id: 'logs', label: 'Logs' }
         ]"
         :key="tab.id"
+        role="tab"
+        :aria-selected="activeTab === tab.id"
         @click="activeTab = tab.id as any"
         :class="[
-          'py-3 transition border-b-2 -mb-[1px]',
+          'py-3 transition border-b-2 -mb-[1px] bg-transparent',
           activeTab === tab.id
             ? 'border-blue-600 text-blue-600 dark:border-brand-500 dark:text-brand-400 font-bold'
-            : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+            : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 font-medium'
         ]"
       >
-        {{ tab.label }}
+        <span>{{ tab.label }}</span>
       </button>
     </div>
 

@@ -471,72 +471,92 @@ html.light [class*="bg-[#171a21]/90"] {
 }
 
 /* ==========================================================================
-   15. UNIFIED LIGHT MODE ACTION BUTTONS THEME: rgb(66 116 217) WITH WHITE TEXT
-   "untuk tombol background tolong gunakan warna rgb(66 116 217) saja dan fontnya
-    warna putih jangan setiap tombol punya beda warna! dalam mode light (bukan dark!)"
+   15. UNIFIED LIGHT MODE PRIMARY ACTION BUTTONS: rgb(66 116 217) (#4274D9) WITH WHITE TEXT
+   Hanya tombol aksi utama (primary action buttons) yang menggunakan background #4274D9.
+   Bukan navigation bar, tabs, icon buttons, ghost buttons, close buttons, dsb.
    ========================================================================== */
 
-/* Universal action buttons in Light Mode */
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close),
-html.light .btn,
+/* Primary action buttons in Light Mode */
 html.light .btn-primary,
-html.light .btn-secondary,
-html.light .btn-danger,
-html.light .btn-success,
-html.light .btn-warning,
-html.light .btn-info,
-html.light a.btn {
+html.light button.btn-primary,
+html.light a.btn-primary,
+html.light button.bg-blue-600,
+html.light button.bg-blue-500,
+html.light button.bg-brand-500,
+html.light button.bg-brand-600,
+html.light button[class~="bg-[#4274D9]"],
+html.light button[class*="bg-[#4274D9]"],
+html.light a[class~="bg-[#4274D9]"],
+html.light button.btn-action,
+html.light button[type="submit"]:not([class*="bg-transparent"]):not([class*="bg-slate"]):not([class*="hover:bg-slate"]) {
   background-color: rgb(66 116 217) !important;
   border-color: rgb(66 116 217) !important;
   color: #ffffff !important;
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
-/* Ensure all text, spans, divs, bold tags, labels inside action buttons are white */
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close) *,
-html.light .btn *,
+/* Ensure all text, spans, divs, bold tags, labels inside primary action buttons are white */
 html.light .btn-primary *,
-html.light .btn-secondary *,
-html.light .btn-danger *,
-html.light .btn-success *,
-html.light .btn-warning *,
-html.light .btn-info *,
-html.light a.btn * {
+html.light button.btn-primary *,
+html.light a.btn-primary *,
+html.light button.bg-blue-600 *,
+html.light button.bg-blue-500 *,
+html.light button.bg-brand-500 *,
+html.light button.bg-brand-600 *,
+html.light button[class~="bg-[#4274D9]"] *,
+html.light button[class*="bg-[#4274D9]"] *,
+html.light a[class~="bg-[#4274D9]"] *,
+html.light button.btn-action *,
+html.light button[type="submit"]:not([class*="bg-transparent"]):not([class*="bg-slate"]):not([class*="hover:bg-slate"]) * {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
 
-/* Hover state: unified deeper blue rgb(52 97 194) with pure white text and icons */
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover,
-html.light .btn:hover,
+/* Hover state for primary action buttons: #3461c2 (rgb 52 97 194) */
 html.light .btn-primary:hover,
-html.light .btn-secondary:hover,
-html.light .btn-danger:hover,
-html.light .btn-success:hover,
-html.light .btn-warning:hover,
-html.light .btn-info:hover,
-html.light a.btn:hover {
+html.light button.btn-primary:hover,
+html.light a.btn-primary:hover,
+html.light button.bg-blue-600:hover,
+html.light button.bg-blue-500:hover,
+html.light button.bg-brand-500:hover,
+html.light button.bg-brand-600:hover,
+html.light button[class~="bg-[#4274D9]"]:hover,
+html.light button[class*="bg-[#4274D9]"]:hover,
+html.light a[class~="bg-[#4274D9]"]:hover,
+html.light button.btn-action:hover,
+html.light button[type="submit"]:not([class*="bg-transparent"]):not([class*="bg-slate"]):not([class*="hover:bg-slate"]):hover {
   background-color: rgb(52 97 194) !important;
   border-color: rgb(52 97 194) !important;
   color: #ffffff !important;
 }
 
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover *,
-html.light .btn:hover *,
 html.light .btn-primary:hover *,
-html.light .btn-secondary:hover *,
-html.light .btn-danger:hover *,
-html.light .btn-success:hover *,
-html.light .btn-warning:hover *,
-html.light .btn-info:hover *,
-html.light a.btn:hover * {
+html.light button.btn-primary:hover *,
+html.light a.btn-primary:hover *,
+html.light button.bg-blue-600:hover *,
+html.light button.bg-blue-500:hover *,
+html.light button.bg-brand-500:hover *,
+html.light button.bg-brand-600:hover *,
+html.light button[class~="bg-[#4274D9]"]:hover *,
+html.light button[class*="bg-[#4274D9]"]:hover *,
+html.light a[class~="bg-[#4274D9]"]:hover *,
+html.light button.btn-action:hover *,
+html.light button[type="submit"]:not([class*="bg-transparent"]):not([class*="bg-slate"]):not([class*="hover:bg-slate"]):hover * {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
 
 /* Disabled state */
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):disabled,
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close)[disabled],
+html.light .btn-primary:disabled,
+html.light button.btn-primary:disabled,
+html.light button.bg-blue-600:disabled,
+html.light button[class~="bg-[#4274D9]"]:disabled,
+html.light button[class*="bg-[#4274D9]"]:disabled,
+html.light .btn-primary[disabled],
+html.light button.btn-primary[disabled],
+html.light button.bg-blue-600[disabled],
+html.light button[class~="bg-[#4274D9]"][disabled],
+html.light button[class*="bg-[#4274D9]"][disabled],
 html.light a.btn:disabled,
 html.light a.btn[disabled] {
   background-color: rgb(66 116 217) !important;
@@ -546,8 +566,16 @@ html.light a.btn[disabled] {
   color: #ffffff !important;
 }
 
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):disabled *,
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close)[disabled] *,
+html.light .btn-primary:disabled *,
+html.light button.btn-primary:disabled *,
+html.light button.bg-blue-600:disabled *,
+html.light button[class~="bg-[#4274D9]"]:disabled *,
+html.light button[class*="bg-[#4274D9]"]:disabled *,
+html.light .btn-primary[disabled] *,
+html.light button.btn-primary[disabled] *,
+html.light button.bg-blue-600[disabled] *,
+html.light button[class~="bg-[#4274D9]"][disabled] *,
+html.light button[class*="bg-[#4274D9]"][disabled] *,
 html.light a.btn:disabled *,
 html.light a.btn[disabled] * {
   color: #ffffff !important;
@@ -625,6 +653,34 @@ html.light button[role="tab"][aria-selected="false"]:hover *,
 html.light button[role="tab"]:not([aria-selected="true"]):not(.active):hover * {
   color: #0f172a !important;
   stroke: #0f172a !important;
+}
+
+/* 15c. UNDERLINE NAVIGATION TABS (Horizontal bar with bottom indicator) */
+/* Underline navigation tabs must remain transparent and never have solid box backgrounds */
+html.light button[class*="border-b-2"],
+html.light button[class*="border-b-"][class*="border-blue"],
+html.light [role="tablist"] button[class*="border-b"],
+html.light [role="tablist"] button[class*="border-b-2"] {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+html.light button[class*="border-b-2"][class*="text-blue"],
+html.light button[class*="border-b-2"][class*="border-blue"],
+html.light [role="tablist"] button[class*="border-b-2"][class*="text-blue"],
+html.light [role="tablist"] button[class*="border-b"][aria-selected="true"] {
+  color: #2563eb !important;
+  border-bottom-color: #2563eb !important;
+}
+html.light button[class*="border-b-2"]:not([class*="border-blue"]):not([class*="text-blue"]),
+html.light [role="tablist"] button[class*="border-b-2"][class*="border-transparent"],
+html.light [role="tablist"] button[class*="border-b"][aria-selected="false"] {
+  color: #64748b !important;
+  border-bottom-color: transparent !important;
+}
+html.light button[class*="border-b-2"]:hover,
+html.light [role="tablist"] button[class*="border-b"]:hover {
+  background-color: transparent !important;
+  color: #0f172a !important;
 }
 
 /* Remote Host Workspace Tabs Strip in Light Mode */
@@ -863,13 +919,9 @@ html.light [class*="hover:bg-[#0"]:hover svg {
 }
 
 /* 6. EXCEPTIONS: Solid vibrant action buttons MUST keep white text on hover */
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover,
-html.light .btn:hover,
 html.light .btn-primary:hover,
-html.light .btn-secondary:hover,
-html.light .btn-danger:hover,
-html.light .btn-success:hover,
-html.light a.btn:hover,
+html.light button.btn-primary:hover,
+html.light a.btn-primary:hover,
 html.light button.bg-blue-600:not(:disabled):hover,
 html.light button.bg-blue-500:not(:disabled):hover,
 html.light button.bg-blue-700:not(:disabled):hover,
@@ -885,6 +937,7 @@ html.light button.bg-brand-600:not(:disabled):hover,
 html.light button.bg-purple-600:not(:disabled):hover,
 html.light button.bg-purple-500:not(:disabled):hover,
 html.light button[class~="bg-[#4274D9]"]:not(:disabled):hover,
+html.light button[class*="bg-[#4274D9]"]:not(:disabled):hover,
 html.light button[class~="bg-[#293681]"]:not(:disabled):hover,
 html.light button[class~="bg-[#3461c2]"]:not(:disabled):hover,
 html.light button[class~="hover:bg-blue-600"]:not(:disabled):hover,
@@ -900,6 +953,7 @@ html.light a.bg-brand-500:hover,
 html.light a.bg-brand-600:hover,
 html.light a.bg-purple-600:hover,
 html.light a[class~="bg-[#4274D9]"]:hover,
+html.light a[class*="bg-[#4274D9]"]:hover,
 html.light a[class~="bg-[#293681]"]:hover,
 html.light a[class~="bg-[#3461c2]"]:hover,
 html.light .btn-primary:not(:disabled):hover,
@@ -908,13 +962,40 @@ html.light .btn-success:not(:disabled):hover {
   color: #ffffff !important;
 }
 
-html.light button:not(aside *):not([role="tab"]):not([class*="group/tab"]):not([title*="Close"]):not(.modal-close):hover *,
-html.light .btn:hover *,
 html.light .btn-primary:hover *,
-html.light .btn-secondary:hover *,
-html.light .btn-danger:hover *,
-html.light .btn-success:hover *,
-html.light a.btn:hover *,
+html.light button.btn-primary:hover *,
+html.light a.btn-primary:hover *,
+html.light button.bg-blue-600:not(:disabled):hover *,
+html.light button.bg-blue-500:not(:disabled):hover *,
+html.light button.bg-blue-700:not(:disabled):hover *,
+html.light button.bg-emerald-600:not(:disabled):hover *,
+html.light button.bg-emerald-500:not(:disabled):hover *,
+html.light button.bg-emerald-700:not(:disabled):hover *,
+html.light button.bg-rose-600:not(:disabled):hover *,
+html.light button.bg-rose-500:not(:disabled):hover *,
+html.light button.bg-red-600:not(:disabled):hover *,
+html.light button.bg-red-500:not(:disabled):hover *,
+html.light button.bg-brand-500:not(:disabled):hover *,
+html.light button.bg-brand-600:not(:disabled):hover *,
+html.light button.bg-purple-600:not(:disabled):hover *,
+html.light button[class~="bg-[#4274D9]"]:not(:disabled):hover *,
+html.light button[class*="bg-[#4274D9]"]:not(:disabled):hover *,
+html.light button[class~="bg-[#293681]"]:not(:disabled):hover *,
+html.light button[class~="bg-[#3461c2]"]:not(:disabled):hover *,
+html.light button[class~="hover:bg-blue-600"]:not(:disabled):hover *,
+html.light button[class~="hover:bg-blue-700"]:not(:disabled):hover *,
+html.light button[class~="hover:bg-emerald-600"]:not(:disabled):hover *,
+html.light button[class~="hover:bg-rose-600"]:not(:disabled):hover *,
+html.light a.bg-blue-600:hover *,
+html.light a.bg-blue-500:hover *,
+html.light a.bg-emerald-600:hover *,
+html.light a.bg-rose-600:hover *,
+html.light a.bg-red-600:hover *,
+html.light a.bg-brand-500:hover *,
+html.light a.bg-brand-600:hover *,
+html.light a.bg-purple-600:hover *,
+html.light a[class~="bg-[#4274D9]"]:hover *,
+html.light a[class*="bg-[#4274D9]"]:hover *,
 html.light button.bg-blue-600:not(:disabled):hover *,
 html.light button.bg-blue-500:not(:disabled):hover *,
 html.light button.bg-blue-700:not(:disabled):hover *,
