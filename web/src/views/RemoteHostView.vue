@@ -2205,7 +2205,7 @@ onUnmounted(() => {
               @click="isGroupModalOpen = true"
               class="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-[#1b1e26] dark:hover:bg-[#242833] text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-800 transition shadow-sm cursor-pointer"
             >
-              <FolderPlus class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+              <FolderPlus class="w-4 h-4 text-slate-500 dark:text-slate-400" />
               <span>NEW GROUP</span>
             </button>
           </div>
@@ -2264,28 +2264,26 @@ onUnmounted(() => {
             </h3>
 
             <!-- Ownership Filter Tabs -->
-            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-sm">
+            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
               <button
                 @click="hostOwnershipFilter = 'all'"
-                :class="hostOwnershipFilter === 'all' ? 'bg-white text-blue-700 dark:bg-slate-700 dark:text-white font-bold shadow-sm border border-slate-200 dark:border-transparent' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
+                :class="hostOwnershipFilter === 'all' ? 'bg-white text-slate-800 dark:bg-slate-800 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
                 class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
               >
                 ALL ({{ hosts.length }})
               </button>
               <button
                 @click="hostOwnershipFilter = 'mine'"
-                :class="hostOwnershipFilter === 'mine' ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-600/30 dark:text-emerald-300 dark:border-emerald-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
-                class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+                :class="hostOwnershipFilter === 'mine' ? 'bg-white text-slate-800 dark:bg-slate-800 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
+                class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
               >
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 MY HOSTS ({{ myHostsCount }})
               </button>
               <button
                 @click="hostOwnershipFilter = 'shared'"
-                :class="hostOwnershipFilter === 'shared' ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-600/30 dark:text-purple-300 dark:border-purple-500/40 font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'"
-                class="px-2.5 py-1 rounded-md text-[11px] transition flex items-center gap-1.5 cursor-pointer"
+                :class="hostOwnershipFilter === 'shared' ? 'bg-white text-slate-800 dark:bg-slate-800 dark:text-white font-semibold shadow-xs border border-slate-200/80 dark:border-slate-700' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'"
+                class="px-2.5 py-1 rounded-md text-[11px] transition cursor-pointer"
               >
-                <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
                 SHARED ({{ sharedHostsCount }})
               </button>
             </div>
@@ -2296,31 +2294,31 @@ onUnmounted(() => {
               v-for="host in filteredHosts"
               :key="host.id"
               @click="connectHost(host)"
-              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-blue-500 dark:hover:border-emerald-500/80 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-sm hover:shadow-md"
+              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-xs hover:shadow-sm"
             >
               <div class="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
-                <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-md">
+                <div class="w-10 h-10 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-xs">
                   {{ host.name.substring(0, 2).toUpperCase() }}
                 </div>
                 <div class="overflow-hidden space-y-1 min-w-0 flex-1">
-                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-emerald-400 transition truncate" :title="host.name">{{ host.name }}</p>
+                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">{{ host.name }}</p>
                   <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="`ssh, ${host.username}, ${host.host}`">ssh, {{ host.username }}, {{ host.host }}</p>
                   
                   <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span class="px-1.5 py-0.2 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-transparent">
+                    <span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
                       {{ host.groupName || 'Default' }}
                     </span>
 
                     <!-- Ownership Badge -->
                     <span
                       v-if="host.isOwner"
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30 font-semibold"
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium"
                     >
                       My Host
                     </span>
                     <span
                       v-else
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-500/15 dark:text-sky-400 dark:border-sky-500/30 font-semibold truncate max-w-[130px]"
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium truncate max-w-[130px]"
                       :title="`Shared by @${host.ownerUsername || 'User'} (${host.sharedAccess === 'manage' ? 'Full Control' : 'Read Only'})`"
                     >
                       Shared &bull; @{{ host.ownerUsername || 'User' }}
@@ -2329,10 +2327,10 @@ onUnmounted(() => {
                     <!-- Shares Count Badge -->
                     <span
                       v-if="host.sharesCount && host.sharesCount > 0 && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                      class="px-1.5 py-0.2 rounded text-[9px] bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/30 flex items-center gap-1 font-mono"
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-mono"
                       title="Users shared with this server"
                     >
-                      <Users class="w-2.5 h-2.5" />
+                      <Users class="w-2.5 h-2.5 text-slate-400" />
                       {{ host.sharesCount }}
                     </span>
                   </div>
@@ -2340,15 +2338,15 @@ onUnmounted(() => {
               </div>
 
               <!-- Action Buttons -->
-              <div class="flex items-center gap-1.5 shrink-0">
+              <div class="flex items-center gap-1 shrink-0">
                 <!-- Share Button (Only Owner or Admin) -->
                 <button
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openShareModal(host, $event)"
                   title="Share access with other users"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-purple-50 dark:bg-slate-800/80 text-slate-600 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-300 dark:hover:bg-purple-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                 >
-                  <Share2 :size="15" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <Share2 :size="14" class="w-3.5 h-3.5" />
                 </button>
 
                 <!-- Edit Button (Only Owner or Admin) -->
@@ -2356,9 +2354,9 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="openEditHostModal(host, $event)"
                   title="Edit Server Configuration"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-sky-50 dark:bg-slate-800/80 text-slate-600 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-sky-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                 >
-                  <Settings :size="15" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                  <Settings :size="14" class="w-3.5 h-3.5" />
                 </button>
 
                 <!-- Delete Button (Only Owner or Admin) -->
@@ -2366,18 +2364,18 @@ onUnmounted(() => {
                   v-if="host.isOwner || authStore.user?.role === 'ADMIN'"
                   @click.stop="handleDeleteHost(host, $event)"
                   title="Delete Server"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                 >
-                  <Trash2 :size="15" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <Trash2 :size="14" class="w-3.5 h-3.5" />
                 </button>
 
                 <!-- Quick Duplicate / New Tab -->
                 <button
                   @click.stop="connectHost(host, true)"
                   title="Open New Terminal Tab"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-emerald-500 hover:text-white dark:bg-slate-800/80 text-slate-600 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-white dark:hover:bg-emerald-600 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                 >
-                  <Plus :size="15" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <Plus :size="14" class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
@@ -3972,7 +3970,7 @@ onUnmounted(() => {
         <!-- Modal Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#20242e]">
           <div class="flex items-center gap-3">
-            <div class="p-2 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/25">
+            <div class="p-2 rounded-xl bg-slate-800 text-slate-300 border border-slate-700">
               <Share2 class="w-5 h-5" />
             </div>
             <div>
@@ -3994,7 +3992,7 @@ onUnmounted(() => {
           <!-- Server Owner Banner -->
           <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs font-sans">
             <span class="text-slate-400 font-medium">Server Owner</span>
-            <span class="text-emerald-400 font-semibold font-mono bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+            <span class="text-slate-300 font-semibold font-mono bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
               @{{ selectedHostForShare.ownerUsername || 'You' }} (Full Ownership)
             </span>
           </div>
@@ -4002,7 +4000,7 @@ onUnmounted(() => {
           <!-- Grant Access Form -->
           <div class="p-4 bg-[#14161b] border border-slate-800/90 rounded-xl space-y-3">
             <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2 font-sans">
-              <Users class="w-3.5 h-3.5 text-purple-400" />
+              <Users class="w-3.5 h-3.5 text-slate-400" />
               <span>Grant Access to User</span>
             </h4>
             
@@ -4011,7 +4009,7 @@ onUnmounted(() => {
                 <label class="block text-[11px] text-slate-400 font-medium">Select User</label>
                 <select
                   v-model="shareForm.userId"
-                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition font-sans"
+                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 transition font-sans"
                 >
                   <option value="" disabled>Choose user...</option>
                   <option
@@ -4028,7 +4026,7 @@ onUnmounted(() => {
                 <label class="block text-[11px] text-slate-400 font-medium">Access Level</label>
                 <select
                   v-model="shareForm.permission"
-                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition font-sans"
+                  class="w-full bg-[#1b1e26] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 transition font-sans"
                 >
                   <option value="read">Read Only (SSH & Telemetry)</option>
                   <option value="manage">Full Control (Manage & SFTP)</option>
@@ -4040,7 +4038,7 @@ onUnmounted(() => {
                   type="button"
                   @click="handleGrantShare"
                   :disabled="!shareForm.userId || isShareSubmitting"
-                  class="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition shadow-md shadow-purple-600/20 flex items-center justify-center gap-1 cursor-pointer"
+                  class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition shadow-sm flex items-center justify-center gap-1 cursor-pointer"
                 >
                   <RotateCw v-if="isShareSubmitting" class="w-3.5 h-3.5 animate-spin" />
                   <span>{{ isShareSubmitting ? '...' : 'Grant' }}</span>
@@ -4068,7 +4066,7 @@ onUnmounted(() => {
                 class="p-3 bg-[#14161b] border border-slate-800/80 rounded-xl flex items-center justify-between gap-3 text-xs"
               >
                 <div class="flex items-center gap-2.5">
-                  <div class="w-7 h-7 rounded-full bg-purple-600/80 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                  <div class="w-7 h-7 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0">
                     {{ s.username.substring(0, 2).toUpperCase() }}
                   </div>
                   <div>
@@ -4081,8 +4079,7 @@ onUnmounted(() => {
 
                 <div class="flex items-center gap-2">
                   <span
-                    :class="s.permission === 'manage' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'"
-                    class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase"
+                    class="px-2 py-0.5 rounded text-[10px] font-semibold border bg-slate-800 text-slate-300 border-slate-700 uppercase"
                   >
                     {{ s.permission === 'manage' ? 'Full Control' : 'Read Only' }}
                   </span>
