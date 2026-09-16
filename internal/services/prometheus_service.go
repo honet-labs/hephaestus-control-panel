@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -261,8 +262,142 @@ func (s *PrometheusService) GetConfigFile(ctx context.Context, instanceID string
 	return string(data), promCfg, nil
 }
 
-// SaveConfigFile writes updated YAML to the remote SSH server or local file system, and optionally triggers reload
-func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID string, content string, triggerReload bool) error {
+type ServiceRestartResult struct {
+	Attempted bool   `json:"attempted"`
+	Success   bool   `json:"success"`
+	Output    string `json:"output,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type PrometheusSaveResult struct {
+	Success bool                 `json:"success"`
+	Message string               `json:"message"`
+	Path    string               `json:"path"`
+	Restart ServiceRestartResult `json:"restart"`
+}
+
+// RestartService restarts the Prometheus service via systemctl, docker, or reload endpoint
+func (s *PrometheusService) RestartService(ctx context.Context, promCfg *domain.PrometheusConfig) ServiceRestartResult {
+	result := ServiceRestartResult{Attempted: true}
+
+	mode := strings.ToLower(promCfg.Mode)
+	if mode == "ssh" || (promCfg.SSHHost != nil && *promCfg.SSHHost != "") {
+		port := 22
+		if promCfg.SSHPort != nil && *promCfg.SSHPort > 0 {
+			port = *promCfg.SSHPort
+		}
+		user := "root"
+		if promCfg.SSHUser != nil && *promCfg.SSHUser != "" {
+			user = *promCfg.SSHUser
+		}
+		auth := "password"
+		if promCfg.SSHAuth != nil && *promCfg.SSHAuth != "" {
+			auth = *promCfg.SSHAuth
+		}
+
+		remoteCfg := &domain.RemoteHostConfig{
+			Host:     *promCfg.SSHHost,
+			Port:     port,
+			Username: user,
+			AuthType: auth,
+			Password: promCfg.SSHPassword,
+			SSHKey:   promCfg.SSHKey,
+		}
+
+		reloadURL := promCfg.ReloadURL
+		if reloadURL == "" {
+			reloadURL = "http://localhost:9090/-/reload"
+		}
+
+		restartScript := fmt.Sprintf(`
+RELOAD_URL="%s"
+if command -v systemctl >/dev/null 2>&1 && (systemctl list-unit-files 2>/dev/null | grep -qE '^prometheus(-server)?\.service' || systemctl is-active --quiet prometheus 2>/dev/null || systemctl is-active --quiet prometheus-server 2>/dev/null); then
+    _run_sudo systemctl restart prometheus 2>/dev/null || _run_sudo systemctl restart prometheus-server 2>/dev/null
+    sleep 1
+    if systemctl is-active --quiet prometheus 2>/dev/null || systemctl is-active --quiet prometheus-server 2>/dev/null; then
+        echo "Prometheus service restarted successfully via systemd and is active."
+        exit 0
+    else
+        echo "Prometheus service failed to become active after restart."
+        exit 1
+    fi
+elif command -v docker >/dev/null 2>&1 && (_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -qiE 'prometheus'); then
+    prom_c=$(_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'prometheus' | head -n 1)
+    _run_sudo docker restart "$prom_c"
+    echo "Prometheus Docker container '$prom_c' restarted successfully."
+    exit 0
+else
+    resp=$(curl -s -o /dev/null -w "%%{http_code}" -X POST "$RELOAD_URL" 2>/dev/null || echo "000")
+    if [ "$resp" = "200" ]; then
+        echo "Prometheus configuration reloaded via HTTP endpoint ($RELOAD_URL)."
+        exit 0
+    else
+        echo "Failed to restart or reload Prometheus via $RELOAD_URL (HTTP $resp)."
+        exit 1
+    fi
+fi
+`, reloadURL)
+
+		stdout, stderr, exitCode, err := s.sshService.ExecuteElevatedCommand(remoteCfg, restartScript)
+		outStr := strings.TrimSpace(stdout)
+		if outStr == "" {
+			outStr = strings.TrimSpace(stderr)
+		}
+		if err != nil || exitCode != 0 {
+			result.Success = false
+			if err != nil {
+				result.Error = fmt.Sprintf("Restart command failed (exit code %d): %v. %s", exitCode, err, outStr)
+			} else {
+				result.Error = fmt.Sprintf("Restart command exited with code %d: %s", exitCode, outStr)
+			}
+			result.Output = outStr
+			return result
+		}
+
+		result.Success = true
+		result.Output = outStr
+		return result
+	}
+
+	// Local mode
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+if command -v systemctl >/dev/null 2>&1 && (systemctl list-unit-files 2>/dev/null | grep -qE '^prometheus(-server)?\.service' || systemctl is-active --quiet prometheus 2>/dev/null || systemctl is-active --quiet prometheus-server 2>/dev/null); then
+    systemctl restart prometheus 2>/dev/null || systemctl restart prometheus-server 2>/dev/null
+    if systemctl is-active --quiet prometheus 2>/dev/null || systemctl is-active --quiet prometheus-server 2>/dev/null; then
+        echo "Prometheus service restarted successfully via systemd."
+        exit 0
+    fi
+    exit 1
+fi
+`)
+	out, err := cmd.CombinedOutput()
+	outStr := strings.TrimSpace(string(out))
+	if err == nil && outStr != "" {
+		result.Success = true
+		result.Output = outStr
+		return result
+	}
+
+	// Try reload URL
+	if promCfg.ReloadURL != "" {
+		if reloadErr := s.ReloadConfig(ctx); reloadErr == nil {
+			result.Success = true
+			result.Output = fmt.Sprintf("Prometheus configuration reloaded via %s.", promCfg.ReloadURL)
+			return result
+		} else {
+			result.Success = false
+			result.Error = fmt.Sprintf("Failed to reload Prometheus: %v", reloadErr)
+			return result
+		}
+	}
+
+	result.Success = false
+	result.Error = "No local systemd unit or reload URL available for Prometheus."
+	return result
+}
+
+// SaveConfigFile writes updated YAML to the remote SSH server or local file system, and triggers service restart
+func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID string, content string, triggerReload bool) (*PrometheusSaveResult, error) {
 	var promCfg *domain.PrometheusConfig
 	var err error
 	if instanceID != "" {
@@ -271,13 +406,13 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 		promCfg, err = s.configRepo.GetActivePrometheus(ctx)
 	}
 	if err != nil {
-		return fmt.Errorf("Prometheus configuration not found: %w", err)
+		return nil, fmt.Errorf("Prometheus configuration not found: %w", err)
 	}
 
 	nameLowerSave := strings.ToLower(promCfg.Name)
 	pathLowerSave := strings.ToLower(promCfg.Path)
 	if strings.Contains(nameLowerSave, "data prepper") || strings.Contains(nameLowerSave, "dataprepper") || strings.Contains(pathLowerSave, "pipeline") {
-		return fmt.Errorf("instance '%s' is a Data Prepper pipeline directory, not a Prometheus config file", promCfg.Name)
+		return nil, fmt.Errorf("instance '%s' is a Data Prepper pipeline directory, not a Prometheus config file", promCfg.Name)
 	}
 
 	filePath := promCfg.Path
@@ -310,23 +445,45 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 		}
 
 		if err := s.sshService.WriteFile(remoteCfg, filePath, content); err != nil {
-			return fmt.Errorf("failed to write remote file '%s' via SSH: %w", filePath, err)
+			return nil, fmt.Errorf("failed to write remote file '%s' via SSH: %w", filePath, err)
 		}
 
-		if triggerReload && promCfg.ReloadURL != "" {
-			// Trigger reload on remote host via curl or http client
-			_, _, _, _ = s.sshService.ExecuteCommand(remoteCfg, fmt.Sprintf("curl -s -X POST %s", promCfg.ReloadURL))
-			_ = s.ReloadConfig(ctx)
+		res := &PrometheusSaveResult{
+			Success: true,
+			Path:    filePath,
 		}
-		return nil
+
+		if triggerReload {
+			res.Restart = s.RestartService(ctx, promCfg)
+			if res.Restart.Success {
+				res.Message = fmt.Sprintf("Prometheus configuration saved to '%s' and service restarted successfully.", filePath)
+			} else {
+				res.Message = fmt.Sprintf("Prometheus configuration saved to '%s', but service restart failed: %s", filePath, res.Restart.Error)
+			}
+		} else {
+			res.Message = fmt.Sprintf("Prometheus configuration saved to '%s'.", filePath)
+		}
+		return res, nil
 	}
 
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write local file '%s': %w", filePath, err)
+		return nil, fmt.Errorf("failed to write local file '%s': %w", filePath, err)
+	}
+
+	res := &PrometheusSaveResult{
+		Success: true,
+		Path:    filePath,
 	}
 
 	if triggerReload {
-		_ = s.ReloadConfig(ctx)
+		res.Restart = s.RestartService(ctx, promCfg)
+		if res.Restart.Success {
+			res.Message = fmt.Sprintf("Prometheus configuration saved to '%s' and service restarted successfully.", filePath)
+		} else {
+			res.Message = fmt.Sprintf("Prometheus configuration saved to '%s', but service restart failed: %s", filePath, res.Restart.Error)
+		}
+	} else {
+		res.Message = fmt.Sprintf("Prometheus configuration saved to '%s'.", filePath)
 	}
-	return nil
+	return res, nil
 }

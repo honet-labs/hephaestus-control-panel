@@ -162,10 +162,14 @@ const handleCreateFile = () => {
   }
 };
 
+const restartResult = ref<{ attempted?: boolean; success?: boolean; output?: string; error?: string } | null>(null);
+
 const handleSave = async () => {
   if (!selectedPipelineFile.value || !selectedInstanceId.value) return;
   saving.value = true;
   validationMessage.value = null;
+  restartResult.value = null;
+
   try {
     const res = await axios.post('/api/v1/dataprepper/pipeline', {
       instanceId: selectedInstanceId.value,
@@ -173,8 +177,20 @@ const handleSave = async () => {
       content: yamlContent.value,
     });
     if (res.data?.success) {
-      validationMessage.value = res.data?.message || `Pipeline "${selectedPipelineFile.value}" saved and Data Prepper service restarted.`;
-      isValidationSuccess.value = true;
+      const data = res.data.data;
+      if (data?.restart) {
+        restartResult.value = data.restart;
+        if (data.restart.success) {
+          validationMessage.value = data.message || `Pipeline "${selectedPipelineFile.value}" saved and Data Prepper restarted successfully.`;
+          isValidationSuccess.value = true;
+        } else {
+          validationMessage.value = data.message || `Pipeline "${selectedPipelineFile.value}" saved, but service restart failed: ${data.restart.error}`;
+          isValidationSuccess.value = false;
+        }
+      } else {
+        validationMessage.value = res.data?.message || `Pipeline "${selectedPipelineFile.value}" saved and Data Prepper service restarted.`;
+        isValidationSuccess.value = true;
+      }
     } else {
       validationMessage.value = res.data?.error || 'Failed to save pipeline.';
       isValidationSuccess.value = false;
@@ -398,24 +414,33 @@ onMounted(() => {
             <button
               @click="handleSave"
               :disabled="saving || loading"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold transition cursor-pointer shadow-sm"
+              class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
             >
               <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
               <Save v-else class="w-3.5 h-3.5" />
-              <span>{{ saving ? 'SAVING & RESTARTING...' : 'SAVE' }}</span>
+              <span>{{ saving ? 'RESTARTING SERVICE...' : 'SAVE & RESTART' }}</span>
             </button>
           </div>
         </div>
 
-        <!-- Validation Banner -->
+        <!-- Validation & Restart Feedback Banner -->
         <div
           v-if="validationMessage"
           :class="[
-            'p-2.5 rounded-lg border text-xs font-mono',
-            isValidationSuccess ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+            'p-3 rounded-lg border text-xs font-mono space-y-1',
+            isValidationSuccess ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
           ]"
         >
-          {{ validationMessage }}
+          <div class="flex items-center gap-2 font-semibold">
+            <span class="w-2 h-2 rounded-full" :class="isValidationSuccess ? 'bg-emerald-400' : 'bg-rose-400'"></span>
+            <span>{{ validationMessage }}</span>
+          </div>
+          <div v-if="restartResult?.output" class="text-[11px] text-slate-300 pl-4 border-l border-slate-700/50 mt-1">
+            Status: {{ restartResult.output }}
+          </div>
+          <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-400 pl-4 border-l border-rose-700/50 mt-1">
+            Error: {{ restartResult.error }}
+          </div>
         </div>
 
         <!-- Textarea Code Editor with Line Numbers -->

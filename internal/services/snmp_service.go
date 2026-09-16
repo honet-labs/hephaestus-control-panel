@@ -35,12 +35,18 @@ func NewSnmpService(snmpRepo *repository.SnmpRepository, dataDir string) *SnmpSe
 	return s
 }
 
-func (s *SnmpService) Query(host string, port uint16, version string, community string, startOid string, operation string) ([]domain.SnmpQueryResult, error) {
+func (s *SnmpService) Query(host string, port uint16, version string, community string, startOid string, operation string, timeoutSec int, retries int) ([]domain.SnmpQueryResult, error) {
 	if port == 0 {
 		port = 161
 	}
 	if community == "" {
 		community = "public"
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = 6
+	}
+	if retries <= 0 {
+		retries = 3
 	}
 
 	snmpVersion := gosnmp.Version2c
@@ -49,21 +55,28 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 	}
 
 	params := &gosnmp.GoSNMP{
-		Target:    host,
-		Port:      port,
-		Community: community,
-		Version:   snmpVersion,
-		Timeout:   time.Duration(4) * time.Second,
-		Retries:   1,
+		Target:             host,
+		Port:               port,
+		Transport:          "udp",
+		Community:          community,
+		Version:            snmpVersion,
+		Timeout:            time.Duration(timeoutSec) * time.Second,
+		Retries:            retries,
+		ExponentialTimeout: true,
+		MaxRepetitions:     50,
+		MaxOids:            gosnmp.Default.MaxOids,
 	}
 
 	if err := params.Connect(); err != nil {
-		return nil, fmt.Errorf("SNMP connect failed: %w", err)
+		return nil, fmt.Errorf("SNMP connect failed to %s:%d: %w", host, port, err)
 	}
 	defer params.Conn.Close()
 
 	var results []domain.SnmpQueryResult
 	cleanOid := strings.Trim(startOid, ".")
+	if cleanOid == "" {
+		cleanOid = "1.3.6.1.2.1.1" // default MIB-2 system group
+	}
 	if !strings.HasPrefix(cleanOid, ".") {
 		cleanOid = "." + cleanOid
 	}
@@ -73,22 +86,26 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 	if operation == "get" {
 		pkt, err := params.Get([]string{cleanOid})
 		if err != nil {
-			return nil, err
+			return nil, s.enrichSnmpError(err, host, port, community)
 		}
 		for _, v := range pkt.Variables {
-			oidStr := strings.TrimPrefix(v.Name, ".")
-			name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
-			valStr, typeStr := formatVarbind(v)
-			results = append(results, domain.SnmpQueryResult{
-				OID:   oidStr,
-				Name:  name,
-				Value: valStr,
-				Type:  typeStr,
-			})
+			if v.Type != gosnmp.NoSuchObject && v.Type != gosnmp.NoSuchInstance && v.Type != gosnmp.Null {
+				oidStr := strings.TrimPrefix(v.Name, ".")
+				name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
+				valStr, typeStr := formatVarbind(v)
+				results = append(results, domain.SnmpQueryResult{
+					OID:   oidStr,
+					Name:  name,
+					Value: valStr,
+					Type:  typeStr,
+				})
+			}
 		}
 	} else {
-		// Walk
-		err := params.Walk(cleanOid, func(dataUnit gosnmp.SnmpPDU) error {
+		// Walk operation: supports standard subtree and scalar leaves (.0)
+		isScalar := strings.HasSuffix(cleanOid, ".0")
+
+		walkFn := func(dataUnit gosnmp.SnmpPDU) error {
 			oidStr := strings.TrimPrefix(dataUnit.Name, ".")
 			name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
 			valStr, typeStr := formatVarbind(dataUnit)
@@ -99,13 +116,60 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 				Type:  typeStr,
 			})
 			return nil
-		})
-		if err != nil {
-			return nil, err
+		}
+
+		var walkErr error
+		if snmpVersion == gosnmp.Version2c {
+			walkErr = params.BulkWalk(cleanOid, walkFn)
+		} else {
+			walkErr = params.Walk(cleanOid, walkFn)
+		}
+
+		// If Walk returned 0 results or failed, and user specified a scalar OID (e.g. .1.3.6.1.2.1.1.1.0)
+		if isScalar && len(results) == 0 {
+			// 1. Try direct GET on the exact scalar OID
+			if pkt, getErr := params.Get([]string{cleanOid}); getErr == nil && len(pkt.Variables) > 0 {
+				for _, v := range pkt.Variables {
+					if v.Type != gosnmp.NoSuchObject && v.Type != gosnmp.NoSuchInstance && v.Type != gosnmp.Null {
+						oidStr := strings.TrimPrefix(v.Name, ".")
+						name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
+						valStr, typeStr := formatVarbind(v)
+						results = append(results, domain.SnmpQueryResult{
+							OID:   oidStr,
+							Name:  name,
+							Value: valStr,
+							Type:  typeStr,
+						})
+					}
+				}
+				if len(results) > 0 {
+					return results, nil
+				}
+			}
+
+			// 2. Try walking the parent subtree (without .0)
+			parentOid := strings.TrimSuffix(cleanOid, ".0")
+			if snmpVersion == gosnmp.Version2c {
+				_ = params.BulkWalk(parentOid, walkFn)
+			} else {
+				_ = params.Walk(parentOid, walkFn)
+			}
+		}
+
+		if walkErr != nil && len(results) == 0 {
+			return nil, s.enrichSnmpError(walkErr, host, port, community)
 		}
 	}
 
 	return results, nil
+}
+
+func (s *SnmpService) enrichSnmpError(err error, host string, port uint16, community string) error {
+	errStr := err.Error()
+	if strings.Contains(strings.ToLower(errStr), "timeout") {
+		return fmt.Errorf("SNMP query timed out connecting to %s:%d. Possible reasons: (1) Community string '%s' is rejected (SNMP agents silently ignore queries with invalid community strings), (2) UDP port %d is blocked or filtered by firewall/ACL, (3) The SNMP agent service is not running or not bound to this interface.", host, port, community, port)
+	}
+	return err
 }
 
 func (s *SnmpService) ImportMibText(ctx context.Context, mibName, content string) (*domain.ImportedMib, error) {

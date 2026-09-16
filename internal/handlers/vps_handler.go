@@ -165,11 +165,16 @@ func (h *DataPrepperHandler) SavePipelineFile(c *gin.Context) {
 		return
 	}
 
-	if err := h.dpService.SavePipelineFile(c.Request.Context(), req.InstanceID, req.File, req.Content); err != nil {
+	saveRes, err := h.dpService.SavePipelineFile(c.Request.Context(), req.InstanceID, req.File, req.Content)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' saved and Data Prepper service restarted.", req.File)})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": saveRes.Message,
+		"data":    saveRes,
+	})
 }
 
 func (h *DataPrepperHandler) DeletePipelineFile(c *gin.Context) {

@@ -160,6 +160,7 @@ func main() {
 		api.GET("/remote-host", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.List)
 		api.GET("/remote-host/:id", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetByID)
 		api.POST("/remote-host", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.Save)
+		api.POST("/remote-host/batch-group", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.BatchUpdateGroup)
 		api.DELETE("/remote-host/:id", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.Delete)
 		api.POST("/remote-host/test", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.TestConnection)
 		api.GET("/remote-host/:id/sftp/list", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.SftpList)

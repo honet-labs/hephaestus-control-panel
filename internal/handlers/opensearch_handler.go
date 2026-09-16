@@ -200,14 +200,15 @@ func (h *PrometheusHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 
-	if err := h.promService.SaveConfigFile(c.Request.Context(), req.InstanceID, req.YAML, req.Reload); err != nil {
+	saveRes, err := h.promService.SaveConfigFile(c.Request.Context(), req.InstanceID, req.YAML, req.Reload)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	msg := "Prometheus configuration saved."
-	if req.Reload {
-		msg = "Prometheus configuration saved and reload triggered."
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": msg})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": saveRes.Message,
+		"data":    saveRes,
+	})
 }

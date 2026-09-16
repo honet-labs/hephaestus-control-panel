@@ -375,3 +375,28 @@ func (r *RemoteHostRepository) ListAvailableUsers(ctx context.Context) ([]map[st
 	return users, nil
 }
 
+func (r *RemoteHostRepository) BatchUpdateGroup(ctx context.Context, hostIDs []string, groupName string, userID int, userRole string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+
+	if len(hostIDs) == 0 {
+		return nil
+	}
+
+	trimmedGroup := strings.TrimSpace(groupName)
+	if trimmedGroup == "" {
+		trimmedGroup = "Default"
+	}
+
+	if strings.EqualFold(userRole, "ADMIN") {
+		_, err = pool.Exec(ctx, `UPDATE remote_host_configs SET group_name = $1 WHERE id = ANY($2)`, trimmedGroup, hostIDs)
+		return err
+	}
+
+	// For non-admin, update only their owned hosts
+	_, err = pool.Exec(ctx, `UPDATE remote_host_configs SET group_name = $1 WHERE id = ANY($2) AND user_id = $3`, trimmedGroup, hostIDs, userID)
+	return err
+}
+

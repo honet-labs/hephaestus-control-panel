@@ -55,7 +55,8 @@ install_dependencies() {
         ubuntu|debian)
             echo "Updating APT repository..."
             apt-get update -y
-            apt-get install -y ca-certificates curl gnupg lsb-release git openssl jq ufw
+            apt-get install -y ca-certificates curl gnupg lsb-release git openssl jq ufw \
+                iputils-ping net-tools snmp dnsutils traceroute socat tar gzip unzip
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then
@@ -80,7 +81,7 @@ install_dependencies() {
                 PKG_MGR="yum"
             fi
 
-            $PKG_MGR install -y yum-utils git openssl jq curl
+            $PKG_MGR install -y yum-utils git openssl jq curl iputils net-tools net-snmp-utils bind-utils traceroute tar gzip unzip socat
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then

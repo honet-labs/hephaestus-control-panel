@@ -144,10 +144,13 @@ const handleReset = () => {
   }
 };
 
+const restartResult = ref<{ attempted?: boolean; success?: boolean; output?: string; error?: string } | null>(null);
+
 const handleSave = async () => {
   if (!selectedInstanceId.value) return;
   saving.value = true;
   validationMessage.value = null;
+  restartResult.value = null;
 
   try {
     const res = await axios.post('/api/v1/prometheus/config', {
@@ -157,8 +160,20 @@ const handleSave = async () => {
     });
 
     if (res.data?.success) {
-      validationMessage.value = res.data.message || 'Config saved & Prometheus reload trigger sent successfully.';
-      isValidationSuccess.value = true;
+      const data = res.data.data;
+      if (data?.restart) {
+        restartResult.value = data.restart;
+        if (data.restart.success) {
+          validationMessage.value = data.message || 'Config saved & Prometheus service restarted successfully.';
+          isValidationSuccess.value = true;
+        } else {
+          validationMessage.value = data.message || `Config saved, but service restart failed: ${data.restart.error || 'Unknown error'}`;
+          isValidationSuccess.value = false;
+        }
+      } else {
+        validationMessage.value = res.data.message || 'Config saved successfully.';
+        isValidationSuccess.value = true;
+      }
     } else {
       validationMessage.value = `Save failed: ${res.data?.error || 'Unknown error'}`;
       isValidationSuccess.value = false;
@@ -308,24 +323,33 @@ onMounted(() => {
             <button
               @click="handleSave"
               :disabled="saving || loading || !isLoaded"
-              class="flex items-center gap-1 px-4 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition"
+              class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
             >
               <RotateCw v-if="saving" class="w-3.5 h-3.5 animate-spin" />
               <Save v-else class="w-3.5 h-3.5" />
-              <span>{{ saving ? 'SAVING...' : 'SAVE' }}</span>
+              <span>{{ saving ? 'RESTARTING SERVICE...' : 'SAVE & RESTART' }}</span>
             </button>
           </div>
         </div>
 
-        <!-- Validation Banner -->
+        <!-- Validation & Restart Feedback Banner -->
         <div
           v-if="validationMessage"
           :class="[
-            'p-2.5 rounded-lg border text-xs font-mono',
-            isValidationSuccess ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+            'p-3 rounded-lg border text-xs font-mono space-y-1',
+            isValidationSuccess ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
           ]"
         >
-          {{ validationMessage }}
+          <div class="flex items-center gap-2 font-semibold">
+            <span class="w-2 h-2 rounded-full" :class="isValidationSuccess ? 'bg-emerald-400' : 'bg-rose-400'"></span>
+            <span>{{ validationMessage }}</span>
+          </div>
+          <div v-if="restartResult?.output" class="text-[11px] text-slate-300 pl-4 border-l border-slate-700/50 mt-1">
+            Status: {{ restartResult.output }}
+          </div>
+          <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-400 pl-4 border-l border-rose-700/50 mt-1">
+            Error: {{ restartResult.error }}
+          </div>
         </div>
 
         <!-- Textarea Code Editor with Line Numbers -->

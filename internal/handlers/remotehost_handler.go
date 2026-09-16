@@ -139,6 +139,28 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Host saved successfully.", "data": req})
 }
 
+func (h *RemoteHostHandler) BatchUpdateGroup(c *gin.Context) {
+	var req struct {
+		HostIDs   []string `json:"hostIds" binding:"required"`
+		GroupName string   `json:"groupName" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: " + err.Error()})
+		return
+	}
+
+	userID, userRole := getUserContext(c)
+	if err := h.remoteRepo.BatchUpdateGroup(c.Request.Context(), req.HostIDs, req.GroupName, userID, userRole); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Updated %d server(s) to group '%s'.", len(req.HostIDs), req.GroupName),
+	})
+}
+
 func (h *RemoteHostHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	userID, userRole := getUserContext(c)

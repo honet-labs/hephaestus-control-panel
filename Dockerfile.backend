@@ -24,8 +24,8 @@ RUN go mod tidy && \
 FROM ${REGISTRY_MIRROR}alpine:3.20
 
 RUN (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/repositories 2>/dev/null || true) && \
-    (apk add --no-cache ca-certificates tzdata postgresql16-client mysql-client openssh-client iputils curl 2>/dev/null || \
-     apk add --no-cache ca-certificates tzdata curl 2>/dev/null || true)
+    (apk add --no-cache ca-certificates tzdata postgresql16-client mysql-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash 2>/dev/null || \
+     apk add --no-cache ca-certificates tzdata curl net-snmp-tools bind-tools tar gzip bash 2>/dev/null || true)
 
 WORKDIR /app
 

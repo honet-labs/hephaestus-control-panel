@@ -221,8 +221,37 @@ const shareForm = ref<{ userId: number | ''; permission: 'read' | 'manage' }>({
   permission: 'read',
 });
 
-// New Group Form
+// New Group Form & State
 const newGroupName = ref('');
+const groupCreationMode = ref<'existing' | 'new'>('existing');
+const selectedHostIdsForGroup = ref<string[]>([]);
+const groupSearchQuery = ref('');
+const isSubmittingGroup = ref(false);
+
+const selectableHostsForGroup = computed(() => {
+  if (!groupSearchQuery.value) return hosts.value;
+  const q = groupSearchQuery.value.toLowerCase();
+  return hosts.value.filter(
+    (h) =>
+      h.name.toLowerCase().includes(q) ||
+      h.host.toLowerCase().includes(q) ||
+      (h.groupName && h.groupName.toLowerCase().includes(q))
+  );
+});
+
+const toggleSelectAllHostsForGroup = () => {
+  const currentSelectable = selectableHostsForGroup.value;
+  if (currentSelectable.length === 0) return;
+  const allSelected = currentSelectable.every((h) => selectedHostIdsForGroup.value.includes(h.id));
+  if (allSelected) {
+    selectedHostIdsForGroup.value = selectedHostIdsForGroup.value.filter(
+      (id) => !currentSelectable.some((h) => h.id === id)
+    );
+  } else {
+    const set = new Set([...selectedHostIdsForGroup.value, ...currentSelectable.map((h) => h.id)]);
+    selectedHostIdsForGroup.value = Array.from(set);
+  }
+};
 
 // New Host Form
 const hostForm = ref<any>({
@@ -1889,12 +1918,57 @@ const handleDeleteHost = async (host: RemoteHost, event?: MouseEvent) => {
   }
 };
 
-const handleCreateGroup = () => {
-  if (newGroupName.value.trim()) {
+const handleCreateGroup = async () => {
+  const gName = newGroupName.value.trim();
+  if (!gName) {
+    alert('Please enter a group name.');
+    return;
+  }
+
+  if (groupCreationMode.value === 'new') {
     isGroupModalOpen.value = false;
-    hostForm.value.groupName = newGroupName.value.trim();
+    hostForm.value = {
+      id: '',
+      name: '',
+      host: '',
+      port: 22,
+      username: '',
+      authType: 'password',
+      password: '',
+      sshKey: '',
+      groupName: gName,
+      tags: [],
+    };
     isHostModalOpen.value = true;
     newGroupName.value = '';
+    selectedHostIdsForGroup.value = [];
+  } else {
+    if (selectedHostIdsForGroup.value.length === 0) {
+      alert('Please select at least one server to include in this group.');
+      return;
+    }
+
+    isSubmittingGroup.value = true;
+    try {
+      const res = await axios.post('/api/v1/remote-host/batch-group', {
+        hostIds: selectedHostIdsForGroup.value,
+        groupName: gName,
+      });
+
+      if (res.data?.success) {
+        isGroupModalOpen.value = false;
+        newGroupName.value = '';
+        selectedHostIdsForGroup.value = [];
+        groupSearchQuery.value = '';
+        await fetchHosts();
+      } else {
+        alert(res.data?.error || 'Failed to update server group');
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Failed to update server group');
+    } finally {
+      isSubmittingGroup.value = false;
+    }
   }
 };
 
@@ -3609,28 +3683,142 @@ onUnmounted(() => {
       v-if="isGroupModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
     >
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
           <div class="flex items-center gap-2">
-            <FolderPlus class="w-4 h-4 text-brand-400" />
-            <h3 class="text-sm font-bold text-white">Create New Group</h3>
+            <FolderPlus class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Create New Group</h3>
           </div>
-          <button @click="isGroupModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isGroupModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="space-y-3 text-xs">
+        <div class="space-y-4 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1">Group Name</label>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Group Name</label>
             <input
               v-model="newGroupName"
               required
-              class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500"
-              placeholder="e.g. Staging, Core Infra, DMZ"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-medium"
+              placeholder="e.g. Staging, Core Infra, DMZ, Production"
             />
           </div>
 
+          <!-- Group Action Mode Selector -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5">Action / Server Assignment</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="groupCreationMode = 'existing'"
+                :class="[
+                  'flex items-center gap-2 p-2.5 rounded-lg border text-left transition cursor-pointer',
+                  groupCreationMode === 'existing'
+                    ? 'border-blue-600 bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-300 font-semibold'
+                    : 'border-slate-300 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+                ]"
+              >
+                <Server class="w-4 h-4 shrink-0" />
+                <div class="truncate">
+                  <div class="text-[11px] leading-tight">Select Existing</div>
+                  <div class="text-[10px] opacity-75">Assign servers</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                @click="groupCreationMode = 'new'"
+                :class="[
+                  'flex items-center gap-2 p-2.5 rounded-lg border text-left transition cursor-pointer',
+                  groupCreationMode === 'new'
+                    ? 'border-blue-600 bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-300 font-semibold'
+                    : 'border-slate-300 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+                ]"
+              >
+                <Plus class="w-4 h-4 shrink-0" />
+                <div class="truncate">
+                  <div class="text-[11px] leading-tight">Add New Server</div>
+                  <div class="text-[10px] opacity-75">Register to group</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Option 1: Existing Servers Checklist -->
+          <div v-if="groupCreationMode === 'existing'" class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-slate-600 dark:text-slate-400 font-medium text-[11px]">
+                Select servers to add to <strong class="text-blue-600 dark:text-blue-400">{{ newGroupName || 'this group' }}</strong>:
+              </span>
+              <button
+                type="button"
+                @click="toggleSelectAllHostsForGroup"
+                class="text-[11px] font-semibold text-blue-600 dark:text-brand-400 hover:underline cursor-pointer shrink-0"
+              >
+                {{ selectedHostIdsForGroup.length === selectableHostsForGroup.length && selectableHostsForGroup.length > 0 ? 'Clear All' : 'Select All' }}
+              </button>
+            </div>
+
+            <!-- Filter search input -->
+            <div class="relative">
+              <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                v-model="groupSearchQuery"
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-300 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                placeholder="Search server name or IP..."
+              />
+            </div>
+
+            <!-- Server list -->
+            <div class="max-h-48 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50/50 dark:bg-[#12151d]">
+              <div v-if="hosts.length === 0" class="text-center py-4 text-slate-400 text-xs">
+                No existing servers found. Choose "Add New Server".
+              </div>
+              <div v-else-if="selectableHostsForGroup.length === 0" class="text-center py-4 text-slate-400 text-xs">
+                No servers match "{{ groupSearchQuery }}".
+              </div>
+              <label
+                v-for="h in selectableHostsForGroup"
+                :key="h.id"
+                class="flex items-center gap-2.5 p-2 rounded-md hover:bg-white dark:hover:bg-slate-800/80 cursor-pointer transition border border-transparent hover:border-slate-200 dark:hover:border-slate-700/50"
+              >
+                <input
+                  type="checkbox"
+                  :value="h.id"
+                  v-model="selectedHostIdsForGroup"
+                  class="rounded text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-1">
+                    <span class="font-semibold text-slate-900 dark:text-white truncate">{{ h.name }}</span>
+                    <span class="px-1.5 py-0.5 text-[9px] rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0 font-medium">
+                      {{ h.groupName || 'Default' }}
+                    </span>
+                  </div>
+                  <div class="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                    {{ h.username }}@{{ h.host }}:{{ h.port }}
+                  </div>
+                </div>
+              </label>
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400">
+              {{ selectedHostIdsForGroup.length }} of {{ hosts.length }} server(s) selected
+            </div>
+          </div>
+
+          <!-- Option 2: Add New Server Notice -->
+          <div v-else class="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg text-blue-800 dark:text-blue-300 text-xs space-y-1">
+            <div class="font-semibold flex items-center gap-1.5">
+              <Plus class="w-4 h-4" />
+              <span>Create Server Directly in Group</span>
+            </div>
+            <p class="text-[11px] opacity-90">
+              Clicking proceed will open the server connection form pre-configured with the group <strong>{{ newGroupName || '(Enter name above)' }}</strong>.
+            </p>
+          </div>
+
+          <!-- Modal Action Buttons -->
           <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
@@ -3641,9 +3829,19 @@ onUnmounted(() => {
             </button>
             <button
               @click="handleCreateGroup"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg"
+              :disabled="isSubmittingGroup || !newGroupName.trim()"
+              class="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition cursor-pointer shadow-sm"
             >
-              Set Group
+              <RotateCw v-if="isSubmittingGroup" class="w-3.5 h-3.5 animate-spin" />
+              <span>
+                {{
+                  groupCreationMode === 'new'
+                    ? 'Proceed to Add Server →'
+                    : isSubmittingGroup
+                      ? 'Saving...'
+                      : `Save Group (${selectedHostIdsForGroup.length} Selected)`
+                }}
+              </span>
             </button>
           </div>
         </div>

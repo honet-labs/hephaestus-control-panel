@@ -222,10 +222,17 @@ func (s *DataPrepperService) GetPipelineFile(ctx context.Context, instanceID, fi
 	return s.sshService.ReadFile(remoteCfg, targetPath)
 }
 
-func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, fileName, content string) error {
+type DataPrepperSaveResult struct {
+	Success bool                 `json:"success"`
+	Message string               `json:"message"`
+	File    string               `json:"file"`
+	Restart ServiceRestartResult `json:"restart"`
+}
+
+func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, fileName, content string) (*DataPrepperSaveResult, error) {
 	cfg, err := s.GetActiveConfig(ctx, instanceID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	cleanFileName := filepath.Base(fileName)
@@ -234,18 +241,37 @@ func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, f
 	mode := strings.ToLower(cfg.Mode)
 	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
 		if err := os.WriteFile(targetPath, []byte(content), 0644); err != nil {
-			return err
+			return nil, err
 		}
-		_ = s.RestartService(ctx, cfg)
-		return nil
+		res := &DataPrepperSaveResult{
+			Success: true,
+			File:    cleanFileName,
+			Restart: s.RestartService(ctx, cfg),
+		}
+		if res.Restart.Success {
+			res.Message = fmt.Sprintf("Pipeline '%s' saved and Data Prepper service restarted successfully.", cleanFileName)
+		} else {
+			res.Message = fmt.Sprintf("Pipeline '%s' saved, but service restart failed: %s", cleanFileName, res.Restart.Error)
+		}
+		return res, nil
 	}
 
 	remoteCfg := s.makeRemoteHostConfig(cfg)
 	if err := s.sshService.WriteFile(remoteCfg, targetPath, content); err != nil {
-		return err
+		return nil, err
 	}
-	_ = s.RestartService(ctx, cfg)
-	return nil
+
+	res := &DataPrepperSaveResult{
+		Success: true,
+		File:    cleanFileName,
+		Restart: s.RestartService(ctx, cfg),
+	}
+	if res.Restart.Success {
+		res.Message = fmt.Sprintf("Pipeline '%s' saved and Data Prepper service restarted successfully.", cleanFileName)
+	} else {
+		res.Message = fmt.Sprintf("Pipeline '%s' saved, but service restart failed: %s", cleanFileName, res.Restart.Error)
+	}
+	return res, nil
 }
 
 func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID, fileName string) error {
@@ -278,27 +304,76 @@ func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID,
 }
 
 // RestartService restarts the Data Prepper service via systemd or docker
-func (s *DataPrepperService) RestartService(ctx context.Context, cfg *domain.DataPrepperConfig) error {
+func (s *DataPrepperService) RestartService(ctx context.Context, cfg *domain.DataPrepperConfig) ServiceRestartResult {
+	result := ServiceRestartResult{Attempted: true}
+
 	mode := strings.ToLower(cfg.Mode)
 	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
-		cmd := exec.CommandContext(ctx, "sh", "-c", "systemctl restart data-prepper 2>/dev/null || systemctl restart dataprepper 2>/dev/null || service data-prepper restart 2>/dev/null || true")
-		_ = cmd.Run()
-		return nil
+		cmd := exec.CommandContext(ctx, "sh", "-c", `
+if command -v systemctl >/dev/null 2>&1 && (systemctl list-unit-files 2>/dev/null | grep -qE '^data-?prepper\.service' || systemctl is-active --quiet data-prepper 2>/dev/null || systemctl is-active --quiet dataprepper 2>/dev/null); then
+    systemctl restart data-prepper 2>/dev/null || systemctl restart dataprepper 2>/dev/null
+    sleep 1
+    if systemctl is-active --quiet data-prepper 2>/dev/null || systemctl is-active --quiet dataprepper 2>/dev/null; then
+        echo "Data Prepper service restarted successfully via systemd."
+        exit 0
+    fi
+    exit 1
+fi
+`)
+		out, err := cmd.CombinedOutput()
+		outStr := strings.TrimSpace(string(out))
+		if err == nil && outStr != "" {
+			result.Success = true
+			result.Output = outStr
+			return result
+		}
+		result.Success = false
+		result.Error = "Data Prepper local service restart did not complete cleanly."
+		return result
 	}
 
 	remoteCfg := s.makeRemoteHostConfig(cfg)
 	restartCmd := `
 if command -v systemctl >/dev/null 2>&1 && (systemctl list-unit-files 2>/dev/null | grep -qE '^data-?prepper\.service' || systemctl is-active --quiet data-prepper 2>/dev/null || systemctl is-active --quiet dataprepper 2>/dev/null); then
     _run_sudo systemctl restart data-prepper 2>/dev/null || _run_sudo systemctl restart dataprepper 2>/dev/null
+    sleep 1
+    if systemctl is-active --quiet data-prepper 2>/dev/null || systemctl is-active --quiet dataprepper 2>/dev/null; then
+        echo "Data Prepper service restarted successfully via systemd."
+        exit 0
+    else
+        echo "Data Prepper service failed to become active after restart."
+        exit 1
+    fi
 elif command -v docker >/dev/null 2>&1 && (_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -qiE 'data-?prepper'); then
     dp_c=$(_run_sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'data-?prepper' | head -n 1)
     _run_sudo docker restart "$dp_c"
+    echo "Data Prepper Docker container '$dp_c' restarted successfully."
+    exit 0
 else
     _run_sudo systemctl restart data-prepper 2>/dev/null || _run_sudo systemctl restart dataprepper 2>/dev/null || _run_sudo service data-prepper restart 2>/dev/null || true
+    echo "Data Prepper restart trigger dispatched."
+    exit 0
 fi
 `
-	_, _, _, err := s.sshService.ExecuteElevatedCommand(remoteCfg, restartCmd)
-	return err
+	stdout, stderr, exitCode, err := s.sshService.ExecuteElevatedCommand(remoteCfg, restartCmd)
+	outStr := strings.TrimSpace(stdout)
+	if outStr == "" {
+		outStr = strings.TrimSpace(stderr)
+	}
+	if err != nil || exitCode != 0 {
+		result.Success = false
+		if err != nil {
+			result.Error = fmt.Sprintf("Restart command failed (exit code %d): %v. %s", exitCode, err, outStr)
+		} else {
+			result.Error = fmt.Sprintf("Restart command exited with code %d: %s", exitCode, outStr)
+		}
+		result.Output = outStr
+		return result
+	}
+
+	result.Success = true
+	result.Output = outStr
+	return result
 }
 
 func (s *DataPrepperService) ValidateYAML(content string) (bool, string) {
