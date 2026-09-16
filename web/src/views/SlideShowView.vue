@@ -584,7 +584,7 @@ onUnmounted(() => {
               : 'text-slate-400 hover:text-white border-slate-700 bg-[#090d16]',
             'px-2 py-1.5 rounded-lg border text-xs font-semibold transition flex items-center gap-1.5'
           ]"
-          :title="autoHideEnabled ? 'Auto-Hide Controls: Aktif (Header & toolbar sembunyi otomatis setelah 3 detik)' : 'Auto-Hide Controls: Nonaktif (Header selalu terlihat)'"
+          :title="autoHideEnabled ? 'Auto-Hide Controls: Active (Header and toolbar hide automatically after 3 seconds)' : 'Auto-Hide Controls: Disabled (Header always visible)'"
         >
           <EyeOff v-if="autoHideEnabled" class="w-3.5 h-3.5 text-slate-300" />
           <Eye v-else class="w-3.5 h-3.5 text-slate-400" />
@@ -596,7 +596,7 @@ onUnmounted(() => {
           v-if="isCurrentEmbedPnaRisky"
           @click="showPnaHelpModal = true"
           class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition"
-          title="Panduan mengatasi pesan 'connection blocked by browser'"
+          title="Guide to resolve browser connection blocked message"
         >
           <AlertTriangle class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden md:inline">Fix Browser Blocked</span>
@@ -691,10 +691,10 @@ onUnmounted(() => {
           <button
             @click="openInNewTab()"
             class="ml-1 px-2 py-0.5 hover:bg-slate-700 rounded text-slate-300 hover:text-white transition flex items-center gap-1 text-[11px] border border-slate-700"
-            title="Buka URL ini langsung di Tab Baru"
+            title="Open this URL directly in a new tab"
           >
             <ExternalLink class="w-3 h-3 text-slate-400" />
-            <span class="hidden sm:inline">Buka di Tab Baru</span>
+            <span class="hidden sm:inline">Open in New Tab</span>
           </button>
 
           <!-- PNA Warning Button -->
@@ -702,10 +702,10 @@ onUnmounted(() => {
             v-if="isCurrentEmbedPnaRisky"
             @click="showPnaHelpModal = true"
             class="ml-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition"
-            title="Koneksi diblokir oleh browser karena mengakses IP lokal dari IP publik? Klik untuk panduan solusi"
+            title="Connection blocked by browser due to accessing local IP from public IP? Click for resolution guide"
           >
             <AlertTriangle class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span class="hidden sm:inline">Koneksi Diblokir Browser? (Solusi)</span>
+            <span class="hidden sm:inline">Browser Blocked? (Fix)</span>
             <span class="sm:hidden">Blocked Fix</span>
           </button>
         </div>
@@ -715,7 +715,7 @@ onUnmounted(() => {
           v-if="activeTab === 'viewer' && autoHideEnabled && !isControlsVisible"
           @click="showControls"
           class="absolute top-3 right-4 z-30 px-3 py-1.5 rounded-xl bg-[#13161f]/70 hover:bg-[#13161f]/95 border border-slate-800/80 backdrop-blur-md text-[11px] text-slate-300 hover:text-white flex items-center gap-1.5 transition-all duration-300 opacity-60 hover:opacity-100 shadow-xl"
-          title="Klik atau gerakkan kursor mouse ke atas untuk menampilkan menu & toolbar"
+          title="Click or move mouse to the top to reveal controls"
         >
           <Eye class="w-3.5 h-3.5 text-slate-400" />
           <span class="hidden sm:inline font-medium">Show Controls</span>
@@ -890,13 +890,13 @@ onUnmounted(() => {
             <div v-if="isCurrentHostPublic && isPrivateIpOrHost(form.url)" class="mt-2 p-2.5 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2">
               <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div class="space-y-1">
-                <p class="font-bold text-amber-300">Peringatan Private Network Access (PNA):</p>
+                <p class="font-bold text-amber-300">Private Network Access (PNA) Warning:</p>
                 <p class="text-[11px] text-amber-200/90 leading-relaxed">
-                  Hephaestus diakses dari IP Publik, sedangkan URL embed menggunakan IP Jaringan Lokal ({{ form.url }}). Browser Chromium/Edge akan memblokir iframe ini secara default.
+                  Hephaestus is accessed from a Public IP, while the embed URL uses a Local/Private IP ({{ form.url }}). Chromium and Edge browsers block this iframe by default.
                 </p>
                 <button type="button" @click="showPnaHelpModal = true" class="text-[11px] underline text-amber-300 hover:text-white font-semibold flex items-center gap-1">
                   <HelpCircle class="w-3.5 h-3.5" />
-                  <span>Pelajari cara mengatasinya (Disable flag di Edge/Chrome)</span>
+                  <span>Learn how to resolve this (Disable browser flag in Edge/Chrome)</span>
                 </button>
               </div>
             </div>
@@ -957,7 +957,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center gap-2 text-rose-400">
             <AlertTriangle class="w-5 h-5" />
-            <h3 class="text-base font-bold text-white">Solusi Koneksi Diblokir Browser (Private Network Access)</h3>
+            <h3 class="text-base font-bold text-white">Browser Connection Blocked Resolution (Private Network Access)</h3>
           </div>
           <button @click="showPnaHelpModal = false" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
             <X class="w-5 h-5" />
@@ -966,12 +966,12 @@ onUnmounted(() => {
 
         <!-- Explanation of the error -->
         <div class="bg-rose-950/20 border border-rose-500/30 rounded-xl p-3.5 text-xs text-rose-200 leading-relaxed space-y-1">
-          <p class="font-bold text-rose-300">Penyebab Muncul Pesan Error:</p>
+          <p class="font-bold text-rose-300">Why this error occurs:</p>
           <p class="text-slate-300">
             <em>"The connection is blocked because it was initiated by a public page to connect to devices or servers on your local network."</em>
           </p>
           <p class="text-slate-300 pt-1">
-            Browser modern (Google Chrome, Microsoft Edge, Brave) menerapkan aturan keamanan <strong class="text-white">Private Network Access (PNA)</strong>. Jika Anda membuka Hephaestus lewat <strong class="text-amber-400">IP Publik</strong>, browser secara otomatis memblokir pemanggilan <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">&lt;iframe&gt;</code> ke <strong class="text-amber-400">IP Lokal/Private</strong> (seperti <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">10.x.x.x</code>, <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">192.168.x.x</code>).
+            Modern browsers (Google Chrome, Microsoft Edge, Brave) enforce <strong class="text-white">Private Network Access (PNA)</strong> security restrictions. If you open Hephaestus via a <strong class="text-amber-400">Public IP</strong>, the browser automatically blocks <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">&lt;iframe&gt;</code> requests to <strong class="text-amber-400">Local/Private IPs</strong> (such as <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">10.x.x.x</code> or <code class="text-rose-300 bg-black/40 px-1 py-0.5 rounded">192.168.x.x</code>).
           </p>
         </div>
 
@@ -982,12 +982,12 @@ onUnmounted(() => {
           <div class="bg-[#0f1219] border border-blue-500/30 rounded-xl p-4 space-y-3">
             <div class="flex items-center gap-2">
               <span class="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs">1</span>
-              <h4 class="font-bold text-sm text-blue-300">Solusi Tercepat (1 Menit): Nonaktifkan Flag di Browser</h4>
-              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">Rekomendasi</span>
+              <h4 class="font-bold text-sm text-blue-300">Fastest Solution (1 Minute): Disable Browser Flag</h4>
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">Recommended</span>
             </div>
             
             <p class="text-slate-300 leading-relaxed">
-              Anda cukup menonaktifkan proteksi PNA di browser yang Anda gunakan untuk melihat Slideshow / Dashboard NOC:
+              Simply disable PNA protection in the browser used to display the Slideshow / NOC Dashboard:
             </p>
 
             <!-- Microsoft Edge -->
@@ -995,23 +995,23 @@ onUnmounted(() => {
               <div class="flex items-center justify-between">
                 <span class="font-bold text-white flex items-center gap-1.5">
                   <Globe class="w-4 h-4 text-slate-400" />
-                  <span>Untuk Microsoft Edge:</span>
+                  <span>For Microsoft Edge:</span>
                 </span>
                 <button
                   @click="copyFlagUrl('edge://flags/#block-insecure-private-network-requests')"
                   class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 flex items-center gap-1 transition"
                 >
                   <Copy class="w-3 h-3" />
-                  <span>{{ copiedFlag === 'edge://flags/#block-insecure-private-network-requests' ? 'Tersalin!' : 'Salin URL Flag' }}</span>
+                  <span>{{ copiedFlag === 'edge://flags/#block-insecure-private-network-requests' ? 'Copied!' : 'Copy Flag URL' }}</span>
                 </button>
               </div>
               <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-slate-300 select-all">
                 edge://flags/#block-insecure-private-network-requests
               </div>
               <ol class="list-decimal list-inside space-y-1 text-slate-300 text-[11px] pl-1">
-                <li>Buka tab baru di Edge, paste teks di atas lalu tekan <strong>Enter</strong>.</li>
-                <li>Ubah setting <strong class="text-slate-200">Block insecure private network requests</strong> dari <em>Default</em> menjadi <strong class="text-emerald-400">Disabled</strong>.</li>
-                <li>Klik tombol <strong class="text-white">Restart / Relaunch</strong> di pojok kanan bawah browser.</li>
+                <li>Open a new tab in Edge, paste the flag URL above, and press <strong>Enter</strong>.</li>
+                <li>Change <strong class="text-slate-200">Block insecure private network requests</strong> from <em>Default</em> to <strong class="text-emerald-400">Disabled</strong>.</li>
+                <li>Click the <strong class="text-white">Restart / Relaunch</strong> button at the bottom right of the browser.</li>
               </ol>
             </div>
 
@@ -1020,23 +1020,23 @@ onUnmounted(() => {
               <div class="flex items-center justify-between">
                 <span class="font-bold text-white flex items-center gap-1.5">
                   <Globe class="w-4 h-4 text-slate-400" />
-                  <span>Untuk Google Chrome:</span>
+                  <span>For Google Chrome:</span>
                 </span>
                 <button
                   @click="copyFlagUrl('chrome://flags/#block-insecure-private-network-requests')"
                   class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 flex items-center gap-1 transition"
                 >
                   <Copy class="w-3 h-3" />
-                  <span>{{ copiedFlag === 'chrome://flags/#block-insecure-private-network-requests' ? 'Tersalin!' : 'Salin URL Flag' }}</span>
+                  <span>{{ copiedFlag === 'chrome://flags/#block-insecure-private-network-requests' ? 'Copied!' : 'Copy Flag URL' }}</span>
                 </button>
               </div>
               <div class="font-mono text-[11px] bg-black/50 p-2 rounded text-slate-300 select-all">
                 chrome://flags/#block-insecure-private-network-requests
               </div>
               <ol class="list-decimal list-inside space-y-1 text-slate-300 text-[11px] pl-1">
-                <li>Buka tab baru di Chrome, paste teks di atas lalu tekan <strong>Enter</strong>.</li>
-                <li>Ubah setting <strong class="text-amber-300">Block insecure private network requests</strong> menjadi <strong class="text-emerald-400">Disabled</strong>.</li>
-                <li>Klik tombol <strong class="text-blue-400">Relaunch</strong> browser.</li>
+                <li>Open a new tab in Chrome, paste the flag URL above, and press <strong>Enter</strong>.</li>
+                <li>Change <strong class="text-amber-300">Block insecure private network requests</strong> to <strong class="text-emerald-400">Disabled</strong>.</li>
+                <li>Click the <strong class="text-blue-400">Relaunch</strong> button in the browser.</li>
               </ol>
             </div>
           </div>
@@ -1045,10 +1045,10 @@ onUnmounted(() => {
           <div class="bg-[#0f1219] border border-slate-800 rounded-xl p-4 space-y-2">
             <div class="flex items-center gap-2">
               <span class="w-6 h-6 rounded-full bg-slate-700 text-white font-bold flex items-center justify-center text-xs">2</span>
-              <h4 class="font-bold text-sm text-slate-200">Solusi 2: Akses Hephaestus Lewat IP Lokal / VPN</h4>
+              <h4 class="font-bold text-sm text-slate-200">Solution 2: Access Hephaestus via Local IP / VPN</h4>
             </div>
             <p class="text-slate-300 leading-relaxed">
-              Jika komputer Anda berada dalam satu jaringan LAN atau terhubung via VPN dengan server, buka Hephaestus menggunakan IP Lokal (contoh: <code class="text-emerald-300">http://10.20.x.x:8282/slideshow</code>), bukan IP Publik. Karena sama-sama berada di jaringan private, browser tidak akan memblokir embed iframe.
+              If your computer is on the same LAN or connected via VPN to the server, open Hephaestus using its Local IP (e.g. <code class="text-emerald-300">http://10.20.x.x:8282/slideshow</code>) instead of a Public IP. Because both destinations reside on a private network, the browser will not block embedded iframes.
             </p>
           </div>
 
@@ -1056,18 +1056,18 @@ onUnmounted(() => {
           <div class="bg-[#0f1219] border border-slate-800 rounded-xl p-4 space-y-2">
             <div class="flex items-center gap-2">
               <span class="w-6 h-6 rounded-full bg-slate-700 text-white font-bold flex items-center justify-center text-xs">3</span>
-              <h4 class="font-bold text-sm text-slate-200">Solusi 3: Buat Reverse Proxy di Nginx Hephaestus</h4>
+              <h4 class="font-bold text-sm text-slate-200">Solution 3: Configure Reverse Proxy in Hephaestus Nginx</h4>
             </div>
             <p class="text-slate-300 leading-relaxed">
-              Buat route reverse proxy di Nginx server Hephaestus mengarah ke Grafana (<code class="text-blue-300">http://103.235.72.45:8282/grafana/</code>). Dengan begitu, target URL berada di origin yang sama (Same-Origin) sehingga bebas dari batasan PNA.
+              Create a reverse proxy route in Hephaestus Nginx pointing to Grafana (<code class="text-blue-300">http://103.235.72.45:8282/grafana/</code>). This places both endpoints on the same origin (Same-Origin), bypassing PNA restrictions.
             </p>
           </div>
 
           <!-- Grafana Configuration Notice -->
           <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 space-y-1.5 text-[11px] text-slate-400">
-            <p class="font-bold text-slate-300">Catatan Khusus Grafana Dashboard:</p>
+            <p class="font-bold text-slate-300">Grafana Dashboard Embedding Notice:</p>
             <p>
-              Pastikan di file <code class="text-amber-300">/etc/grafana/grafana.ini</code> server Grafana Anda sudah diaktifkan:
+              Ensure the following settings are enabled in your Grafana server's <code class="text-amber-300">/etc/grafana/grafana.ini</code>:
             </p>
             <div class="bg-black/50 font-mono text-[10px] text-slate-300 p-2 rounded">
               [security]<br>
@@ -1083,7 +1083,7 @@ onUnmounted(() => {
             @click="showPnaHelpModal = false"
             class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs transition"
           >
-            Mengerti & Tutup
+            Understood & Close
           </button>
         </div>
 

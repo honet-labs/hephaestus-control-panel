@@ -838,18 +838,18 @@ onUnmounted(() => {
               <div class="font-bold text-xs uppercase tracking-wide flex items-center gap-2">
                 <span>Cluster Health Attention: {{ clusterHealth?.status?.toUpperCase() || 'YELLOW' }}</span>
                 <span v-if="inFlightShards.length > 0 || clusterHealth?.initializing_shards > 0" class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-mono animate-pulse">
-                  Proses Replikasi / Penyebaran Sedang Berjalan
+                  Shard Replication / Relocation In Progress
                 </span>
               </div>
               <p class="text-[11px] opacity-90 mt-0.5">
                 <span v-if="unassignedShards.length > 0 || clusterHealth?.unassigned_shards > 0">
-                  Terdapat <strong>{{ unassignedShards.length || clusterHealth?.unassigned_shards }} unassigned shard</strong> yang belum dialokasikan ke node.
+                  There are <strong>{{ unassignedShards.length || clusterHealth?.unassigned_shards }} unassigned shards</strong> not allocated to any node.
                 </span>
                 <span v-if="inFlightShards.length > 0 || clusterHealth?.initializing_shards > 0">
-                  Sedang berlangsung penyebaran/sinkronisasi <strong>{{ inFlightShards.length || clusterHealth?.initializing_shards }} shard</strong> antar node.
+                  Currently replicating / synchronizing <strong>{{ inFlightShards.length || clusterHealth?.initializing_shards }} shards</strong> across nodes.
                 </span>
                 <span v-if="unhealthyIndices.length > 0">
-                  ({{ unhealthyIndices.length }} indeks terpengaruh).
+                  ({{ unhealthyIndices.length }} indices affected).
                 </span>
               </p>
             </div>
@@ -861,14 +861,14 @@ onUnmounted(() => {
               @click="activeTab = 'shards'; shardStateFilter = 'unassigned'"
               class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition cursor-pointer shadow-sm"
             >
-              Lihat Unassigned Shards ({{ unassignedShards.length || clusterHealth?.unassigned_shards }})
+              View Unassigned Shards ({{ unassignedShards.length || clusterHealth?.unassigned_shards }})
             </button>
             <button
               v-if="unhealthyIndices.length > 0"
               @click="activeTab = 'indices'; indexHealthFilter = 'unhealthy'"
               class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition cursor-pointer"
             >
-              Lihat Indeks Bermasalah ({{ unhealthyIndices.length }})
+              View Problem Indices ({{ unhealthyIndices.length }})
             </button>
           </div>
         </div>
@@ -1206,7 +1206,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Live Shard Replication & Recovery Progress Panel (Proses Penyebaran Replicate / Shards) -->
+        <!-- Live Shard Replication & Recovery Progress Panel (In-Progress Shard Replication & Relocation) -->
         <div
           v-if="recoveryList.length > 0 || inFlightShards.length > 0"
           class="bg-[#1b1e26] border border-blue-500/40 rounded-xl p-5 space-y-4 shadow-xl animate-in fade-in duration-200"
@@ -1215,9 +1215,9 @@ onUnmounted(() => {
             <div class="flex items-center gap-2">
               <RotateCw class="w-4 h-4 text-blue-400 animate-spin" />
               <h3 class="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
-                <span>Proses Penyebaran / Replikasi Shards Berjalan</span>
+                <span>In-Progress Shard Replication & Relocation</span>
                 <span class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-mono font-bold">
-                  {{ recoveryList.length || inFlightShards.length }} aktif
+                  {{ recoveryList.length || inFlightShards.length }} active
                 </span>
               </h3>
             </div>
@@ -1297,11 +1297,11 @@ onUnmounted(() => {
                 Unassigned Shards ({{ unassignedShards.length }})
               </h3>
             </div>
-            <span class="text-[11px] text-slate-400 font-mono">Belum dialokasikan ke node</span>
+            <span class="text-[11px] text-slate-400 font-mono">Not allocated to any node</span>
           </div>
 
           <p class="text-xs text-slate-300 font-sans">
-            Shards berikut belum memiliki node aktif (unassigned). Arahkan kursor pada balok <code class="bg-rose-950 px-1 py-0.5 rounded text-rose-300 font-bold">U</code> untuk melihat indeks dan alasan unassigned.
+            The following shards have not been allocated to an active node (unassigned). Hover over the <code class="bg-rose-950 px-1 py-0.5 rounded text-rose-300 font-bold">U</code> block to see the index and unassigned reason.
           </p>
 
           <!-- Visual Unassigned Shards Matrix -->
@@ -1322,7 +1322,7 @@ onUnmounted(() => {
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
-            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} node aktif</span>
+            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} active nodes</span>
           </div>
 
           <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">

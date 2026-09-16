@@ -501,6 +501,10 @@ cloudGroup.Use(middleware.AuthRequired())
 
 ## 5. Developer Checklist Before Pull Request
 
+> [!IMPORTANT]
+> Refer to [`docs/07-ui-ux-design-system.md`](./07-ui-ux-design-system.md) for the complete, mandatory UI/UX Design Tokens, Typography, and Component Blueprints.
+
+- [ ] All UI labels, tooltips, error messages, and comments are in **100% English**.
 - [ ] Database migration is non-destructive (`IF NOT EXISTS` guards verified).
 - [ ] Sensitive fields are encrypted using `crypto.EncryptAES256`.
 - [ ] Endpoint is protected with authentication and RBAC permissions.

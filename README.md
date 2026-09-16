@@ -127,6 +127,7 @@ Detailed technical documentation is available in [`docs/`](./docs):
 - [04 - Background Jobs & Worker Pool](./docs/04-background-jobs-queue.md)
 - [05 - Logging & Troubleshooting Guide](./docs/05-troubleshooting-and-logging.md)
 - [06 - Production Deployment Runbook](./docs/06-deployment-guide.md)
+- [07 - UI/UX Design System & Clean Code Standards](./docs/07-ui-ux-design-system.md)
 
 ---
 

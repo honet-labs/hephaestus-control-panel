@@ -3836,12 +3836,13 @@ onUnmounted(() => {
               <span>
                 {{
                   groupCreationMode === 'new'
-                    ? 'Proceed to Add Server →'
+                    ? 'Proceed to Add Server'
                     : isSubmittingGroup
                       ? 'Saving...'
                       : `Save Group (${selectedHostIdsForGroup.length} Selected)`
                 }}
               </span>
+              <ArrowRight v-if="groupCreationMode === 'new' && !isSubmittingGroup" class="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

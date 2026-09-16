@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
-import { Radio, Search, Upload, Trash2, Filter } from 'lucide-vue-next';
+import { Radio, Search, Upload, Trash2, Filter, Info, AlertTriangle, X } from 'lucide-vue-next';
 
 const mibs = ref<any[]>([]);
 const queryForm = ref({
@@ -22,7 +22,7 @@ const showAdvanced = ref(false);
 const searchQuery = ref('');
 
 const presets = [
-  { label: '⭐ All OIDs / Entire Tree (*)', oid: '*', op: 'walk' },
+  { label: 'All OIDs / Entire Tree (*)', oid: '*', op: 'walk' },
   { label: 'System Subtree (Walk)', oid: '1.3.6.1.2.1.1', op: 'walk' },
   { label: 'Interfaces Table (Walk)', oid: '1.3.6.1.2.1.2', op: 'walk' },
   { label: 'IP Address Table (Walk)', oid: '1.3.6.1.2.1.4', op: 'walk' },
@@ -262,9 +262,9 @@ onMounted(() => {
           <button
             v-if="searchQuery"
             @click="searchQuery = ''"
-            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
           >
-            ✕
+            <X class="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -273,7 +273,8 @@ onMounted(() => {
           v-if="queryResults.length >= 3000"
           class="p-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-lg text-[11px] text-blue-800 dark:text-blue-300 flex items-center gap-2 font-sans"
         >
-          <span>ℹ Hasil scan diproteksi maksimum 3.000 OID untuk menjaga stabilitas browser. Anda dapat menggunakan filter pencarian di atas untuk menemukan data tertentu.</span>
+          <Info class="w-4 h-4 text-blue-500 shrink-0" />
+          <span>Scan results are capped at 3,000 OIDs to maintain browser stability. Use the search filter above to locate specific OID entries.</span>
         </div>
 
         <!-- Diagnostic Error Banner -->
@@ -282,7 +283,8 @@ onMounted(() => {
           class="p-4 rounded-xl border border-rose-300 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 text-xs space-y-2 font-sans"
         >
           <div class="font-bold flex items-center gap-2 text-rose-700 dark:text-rose-400 text-sm">
-            <span>⚠ SNMP Query Unsuccessful</span>
+            <AlertTriangle class="w-4 h-4 text-rose-500 shrink-0" />
+            <span>SNMP Query Unsuccessful</span>
           </div>
           <p class="font-mono text-[11px] leading-relaxed break-words bg-white/60 dark:bg-black/30 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900/40">
             {{ errorMessage }}
@@ -315,7 +317,7 @@ onMounted(() => {
 
           <div v-if="filteredResults.length === 0 && queryResults.length > 0" class="h-48 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs gap-2">
             <Filter class="w-6 h-6 text-slate-400 dark:text-slate-600" />
-            <span>Tidak ditemukan OID yang cocok dengan filter "{{ searchQuery }}".</span>
+            <span>No OIDs matching filter "{{ searchQuery }}".</span>
           </div>
 
           <div v-if="queryResults.length === 0 && !loading" class="h-64 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs gap-2">

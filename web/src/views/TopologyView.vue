@@ -979,7 +979,8 @@ onUnmounted(() => {
           ]"
           title="Auto Flow Layout"
         >
-          <span>→ FLOW LAYOUT</span>
+          <Network class="w-3.5 h-3.5" />
+          <span>FLOW LAYOUT</span>
         </button>
 
         <button
@@ -1170,18 +1171,20 @@ onUnmounted(() => {
               <button
                 v-if="isDeviceOnCanvas(dev.id)"
                 @click="handleRemoveDeviceFromCanvas(dev.id)"
-                class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-amber-500/20 text-slate-600 dark:text-slate-400 hover:text-amber-400 text-[10px] font-mono transition"
+                class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-rose-500/20 text-slate-600 dark:text-slate-400 hover:text-rose-400 text-[10px] font-mono transition"
                 title="Click to remove from canvas sheet (keeps in sidebar inventory)"
               >
-                Added ✕
+                <span>Added</span>
+                <X class="w-2.5 h-2.5" />
               </button>
               <button
                 v-else
                 @click="handleAddDeviceToCanvas(dev)"
-                class="px-2 py-0.5 rounded border border-cyan-500/60 text-cyan-400 hover:bg-cyan-500/10 text-[10px] font-bold transition"
+                class="flex items-center gap-1 px-2 py-0.5 rounded border border-cyan-500/60 text-cyan-400 hover:bg-cyan-500/10 text-[10px] font-bold transition"
                 title="Add to canvas sheet"
               >
-                + Add
+                <Plus class="w-2.5 h-2.5" />
+                <span>Add</span>
               </button>
               <button
                 @click="handleOpenEditDevice(dev)"

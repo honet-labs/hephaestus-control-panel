@@ -494,8 +494,8 @@ html.light [class*="bg-[#171a21]/90"] {
 
 /* ==========================================================================
    15. UNIFIED LIGHT MODE PRIMARY ACTION BUTTONS: rgb(66 116 217) (#4274D9) WITH WHITE TEXT
-   Hanya tombol aksi utama (primary action buttons) yang menggunakan background #4274D9.
-   Bukan navigation bar, tabs, icon buttons, ghost buttons, close buttons, dsb.
+   Only primary action buttons use #4274D9 background.
+   Excludes navigation bars, tabs, icon buttons, ghost buttons, close buttons, etc.
    ========================================================================== */
 
 /* Primary action buttons in Light Mode */
