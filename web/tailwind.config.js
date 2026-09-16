@@ -55,7 +55,7 @@ export default {
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-        sans: ['"Google Sans"', '"Product Sans"', '"Open Sans"', 'Roboto', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'system-ui', 'sans-serif'],
       }
     },
   },

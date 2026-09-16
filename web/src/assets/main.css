@@ -42,8 +42,10 @@
   body {
     background-color: var(--bg-app);
     color: var(--text-primary);
-    font-family: "Google Sans", "Open Sans", Roboto, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
     transition: background-color 0.2s ease, color 0.2s ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
@@ -610,39 +612,63 @@ html.light button[title*="Close"]:not(.btn):not([class*="px-3"]):not([class*="px
 }
 
 /* 15b. NAVIGATION PILL TABS (IN BACKUP & SETTINGS) */
-/* Only target rounded pill tabs that don't have bottom border indicators */
-html.light [role="tablist"] button.rounded-lg[aria-selected="true"]:not([class*="border-b"]),
-html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b"]) {
+/* Target rounded pill tabs that don't have bottom border underline indicators */
+html.light [role="tablist"] button[aria-selected="true"]:not([class*="border-b-2"]),
+html.light [role="tablist"] button[role="tab"][aria-selected="true"]:not([class*="border-b-2"]),
+html.light button.rounded-xl[role="tab"][aria-selected="true"]:not([class*="border-b-2"]),
+html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b-2"]) {
   background-color: rgb(66 116 217) !important;
   border-color: rgb(66 116 217) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important;
 }
-html.light [role="tablist"] button.rounded-lg[aria-selected="true"]:not([class*="border-b"]) *,
-html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b"]) * {
+html.light [role="tablist"] button[aria-selected="true"]:not([class*="border-b-2"]) *,
+html.light [role="tablist"] button[role="tab"][aria-selected="true"]:not([class*="border-b-2"]) *,
+html.light button.rounded-xl[role="tab"][aria-selected="true"]:not([class*="border-b-2"]) *,
+html.light button.rounded-lg[role="tab"][aria-selected="true"]:not([class*="border-b-2"]) * {
   color: #ffffff !important;
   stroke: #ffffff !important;
 }
 
-html.light [role="tablist"] button.rounded-lg[aria-selected="false"]:not([class*="border-b"]),
-html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b"]) {
-  background-color: #f8fafc !important;
+html.light [role="tablist"] button[aria-selected="false"]:not([class*="border-b-2"]),
+html.light [role="tablist"] button[role="tab"][aria-selected="false"]:not([class*="border-b-2"]),
+html.light button.rounded-xl[role="tab"][aria-selected="false"]:not([class*="border-b-2"]),
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b-2"]) {
+  background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
   color: #334155 !important;
+  font-weight: 600 !important;
 }
-html.light [role="tablist"] button.rounded-lg[aria-selected="false"]:not([class*="border-b"]) *,
-html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b"]) * {
+html.light [role="tablist"] button[aria-selected="false"]:not([class*="border-b-2"]) *,
+html.light [role="tablist"] button[role="tab"][aria-selected="false"]:not([class*="border-b-2"]) *,
+html.light button.rounded-xl[role="tab"][aria-selected="false"]:not([class*="border-b-2"]) *,
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:not([class*="border-b-2"]) * {
   color: #334155 !important;
   stroke: #334155 !important;
 }
 
+html.light [role="tablist"] button[aria-selected="false"]:not([class*="border-b-2"]):hover,
+html.light [role="tablist"] button[role="tab"][aria-selected="false"]:not([class*="border-b-2"]):hover,
+html.light button.rounded-xl[role="tab"][aria-selected="false"]:hover,
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:hover {
+  background-color: #f1f5f9 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+html.light [role="tablist"] button[aria-selected="false"]:not([class*="border-b-2"]):hover *,
+html.light [role="tablist"] button[role="tab"][aria-selected="false"]:not([class*="border-b-2"]):hover *,
+html.light button.rounded-xl[role="tab"][aria-selected="false"]:hover *,
+html.light button.rounded-lg[role="tab"][aria-selected="false"]:hover * {
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+}
+
 /* 15c. HORIZONTAL NAVIGATION BAR & UNDERLINE TABS (OPENSEARCH & PORTAL TABS) */
 /* Navigation bar tabs must always have transparent background, no box borders, and blue text when active */
-html.light nav button,
-html.light nav a,
-html.light button[class*="border-b"],
-html.light [class*="border-b"] > button,
-html.light [role="tablist"] button[class*="border-b"] {
+html.light nav button:not(.btn):not([role="tab"]),
+html.light nav a:not(.btn),
+html.light button[class*="border-b-2"]:not([role="tab"]):not([class*="rounded-xl"]):not([class*="rounded-lg"]) {
   background-color: transparent !important;
   border-top-color: transparent !important;
   border-left-color: transparent !important;
@@ -651,15 +677,13 @@ html.light [role="tablist"] button[class*="border-b"] {
 }
 
 /* Active tab text MUST be bold blue (rgb 37 99 235 / #2563eb), NOT white */
-html.light nav button[class*="text-blue"],
-html.light nav button[class*="border-blue"],
-html.light button[class*="border-b-2"][class*="text-blue"],
-html.light button[class*="border-b-2"][class*="border-blue"],
-html.light [role="tablist"] button[class*="border-b"][aria-selected="true"],
-html.light nav button[class*="text-blue"] *,
-html.light button[class*="border-b-2"][class*="text-blue"] *,
-html.light button[class*="border-b-2"][class*="border-blue"] *,
-html.light [role="tablist"] button[class*="border-b"][aria-selected="true"] * {
+html.light nav button:not([role="tab"])[class*="text-blue"],
+html.light nav button:not([role="tab"])[class*="border-blue"],
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="text-blue"],
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="border-blue"],
+html.light nav button:not([role="tab"])[class*="text-blue"] *,
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="text-blue"] *,
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="border-blue"] * {
   color: #2563eb !important;
   stroke: #2563eb !important;
   border-bottom-color: #2563eb !important;
@@ -667,15 +691,13 @@ html.light [role="tablist"] button[class*="border-b"][aria-selected="true"] * {
 }
 
 /* Inactive tab text MUST be slate/grey with transparent bottom border */
-html.light nav button[class*="text-slate"],
-html.light nav button[class*="border-transparent"],
-html.light button[class*="border-b-2"][class*="text-slate"],
-html.light button[class*="border-b-2"][class*="border-transparent"],
-html.light [role="tablist"] button[class*="border-b"][aria-selected="false"],
-html.light nav button[class*="text-slate"] *,
-html.light button[class*="border-b-2"][class*="text-slate"] *,
-html.light button[class*="border-b-2"][class*="border-transparent"] *,
-html.light [role="tablist"] button[class*="border-b"][aria-selected="false"] * {
+html.light nav button:not([role="tab"])[class*="text-slate"],
+html.light nav button:not([role="tab"])[class*="border-transparent"],
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="text-slate"],
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="border-transparent"],
+html.light nav button:not([role="tab"])[class*="text-slate"] *,
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="text-slate"] *,
+html.light button[class*="border-b-2"]:not([role="tab"])[class*="border-transparent"] * {
   color: #64748b !important;
   stroke: #64748b !important;
   border-bottom-color: transparent !important;
@@ -683,15 +705,13 @@ html.light [role="tablist"] button[class*="border-b"][aria-selected="false"] * {
   font-weight: 500 !important;
 }
 
-html.light nav button:hover,
-html.light button[class*="border-b-2"]:hover,
-html.light [role="tablist"] button[class*="border-b"]:hover {
+html.light nav button:not([role="tab"]):hover,
+html.light button[class*="border-b-2"]:not([role="tab"]):hover {
   background-color: transparent !important;
   color: #0f172a !important;
 }
-html.light nav button:hover *,
-html.light button[class*="border-b-2"]:hover *,
-html.light [role="tablist"] button[class*="border-b"]:hover * {
+html.light nav button:not([role="tab"]):hover *,
+html.light button[class*="border-b-2"]:not([role="tab"]):hover * {
   color: #0f172a !important;
 }
 
