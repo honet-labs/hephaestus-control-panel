@@ -35,6 +35,48 @@ func NewSnmpService(snmpRepo *repository.SnmpRepository, dataDir string) *SnmpSe
 	return s
 }
 
+func normalizeOid(rawOid string, operation string) (string, string) {
+	trimmed := strings.TrimSpace(rawOid)
+	op := strings.ToLower(strings.TrimSpace(operation))
+	if op == "" {
+		op = "walk"
+	}
+
+	// Direct wildcard aliases for scanning the entire MIB tree
+	if trimmed == "" || trimmed == "*" || trimmed == ".*" || strings.EqualFold(trimmed, "all") || strings.EqualFold(trimmed, "root") {
+		return "1.3.6.1", "walk"
+	}
+
+	// Check standard textual MIB names
+	standardNames := map[string]string{
+		"system":      "1.3.6.1.2.1.1",
+		"interfaces":  "1.3.6.1.2.1.2",
+		"ip":          "1.3.6.1.2.1.4",
+		"icmp":        "1.3.6.1.2.1.5",
+		"tcp":         "1.3.6.1.2.1.6",
+		"udp":         "1.3.6.1.2.1.7",
+		"snmp":        "1.3.6.1.2.1.11",
+		"host":        "1.3.6.1.2.1.25",
+		"enterprises": "1.3.6.1.4.1",
+		"mgmt":        "1.3.6.1.2",
+		"mib-2":       "1.3.6.1.2.1",
+		"internet":    "1.3.6.1",
+	}
+	if mapped, exists := standardNames[strings.ToLower(trimmed)]; exists {
+		return mapped, op
+	}
+
+	// Strip trailing wildcard characters: e.g. "1.3.6.1.2.1.*" or "1.3.6.1.2.1*" -> "1.3.6.1.2.1"
+	trimmed = strings.TrimSuffix(trimmed, "*")
+	trimmed = strings.Trim(trimmed, ".")
+
+	if trimmed == "" || trimmed == "1.3.6.1" || trimmed == "1.3" || trimmed == "1" {
+		return "1.3.6.1", "walk"
+	}
+
+	return trimmed, op
+}
+
 func (s *SnmpService) Query(host string, port uint16, version string, community string, startOid string, operation string, timeoutSec int, retries int) ([]domain.SnmpQueryResult, error) {
 	if port == 0 {
 		port = 161
@@ -47,6 +89,11 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 	}
 	if retries <= 0 {
 		retries = 3
+	}
+
+	cleanOid, operation := normalizeOid(startOid, operation)
+	if !strings.HasPrefix(cleanOid, ".") {
+		cleanOid = "." + cleanOid
 	}
 
 	snmpVersion := gosnmp.Version2c
@@ -73,14 +120,6 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 	defer params.Conn.Close()
 
 	var results []domain.SnmpQueryResult
-	cleanOid := strings.Trim(startOid, ".")
-	if cleanOid == "" {
-		cleanOid = "1.3.6.1.2.1.1" // default MIB-2 system group
-	}
-	if !strings.HasPrefix(cleanOid, ".") {
-		cleanOid = "." + cleanOid
-	}
-
 	ctx := context.Background()
 
 	if operation == "get" {
@@ -104,8 +143,14 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 	} else {
 		// Walk operation: supports standard subtree and scalar leaves (.0)
 		isScalar := strings.HasSuffix(cleanOid, ".0")
+		const maxWalkResults = 3000
+		var limitReached bool
 
 		walkFn := func(dataUnit gosnmp.SnmpPDU) error {
+			if len(results) >= maxWalkResults {
+				limitReached = true
+				return fmt.Errorf("walk_limit_reached")
+			}
 			oidStr := strings.TrimPrefix(dataUnit.Name, ".")
 			name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
 			valStr, typeStr := formatVarbind(dataUnit)
@@ -121,8 +166,22 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 		var walkErr error
 		if snmpVersion == gosnmp.Version2c {
 			walkErr = params.BulkWalk(cleanOid, walkFn)
+			// Fallback: If BulkWalk failed or returned 0 results, try standard Walk (GETNEXT)
+			if (walkErr != nil || len(results) == 0) && !limitReached {
+				walkErr = params.Walk(cleanOid, walkFn)
+			}
 		} else {
 			walkErr = params.Walk(cleanOid, walkFn)
+		}
+
+		// Fallback for full root walk (1.3.6.1): if 0 results, try standard MIB-2 (.1.3.6.1.2.1)
+		if (cleanOid == ".1.3.6.1" || cleanOid == ".1.3") && len(results) == 0 && !limitReached {
+			if snmpVersion == gosnmp.Version2c {
+				_ = params.BulkWalk(".1.3.6.1.2.1", walkFn)
+			}
+			if len(results) == 0 {
+				_ = params.Walk(".1.3.6.1.2.1", walkFn)
+			}
 		}
 
 		// If Walk returned 0 results or failed, and user specified a scalar OID (e.g. .1.3.6.1.2.1.1.1.0)
@@ -154,6 +213,10 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 			} else {
 				_ = params.Walk(parentOid, walkFn)
 			}
+		}
+
+		if limitReached {
+			return results, nil
 		}
 
 		if walkErr != nil && len(results) == 0 {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
-import { Radio, Search, Upload, Trash2 } from 'lucide-vue-next';
+import { Radio, Search, Upload, Trash2, Filter } from 'lucide-vue-next';
 
 const mibs = ref<any[]>([]);
 const queryForm = ref({
@@ -9,7 +9,7 @@ const queryForm = ref({
   port: 161,
   version: '2c',
   community: 'public',
-  oid: '1.3.6.1.2.1.1',
+  oid: '*',
   operation: 'walk',
   timeout: 6,
   retries: 3,
@@ -19,15 +19,35 @@ const queryResults = ref<any[]>([]);
 const loading = ref(false);
 const errorMessage = ref<string | null>(null);
 const showAdvanced = ref(false);
+const searchQuery = ref('');
 
 const presets = [
+  { label: '⭐ All OIDs / Entire Tree (*)', oid: '*', op: 'walk' },
   { label: 'System Subtree (Walk)', oid: '1.3.6.1.2.1.1', op: 'walk' },
   { label: 'Interfaces Table (Walk)', oid: '1.3.6.1.2.1.2', op: 'walk' },
   { label: 'IP Address Table (Walk)', oid: '1.3.6.1.2.1.4', op: 'walk' },
+  { label: 'Enterprise Vendor Subtree (Walk)', oid: '1.3.6.1.4.1', op: 'walk' },
+  { label: 'Host Resources Subtree (Walk)', oid: '1.3.6.1.2.1.25', op: 'walk' },
   { label: 'sysDescr.0 (Get)', oid: '1.3.6.1.2.1.1.1.0', op: 'get' },
   { label: 'sysUpTime.0 (Get)', oid: '1.3.6.1.2.1.1.3.0', op: 'get' },
   { label: 'sysName.0 (Get)', oid: '1.3.6.1.2.1.1.5.0', op: 'get' },
 ];
+
+watch(() => queryForm.value.oid, (newVal) => {
+  if (newVal && newVal.trim() === '*') {
+    queryForm.value.operation = 'walk';
+  }
+});
+
+const filteredResults = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return queryResults.value;
+  return queryResults.value.filter(r => 
+    (r.name && r.name.toLowerCase().includes(q)) ||
+    (r.oid && r.oid.toLowerCase().includes(q)) ||
+    (r.value && String(r.value).toLowerCase().includes(q))
+  );
+});
 
 const applyPreset = (preset: typeof presets[0]) => {
   queryForm.value.oid = preset.oid;
@@ -49,6 +69,7 @@ const executeQuery = async () => {
   loading.value = true;
   errorMessage.value = null;
   queryResults.value = [];
+  searchQuery.value = '';
   try {
     const res = await axios.post('/api/v1/snmp/query', queryForm.value);
     if (res.data.success) {
@@ -147,10 +168,10 @@ onMounted(() => {
             <input
               v-model="queryForm.oid"
               class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
-              placeholder="1.3.6.1.2.1.1"
+              placeholder="* (Scan All OIDs) or 1.3.6.1.2.1.1"
             />
             <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-              Tip: Use subtree OID (e.g. <code class="text-blue-600 dark:text-blue-400">1.3.6.1.2.1.1</code>) for Walk, or scalar OID (ending in <code class="text-amber-500">.0</code>) for Get.
+              Tip: Gunakan <code class="text-blue-600 dark:text-blue-400 font-bold">*</code> untuk scan seluruh OID perangkat, atau subtree OID (cth: <code class="text-blue-600 dark:text-blue-400 font-mono">1.3.6.1.2.1.1</code>) untuk Walk, atau scalar OID (akhiran <code class="text-amber-500 font-mono">.0</code>) untuk Get.
             </p>
           </div>
 
@@ -160,7 +181,7 @@ onMounted(() => {
               v-model="queryForm.operation"
               class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-medium focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20"
             >
-              <option value="walk">SNMP Walk (Subtree / Bulk)</option>
+              <option value="walk">SNMP Walk (Subtree / Bulk / All OIDs)</option>
               <option value="get">SNMP Get (Single OID)</option>
             </select>
           </div>
@@ -213,19 +234,46 @@ onMounted(() => {
       <!-- Results Table (Right) -->
       <div class="lg:col-span-8 p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-4 shadow-sm flex flex-col min-w-0">
         <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
-          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-            <span>Results</span>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Results
+            </h2>
             <span class="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] font-mono border border-blue-200 dark:border-blue-500/30 font-bold">
-              {{ queryResults.length }} items
+              {{ searchQuery ? `${filteredResults.length} of ${queryResults.length} items` : `${queryResults.length} items` }}
             </span>
-          </h2>
+          </div>
           <button
             v-if="queryResults.length > 0"
-            @click="queryResults = []; errorMessage = null"
+            @click="queryResults = []; errorMessage = null; searchQuery = ''"
             class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-white font-medium cursor-pointer"
           >
             Clear Results
           </button>
+        </div>
+
+        <!-- Real-time Result Filter Search Bar -->
+        <div v-if="queryResults.length > 0" class="relative">
+          <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            v-model="searchQuery"
+            placeholder="Filter results by OID, MIB name, or value..."
+            class="w-full pl-8 pr-8 py-1.5 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          />
+          <button
+            v-if="searchQuery"
+            @click="searchQuery = ''"
+            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Capped Notice Banner -->
+        <div
+          v-if="queryResults.length >= 3000"
+          class="p-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-lg text-[11px] text-blue-800 dark:text-blue-300 flex items-center gap-2 font-sans"
+        >
+          <span>ℹ Hasil scan diproteksi maksimum 3.000 OID untuk menjaga stabilitas browser. Anda dapat menggunakan filter pencarian di atas untuk menemukan data tertentu.</span>
         </div>
 
         <!-- Diagnostic Error Banner -->
@@ -252,7 +300,7 @@ onMounted(() => {
 
         <div class="flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3 overflow-y-auto font-mono text-[11px] min-h-[420px]">
           <div
-            v-for="(res, idx) in queryResults"
+            v-for="(res, idx) in filteredResults"
             :key="idx"
             class="p-3 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-lg shadow-sm space-y-1.5 mb-2 hover:border-blue-400 dark:hover:border-blue-500/50 transition"
           >
@@ -263,6 +311,11 @@ onMounted(() => {
             <div class="text-slate-900 dark:text-slate-200 break-all bg-slate-50 dark:bg-[#121826] px-2.5 py-1.5 rounded border border-slate-200 dark:border-[#1b2234]/60 font-semibold">
               {{ res.value }}
             </div>
+          </div>
+
+          <div v-if="filteredResults.length === 0 && queryResults.length > 0" class="h-48 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs gap-2">
+            <Filter class="w-6 h-6 text-slate-400 dark:text-slate-600" />
+            <span>Tidak ditemukan OID yang cocok dengan filter "{{ searchQuery }}".</span>
           </div>
 
           <div v-if="queryResults.length === 0 && !loading" class="h-64 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs gap-2">

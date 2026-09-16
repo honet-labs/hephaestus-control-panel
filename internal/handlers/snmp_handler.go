@@ -28,13 +28,13 @@ func (h *SnmpHandler) Query(c *gin.Context) {
 		Port      uint16 `json:"port"`
 		Version   string `json:"version"`
 		Community string `json:"community"`
-		OID       string `json:"oid" binding:"required"`
+		OID       string `json:"oid"`
 		Operation string `json:"operation"` // "get" or "walk"
 		Timeout   int    `json:"timeout"`
 		Retries   int    `json:"retries"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters: target host is required"})
 		return
 	}
 
@@ -44,8 +44,11 @@ func (h *SnmpHandler) Query(c *gin.Context) {
 	if req.Community == "" {
 		req.Community = "public"
 	}
+	if req.OID == "" {
+		req.OID = "*"
+	}
 	if req.Operation == "" {
-		req.Operation = "get"
+		req.Operation = "walk"
 	}
 
 	results, err := h.snmpService.Query(req.Host, req.Port, req.Version, req.Community, req.OID, req.Operation, req.Timeout, req.Retries)
