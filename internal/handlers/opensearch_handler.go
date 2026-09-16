@@ -62,6 +62,15 @@ func (h *OpenSearchHandler) GetShards(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": shards})
 }
 
+func (h *OpenSearchHandler) GetRecovery(c *gin.Context) {
+	recovery, err := h.openSearchService.GetRecovery(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error(), "data": []interface{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": recovery})
+}
+
 func (h *OpenSearchHandler) GetConfig(c *gin.Context) {
 	cfg, err := h.openSearchService.GetActiveConfig(c.Request.Context())
 	if err != nil {

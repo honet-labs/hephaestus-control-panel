@@ -118,6 +118,7 @@ const nodesList = ref<any[]>([]);
 const indicesList = ref<any[]>([]);
 const shardsList = ref<any[]>([]);
 const logsList = ref<any[]>([]);
+const recoveryList = ref<any[]>([]);
 
 // Selected Index Detail Modal
 const selectedIndexModal = ref<any | null>(null);
@@ -141,6 +142,8 @@ const isSavingConfig = ref(false);
 // Filter & Search states
 const indexSearch = ref('');
 const shardSearch = ref('');
+const indexHealthFilter = ref<'all' | 'unhealthy' | 'green'>('all');
+const shardStateFilter = ref<'all' | 'unassigned' | 'inflight' | 'started'>('all');
 
 // Hover Tooltip State for Shards (Matching Screenshot)
 const hoveredShard = ref<any | null>(null);
@@ -151,6 +154,84 @@ const totalIndicesCount = computed(() => indicesList.value.length);
 const totalDocumentsCount = computed(() => {
   return indicesList.value.reduce((acc, idx) => acc + (parseInt(idx['docs.count'] || idx.docsCount || 0) || 0), 0);
 });
+
+// Shard State Categorization (Unassigned & In-Flight Replications)
+const unassignedShards = computed(() => {
+  return shardsList.value.filter(s => {
+    const state = (s.state || '').toUpperCase();
+    const node = s.node || s.nodeName;
+    return state === 'UNASSIGNED' || !node || node === 'UNASSIGNED';
+  });
+});
+
+const inFlightShards = computed(() => {
+  return shardsList.value.filter(s => {
+    const state = (s.state || '').toUpperCase();
+    return state === 'INITIALIZING' || state === 'RELOCATING';
+  });
+});
+
+const startedShards = computed(() => {
+  return shardsList.value.filter(s => {
+    const state = (s.state || '').toUpperCase();
+    const node = s.node || s.nodeName;
+    return state === 'STARTED' && node && node !== 'UNASSIGNED';
+  });
+});
+
+const unhealthyIndices = computed(() => {
+  return indicesList.value.filter(idx => {
+    const health = (idx.health || '').toLowerCase();
+    return health === 'yellow' || health === 'red';
+  });
+});
+
+const greenIndices = computed(() => {
+  return indicesList.value.filter(idx => {
+    const health = (idx.health || '').toLowerCase();
+    return health === 'green';
+  });
+});
+
+const getShardBadgeLabel = (shard: any) => {
+  const state = (shard.state || '').toUpperCase();
+  if (state === 'INITIALIZING') return 'I';
+  if (state === 'RELOCATING') return 'M';
+  if (state === 'UNASSIGNED') return 'U';
+  if (shard.prirep === 'p' || shard.type === 'Primary') return 'P';
+  if (shard.prirep === 'r' || shard.type === 'Replica') return 'R';
+  return 'S';
+};
+
+const getShardColorClass = (shard: any, isHighlighted = false, isDimmed = false) => {
+  const state = (shard.state || '').toUpperCase();
+  const isPrimary = shard.prirep === 'p' || shard.type === 'Primary';
+
+  if (state === 'INITIALIZING') {
+    if (isHighlighted) return 'bg-amber-500 text-slate-950 ring-amber-400/50';
+    if (isDimmed) return 'bg-[#3b2a12]/25 border border-[#784e1b]/20 text-amber-300/30';
+    return 'bg-[#3b2a12] border border-[#784e1b] text-amber-300 animate-pulse';
+  }
+  if (state === 'RELOCATING') {
+    if (isHighlighted) return 'bg-purple-500 text-white ring-purple-400/50';
+    if (isDimmed) return 'bg-[#2e153b]/25 border border-[#6b258a]/20 text-purple-300/30';
+    return 'bg-[#2e153b] border border-[#6b258a] text-purple-300 animate-pulse';
+  }
+  if (state === 'UNASSIGNED') {
+    if (isHighlighted) return 'bg-red-500 text-white ring-red-400/50';
+    if (isDimmed) return 'bg-[#3b1219]/25 border border-[#822735]/20 text-[#f87171]/30';
+    return 'bg-[#3b1219] border border-[#822735] text-[#f87171]';
+  }
+  if (isPrimary) {
+    if (isHighlighted) return 'bg-[#10b981] text-white ring-emerald-500/40';
+    if (isDimmed) return 'bg-[#0f3d28]/25 border border-[#1c6b47]/20 text-[#4ade80]/30';
+    return 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80]';
+  }
+  // Replica
+  if (isHighlighted) return 'bg-[#3b82f6] text-white ring-blue-500/40';
+  if (isDimmed) return 'bg-[#132c4a]/25 border border-[#1e4976]/20 text-[#60a5fa]/30';
+  return 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa]';
+};
 
 function parseBytesString(val: any): number {
   if (typeof val === 'number') return val;
@@ -183,21 +264,24 @@ const totalStoreSizeBytes = computed(() => {
   return '0 B';
 });
 
-// All Distinct Node Names (from nodes stats or discovered shards)
+// All Distinct Actual Node Names (excluding unassigned)
 const clusterNodes = computed(() => {
   const map: Record<string, { name: string; ip: string; primaryCount: number; replicaCount: number }> = {};
   
   nodesList.value.forEach(n => {
-    map[n.name] = {
-      name: n.name,
-      ip: n.ip || '-',
-      primaryCount: 0,
-      replicaCount: 0,
-    };
+    if (n.name && n.name.toLowerCase() !== 'unassigned') {
+      map[n.name] = {
+        name: n.name,
+        ip: n.ip || '-',
+        primaryCount: 0,
+        replicaCount: 0,
+      };
+    }
   });
 
   shardsList.value.forEach(s => {
-    const nodeName = s.node || s.nodeName || 'unassigned';
+    const nodeName = s.node || s.nodeName;
+    if (!nodeName || nodeName.toLowerCase() === 'unassigned' || s.state === 'UNASSIGNED') return;
     if (!map[nodeName]) {
       map[nodeName] = {
         name: nodeName,
@@ -216,36 +300,50 @@ const clusterNodes = computed(() => {
   return Object.values(map);
 });
 
-// Filtered indices
+// Filtered indices (with Health Filter tab support)
 const filteredIndices = computed(() => {
-  if (!indexSearch.value) return indicesList.value;
+  let list = indicesList.value;
+  if (indexHealthFilter.value === 'unhealthy') {
+    list = list.filter(idx => (idx.health || '').toLowerCase() === 'yellow' || (idx.health || '').toLowerCase() === 'red');
+  } else if (indexHealthFilter.value === 'green') {
+    list = list.filter(idx => (idx.health || '').toLowerCase() === 'green');
+  }
+
+  if (!indexSearch.value) return list;
   const q = indexSearch.value.toLowerCase();
-  return indicesList.value.filter(idx => (idx.index || idx.name || '').toLowerCase().includes(q));
+  return list.filter(idx => (idx.index || idx.name || '').toLowerCase().includes(q));
 });
 
-// Filtered shards for All Shards table
+// Filtered shards for All Shards table (with State Filter support)
 const filteredShards = computed(() => {
-  if (!shardSearch.value) return shardsList.value;
+  let list = shardsList.value;
+  if (shardStateFilter.value === 'unassigned') {
+    list = unassignedShards.value;
+  } else if (shardStateFilter.value === 'inflight') {
+    list = inFlightShards.value;
+  } else if (shardStateFilter.value === 'started') {
+    list = startedShards.value;
+  }
+
+  if (!shardSearch.value) return list;
   const q = shardSearch.value.toLowerCase();
-  return shardsList.value.filter(
-    s => (s.index || '').toLowerCase().includes(q) || (s.node || '').toLowerCase().includes(q) || (s.ip || '').toLowerCase().includes(q)
+  return list.filter(
+    s => (s.index || '').toLowerCase().includes(q) || (s.node || '').toLowerCase().includes(q) || (s.ip || '').toLowerCase().includes(q) || (s.state || '').toLowerCase().includes(q)
   );
 });
 
-// Grouped shards per node
+// Grouped shards per node (only assigned active shards)
 const shardsByNode = computed(() => {
   const map: Record<string, any[]> = {};
   clusterNodes.value.forEach(n => {
     map[n.name] = [];
   });
-  if (clusterNodes.value.length === 0) {
-    map['cluster-node'] = [];
-  }
 
   shardsList.value.forEach(shard => {
-    const nodeName = shard.node || shard.nodeName || (clusterNodes.value[0]?.name || 'cluster-node');
-    if (!map[nodeName]) map[nodeName] = [];
-    map[nodeName].push(shard);
+    const nodeName = shard.node || shard.nodeName;
+    if (nodeName && map[nodeName] && shard.state !== 'UNASSIGNED' && nodeName !== 'UNASSIGNED') {
+      map[nodeName].push(shard);
+    }
   });
 
   return map;
@@ -277,13 +375,14 @@ const fetchClusterData = async () => {
   isRefreshing.value = true;
   error.value = '';
   try {
-    const [healthRes, nodesStatsRes, nodesInfoRes, indicesRes, shardsRes, logsRes] = await Promise.allSettled([
+    const [healthRes, nodesStatsRes, nodesInfoRes, indicesRes, shardsRes, logsRes, recoveryRes] = await Promise.allSettled([
       axios.get('/api/v1/opensearch/health'),
       axios.get('/api/v1/opensearch/nodes'),
       axios.get('/api/v1/opensearch/nodes/info'),
       axios.get('/api/v1/opensearch/indices'),
       axios.get('/api/v1/opensearch/shards'),
       axios.get('/api/v1/logs'),
+      axios.get('/api/v1/opensearch/recovery'),
     ]);
 
     if (healthRes.status === 'fulfilled' && healthRes.value.data.success) {
@@ -302,6 +401,12 @@ const fetchClusterData = async () => {
       shardsList.value = shardsRes.value.data.data;
     } else {
       shardsList.value = [];
+    }
+
+    if (recoveryRes.status === 'fulfilled' && recoveryRes.value.data.success && Array.isArray(recoveryRes.value.data.data)) {
+      recoveryList.value = recoveryRes.value.data.data;
+    } else {
+      recoveryList.value = [];
     }
 
     if (nodesStatsRes.status === 'fulfilled' && nodesStatsRes.value.data.success) {
@@ -719,12 +824,61 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Cluster Health & Activity Alert Banner -->
+        <div
+          v-if="clusterHealth?.status !== 'green' || unassignedShards.length > 0 || inFlightShards.length > 0"
+          class="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md"
+          :class="clusterHealth?.status === 'red' ? 'bg-red-950/20 border-red-500/30 text-red-300' : 'bg-amber-950/20 border-amber-500/30 text-amber-300'"
+        >
+          <div class="flex items-start sm:items-center gap-3">
+            <div class="p-2 rounded-lg" :class="clusterHealth?.status === 'red' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'">
+              <AlertTriangle class="w-5 h-5" />
+            </div>
+            <div>
+              <div class="font-bold text-xs uppercase tracking-wide flex items-center gap-2">
+                <span>Cluster Health Attention: {{ clusterHealth?.status?.toUpperCase() || 'YELLOW' }}</span>
+                <span v-if="inFlightShards.length > 0 || clusterHealth?.initializing_shards > 0" class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-mono animate-pulse">
+                  Proses Replikasi / Penyebaran Sedang Berjalan
+                </span>
+              </div>
+              <p class="text-[11px] opacity-90 mt-0.5">
+                <span v-if="unassignedShards.length > 0 || clusterHealth?.unassigned_shards > 0">
+                  Terdapat <strong>{{ unassignedShards.length || clusterHealth?.unassigned_shards }} unassigned shard</strong> yang belum dialokasikan ke node.
+                </span>
+                <span v-if="inFlightShards.length > 0 || clusterHealth?.initializing_shards > 0">
+                  Sedang berlangsung penyebaran/sinkronisasi <strong>{{ inFlightShards.length || clusterHealth?.initializing_shards }} shard</strong> antar node.
+                </span>
+                <span v-if="unhealthyIndices.length > 0">
+                  ({{ unhealthyIndices.length }} indeks terpengaruh).
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <button
+              v-if="unassignedShards.length > 0 || clusterHealth?.unassigned_shards > 0"
+              @click="activeTab = 'shards'; shardStateFilter = 'unassigned'"
+              class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition cursor-pointer shadow-sm"
+            >
+              Lihat Unassigned Shards ({{ unassignedShards.length || clusterHealth?.unassigned_shards }})
+            </button>
+            <button
+              v-if="unhealthyIndices.length > 0"
+              @click="activeTab = 'indices'; indexHealthFilter = 'unhealthy'"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition cursor-pointer"
+            >
+              Lihat Indeks Bermasalah ({{ unhealthyIndices.length }})
+            </button>
+          </div>
+        </div>
+
         <!-- Middle Section: Index & Shards + Node Stats -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Left: Index & Shards Breakdown -->
           <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6 shadow-xl">
             <h3 class="text-xs font-bold text-white tracking-wide">Index & Shards Summary</h3>
-            <div class="grid grid-cols-2 gap-y-6 text-xs font-sans">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-y-6 text-xs font-sans">
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Shards</p>
                 <p class="text-xl font-bold text-emerald-400 font-mono">{{ clusterHealth?.active_primary_shards ?? 0 }}</p>
@@ -739,8 +893,22 @@ onUnmounted(() => {
               </div>
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned Shards</p>
-                <p class="text-xl font-bold font-mono" :class="clusterHealth?.unassigned_shards > 0 ? 'text-amber-400' : 'text-slate-300'">
-                  {{ clusterHealth?.unassigned_shards ?? 0 }}
+                <p class="text-xl font-bold font-mono" :class="(clusterHealth?.unassigned_shards > 0 || unassignedShards.length > 0) ? 'text-amber-400 font-black' : 'text-slate-400'">
+                  {{ clusterHealth?.unassigned_shards ?? unassignedShards.length }}
+                </p>
+              </div>
+              <div>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Initializing (Sync)</p>
+                <p class="text-xl font-bold font-mono flex items-center gap-1.5" :class="(clusterHealth?.initializing_shards > 0 || inFlightShards.some(s => s.state === 'INITIALIZING')) ? 'text-amber-400 animate-pulse' : 'text-slate-400'">
+                  <span>{{ clusterHealth?.initializing_shards ?? inFlightShards.filter(s => s.state === 'INITIALIZING').length }}</span>
+                  <RotateCw v-if="clusterHealth?.initializing_shards > 0 || inFlightShards.some(s => s.state === 'INITIALIZING')" class="w-3.5 h-3.5 animate-spin text-amber-400 inline" />
+                </p>
+              </div>
+              <div>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Relocating (Moving)</p>
+                <p class="text-xl font-bold font-mono flex items-center gap-1.5" :class="(clusterHealth?.relocating_shards > 0 || inFlightShards.some(s => s.state === 'RELOCATING')) ? 'text-purple-400 animate-pulse' : 'text-slate-400'">
+                  <span>{{ clusterHealth?.relocating_shards ?? inFlightShards.filter(s => s.state === 'RELOCATING').length }}</span>
+                  <Zap v-if="clusterHealth?.relocating_shards > 0 || inFlightShards.some(s => s.state === 'RELOCATING')" class="w-3.5 h-3.5 text-purple-400 inline" />
                 </p>
               </div>
             </div>
@@ -911,17 +1079,46 @@ onUnmounted(() => {
       <!-- TAB 3: INDICES -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'indices'" class="space-y-4">
-        <!-- Search bar -->
-        <div class="flex items-center justify-between gap-4">
-          <div class="relative flex-1 max-w-md">
-            <Search class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-            <input
-              v-model="indexSearch"
-              placeholder="Search indices by name..."
-              class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-brand-500 transition"
-            />
+        <!-- Search bar & Health Filter Tabs -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="relative w-72">
+              <Search class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+              <input
+                v-model="indexSearch"
+                placeholder="Search indices by name..."
+                class="w-full bg-[#1b1e26] border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-brand-500 transition"
+              />
+            </div>
+
+            <!-- Health Quick Filter Buttons -->
+            <div class="flex items-center bg-[#14161b] p-0.5 rounded-lg border border-slate-800 text-xs font-semibold">
+              <button
+                @click="indexHealthFilter = 'all'"
+                :class="indexHealthFilter === 'all' ? 'bg-[#4274D9] text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+                class="px-3 py-1 rounded-md transition cursor-pointer text-[11px]"
+              >
+                All ({{ indicesList.length }})
+              </button>
+              <button
+                @click="indexHealthFilter = 'unhealthy'"
+                :class="indexHealthFilter === 'unhealthy' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-amber-400 hover:text-amber-300'"
+                class="px-3 py-1 rounded-md transition cursor-pointer text-[11px] flex items-center gap-1.5"
+              >
+                <span>Issues / Unassigned</span>
+                <span v-if="unhealthyIndices.length > 0" class="px-1.5 py-0.2 rounded-full bg-amber-950 text-amber-300 font-mono text-[9px]">{{ unhealthyIndices.length }}</span>
+              </button>
+              <button
+                @click="indexHealthFilter = 'green'"
+                :class="indexHealthFilter === 'green' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+                class="px-3 py-1 rounded-md transition cursor-pointer text-[11px]"
+              >
+                Healthy ({{ greenIndices.length }})
+              </button>
+            </div>
           </div>
-          <span class="text-xs text-slate-400 font-mono">Showing {{ filteredIndices.length }} indices</span>
+
+          <span class="text-xs text-slate-400 font-mono">Showing {{ filteredIndices.length }} of {{ indicesList.length }} indices</span>
         </div>
 
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
@@ -986,7 +1183,7 @@ onUnmounted(() => {
       <!-- ================================================================= -->
       <div v-if="activeTab === 'shards'" class="space-y-6">
         <!-- Legend Bar -->
-        <div class="flex items-center gap-6 text-xs bg-[#1b1e26] border border-slate-800/80 p-3 px-5 rounded-xl shadow-lg">
+        <div class="flex flex-wrap items-center gap-4 sm:gap-6 text-xs bg-[#1b1e26] border border-slate-800/80 p-3 px-5 rounded-xl shadow-lg">
           <div class="flex items-center gap-2">
             <span class="w-4 h-4 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[9px] font-bold text-[#4ade80]">P</span>
             <span class="text-slate-300 font-medium">Primary Shard</span>
@@ -996,14 +1193,137 @@ onUnmounted(() => {
             <span class="text-slate-300 font-medium">Replica Shard</span>
           </div>
           <div class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded bg-[#3b2a12] border border-[#784e1b] flex items-center justify-center text-[9px] font-bold text-amber-300 animate-pulse">I</span>
+            <span class="text-slate-300 font-medium">Initializing / Syncing</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded bg-[#2e153b] border border-[#6b258a] flex items-center justify-center text-[9px] font-bold text-purple-300 animate-pulse">M</span>
+            <span class="text-slate-300 font-medium">Relocating / Moving</span>
+          </div>
+          <div class="flex items-center gap-2">
             <span class="w-4 h-4 rounded bg-[#3b1219] border border-[#822735] flex items-center justify-center text-[9px] font-bold text-[#f87171]">U</span>
-            <span class="text-slate-300 font-medium">Unassigned</span>
+            <span class="text-slate-300 font-medium">Unassigned Shard</span>
+          </div>
+        </div>
+
+        <!-- Live Shard Replication & Recovery Progress Panel (Proses Penyebaran Replicate / Shards) -->
+        <div
+          v-if="recoveryList.length > 0 || inFlightShards.length > 0"
+          class="bg-[#1b1e26] border border-blue-500/40 rounded-xl p-5 space-y-4 shadow-xl animate-in fade-in duration-200"
+        >
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div class="flex items-center gap-2">
+              <RotateCw class="w-4 h-4 text-blue-400 animate-spin" />
+              <h3 class="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                <span>Proses Penyebaran / Replikasi Shards Berjalan</span>
+                <span class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-mono font-bold">
+                  {{ recoveryList.length || inFlightShards.length }} aktif
+                </span>
+              </h3>
+            </div>
+            <span class="text-[11px] text-blue-400 font-mono font-semibold">Live Real-time Sync</span>
+          </div>
+
+          <div class="space-y-3">
+            <!-- If we have detailed recovery stats from /_cat/recovery -->
+            <div
+              v-for="(rec, rIdx) in recoveryList"
+              :key="'rec-' + rIdx"
+              class="p-3.5 bg-[#13161c] border border-slate-800 rounded-lg space-y-2.5 text-xs font-mono"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px]">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+                  <span class="font-bold text-white">{{ rec.index }}</span>
+                  <span class="text-slate-400">[Shard #{{ rec.shard }}]</span>
+                  <span class="px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] uppercase font-bold">{{ rec.stage || rec.type || 'sync' }}</span>
+                </div>
+                <div class="text-slate-300 flex items-center gap-2 text-xs">
+                  <span>{{ rec.source_node || rec.source_host || 'source' }}</span>
+                  <span class="text-blue-400 font-bold">➔</span>
+                  <span class="font-bold text-white">{{ rec.target_node || rec.target_host || 'target' }}</span>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div class="space-y-1">
+                <div class="flex justify-between text-[10.5px] text-slate-400">
+                  <span>Bytes: {{ rec.bytes_recovered || rec['bytes.recovered'] || '-' }} / {{ rec.bytes_total || rec['bytes.total'] || '-' }} ({{ rec.bytes_percent || rec['bytes.percent'] || '0%' }})</span>
+                  <span>Files: {{ rec.files_recovered || rec['files.recovered'] || '-' }} / {{ rec.files_total || rec['files.total'] || '-' }} ({{ rec.files_percent || rec['files.percent'] || '0%' }})</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                    :style="{ width: rec.bytes_percent || rec['bytes.percent'] || rec.files_percent || '50%' }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fallback if recoveryList is empty but inFlightShards has records -->
+            <div
+              v-if="recoveryList.length === 0"
+              v-for="(shard, fIdx) in inFlightShards"
+              :key="'flight-' + fIdx"
+              class="p-3 bg-[#13161c] border border-slate-800 rounded-lg flex items-center justify-between text-xs font-mono"
+            >
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span class="font-bold text-white">{{ shard.index }}</span>
+                <span class="text-slate-400">[Shard #{{ shard.shard }}]</span>
+                <span
+                  class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                  :class="shard.state === 'INITIALIZING' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30'"
+                >
+                  {{ shard.state }}
+                </span>
+              </div>
+              <div class="text-slate-300 text-[11px]">
+                Target Node: <strong class="text-white">{{ shard.node || 'Allocating...' }}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unassigned Shards Card -->
+        <div
+          v-if="unassignedShards.length > 0"
+          class="bg-[#1b1e26] border border-rose-500/40 rounded-xl p-6 space-y-4 shadow-xl"
+        >
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div class="flex items-center gap-2">
+              <AlertTriangle class="w-4 h-4 text-rose-400" />
+              <h3 class="text-xs font-bold text-rose-400 tracking-wide uppercase">
+                Unassigned Shards ({{ unassignedShards.length }})
+              </h3>
+            </div>
+            <span class="text-[11px] text-slate-400 font-mono">Belum dialokasikan ke node</span>
+          </div>
+
+          <p class="text-xs text-slate-300 font-sans">
+            Shards berikut belum memiliki node aktif (unassigned). Arahkan kursor pada balok <code class="bg-rose-950 px-1 py-0.5 rounded text-rose-300 font-bold">U</code> untuk melihat indeks dan alasan unassigned.
+          </p>
+
+          <!-- Visual Unassigned Shards Matrix -->
+          <div class="flex flex-wrap gap-1.5 p-3.5 bg-[#13161c] rounded-xl border border-rose-900/30 min-h-[50px] items-center">
+            <div
+              v-for="(shard, uIdx) in unassignedShards"
+              :key="'unassigned-' + uIdx"
+              @mouseenter="showTooltip($event, shard)"
+              @mouseleave="hideTooltip"
+              class="w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md"
+            >
+              U
+            </div>
           </div>
         </div>
 
         <!-- Shard Allocation by Node Card (Exact visual from screenshot) -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
-          <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
+            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} node aktif</span>
+          </div>
 
           <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
             No shard allocations discovered yet.
@@ -1030,27 +1350,15 @@ onUnmounted(() => {
                   'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
                   // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
                   isShardHighlighted(shard)
-                    ? (shard.prirep === 'p' || shard.type === 'Primary'
-                        ? 'bg-[#10b981] text-white border-2 border-white ring-4 ring-emerald-500/40 scale-125 z-30 shadow-2xl font-black'
-                        : shard.prirep === 'r' || shard.type === 'Replica'
-                        ? 'bg-[#3b82f6] text-white border-2 border-white ring-4 ring-blue-500/40 scale-125 z-30 shadow-2xl font-black'
-                        : 'bg-red-500 text-white border-2 border-white ring-4 ring-red-500/40 scale-125 z-30 shadow-2xl font-black')
+                    ? 'border-2 border-white ring-4 scale-125 z-30 shadow-2xl font-black ' + getShardColorClass(shard, true)
                     // 2. Dimmed state: other unrelated indices are dimmed
                     : isShardDimmed(shard)
-                    ? (shard.prirep === 'p' || shard.type === 'Primary'
-                        ? 'bg-[#0f3d28]/25 border border-[#1c6b47]/20 text-[#4ade80]/30 opacity-20 scale-90'
-                        : shard.prirep === 'r' || shard.type === 'Replica'
-                        ? 'bg-[#132c4a]/25 border border-[#1e4976]/20 text-[#60a5fa]/30 opacity-20 scale-90'
-                        : 'bg-[#3b1219]/25 border border-[#822735]/20 text-[#f87171]/30 opacity-20 scale-90')
+                    ? 'opacity-20 scale-90 ' + getShardColorClass(shard, false, true)
                     // 3. Normal idle state
-                    : (shard.prirep === 'p' || shard.type === 'Primary'
-                        ? 'bg-[#0f3d28] border border-[#1c6b47] text-[#4ade80] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
-                        : shard.prirep === 'r' || shard.type === 'Replica'
-                        ? 'bg-[#132c4a] border border-[#1e4976] text-[#60a5fa] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md'
-                        : 'bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md')
+                    : 'hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md ' + getShardColorClass(shard)
                 ]"
               >
-                {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
+                {{ getShardBadgeLabel(shard) }}
               </div>
               <span v-if="(shardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-600 italic">
                 No active shards on this node.
@@ -1061,8 +1369,45 @@ onUnmounted(() => {
 
         <!-- Bottom: All Shards Table -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
-          <div class="p-4 px-6 border-b border-slate-800/80 flex items-center justify-between">
-            <h3 class="text-xs font-bold text-white tracking-wide">All Shards ({{ filteredShards.length }})</h3>
+          <div class="p-4 px-6 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <h3 class="text-xs font-bold text-white tracking-wide">All Shards ({{ filteredShards.length }})</h3>
+
+              <!-- State Quick Filters -->
+              <div class="flex items-center bg-[#14161b] p-0.5 rounded-lg border border-slate-800 text-[11px] font-semibold">
+                <button
+                  @click="shardStateFilter = 'all'"
+                  :class="shardStateFilter === 'all' ? 'bg-[#4274D9] text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+                  class="px-2.5 py-0.5 rounded transition cursor-pointer"
+                >
+                  All ({{ shardsList.length }})
+                </button>
+                <button
+                  @click="shardStateFilter = 'unassigned'"
+                  :class="shardStateFilter === 'unassigned' ? 'bg-rose-600 text-white shadow-sm' : 'text-rose-400 hover:text-rose-300'"
+                  class="px-2.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1"
+                >
+                  <span>Unassigned</span>
+                  <span v-if="unassignedShards.length > 0" class="px-1.5 py-0.2 rounded-full bg-rose-950 text-rose-300 text-[9px] font-mono">{{ unassignedShards.length }}</span>
+                </button>
+                <button
+                  @click="shardStateFilter = 'inflight'"
+                  :class="shardStateFilter === 'inflight' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-amber-400 hover:text-amber-300'"
+                  class="px-2.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1"
+                >
+                  <span>Replicating / Sync</span>
+                  <span v-if="inFlightShards.length > 0" class="px-1.5 py-0.2 rounded-full bg-amber-950 text-amber-300 text-[9px] font-mono">{{ inFlightShards.length }}</span>
+                </button>
+                <button
+                  @click="shardStateFilter = 'started'"
+                  :class="shardStateFilter === 'started' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'"
+                  class="px-2.5 py-0.5 rounded transition cursor-pointer"
+                >
+                  Started
+                </button>
+              </div>
+            </div>
+
             <div class="relative w-64">
               <Search class="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-500" />
               <input
@@ -1107,17 +1452,35 @@ onUnmounted(() => {
                       {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'Primary' : 'Replica' }}
                     </span>
                   </td>
-                  <td class="py-3 px-4 font-sans text-emerald-400 uppercase font-semibold text-[10px]">{{ shard.state || 'STARTED' }}</td>
+                  <td class="py-3 px-4 font-sans">
+                    <span
+                      :class="[
+                        'px-2 py-0.5 rounded text-[10px] font-semibold uppercase',
+                        shard.state === 'INITIALIZING'
+                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 animate-pulse'
+                          : shard.state === 'RELOCATING'
+                          ? 'bg-purple-500/10 border border-purple-500/30 text-purple-400 animate-pulse'
+                          : shard.state === 'UNASSIGNED'
+                          ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold'
+                          : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                      ]"
+                    >
+                      {{ shard.state || 'STARTED' }}
+                    </span>
+                  </td>
                   <td class="py-3 px-4 text-slate-300">{{ formatNumber(shard.docs || 0) }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ shard.store || '-' }}</td>
                   <td class="py-3 px-4 text-slate-400">{{ shard.ip || '-' }}</td>
-                  <td class="py-3 px-6 text-slate-300 font-sans">{{ shard.node || '-' }}</td>
+                  <td class="py-3 px-6 text-slate-300 font-sans">
+                    <span v-if="shard.node && shard.node !== 'UNASSIGNED'">{{ shard.node }}</span>
+                    <span v-else class="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold">UNASSIGNED</span>
+                  </td>
                 </tr>
               </tbody>
               <tbody v-else>
                 <tr>
                   <td colspan="8" class="text-center py-8 text-slate-500 text-xs font-sans">
-                    No shard telemetry available.
+                    No shard telemetry available for selected filter.
                   </td>
                 </tr>
               </tbody>
@@ -1256,7 +1619,27 @@ onUnmounted(() => {
         <div class="flex justify-between"><span class="text-slate-400 font-medium">Docs:</span> <span class="font-mono text-slate-200">{{ formatNumber(hoveredShard.docs || 0) }}</span></div>
         <div class="flex justify-between"><span class="text-slate-400 font-medium">Shard:</span> <span class="font-mono text-slate-200">{{ hoveredShard.shard || 0 }}</span></div>
         <div class="flex justify-between"><span class="text-slate-400 font-medium">Type:</span> <span :class="hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'text-emerald-400 font-bold' : 'text-sky-400 font-bold'">{{ hoveredShard.prirep === 'p' || hoveredShard.type === 'Primary' ? 'Primary' : 'Replica' }}</span></div>
-        <div class="flex justify-between"><span class="text-slate-400 font-medium">State:</span> <span class="text-emerald-400 uppercase font-bold tracking-wider">{{ hoveredShard.state || 'STARTED' }}</span></div>
+        <div class="flex justify-between">
+          <span class="text-slate-400 font-medium">State:</span>
+          <span
+            :class="[
+              'uppercase font-bold tracking-wider',
+              hoveredShard.state === 'INITIALIZING' ? 'text-amber-400' : hoveredShard.state === 'RELOCATING' ? 'text-purple-400' : hoveredShard.state === 'UNASSIGNED' ? 'text-rose-400' : 'text-emerald-400'
+            ]"
+          >
+            {{ hoveredShard.state || 'STARTED' }}
+          </span>
+        </div>
+        <div v-if="hoveredShard['unassigned.reason'] || hoveredShard['unassigned.for']" class="pt-1.5 border-t border-slate-700/60">
+          <div class="flex justify-between text-rose-400">
+            <span class="font-bold">Reason:</span>
+            <span class="font-mono text-rose-300 font-semibold">{{ hoveredShard['unassigned.reason'] }}</span>
+          </div>
+          <div v-if="hoveredShard['unassigned.for']" class="flex justify-between text-slate-400 text-[10px] mt-0.5">
+            <span>Unassigned for:</span>
+            <span class="font-mono">{{ hoveredShard['unassigned.for'] }}</span>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -225,14 +225,30 @@ func (s *OpenSearchService) GetIndices(ctx context.Context) ([]map[string]interf
 }
 
 func (s *OpenSearchService) GetShards(ctx context.Context) ([]map[string]interface{}, error) {
-	body, err := s.doRequest(ctx, "GET", "/_cat/shards?format=json")
+	body, err := s.doRequest(ctx, "GET", "/_cat/shards?h=index,shard,prirep,state,docs,store,ip,node,unassigned.reason,unassigned.for&format=json")
+	if err != nil {
+		body, err = s.doRequest(ctx, "GET", "/_cat/shards?format=json")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var result []map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("invalid JSON from /_cat/shards: %w", err)
+	}
+	return result, nil
+}
+
+func (s *OpenSearchService) GetRecovery(ctx context.Context) ([]map[string]interface{}, error) {
+	body, err := s.doRequest(ctx, "GET", "/_cat/recovery?active_only=true&format=json")
 	if err != nil {
 		return nil, err
 	}
 
 	var result []map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("invalid JSON from /_cat/shards: %w", err)
+		return nil, fmt.Errorf("invalid JSON from /_cat/recovery: %w", err)
 	}
 	return result, nil
 }

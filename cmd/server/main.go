@@ -229,6 +229,7 @@ func main() {
 		api.GET("/opensearch/nodes/info", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetNodesInfo)
 		api.GET("/opensearch/indices", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetIndices)
 		api.GET("/opensearch/shards", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetShards)
+		api.GET("/opensearch/recovery", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetRecovery)
 		api.GET("/opensearch/config", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetConfig)
 		api.POST("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.SaveConfig)
 		api.POST("/opensearch/test", middleware.RequirePermission("opensearch", "read"), openSearchHandler.TestConnection)

@@ -398,6 +398,16 @@ html.light [class*="bg-[#3b1219]"] {
   border-color: #fca5a5 !important;
   color: #991b1b !important;
 }
+html.light [class*="bg-[#3b2a12]"] {
+  background-color: #fef3c7 !important;
+  border-color: #fcd34d !important;
+  color: #92400e !important;
+}
+html.light [class*="bg-[#2e153b]"] {
+  background-color: #f3e8ff !important;
+  border-color: #d8b4fe !important;
+  color: #6b21a8 !important;
+}
 
 /* Dimmed Shards in Light Mode */
 html.light [class*="bg-[#0f3d28]/25"] {
@@ -414,6 +424,16 @@ html.light [class*="bg-[#3b1219]/25"] {
   background-color: rgba(254, 226, 226, 0.5) !important;
   border-color: rgba(252, 165, 165, 0.4) !important;
   color: rgba(153, 27, 27, 0.6) !important;
+}
+html.light [class*="bg-[#3b2a12]/25"] {
+  background-color: rgba(254, 243, 199, 0.5) !important;
+  border-color: rgba(252, 211, 77, 0.4) !important;
+  color: rgba(146, 64, 14, 0.6) !important;
+}
+html.light [class*="bg-[#2e153b]/25"] {
+  background-color: rgba(243, 232, 255, 0.5) !important;
+  border-color: rgba(216, 180, 254, 0.4) !important;
+  color: rgba(107, 33, 168, 0.6) !important;
 }
 
 /* 14. Network Topology Canvas & Elements in Light Mode */
