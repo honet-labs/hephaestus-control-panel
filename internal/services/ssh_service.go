@@ -62,9 +62,10 @@ func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.Clie
 		Timeout:         15 * time.Second,
 		Config: ssh.Config{
 			Ciphers: []string{
-				"aes128-ctr", "aes192-ctr", "aes256-ctr",
-				"aes128-gcm@openssh.com", "chacha20-poly1305@openssh.com",
-				"aes128-cbc", "aes256-cbc", "3des-cbc",
+				"chacha20-poly1305@openssh.com",
+				"aes256-gcm@openssh.com", "aes128-gcm@openssh.com",
+				"aes256-ctr", "aes192-ctr", "aes128-ctr",
+				"aes256-cbc", "aes128-cbc", "3des-cbc",
 			},
 			KeyExchanges: []string{
 				"curve25519-sha256", "curve25519-sha256@libssh.org",

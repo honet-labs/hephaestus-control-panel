@@ -14,14 +14,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var defaultSecretKey = []byte("hephaestus-super-secure-key-32b!") // 32 bytes fallback key
+var (
+	defaultSecretKey = []byte("hephaestus-super-secure-key-32b!") // 32 bytes fallback key
+	isDefaultKey     = true
+)
 
 // SetSecretKey sets the active AES encryption key
 func SetSecretKey(keyStr string) {
-	if len(keyStr) > 0 {
-		hash := sha256.Sum256([]byte(keyStr))
+	trimmed := strings.TrimSpace(keyStr)
+	if len(trimmed) > 0 &&
+		trimmed != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" &&
+		trimmed != "hephaestus-super-secure-key-32b!" {
+		hash := sha256.Sum256([]byte(trimmed))
 		defaultSecretKey = hash[:]
+		isDefaultKey = false
 	}
+}
+
+// IsUsingDefaultSecretKey returns true if HCP is running with the hardcoded fallback encryption key
+func IsUsingDefaultSecretKey() bool {
+	return isDefaultKey
 }
 
 // EncryptText encrypts plaintext using AES-256-GCM and returns "iv:authTag:ciphertext" in hex.

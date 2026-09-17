@@ -17,6 +17,12 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
+func (h *AuthHandler) setSessionCookie(c *gin.Context, token string, maxAge int) {
+	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("hephaestus_session", token, maxAge, "/", "", isSecure, true)
+}
+
 type LoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -43,7 +49,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("hephaestus_session", token, 86400*7, "/", "", false, true)
+	h.setSessionCookie(c, token, 86400*7)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -73,7 +79,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		_ = h.authService.Logout(c.Request.Context(), token)
 	}
 
-	c.SetCookie("hephaestus_session", "", -1, "/", "", false, true)
+	h.setSessionCookie(c, "", -1)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Logged out successfully."})
 }
 
@@ -140,7 +146,9 @@ func (h *SetupHandler) CompleteSetup(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("hephaestus_session", token, 86400*7, "/", "", false, true)
+	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("hephaestus_session", token, 86400*7, "/", "", isSecure, true)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Initial setup completed successfully.",

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +42,9 @@ func main() {
 	// 2. Initialize Structured Logger with file rotation
 	logger.InitLogger(cfg.LogsDir)
 	logger.Info("Server", fmt.Sprintf("Starting Hephaestus Control Panel (HCP) v2.0.0 on port %d...", cfg.Port))
+	if config.IsUsingDefaultSecretKey() {
+		logger.Warn("Security", "CRITICAL WARNING: Running with default APP_ENCRYPTION_KEY! Please set a unique APP_ENCRYPTION_KEY in your .env file to ensure credential encryption security.")
+	}
 
 	// 3. Initialize PostgreSQL Connection Pool & Run Migrations with Retry
 	var dbErr error
@@ -115,10 +119,24 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware())
 
-	// CORS Setup - Allow dynamic origin resolution for custom host IP, domain, and ports
+	// CORS Setup - Secure origin validation against allowed origins and loopback
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOriginFunc = func(origin string) bool {
-		return true
+		if origin == "" {
+			return true
+		}
+		for _, allowed := range cfg.AllowedOrigins {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+		}
+		if strings.HasPrefix(origin, "http://localhost:") ||
+			strings.HasPrefix(origin, "https://localhost:") ||
+			strings.HasPrefix(origin, "http://127.0.0.1:") ||
+			strings.HasPrefix(origin, "https://127.0.0.1:") {
+			return true
+		}
+		return false
 	}
 	corsConfig.AllowCredentials = true
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID", "X-Requested-With"}
