@@ -196,16 +196,39 @@ const editingScheduleId = ref<string | null>(null);
 const scheduleForm = ref({
   name: '',
   dbConfigId: '',
+  dbConfigIds: [] as string[],
   destinationId: '',
   cronExpression: '0 2 * * *',
   isActive: true,
 });
+
+const toggleSelectAllDatabases = () => {
+  if (scheduleForm.value.dbConfigIds.length === databases.value.length) {
+    scheduleForm.value.dbConfigIds = [];
+  } else {
+    scheduleForm.value.dbConfigIds = databases.value.map((d: any) => d.id);
+  }
+};
+
+const isDatabaseSelected = (id: string) => {
+  return scheduleForm.value.dbConfigIds.includes(id);
+};
+
+const toggleDatabaseSelection = (id: string) => {
+  const idx = scheduleForm.value.dbConfigIds.indexOf(id);
+  if (idx >= 0) {
+    scheduleForm.value.dbConfigIds.splice(idx, 1);
+  } else {
+    scheduleForm.value.dbConfigIds.push(id);
+  }
+};
 
 const openAddScheduleModal = () => {
   editingScheduleId.value = null;
   scheduleForm.value = {
     name: '',
     dbConfigId: databases.value.length > 0 ? databases.value[0].id : '',
+    dbConfigIds: databases.value.map((d: any) => d.id),
     destinationId: destinations.value.length > 0 ? destinations.value[0].id : '',
     cronExpression: '0 2 * * *',
     isActive: true,
@@ -215,10 +238,20 @@ const openAddScheduleModal = () => {
 
 const openEditScheduleModal = (sched: any) => {
   editingScheduleId.value = sched.id;
+  let initialDBs: string[] = [];
+  if (Array.isArray(sched.dbConfigIds) && sched.dbConfigIds.length > 0) {
+    initialDBs = [...sched.dbConfigIds];
+  } else if (sched.dbConfigId) {
+    initialDBs = [sched.dbConfigId];
+  } else if (databases.value.length > 0) {
+    initialDBs = [databases.value[0].id];
+  }
+
   scheduleForm.value = {
     name: sched.name || '',
     dbConfigId: sched.dbConfigId || '',
-    destinationId: sched.destinationId || '',
+    dbConfigIds: initialDBs,
+    destinationId: sched.destinationId || (destinations.value.length > 0 ? destinations.value[0].id : ''),
     cronExpression: sched.cronExpression || '0 2 * * *',
     isActive: sched.isActive !== undefined ? sched.isActive : true,
   };
@@ -520,13 +553,22 @@ const deleteDestination = async (id: string) => {
 };
 
 const saveSchedule = async () => {
-  if (!scheduleForm.value.name || !scheduleForm.value.dbConfigId || !scheduleForm.value.destinationId) {
-    alert('Name, Database, and Destination are required.');
+  if (!scheduleForm.value.name) {
+    alert('Schedule name is required.');
+    return;
+  }
+  if (!scheduleForm.value.dbConfigIds || scheduleForm.value.dbConfigIds.length === 0) {
+    alert('Please select at least one database to back up.');
+    return;
+  }
+  if (!scheduleForm.value.destinationId) {
+    alert('Storage destination is required.');
     return;
   }
   try {
     const payload: any = {
       ...scheduleForm.value,
+      dbConfigId: scheduleForm.value.dbConfigIds[0],
     };
     if (editingScheduleId.value) {
       payload.id = editingScheduleId.value;
@@ -957,6 +999,40 @@ onMounted(() => {
             <span :class="sched.isActive ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-400 dark:text-slate-500'">
               {{ sched.isActive ? '● Active' : '○ Paused' }}
             </span>
+          </div>
+
+          <div class="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+            <div class="flex flex-wrap gap-1 items-center">
+              <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-1">Databases:</span>
+              <span
+                v-if="sched.dbConfigIds && sched.dbConfigIds.length > 0 && sched.dbConfigIds.length === databases.length"
+                class="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-bold"
+              >
+                All Databases ({{ databases.length }})
+              </span>
+              <template v-else-if="sched.dbConfigIds && sched.dbConfigIds.length > 0">
+                <span
+                  v-for="dbId in sched.dbConfigIds"
+                  :key="dbId"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium"
+                >
+                  {{ databases.find(d => d.id === dbId)?.name || dbId }}
+                </span>
+              </template>
+              <span
+                v-else
+                class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium"
+              >
+                {{ databases.find(d => d.id === sched.dbConfigId)?.name || sched.dbConfigId }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1 text-[10px] text-slate-500">
+              <span>Destination:</span>
+              <span class="font-semibold text-slate-700 dark:text-slate-300">
+                {{ destinations.find(d => d.id === sched.destinationId)?.name || 'Local Storage' }}
+              </span>
+            </div>
           </div>
 
           <div class="flex items-center justify-end gap-1 pt-1 border-t border-slate-100 dark:border-slate-800/80">
@@ -1517,12 +1593,51 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Database</label>
-            <select v-model="scheduleForm.dbConfigId" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
-              <option v-for="db in databases" :key="db.id" :value="db.id">
-                {{ db.name }} ({{ db.databaseName }})
-              </option>
-            </select>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-slate-700 dark:text-slate-400 font-bold">
+                Select Databases ({{ scheduleForm.dbConfigIds.length }} of {{ databases.length }} selected)
+              </label>
+              <button
+                type="button"
+                @click="toggleSelectAllDatabases"
+                class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer"
+              >
+                {{ scheduleForm.dbConfigIds.length === databases.length ? 'Deselect All' : 'Select All' }}
+              </button>
+            </div>
+
+            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div
+                v-for="db in databases"
+                :key="db.id"
+                @click="toggleDatabaseSelection(db.id)"
+                :class="[
+                  'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                  isDatabaseSelected(db.id)
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                    : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                ]"
+              >
+                <div class="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    :checked="isDatabaseSelected(db.id)"
+                    @click.stop="toggleDatabaseSelection(db.id)"
+                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                  />
+                  <div class="text-left">
+                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white">{{ db.name }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono">{{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}</p>
+                  </div>
+                </div>
+                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold">
+                  {{ db.dbType }}
+                </span>
+              </div>
+            </div>
+            <p v-if="scheduleForm.dbConfigIds.length === 0" class="text-[11px] text-rose-500 mt-1 font-medium">
+              * Please select at least one database.
+            </p>
           </div>
 
           <div>

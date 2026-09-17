@@ -316,7 +316,8 @@ CREATE TABLE IF NOT EXISTS backup_history (
 CREATE TABLE IF NOT EXISTS backup_schedules (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    db_config_id VARCHAR(50) REFERENCES backup_database_configs(id) ON DELETE CASCADE,
+    db_config_id VARCHAR(50) REFERENCES backup_database_configs(id) ON DELETE SET NULL,
+    db_config_ids TEXT[] DEFAULT '{}',
     destination_id VARCHAR(50) REFERENCES backup_destinations(id) ON DELETE CASCADE,
     cron_expression VARCHAR(100) NOT NULL,
     is_active BOOLEAN DEFAULT true,

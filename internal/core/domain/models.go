@@ -329,6 +329,7 @@ type BackupSchedule struct {
 	ID             string     `json:"id"`
 	Name           string     `json:"name"`
 	DBConfigID     string     `json:"dbConfigId"`
+	DBConfigIDs    []string   `json:"dbConfigIds"`
 	DestinationID  string     `json:"destinationId"`
 	CronExpression string     `json:"cronExpression"`
 	IsActive       bool       `json:"isActive"`

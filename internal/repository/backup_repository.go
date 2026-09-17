@@ -254,7 +254,7 @@ func (r *BackupRepository) ListSchedules(ctx context.Context) ([]domain.BackupSc
 	if err != nil {
 		return nil, err
 	}
-	rows, err := pool.Query(ctx, `SELECT id, name, db_config_id, destination_id, cron_expression, is_active, last_run, next_run, created_at FROM backup_schedules ORDER BY created_at DESC`)
+	rows, err := pool.Query(ctx, `SELECT id, name, COALESCE(db_config_id, ''), COALESCE(db_config_ids, '{}'), destination_id, cron_expression, is_active, last_run, next_run, created_at FROM backup_schedules ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +263,11 @@ func (r *BackupRepository) ListSchedules(ctx context.Context) ([]domain.BackupSc
 	var list []domain.BackupSchedule
 	for rows.Next() {
 		var s domain.BackupSchedule
-		if err := rows.Scan(&s.ID, &s.Name, &s.DBConfigID, &s.DestinationID, &s.CronExpression, &s.IsActive, &s.LastRun, &s.NextRun, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.DBConfigID, &s.DBConfigIDs, &s.DestinationID, &s.CronExpression, &s.IsActive, &s.LastRun, &s.NextRun, &s.CreatedAt); err != nil {
 			return nil, err
+		}
+		if len(s.DBConfigIDs) == 0 && s.DBConfigID != "" {
+			s.DBConfigIDs = []string{s.DBConfigID}
 		}
 		list = append(list, s)
 	}
@@ -276,12 +279,26 @@ func (r *BackupRepository) SaveSchedule(ctx context.Context, s domain.BackupSche
 	if err != nil {
 		return err
 	}
-	query := `INSERT INTO backup_schedules (id, name, db_config_id, destination_id, cron_expression, is_active)
-              VALUES ($1, $2, $3, $4, $5, $6)
+
+	if len(s.DBConfigIDs) > 0 {
+		if s.DBConfigID == "" || s.DBConfigIDs[0] != "*" {
+			s.DBConfigID = s.DBConfigIDs[0]
+		}
+	} else if s.DBConfigID != "" {
+		s.DBConfigIDs = []string{s.DBConfigID}
+	}
+
+	var dbConfigIDParam *string
+	if s.DBConfigID != "" && s.DBConfigID != "*" {
+		dbConfigIDParam = &s.DBConfigID
+	}
+
+	query := `INSERT INTO backup_schedules (id, name, db_config_id, db_config_ids, destination_id, cron_expression, is_active)
+              VALUES ($1, $2, $3, $4, $5, $6, $7)
               ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name, db_config_id = EXCLUDED.db_config_id, destination_id = EXCLUDED.destination_id,
-                cron_expression = EXCLUDED.cron_expression, is_active = EXCLUDED.is_active`
-	_, err = pool.Exec(ctx, query, s.ID, s.Name, s.DBConfigID, s.DestinationID, s.CronExpression, s.IsActive)
+                name = EXCLUDED.name, db_config_id = EXCLUDED.db_config_id, db_config_ids = EXCLUDED.db_config_ids,
+                destination_id = EXCLUDED.destination_id, cron_expression = EXCLUDED.cron_expression, is_active = EXCLUDED.is_active`
+	_, err = pool.Exec(ctx, query, s.ID, s.Name, dbConfigIDParam, s.DBConfigIDs, s.DestinationID, s.CronExpression, s.IsActive)
 	return err
 }
 

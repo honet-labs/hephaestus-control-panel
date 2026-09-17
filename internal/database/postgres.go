@@ -222,6 +222,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		INSERT INTO backup_destinations (id, name, dest_type, config, is_active)
 		SELECT 'dest-local-default', 'Local Storage (Default)', 'local', '{"path": "/app/backups"}'::jsonb, true
 		WHERE NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id = 'dest-local-default' OR (dest_type = 'local' AND (config->>'path' = '/app/backups' OR config->>'path' = '/opt/backups')));
+
+		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS db_config_ids TEXT[] DEFAULT '{}';
+		ALTER TABLE backup_schedules ALTER COLUMN db_config_id DROP NOT NULL;
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 
