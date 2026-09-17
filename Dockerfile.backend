@@ -2,7 +2,7 @@
 # Backend Build Stage
 # ==========================================
 ARG REGISTRY_MIRROR=""
-FROM ${REGISTRY_MIRROR}golang:1.22-alpine AS builder
+FROM ${REGISTRY_MIRROR}golang:1.23-alpine AS builder
 
 WORKDIR /app
 
