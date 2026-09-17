@@ -791,32 +791,6 @@ const handleNodeContextMenu = (dev: Device, e: MouseEvent) => {
   };
 };
 
-// Calculate SVG Bezier path between two nodes (Helper function)
-const calculateEdgePath = (edge: Edge) => {
-  const source = activeNodes.value.find(n => String(n.id) === String(edge.sourceId));
-  const target = activeNodes.value.find(n => String(n.id) === String(edge.targetId));
-  if (!source || !target || source.x === undefined || source.y === undefined || target.x === undefined || target.y === undefined) {
-    return { path: '', midX: 0, midY: 0 };
-  }
-
-  const x1 = Number(source.x);
-  const y1 = Number(source.y);
-  const x2 = Number(target.x);
-  const y2 = Number(target.y);
-
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const cx1 = x1 + dx * 0.3;
-  const cy1 = y1 + dy * 0.1;
-  const cx2 = x1 + dx * 0.7;
-  const cy2 = y2 - dy * 0.1;
-
-  const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-  const midX = (x1 + x2) / 2;
-  const midY = (y1 + y2) / 2;
-
-  return { path, midX, midY };
-};
 
 // Computed edges with real-time reactive paths tied to node movements
 const renderedEdges = computed(() => {

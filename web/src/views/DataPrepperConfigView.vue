@@ -3,17 +3,13 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import {
-  Layers,
   RotateCw,
   Check,
   Save,
   Plus,
   Trash2,
-  ArrowLeft,
   ExternalLink,
-  CheckCircle2,
   AlertTriangle,
-  FileCode,
   Server,
 } from 'lucide-vue-next';
 

@@ -14,19 +14,13 @@ import {
   AlertTriangle,
   FileCode,
   History,
-  Terminal,
   Search,
   X,
   Copy,
-  ChevronDown,
-  ChevronUp,
-  Tag,
   Key,
-  Lock,
   Eye,
   EyeOff,
   Check,
-  ExternalLink,
   Shield,
   Layers,
   ArrowRight,
@@ -427,19 +421,6 @@ const saveConfig = async () => {
 };
 
 
-const fetchLiveStatus = async (hostId: string) => {
-  try {
-    const res = await axios.get(`/api/v1/otel/hosts/${hostId}/status`);
-    if (res.data?.success && res.data.data) {
-      const data = res.data.data;
-      if (data.serviceStatus) {
-        updateHostStatusInList(hostId, data.serviceStatus);
-      }
-    }
-  } catch (err) {
-    // Ignore silent error
-  }
-};
 
 const restartCurrentService = async (mode: 'restart' | 'reload' = 'restart') => {
   if (!selectedHost.value) return;
