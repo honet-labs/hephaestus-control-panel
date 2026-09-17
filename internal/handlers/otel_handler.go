@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -25,6 +26,10 @@ func NewOTelHandler(otelService *services.OTelService, otelRepo *repository.OTel
 
 // ListHosts returns all configured OpenTelemetry hosts
 func (h *OTelHandler) ListHosts(c *gin.Context) {
+	if c.Query("checkStatus") == "true" {
+		_ = h.otelService.CheckAllHostsStatus(c.Request.Context())
+	}
+
 	hosts, err := h.otelRepo.List(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -97,6 +102,11 @@ func (h *OTelHandler) SaveHost(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to save host: " + err.Error()})
 		return
 	}
+
+	// Trigger immediate background status check so status updates from unknown
+	go func(hostID string) {
+		_, _ = h.otelService.GetHostStatus(context.Background(), hostID)
+	}(cfg.ID)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Host profile saved successfully", "data": cfg})
 }

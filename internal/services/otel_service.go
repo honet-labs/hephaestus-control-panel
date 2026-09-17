@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -134,14 +135,23 @@ func (s *OTelService) GetHostStatus(ctx context.Context, id string) (*OTelHostSt
 	stdout, _, _, _ := s.sshService.ExecuteElevatedCommand(remoteCfg, statusCmd)
 
 	serviceStatus := "unknown"
-	if strings.Contains(stdout, "Active: active (running)") {
+	lowerOut := strings.ToLower(stdout)
+	if strings.Contains(lowerOut, "active: active") || strings.Contains(lowerOut, "active (running)") {
 		serviceStatus = "active"
-	} else if strings.Contains(stdout, "Active: failed") {
+	} else if strings.Contains(lowerOut, "active: failed") || strings.Contains(lowerOut, "failed (result") {
 		serviceStatus = "failed"
-	} else if strings.Contains(stdout, "Active: inactive") {
+	} else if strings.Contains(lowerOut, "active: inactive") || strings.Contains(lowerOut, "inactive (dead)") {
 		serviceStatus = "inactive"
-	} else if strings.Contains(stdout, "could not be found") || strings.Contains(stdout, "Loaded: not-found") {
+	} else if strings.Contains(lowerOut, "could not be found") || strings.Contains(lowerOut, "loaded: not-found") {
 		serviceStatus = "not_found"
+	} else {
+		// Fallback check using systemctl is-active
+		isActCmd := fmt.Sprintf(`_run_sudo systemctl is-active %s 2>/dev/null`, serviceName)
+		actOut, _, _, _ := s.sshService.ExecuteElevatedCommand(remoteCfg, isActCmd)
+		actOut = strings.ToLower(strings.TrimSpace(actOut))
+		if actOut == "active" || actOut == "inactive" || actOut == "failed" {
+			serviceStatus = actOut
+		}
 	}
 
 	_ = s.repo.UpdateStatus(ctx, cfg.ID, serviceStatus)
@@ -153,6 +163,34 @@ func (s *OTelService) GetHostStatus(ctx context.Context, id string) (*OTelHostSt
 		ActiveState:   serviceStatus,
 		Logs:          stdout,
 	}, nil
+}
+
+// CheckAllHostsStatus queries live agent status for all registered hosts concurrently
+func (s *OTelService) CheckAllHostsStatus(ctx context.Context) error {
+	hosts, err := s.repo.List(ctx)
+	if err != nil || len(hosts) == 0 {
+		return err
+	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5)
+
+	for _, h := range hosts {
+		wg.Add(1)
+		go func(host domain.OpenTelemetryConfig) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			hostCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			defer cancel()
+
+			_, _ = s.GetHostStatus(hostCtx, host.ID)
+		}(h)
+	}
+
+	wg.Wait()
+	return nil
 }
 
 // GetConfigFile reads the remote configuration file from the host

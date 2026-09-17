@@ -251,10 +251,11 @@ const hasUnsavedChanges = computed(() => {
 
 // ==================== API ACTIONS ====================
 
-const fetchHosts = async (autoSelectFirst = false) => {
+const fetchHosts = async (autoSelectFirst = false, checkStatus = false) => {
   loadingHosts.value = true;
   try {
-    const res = await axios.get('/api/v1/otel/hosts');
+    const url = checkStatus ? '/api/v1/otel/hosts?checkStatus=true' : '/api/v1/otel/hosts';
+    const res = await axios.get(url);
     if (res.data?.success && Array.isArray(res.data.data)) {
       hosts.value = res.data.data;
 
@@ -282,11 +283,55 @@ const fetchHosts = async (autoSelectFirst = false) => {
   }
 };
 
-const selectHost = async (hostId: string) => {
-  if (selectedHostId.value === hostId && yamlContent.value) return;
+const checkHostStatus = async (hostId: string) => {
+  if (!hostId) return;
+  try {
+    const res = await axios.get(`/api/v1/otel/hosts/${hostId}/status`);
+    if (res.data?.success && res.data.data) {
+      const status = res.data.data.serviceStatus || 'unknown';
+      updateHostStatusInList(hostId, status);
+    }
+  } catch (err) {
+    console.error('Failed to query host status:', err);
+  }
+};
+
+const selectHost = async (hostId: string, forceReload = false) => {
+  if (!forceReload && selectedHostId.value === hostId && yamlContent.value) {
+    checkHostStatus(hostId);
+    return;
+  }
   selectedHostId.value = hostId;
   feedbackMsg.value = null;
   await loadHostConfig(hostId);
+  checkHostStatus(hostId);
+};
+
+const handleRefresh = async () => {
+  loadingHosts.value = true;
+  feedbackMsg.value = null;
+  try {
+    await fetchHosts(false, true);
+    if (selectedHostId.value) {
+      await Promise.all([
+        loadHostConfig(selectedHostId.value),
+        checkHostStatus(selectedHostId.value),
+      ]);
+    }
+    feedbackMsg.value = {
+      type: 'success',
+      title: 'Fleet Refreshed',
+      detail: 'Fleet agent statuses and configuration have been refreshed.',
+    };
+  } catch (err: any) {
+    feedbackMsg.value = {
+      type: 'error',
+      title: 'Refresh Failed',
+      detail: err.response?.data?.error || err.message || 'Failed to refresh data.',
+    };
+  } finally {
+    loadingHosts.value = false;
+  }
 };
 
 const loadHostConfig = async (hostId: string) => {
@@ -724,10 +769,10 @@ onMounted(async () => {
       <!-- Header Action Buttons -->
       <div class="flex items-center gap-2 shrink-0">
         <button
-          @click="fetchHosts(false)"
+          @click="handleRefresh"
           :disabled="loadingHosts"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#121826] hover:bg-slate-50 dark:hover:bg-[#1a2336] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#1b2234] transition shadow-xs cursor-pointer disabled:opacity-50"
-          title="Refresh Host Fleet"
+          title="Refresh Host Fleet & Configuration"
         >
           <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingHosts }" />
           <span class="hidden sm:inline">Refresh</span>
