@@ -96,6 +96,21 @@ const gutterRef = ref<HTMLDivElement | null>(null);
 const testingHost = ref(false);
 const restartingService = ref(false);
 const feedbackMsg = ref<{ type: 'success' | 'error' | 'info'; title: string; detail?: string } | null>(null);
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Auto-dismiss notification after 3 seconds
+watch(feedbackMsg, (newVal) => {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer);
+    feedbackTimer = null;
+  }
+  if (newVal) {
+    feedbackTimer = setTimeout(() => {
+      feedbackMsg.value = null;
+      feedbackTimer = null;
+    }, 3000);
+  }
+});
 
 // Presets & History
 const presets = ref<OTelPreset[]>([]);
