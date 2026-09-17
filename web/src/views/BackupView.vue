@@ -37,8 +37,40 @@ const loading = ref(false);
 const isRunBackupModalOpen = ref(false);
 const runForm = ref({
   dbConfigId: '',
+  dbConfigIds: [] as string[],
   destinationId: '',
 });
+
+const toggleSelectAllRunDatabases = () => {
+  if (runForm.value.dbConfigIds.length === databases.value.length) {
+    runForm.value.dbConfigIds = [];
+  } else {
+    runForm.value.dbConfigIds = databases.value.map((d: any) => d.id);
+  }
+};
+
+const isRunDatabaseSelected = (id: string) => {
+  return runForm.value.dbConfigIds.includes(id);
+};
+
+const toggleRunDatabaseSelection = (id: string) => {
+  const idx = runForm.value.dbConfigIds.indexOf(id);
+  if (idx >= 0) {
+    runForm.value.dbConfigIds.splice(idx, 1);
+  } else {
+    runForm.value.dbConfigIds.push(id);
+  }
+};
+
+const openRunBackupModal = () => {
+  if (runForm.value.dbConfigIds.length === 0 && databases.value.length > 0) {
+    runForm.value.dbConfigIds = databases.value.map((d: any) => d.id);
+  }
+  if (!runForm.value.destinationId && destinations.value.length > 0) {
+    runForm.value.destinationId = destinations.value[0].id;
+  }
+  isRunBackupModalOpen.value = true;
+};
 
 // Database Modal & Edit State
 const isDbModalOpen = ref(false);
@@ -288,18 +320,25 @@ const fetchAll = async () => {
 };
 
 const triggerBackup = async () => {
-  if (!runForm.value.dbConfigId || !runForm.value.destinationId) {
-    alert('Please select both a Database and Storage Destination.');
+  const targets = runForm.value.dbConfigIds.length > 0
+    ? runForm.value.dbConfigIds
+    : (runForm.value.dbConfigId ? [runForm.value.dbConfigId] : []);
+
+  if (targets.length === 0 || !runForm.value.destinationId) {
+    alert('Please select at least one Database and a Storage Destination.');
     return;
   }
   try {
-    const res = await axios.post('/api/v1/backup/run', runForm.value);
-    if (res.data.success) {
-      isRunBackupModalOpen.value = false;
-      alert(`Backup job enqueued successfully!`);
-      activeTab.value = 'history';
-      fetchAll();
+    for (const dbId of targets) {
+      await axios.post('/api/v1/backup/run', {
+        dbConfigId: dbId,
+        destinationId: runForm.value.destinationId,
+      });
     }
+    isRunBackupModalOpen.value = false;
+    alert(`Enqueued backup job(s) for ${targets.length} database(s)!`);
+    activeTab.value = 'history';
+    fetchAll();
   } catch (err: any) {
     alert(`Failed to trigger backup: ${err.response?.data?.error || err.message}`);
   }
@@ -726,7 +765,7 @@ onMounted(() => {
         </button>
 
         <button
-          @click="isRunBackupModalOpen = true"
+          @click="openRunBackupModal"
           class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm"
         >
           <Play class="w-3.5 h-3.5 fill-current" />
@@ -1174,12 +1213,51 @@ onMounted(() => {
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Database</label>
-            <select v-model="runForm.dbConfigId" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-brand-500">
-              <option v-for="db in databases" :key="db.id" :value="db.id">
-                {{ db.name }} ({{ db.databaseName }}) - {{ db.dbType }}
-              </option>
-            </select>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-slate-700 dark:text-slate-400 font-bold">
+                Select Databases ({{ runForm.dbConfigIds.length }} of {{ databases.length }} selected)
+              </label>
+              <button
+                type="button"
+                @click="toggleSelectAllRunDatabases"
+                class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer"
+              >
+                {{ runForm.dbConfigIds.length === databases.length ? 'Deselect All' : 'Select All' }}
+              </button>
+            </div>
+
+            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div
+                v-for="db in databases"
+                :key="db.id"
+                @click="toggleRunDatabaseSelection(db.id)"
+                :class="[
+                  'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                  isRunDatabaseSelected(db.id)
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                    : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                ]"
+              >
+                <div class="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    :checked="isRunDatabaseSelected(db.id)"
+                    @click.stop="toggleRunDatabaseSelection(db.id)"
+                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                  />
+                  <div class="text-left">
+                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white">{{ db.name }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono">{{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}</p>
+                  </div>
+                </div>
+                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold">
+                  {{ db.dbType }}
+                </span>
+              </div>
+            </div>
+            <p v-if="runForm.dbConfigIds.length === 0" class="text-[11px] text-rose-500 mt-1 font-medium">
+              * Please select at least one database.
+            </p>
           </div>
 
           <div>
