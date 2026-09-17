@@ -286,7 +286,6 @@ const selectHost = async (hostId: string) => {
   if (selectedHostId.value === hostId && yamlContent.value) return;
   selectedHostId.value = hostId;
   feedbackMsg.value = null;
-  serviceLogs.value = '';
   await loadHostConfig(hostId);
 };
 
