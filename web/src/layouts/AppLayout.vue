@@ -33,7 +33,8 @@ const isServerOpen = ref(
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
 const isRemoteConfigOpen = ref(
   route.path.startsWith('/dataprepper-config') ||
-  route.path.startsWith('/prometheus-config')
+  route.path.startsWith('/prometheus-config') ||
+  route.path.startsWith('/opentelemetry-config')
 );
 const isToolsOpen = ref(
   route.path.startsWith('/snmp') ||
@@ -55,7 +56,8 @@ const isServerActive = computed(() =>
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology'));
 const isRemoteConfigActive = computed(() =>
   route.path.startsWith('/dataprepper-config') ||
-  route.path.startsWith('/prometheus-config')
+  route.path.startsWith('/prometheus-config') ||
+  route.path.startsWith('/opentelemetry-config')
 );
 const isToolsActive = computed(() =>
   route.path.startsWith('/snmp') ||
@@ -76,7 +78,7 @@ watch(
     if (newPath.startsWith('/network-topology')) {
       isNetworkingOpen.value = true;
     }
-    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config')) {
+    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config')) {
       isRemoteConfigOpen.value = true;
     }
     if (newPath.startsWith('/snmp') || newPath.startsWith('/grok-debugger') || newPath.startsWith('/backup')) {
@@ -267,7 +269,7 @@ onMounted(() => {
           </div>
 
           <!-- 5. Remote Config (Accordion) -->
-          <div v-if="authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read')">
+          <div v-if="authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read') || authStore.can('opentelemetry_config', 'read')">
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               :class="[
@@ -312,6 +314,20 @@ onMounted(() => {
               >
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/prometheus-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
                 <span>Prometheus Config</span>
+              </router-link>
+
+              <router-link
+                v-if="authStore.can('opentelemetry_config', 'read')"
+                to="/opentelemetry-config"
+                :class="[
+                  route.path === '/opentelemetry-config'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center gap-2 py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="route.path === '/opentelemetry-config' ? 'bg-blue-600 dark:bg-[#4274D9]' : 'bg-slate-400 dark:bg-slate-600'"></span>
+                <span>OpenTelemetry Config</span>
               </router-link>
             </div>
           </div>

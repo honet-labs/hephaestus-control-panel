@@ -39,6 +39,7 @@ import {
   Check,
   UserPlus,
   KeyRound,
+  Radio,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -489,6 +490,7 @@ const SYSTEM_FEATURES = [
   { key: 'grok_debugger', label: 'Grok Log Parser', desc: 'Regex pattern tester and log pipeline rule development environment', icon: Code2 },
   { key: 'dataprepper_config', label: 'Data Prepper Pipelines', desc: 'Log routing, pipeline buffer configuration, and sink YAML validator', icon: Layers },
   { key: 'prometheus_config', label: 'Prometheus & PromQL', desc: 'Prometheus query console and scrape target endpoint configurations', icon: BarChart2 },
+  { key: 'opentelemetry_config', label: 'OpenTelemetry Remote Config', desc: 'Multi-host OpenTelemetry Collector agent management, YAML configuration & systemd service control', icon: Radio },
   { key: 'slideshow', label: 'Slideshow & Kiosk', desc: 'Rotating NOC presentation views and full-screen telemetry monitoring', icon: Monitor },
   { key: 'settings', label: 'System & Audit Logs', desc: 'Background queue daemons, console logs, and security audit trail', icon: Settings },
 ];

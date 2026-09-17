@@ -66,6 +66,7 @@ func main() {
 	remoteRepo := repository.NewRemoteHostRepository()
 	topologyRepo := repository.NewTopologyRepository()
 	backupRepo := repository.NewBackupRepository()
+	otelRepo := repository.NewOTelRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -86,6 +87,7 @@ func main() {
 	firewallService := services.NewFirewallService(remoteRepo, sshService)
 	grokService := services.NewGrokService()
 	dpService := services.NewDataPrepperService(sshService)
+	otelService := services.NewOTelService(otelRepo, sshService)
 	systemService := services.NewSystemService()
 
 	// 7. Initialize HTTP Handlers
@@ -100,6 +102,7 @@ func main() {
 	vpsHandler := handlers.NewVpsHandler(vpsService)
 	grokHandler := handlers.NewGrokHandler(grokService)
 	dpHandler := handlers.NewDataPrepperHandler(dpService)
+	otelHandler := handlers.NewOTelHandler(otelService, otelRepo)
 	settingsHandler := handlers.NewSettingsHandler(configRepo, userRepo, systemService)
 	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
@@ -259,6 +262,20 @@ func main() {
 		api.POST("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.SavePipelineFile)
 		api.DELETE("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.DeletePipelineFile)
 		api.POST("/dataprepper/validate", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ValidateYAML)
+
+		// OpenTelemetry Remote Config (Feature: opentelemetry_config)
+		api.GET("/otel/hosts", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.ListHosts)
+		api.GET("/otel/hosts/:id", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetHost)
+		api.POST("/otel/hosts", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveHost)
+		api.PUT("/otel/hosts/:id", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveHost)
+		api.DELETE("/otel/hosts/:id", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.DeleteHost)
+		api.POST("/otel/hosts/test", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.TestHost)
+		api.GET("/otel/hosts/:id/status", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetHostStatus)
+		api.GET("/otel/hosts/:id/config", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetConfigFile)
+		api.POST("/otel/hosts/:id/config", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveConfigFile)
+		api.POST("/otel/hosts/:id/restart", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.RestartService)
+		api.GET("/otel/presets", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetPresets)
+		api.GET("/otel/hosts/:id/history", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.ListHistory)
 
 		// Live Logs, Services & Queue (Feature: settings)
 		api.GET("/logs", middleware.RequirePermission("settings", "read"), logsHandler.GetRecentLogs)

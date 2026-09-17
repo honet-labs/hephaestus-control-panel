@@ -326,6 +326,35 @@ CREATE TABLE IF NOT EXISTS backup_schedules (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 25. OpenTelemetryConfigs - OpenTelemetry Collector host connection & remote config profiles
+CREATE TABLE IF NOT EXISTS opentelemetry_configs (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    tags TEXT[] DEFAULT '{}',
+    ssh_host VARCHAR(255) NOT NULL,
+    ssh_port INTEGER DEFAULT 22,
+    ssh_user VARCHAR(255) NOT NULL DEFAULT 'root',
+    ssh_auth VARCHAR(50) NOT NULL DEFAULT 'password',
+    ssh_password TEXT,
+    ssh_key TEXT,
+    config_path VARCHAR(255) NOT NULL DEFAULT '/etc/otelcol-contrib/config.yaml',
+    service_name VARCHAR(100) NOT NULL DEFAULT 'otelcol-contrib',
+    reload_mode VARCHAR(50) NOT NULL DEFAULT 'restart',
+    last_status VARCHAR(50) DEFAULT 'unknown',
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS opentelemetry_config_history (
+    id VARCHAR(50) PRIMARY KEY,
+    otel_config_id VARCHAR(50) REFERENCES opentelemetry_configs(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_by VARCHAR(100),
+    change_summary VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================================================
@@ -352,6 +381,8 @@ ALTER TABLE topology_pending ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES
 CREATE INDEX IF NOT EXISTS idx_topology_pending_user ON topology_pending(user_id);
 CREATE INDEX IF NOT EXISTS idx_backup_schedules_is_active ON backup_schedules(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_backup_history_started_at ON backup_history(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_otel_configs_ssh_host ON opentelemetry_configs(ssh_host);
+CREATE INDEX IF NOT EXISTS idx_otel_config_history_config_id ON opentelemetry_config_history(otel_config_id);
 
 -- ==============================================================================
 -- SEED DEFAULT DATA
@@ -360,8 +391,8 @@ ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'
 
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "read"}'::jsonb),
-    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "manage", "slideshow": "read", "settings": "read"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
 ON CONFLICT (name) DO UPDATE SET 
     permissions = EXCLUDED.permissions,
     description = EXCLUDED.description;

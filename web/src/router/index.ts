@@ -76,6 +76,15 @@ const router = createRouter({
           component: () => import('../views/DataPrepperConfigView.vue'),
         },
         {
+          path: 'opentelemetry-config',
+          name: 'opentelemetry-config',
+          component: () => import('../views/OpenTelemetryConfigView.vue'),
+        },
+        {
+          path: 'otel-config',
+          redirect: '/opentelemetry-config',
+        },
+        {
           path: 'backup',
           name: 'backup',
           component: () => import('../views/BackupView.vue'),

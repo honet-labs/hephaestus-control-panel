@@ -78,6 +78,34 @@ type PrometheusConfig struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+type OpenTelemetryConfig struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Tags        []string   `json:"tags"`
+	SSHHost     string     `json:"sshHost"`
+	SSHPort     int        `json:"sshPort"`
+	SSHUser     string     `json:"sshUser"`
+	SSHAuth     string     `json:"sshAuth"`
+	SSHPassword *string    `json:"sshPassword,omitempty"`
+	SSHKey      *string    `json:"sshKey,omitempty"`
+	ConfigPath  string     `json:"configPath"`
+	ServiceName string     `json:"serviceName"`
+	ReloadMode  string     `json:"reloadMode"`
+	LastStatus  string     `json:"lastStatus"`
+	IsActive    bool       `json:"isActive"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+type OpenTelemetryConfigHistory struct {
+	ID            string    `json:"id"`
+	OTelConfigID  string    `json:"otelConfigId"`
+	Content       string    `json:"content"`
+	CreatedBy     *string   `json:"createdBy,omitempty"`
+	ChangeSummary *string   `json:"changeSummary,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
 type MonitoringView struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`

@@ -225,6 +225,45 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS db_config_ids TEXT[] DEFAULT '{}';
 		ALTER TABLE backup_schedules ALTER COLUMN db_config_id DROP NOT NULL;
+
+		CREATE TABLE IF NOT EXISTS opentelemetry_configs (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			tags TEXT[] DEFAULT '{}',
+			ssh_host VARCHAR(255) NOT NULL,
+			ssh_port INTEGER DEFAULT 22,
+			ssh_user VARCHAR(255) NOT NULL DEFAULT 'root',
+			ssh_auth VARCHAR(50) NOT NULL DEFAULT 'password',
+			ssh_password TEXT,
+			ssh_key TEXT,
+			config_path VARCHAR(255) NOT NULL DEFAULT '/etc/otelcol-contrib/config.yaml',
+			service_name VARCHAR(100) NOT NULL DEFAULT 'otelcol-contrib',
+			reload_mode VARCHAR(50) NOT NULL DEFAULT 'restart',
+			last_status VARCHAR(50) DEFAULT 'unknown',
+			is_active BOOLEAN DEFAULT true,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS opentelemetry_config_history (
+			id VARCHAR(50) PRIMARY KEY,
+			otel_config_id VARCHAR(50) REFERENCES opentelemetry_configs(id) ON DELETE CASCADE,
+			content TEXT NOT NULL,
+			created_by VARCHAR(100),
+			change_summary VARCHAR(255),
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_otel_configs_ssh_host ON opentelemetry_configs(ssh_host);
+		CREATE INDEX IF NOT EXISTS idx_otel_config_history_config_id ON opentelemetry_config_history(otel_config_id);
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"opentelemetry_config": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR') AND NOT (permissions ? 'opentelemetry_config');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"opentelemetry_config": "read"}'::jsonb 
+		WHERE name = 'VIEWER' AND NOT (permissions ? 'opentelemetry_config');
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 
