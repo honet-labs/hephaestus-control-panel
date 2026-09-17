@@ -96,8 +96,6 @@ const gutterRef = ref<HTMLDivElement | null>(null);
 const testingHost = ref(false);
 const restartingService = ref(false);
 const feedbackMsg = ref<{ type: 'success' | 'error' | 'info'; title: string; detail?: string } | null>(null);
-const serviceLogs = ref<string>('');
-const showLogsPanel = ref(false);
 
 // Presets & History
 const presets = ref<OTelPreset[]>([]);
@@ -344,14 +342,12 @@ const saveConfig = async () => {
             detail: res.data.message || 'Config saved and OpenTelemetry Collector service restarted successfully.',
           };
           updateHostStatusInList(selectedHost.value.id, 'active');
-        } else {
+        } else if (data.restart && !data.restart.success) {
           feedbackMsg.value = {
             type: 'error',
             title: 'Config Saved, but Service Restart Failed!',
-            detail: data.restart.error || 'Service could not be restarted. Inspect diagnostic logs below.',
+            detail: data.restart.error || data.restart.output || 'Service could not be restarted.',
           };
-          serviceLogs.value = data.restart.output || data.restart.error || '';
-          showLogsPanel.value = true;
           updateHostStatusInList(selectedHost.value.id, 'failed');
         }
       } else {
@@ -423,9 +419,6 @@ const fetchLiveStatus = async (hostId: string) => {
       if (data.serviceStatus) {
         updateHostStatusInList(hostId, data.serviceStatus);
       }
-      if (data.logs) {
-        serviceLogs.value = data.logs;
-      }
     }
   } catch (err) {
     // Ignore silent error
@@ -446,17 +439,12 @@ const restartCurrentService = async (mode: 'restart' | 'reload' = 'restart') => 
         detail: `OpenTelemetry agent on ${selectedHost.value.name} is healthy and active.`,
       };
       updateHostStatusInList(selectedHost.value.id, 'active');
-      if (res.data.data?.output) {
-        serviceLogs.value = res.data.data.output;
-      }
     } else {
       feedbackMsg.value = {
         type: 'error',
         title: `Service ${mode} Failed`,
-        detail: res.data.data?.error || 'Failed to restart service on remote host.',
+        detail: res.data.data?.error || res.data.data?.output || 'Failed to restart service on remote host.',
       };
-      serviceLogs.value = res.data.data?.output || res.data.data?.error || '';
-      showLogsPanel.value = true;
       updateHostStatusInList(selectedHost.value.id, 'failed');
     }
   } catch (err: any) {
@@ -1176,8 +1164,8 @@ onMounted(async () => {
             </div>
 
             <!-- Loading overlay or Editor body -->
-            <div class="relative bg-slate-900 dark:bg-[#090d16] font-mono text-xs">
-              <div v-if="loadingConfig" class="absolute inset-0 bg-slate-900/80 z-10 flex flex-col items-center justify-center gap-2 text-slate-400">
+            <div class="relative bg-white dark:bg-[#090d16] font-mono text-xs">
+              <div v-if="loadingConfig" class="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs z-10 flex flex-col items-center justify-center gap-2 text-slate-600 dark:text-slate-400">
                 <RotateCw class="w-6 h-6 animate-spin text-blue-500" />
                 <span class="text-xs font-semibold">Reading configuration from {{ selectedHost.sshHost }}...</span>
               </div>
@@ -1186,7 +1174,7 @@ onMounted(async () => {
                 <!-- Line numbers gutter -->
                 <div
                   ref="gutterRef"
-                  class="w-12 py-3 bg-slate-950/80 dark:bg-[#070a10] border-r border-slate-800 text-slate-600 text-right pr-2.5 select-none overflow-hidden shrink-0 font-mono text-[11px] leading-5"
+                  class="w-12 py-3 bg-slate-100 dark:bg-[#070a10] border-r border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-right pr-2.5 select-none overflow-hidden shrink-0 font-mono text-[11px] leading-5"
                 >
                   <div v-for="n in lineNumbers" :key="n">{{ n }}</div>
                 </div>
@@ -1200,7 +1188,8 @@ onMounted(async () => {
                   :readonly="!canManage"
                   spellcheck="false"
                   placeholder="# OpenTelemetry Collector configuration YAML"
-                  class="flex-1 p-3 bg-transparent text-slate-100 placeholder-slate-600 focus:outline-none resize-none font-mono text-[11px] leading-5 whitespace-pre tab-2 overflow-y-auto selection:bg-blue-600/40"
+                  class="flex-1 p-3 bg-white dark:bg-transparent text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none resize-none font-mono text-[11px] leading-5 whitespace-pre tab-2 overflow-y-auto selection:bg-blue-500/20 dark:selection:bg-blue-600/40 outline-none"
+                  style="border: none !important; box-shadow: none !important;"
                 ></textarea>
               </div>
             </div>
@@ -1243,28 +1232,6 @@ onMounted(async () => {
                 <Shield class="w-4 h-4 text-blue-500 shrink-0" />
                 <span>Read-Only mode: You have observer access to OpenTelemetry configurations. Contact an administrator to deploy changes or restart agents.</span>
               </div>
-            </div>
-          </div>
-
-          <!-- Collapsible Agent Diagnostics & Terminal Output -->
-          <div class="bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl shadow-sm overflow-hidden">
-            <button
-              @click="showLogsPanel = !showLogsPanel"
-              class="w-full flex items-center justify-between px-4 py-3 bg-slate-50/70 dark:bg-[#121826]/70 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#161e30] transition cursor-pointer"
-            >
-              <div class="flex items-center gap-2">
-                <Terminal class="w-4 h-4 text-blue-500" />
-                <span>Agent Status & Diagnostic Logs</span>
-                <span v-if="serviceLogs" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-200 dark:bg-[#1c2436] text-slate-600 dark:text-slate-400">
-                  Updated
-                </span>
-              </div>
-              <component :is="showLogsPanel ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400" />
-            </button>
-
-            <div v-show="showLogsPanel" class="p-3 bg-slate-950 text-slate-200 font-mono text-[11px] overflow-x-auto max-h-60 space-y-1">
-              <div v-if="serviceLogs" class="whitespace-pre-wrap leading-relaxed">{{ serviceLogs }}</div>
-              <div v-else class="text-slate-500 italic">No recent diagnostic logs. Click "Test SSH" or "Restart Agent" to query systemd.</div>
             </div>
           </div>
         </div>
@@ -1566,10 +1533,10 @@ onMounted(async () => {
           </div>
 
           <!-- Right preview container -->
-          <div class="md:col-span-7 p-3 flex flex-col bg-slate-900 text-slate-200 font-mono text-[11px] max-h-[500px]">
+          <div class="md:col-span-7 p-3 flex flex-col bg-slate-50 dark:bg-[#0a0d15] text-slate-800 dark:text-slate-200 font-mono text-[11px] max-h-[500px]">
             <div v-if="previewHistoryItem" class="flex-1 flex flex-col space-y-2 overflow-hidden">
-              <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span class="text-slate-400 text-[10px]">Snapshot Preview ({{ previewHistoryItem.content.length }} bytes)</span>
+              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                <span class="text-slate-500 dark:text-slate-400 text-[10px]">Snapshot Preview ({{ previewHistoryItem.content.length }} bytes)</span>
                 <button
                   @click="restoreHistoryVersion(previewHistoryItem)"
                   class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold transition cursor-pointer"
@@ -1580,7 +1547,8 @@ onMounted(async () => {
               <textarea
                 readonly
                 :value="previewHistoryItem.content"
-                class="flex-1 w-full bg-transparent resize-none p-2 focus:outline-none text-[11px] leading-relaxed overflow-y-auto whitespace-pre font-mono"
+                class="flex-1 w-full bg-white dark:bg-transparent text-slate-800 dark:text-slate-200 resize-none p-2 focus:outline-none text-[11px] leading-relaxed overflow-y-auto whitespace-pre font-mono"
+                style="border: none !important; box-shadow: none !important;"
               ></textarea>
             </div>
             <div v-else class="flex-1 flex items-center justify-center text-slate-500 italic">
