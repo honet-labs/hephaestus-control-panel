@@ -22,6 +22,7 @@ import {
   Copy,
   RotateCcw,
   Terminal,
+  Download,
 } from 'lucide-vue-next';
 
 const activeTab = ref<'databases' | 'destinations' | 'schedules' | 'history'>('databases');
@@ -550,6 +551,10 @@ const deleteHistoryItem = async (id: string) => {
   }
 };
 
+const downloadBackupFile = (h: any) => {
+  window.open(`/api/v1/backup/history/${h.id}/download`, '_blank');
+};
+
 const handleRunSingle = (dbId: string) => {
   runForm.value.dbConfigId = dbId;
   isRunBackupModalOpen.value = true;
@@ -1024,6 +1029,14 @@ onMounted(() => {
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ new Date(h.startedAt).toLocaleString() }}</td>
             <td class="p-3 text-right">
               <div class="flex items-center justify-end gap-1.5">
+                <button
+                  v-if="h.status === 'success'"
+                  @click="downloadBackupFile(h)"
+                  class="p-1 rounded text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                  title="Download Backup Archive (.sql.gz)"
+                >
+                  <Download class="w-3.5 h-3.5" />
+                </button>
                 <button
                   @click="openLogModal(h)"
                   class="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-brand-400 dark:hover:bg-slate-800 transition cursor-pointer"

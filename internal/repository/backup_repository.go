@@ -350,6 +350,20 @@ func (r *BackupRepository) UpdateHistoryStatus(ctx context.Context, id, status s
 	return err
 }
 
+func (r *BackupRepository) GetHistoryEntry(ctx context.Context, id string) (*domain.BackupHistoryEntry, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	var h domain.BackupHistoryEntry
+	err = pool.QueryRow(ctx, `SELECT id, db_config_id, destination_id, db_name, db_type, dest_type, filename, file_size, status, error_message, started_at, completed_at FROM backup_history WHERE id = $1`, id).
+		Scan(&h.ID, &h.DBConfigID, &h.DestinationID, &h.DBName, &h.DBType, &h.DestType, &h.Filename, &h.FileSize, &h.Status, &h.ErrorMessage, &h.StartedAt, &h.CompletedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
 func (r *BackupRepository) DeleteHistory(ctx context.Context, id string) error {
 	pool, err := database.GetPool()
 	if err != nil {

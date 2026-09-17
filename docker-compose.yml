@@ -47,7 +47,8 @@ services:
     volumes:
       - app_data:/app/data
       - app_logs:/app/logs
-      - app_backups:/app/backups
+      - ${BACKUP_DIR:-app_backups}:/opt/backups
+      - ${BACKUP_DIR:-app_backups}:/app/backups
     depends_on:
       - database
     networks:

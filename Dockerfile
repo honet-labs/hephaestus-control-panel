@@ -39,7 +39,7 @@ COPY --from=frontend-builder /app/web/dist /app/web/dist
 COPY internal/database/migrations /app/internal/database/migrations
 
 # Create storage directories
-RUN mkdir -p /app/data/mibs /app/logs /app/backups
+RUN mkdir -p /app/data/mibs /app/logs /app/backups /opt/backups
 
 ENV PORT=5000 \
     APP_ENV=production \

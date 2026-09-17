@@ -3,6 +3,8 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"go-hephaestus/internal/core/domain"
@@ -290,4 +292,57 @@ func (h *BackupHandler) DeleteHistory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "History entry deleted."})
+}
+
+func (h *BackupHandler) DownloadBackup(c *gin.Context) {
+	id := c.Param("id")
+	entry, err := h.backupRepo.GetHistoryEntry(c.Request.Context(), id)
+	if err != nil || entry == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Backup record not found"})
+		return
+	}
+
+	if entry.Status != "success" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fmt.Sprintf("Backup job did not complete successfully (status: %s)", entry.Status)})
+		return
+	}
+
+	// Try to locate file on disk
+	var possiblePaths []string
+
+	if entry.DestinationID != nil && *entry.DestinationID != "" {
+		dest, err := h.backupRepo.GetRawDestination(c.Request.Context(), *entry.DestinationID)
+		if err == nil && dest != nil && dest.Config != nil {
+			if cfgPath, ok := dest.Config["path"].(string); ok && cfgPath != "" {
+				possiblePaths = append(possiblePaths, filepath.Join(cfgPath, entry.Filename))
+			}
+		}
+	}
+
+	// Fallback standard locations
+	possiblePaths = append(possiblePaths,
+		filepath.Join("/opt/backups", entry.Filename),
+		filepath.Join("/app/backups", entry.Filename),
+		filepath.Join("backups", entry.Filename),
+	)
+
+	var foundPath string
+	for _, p := range possiblePaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			foundPath = p
+			break
+		}
+	}
+
+	if foundPath == "" {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Backup file '%s' was not found on local storage. It may have been saved to a remote cloud destination or lost due to container recreation without a mounted volume.", entry.Filename),
+		})
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", entry.Filename))
+	c.Header("Content-Type", "application/gzip")
+	c.File(foundPath)
 }
