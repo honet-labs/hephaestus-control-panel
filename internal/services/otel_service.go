@@ -130,7 +130,7 @@ func (s *OTelService) GetHostStatus(ctx context.Context, id string) (*OTelHostSt
 		}, nil
 	}
 
-	statusCmd := fmt.Sprintf(`systemctl status %s --no-pager -n 15 2>&1`, serviceName)
+	statusCmd := fmt.Sprintf(`_run_sudo systemctl status %s --no-pager -n 15 2>&1`, serviceName)
 	stdout, _, _, _ := s.sshService.ExecuteElevatedCommand(remoteCfg, statusCmd)
 
 	serviceStatus := "unknown"
@@ -203,7 +203,7 @@ func (s *OTelService) SaveConfigFile(ctx context.Context, id string, content str
 		// Also make a timestamped remote backup file on the server
 		timestamp := time.Now().Format("20060102_150405")
 		bakPath := fmt.Sprintf("%s.bak.%s", cfg.ConfigPath, timestamp)
-		backupCmd := fmt.Sprintf("cp '%s' '%s' 2>/dev/null || true", cfg.ConfigPath, bakPath)
+		backupCmd := fmt.Sprintf("_run_sudo cp '%s' '%s' 2>/dev/null || true", cfg.ConfigPath, bakPath)
 		_, _, _, _ = s.sshService.ExecuteElevatedCommand(remoteCfg, backupCmd)
 	}
 
@@ -226,13 +226,17 @@ func (s *OTelService) SaveConfigFile(ctx context.Context, id string, content str
 				Success:   false,
 				Error:     rErr.Error(),
 			}
-			result.Message += fmt.Sprintf(" Notice: Service reload failed: %s", rErr.Error())
+			result.Message += fmt.Sprintf(" Notice: Service restart failed: %s", rErr.Error())
 		} else if restartRes != nil {
 			result.Restart = *restartRes
 			if restartRes.Success {
-				result.Message += fmt.Sprintf(" Service '%s' reloaded successfully.", cfg.ServiceName)
+				modeStr := "restarted"
+				if strings.EqualFold(cfg.ReloadMode, "reload") {
+					modeStr = "reloaded"
+				}
+				result.Message += fmt.Sprintf(" Service '%s' %s successfully.", cfg.ServiceName, modeStr)
 			} else {
-				result.Message += fmt.Sprintf(" Service restart attempted but returned: %s", restartRes.Error)
+				result.Message += fmt.Sprintf(" Service restart attempted but failed: %s", restartRes.Error)
 			}
 		}
 	}
@@ -260,21 +264,35 @@ func (s *OTelService) RestartService(ctx context.Context, id string, mode string
 
 	cmd := fmt.Sprintf(`
 		if command -v systemctl >/dev/null 2>&1; then
-			systemctl %s %s 2>&1
+			if [ "%s" = "reload" ]; then
+				restart_output=$(_run_sudo systemctl reload %s 2>&1) || restart_output=$(_run_sudo systemctl restart %s 2>&1)
+				cmd_status=$?
+			else
+				restart_output=$(_run_sudo systemctl restart %s 2>&1)
+				cmd_status=$?
+			fi
+
+			if [ $cmd_status -ne 0 ]; then
+				echo "RESTART_CMD_FAILED: $restart_output"
+				_run_sudo systemctl status %s --no-pager -n 15 2>&1
+				exit 1
+			fi
+
 			sleep 2
 			if systemctl is-active --quiet %s; then
-				echo "STATUS_OK: %s is active"
+				active_pid=$(systemctl show --property MainPID --value %s 2>/dev/null || echo 0)
+				echo "STATUS_OK: %s is active (PID: $active_pid)"
 				exit 0
 			else
 				echo "STATUS_FAILED: %s is not active"
-				systemctl status %s --no-pager -n 15 2>&1
+				_run_sudo systemctl status %s --no-pager -n 15 2>&1
 				exit 1
 			fi
 		else
 			echo "systemctl command not found on host"
 			exit 1
 		fi
-	`, action, serviceName, serviceName, serviceName, serviceName, serviceName)
+	`, action, serviceName, serviceName, serviceName, serviceName, serviceName, serviceName, serviceName, serviceName, serviceName)
 
 	stdout, stderr, exitCode, execErr := s.sshService.ExecuteElevatedCommand(remoteCfg, cmd)
 	res := &ServiceRestartResult{
