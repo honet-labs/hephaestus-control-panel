@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -119,24 +118,10 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware())
 
-	// CORS Setup - Secure origin validation against allowed origins and loopback
+	// CORS Setup - Allow dynamic origin resolution for custom host IP, domain, and ports
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOriginFunc = func(origin string) bool {
-		if origin == "" {
-			return true
-		}
-		for _, allowed := range cfg.AllowedOrigins {
-			if allowed == "*" || allowed == origin {
-				return true
-			}
-		}
-		if strings.HasPrefix(origin, "http://localhost:") ||
-			strings.HasPrefix(origin, "https://localhost:") ||
-			strings.HasPrefix(origin, "http://127.0.0.1:") ||
-			strings.HasPrefix(origin, "https://127.0.0.1:") {
-			return true
-		}
-		return false
+		return true
 	}
 	corsConfig.AllowCredentials = true
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID", "X-Requested-With"}
