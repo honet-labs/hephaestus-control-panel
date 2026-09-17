@@ -734,7 +734,7 @@ onUnmounted(() => {
     <!-- Navigation Tabs Bar (Sticky below header, hidden in embed mode) -->
     <nav
       v-if="!isEmbedMode"
-      class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-6 flex items-center gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md"
+      class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 flex items-center gap-6 sm:gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md overflow-x-auto whitespace-nowrap"
     >
       <button
         v-for="tab in [
@@ -749,7 +749,7 @@ onUnmounted(() => {
         type="button"
         @click="activeTab = tab.id as any"
         :class="[
-          'py-3 transition border-b-2 -mb-[1px] bg-transparent outline-none focus:outline-none cursor-pointer',
+          'py-3 transition border-b-2 -mb-[1px] bg-transparent outline-none focus:outline-none cursor-pointer shrink-0',
           activeTab === tab.id
             ? 'border-blue-600 text-blue-600 dark:border-brand-500 dark:text-brand-400 font-bold'
             : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 font-medium'
@@ -760,7 +760,7 @@ onUnmounted(() => {
     </nav>
 
     <!-- Main Content Container (Uses natural browser window scrolling) -->
-    <main class="flex-1 p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+    <main class="flex-1 p-3.5 sm:p-5 md:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
       
       <!-- ================================================================= -->
       <!-- TAB 1: OVERVIEW -->

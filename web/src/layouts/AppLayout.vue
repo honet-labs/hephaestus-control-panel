@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -17,6 +17,11 @@ import {
   ChevronRight,
   ChevronDown,
   Command,
+  Menu,
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -69,9 +74,40 @@ const isMonitoringActive = computed(() =>
   route.path.startsWith('/slideshow')
 );
 
+// Mobile & Desktop Sidebar Visibility State
+const isMobileSidebarOpen = ref(false);
+const isDesktopSidebarOpen = ref(true);
+
+const toggleDesktopSidebar = () => {
+  isDesktopSidebarOpen.value = !isDesktopSidebarOpen.value;
+};
+
+const triggerSearch = () => {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }));
+};
+
+const currentRouteName = computed(() => {
+  if (route.path === '/') return 'System Overview';
+  if (route.path.startsWith('/connections')) return 'Add Connections';
+  if (route.path.startsWith('/inventory-server') || route.path.startsWith('/inventory')) return 'Inventory Server';
+  if (route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host')) return 'Remote Server';
+  if (route.path.startsWith('/network-topology')) return 'Network Topology';
+  if (route.path.startsWith('/dataprepper-config')) return 'Data Prepper Pipelines';
+  if (route.path.startsWith('/prometheus-config')) return 'Prometheus Config';
+  if (route.path.startsWith('/opentelemetry-config')) return 'OpenTelemetry Config';
+  if (route.path.startsWith('/snmp')) return 'SNMP Browser';
+  if (route.path.startsWith('/grok-debugger')) return 'Grok Debugger';
+  if (route.path.startsWith('/backup')) return 'Backup Manager';
+  if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
+  if (route.path.startsWith('/slideshow')) return 'Slide Show';
+  if (route.path.startsWith('/settings')) return 'System Settings';
+  return 'Dashboard';
+});
+
 watch(
   () => route.path,
   (newPath) => {
+    isMobileSidebarOpen.value = false;
     if (newPath.startsWith('/inventory-server') || newPath.startsWith('/inventory') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
       isServerOpen.value = true;
     }
@@ -104,35 +140,80 @@ watch(
   }
 );
 
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isMobileSidebarOpen.value) {
+    isMobileSidebarOpen.value = false;
+  }
+};
+
 onMounted(() => {
   authStore.fetchUser();
+  window.addEventListener('keydown', handleKeyDown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown);
 });
 </script>
 
 <template>
-  <div class="flex h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans">
+  <div class="flex h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans relative">
     <!-- Command Palette (Ctrl+K) -->
     <CommandPalette />
 
-    <!-- Sidebar -->
-    <aside class="w-64 border-r border-slate-200 dark:border-[#1b2234] bg-white dark:bg-[#0c101a] flex flex-col justify-between shrink-0 shadow-sm">
+    <!-- Mobile Backdrop Overlay -->
+    <Transition
+      enter-active-class="transition-opacity duration-300 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="isMobileSidebarOpen"
+        @click="isMobileSidebarOpen = false"
+        class="fixed inset-0 z-40 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs md:hidden"
+        aria-hidden="true"
+      ></div>
+    </Transition>
+
+    <!-- Sidebar (Off-canvas drawer on mobile, static collapsible on desktop) -->
+    <aside
+      :class="[
+        'fixed inset-y-0 left-0 z-50 w-72 md:w-64 bg-white dark:bg-[#0c101a] border-r border-slate-200 dark:border-[#1b2234] flex flex-col justify-between shrink-0 shadow-2xl md:shadow-sm transition-all duration-300 ease-in-out md:static',
+        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        !isDesktopSidebarOpen ? 'md:-ml-64' : ''
+      ]"
+    >
       <div class="flex-1 flex flex-col min-h-0">
         <!-- App Brand Header -->
-        <div class="h-16 flex items-center px-5 border-b border-slate-200 dark:border-[#1b2234] gap-3 shrink-0">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#293681] to-[#4274D9] flex items-center justify-center font-mono font-black text-xs text-white tracking-tighter shadow-sm">
-            HCP
+        <div class="h-14 md:h-16 flex items-center justify-between px-5 border-b border-slate-200 dark:border-[#1b2234] shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-tr from-[#293681] to-[#4274D9] flex items-center justify-center font-mono font-black text-xs text-white tracking-tighter shadow-sm">
+              HCP
+            </div>
+            <div>
+              <h1 class="font-bold text-sm tracking-wide text-slate-900 dark:text-white leading-tight">HEPHAESTUS</h1>
+              <span class="text-[10px] text-blue-700 dark:text-[#95CCDD] font-mono font-semibold tracking-wider">CONTROL PANEL</span>
+            </div>
           </div>
-          <div>
-            <h1 class="font-bold text-sm tracking-wide text-slate-900 dark:text-white leading-tight">HEPHAESTUS</h1>
-            <span class="text-[10px] text-blue-700 dark:text-[#95CCDD] font-mono font-semibold tracking-wider">CONTROL PANEL</span>
-          </div>
+
+          <!-- Mobile Close Button (X) -->
+          <button
+            @click="isMobileSidebarOpen = false"
+            class="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer"
+            aria-label="Close Sidebar"
+          >
+            <X class="w-5 h-5" />
+          </button>
         </div>
 
-        <!-- Quick Jump / Search button -->
+        <!-- Quick Jump / Search button in sidebar -->
         <div class="px-4 py-3 shrink-0">
           <button
-            @click="window?.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))"
-            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-400 rounded-lg hover:border-blue-500/50 hover:text-slate-900 dark:hover:text-white transition"
+            @click="triggerSearch"
+            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-400 rounded-lg hover:border-blue-500/50 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
           >
             <span class="flex items-center gap-1.5">
               <Command class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
@@ -218,6 +299,7 @@ onMounted(() => {
                 v-if="authStore.can('remote_servers', 'read')"
                 href="/remote-server"
                 target="_blank"
+                @click="isMobileSidebarOpen = false"
                 :class="[
                   (route.path === '/remote-server' || route.path === '/remote-host')
                     ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
@@ -255,6 +337,7 @@ onMounted(() => {
                 v-if="authStore.can('network_topology', 'read')"
                 href="/network-topology"
                 target="_blank"
+                @click="isMobileSidebarOpen = false"
                 :class="[
                   route.path === '/network-topology'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
@@ -420,6 +503,7 @@ onMounted(() => {
                 v-if="authStore.can('opensearch', 'read')"
                 href="/opensearch-cluster"
                 target="_blank"
+                @click="isMobileSidebarOpen = false"
                 :class="[
                   route.path === '/opensearch-cluster'
                     ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
@@ -497,7 +581,72 @@ onMounted(() => {
 
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-[#090d16]">
-      <main class="flex-1 overflow-y-auto p-6">
+      <!-- Sticky / Top Navigation Header -->
+      <header class="h-14 bg-white dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] flex items-center justify-between px-3 sm:px-5 shrink-0 z-30 shadow-xs">
+        <!-- Left: Mobile Menu Trigger / Desktop Sidebar Collapse & Page Indicator -->
+        <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <!-- Mobile Hamburger Toggle -->
+          <button
+            @click="isMobileSidebarOpen = true"
+            class="md:hidden p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
+            aria-label="Open Navigation Menu"
+          >
+            <Menu class="w-5 h-5" />
+          </button>
+
+          <!-- Desktop Sidebar Collapse/Expand Toggle -->
+          <button
+            @click="toggleDesktopSidebar"
+            class="hidden md:flex items-center justify-center p-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
+            :title="isDesktopSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'"
+          >
+            <PanelLeftClose v-if="isDesktopSidebarOpen" class="w-4 h-4" />
+            <PanelLeftOpen v-else class="w-4 h-4" />
+          </button>
+
+          <!-- Mobile Active Section Title -->
+          <div class="flex md:hidden items-center gap-2 min-w-0">
+            <span class="font-bold text-xs text-slate-900 dark:text-white truncate">
+              {{ currentRouteName }}
+            </span>
+          </div>
+
+          <!-- Desktop Breadcrumb / Active Section Title -->
+          <div class="hidden md:flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-[#4274D9]"></span>
+            <span>{{ currentRouteName }}</span>
+          </div>
+        </div>
+
+        <!-- Right Header Actions -->
+        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <!-- Quick Search Button -->
+          <button
+            @click="triggerSearch"
+            class="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-50 dark:bg-[#121826] hover:bg-slate-100 dark:hover:bg-[#1a2336] rounded-lg border border-slate-200 dark:border-[#1b2234] transition cursor-pointer"
+            title="Quick Search (Ctrl+K)"
+          >
+            <Search class="w-3.5 h-3.5 text-blue-600 dark:text-[#95CCDD]" />
+            <span class="hidden sm:inline text-[11px]">Quick Search</span>
+            <kbd class="hidden sm:inline text-[9px] font-mono bg-white dark:bg-[#1a2336] px-1 py-0.5 rounded border border-slate-300 dark:border-[#293681] text-slate-500 dark:text-[#D0E7E6]">Ctrl+K</kbd>
+          </button>
+
+          <!-- Theme Toggle -->
+          <ThemeToggle variant="compact" />
+
+          <!-- Mobile Sign Out Button -->
+          <button
+            @click="handleLogout"
+            class="md:hidden p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
+            title="Sign Out"
+          >
+            <LogOut class="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Content with responsive mobile padding -->
+      <main class="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 w-full max-w-full">
         <router-view />
       </main>
     </div>

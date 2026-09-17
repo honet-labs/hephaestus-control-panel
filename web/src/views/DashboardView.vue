@@ -66,12 +66,12 @@ onMounted(() => {
 <template>
   <div class="space-y-6 font-sans max-w-7xl mx-auto">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#1b2234] pb-4">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-          <span>System Overview</span>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+          System Overview
         </h1>
-        <p class="text-xs text-[#95CCDD]/80 mt-0.5">Quick actions, background services health, and recent database backups</p>
+        <p class="text-xs text-slate-500 dark:text-[#95CCDD]/80 mt-0.5">Quick actions, background services health, and recent database backups</p>
       </div>
     </div>
 

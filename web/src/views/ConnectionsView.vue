@@ -823,7 +823,7 @@ onMounted(() => {
             </div>
 
             <!-- Right Card Actions -->
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-end sm:justify-start pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-[#1b2234]">
               <!-- Connected Pill -->
               <span
                 :class="[

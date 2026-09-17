@@ -775,7 +775,7 @@ onMounted(() => {
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium" role="tablist">
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium overflow-x-auto" role="tablist">
       <button
         role="tab"
         :aria-selected="activeTab === 'databases'"
