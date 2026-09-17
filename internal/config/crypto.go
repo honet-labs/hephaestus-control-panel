@@ -22,12 +22,13 @@ var (
 // SetSecretKey sets the active AES encryption key
 func SetSecretKey(keyStr string) {
 	trimmed := strings.TrimSpace(keyStr)
-	if len(trimmed) > 0 &&
-		trimmed != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" &&
-		trimmed != "hephaestus-super-secure-key-32b!" {
+	if len(trimmed) > 0 {
 		hash := sha256.Sum256([]byte(trimmed))
 		defaultSecretKey = hash[:]
-		isDefaultKey = false
+		if trimmed != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" &&
+			trimmed != "hephaestus-super-secure-key-32b!" {
+			isDefaultKey = false
+		}
 	}
 }
 
