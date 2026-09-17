@@ -85,7 +85,6 @@ const statusFilter = ref<string>('all'); // all, active, failed, unreachable
 const yamlContent = ref('');
 const initialLoadedContent = ref('');
 const configSummary = ref('');
-const restartAfterSave = ref(true);
 const saving = ref(false);
 const loadingConfig = ref(false);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
@@ -340,7 +339,8 @@ const saveConfig = async () => {
     const res = await axios.post(`/api/v1/otel/hosts/${selectedHost.value.id}/config`, {
       content: yamlContent.value,
       summary: configSummary.value || undefined,
-      restartAfter: restartAfterSave.value,
+      restartAfter: true,
+      restart: true,
     });
 
     if (res.data?.success) {
@@ -1209,14 +1209,6 @@ onMounted(async () => {
                     placeholder="Optional commit / change note (e.g. Added Prometheus scrape target)"
                     class="w-full sm:max-w-md px-3 py-1.5 bg-white dark:bg-[#0a0d15] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
-                  <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 font-medium select-none cursor-pointer shrink-0">
-                    <input
-                      v-model="restartAfterSave"
-                      type="checkbox"
-                      class="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
-                    />
-                    <span>Restart agent after save</span>
-                  </label>
                 </div>
 
                 <div class="flex items-center gap-2 shrink-0">
@@ -1226,7 +1218,7 @@ onMounted(async () => {
                     class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 text-white text-xs font-bold transition shadow-sm shadow-blue-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save class="w-4 h-4" :class="{ 'animate-spin': saving }" />
-                    <span>{{ saving ? 'Deploying...' : 'Deploy & Restart Agent' }}</span>
+                    <span>{{ saving ? 'Deploying & Restarting...' : 'Deploy & Restart Agent' }}</span>
                   </button>
                 </div>
               </template>

@@ -207,7 +207,8 @@ func (h *OTelHandler) SaveConfigFile(c *gin.Context) {
 	var req struct {
 		Content      string `json:"content" binding:"required"`
 		Summary      string `json:"summary"`
-		RestartAfter bool   `json:"restartAfter"`
+		RestartAfter *bool  `json:"restartAfter"`
+		Restart      *bool  `json:"restart"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -220,7 +221,15 @@ func (h *OTelHandler) SaveConfigFile(c *gin.Context) {
 		username = "system"
 	}
 
-	res, err := h.otelService.SaveConfigFile(c.Request.Context(), id, req.Content, username, req.Summary, req.RestartAfter)
+	// Default to true so "Deploy & Restart Agent" always triggers service restart
+	shouldRestart := true
+	if req.RestartAfter != nil {
+		shouldRestart = *req.RestartAfter
+	} else if req.Restart != nil {
+		shouldRestart = *req.Restart
+	}
+
+	res, err := h.otelService.SaveConfigFile(c.Request.Context(), id, req.Content, username, req.Summary, shouldRestart)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
@@ -237,7 +246,12 @@ func (h *OTelHandler) RestartService(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req)
 
-	res, err := h.otelService.RestartService(c.Request.Context(), id, req.Mode)
+	mode := req.Mode
+	if mode == "" {
+		mode = "restart"
+	}
+
+	res, err := h.otelService.RestartService(c.Request.Context(), id, mode)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
