@@ -375,12 +375,17 @@ const handleOpenAddDevice = () => {
 const handleSaveDevice = async () => {
   try {
     const isEdit = isEditDeviceModal.value;
+    const currentSheet = activeSheetId.value ?? (sheets.value.length > 0 ? sheets.value[0].id : null);
+    const startIdx = activeNodes.value.length;
+    const defaultX = 220 + (startIdx % 4) * 200;
+    const defaultY = 130 + Math.floor(startIdx / 4) * 160;
+
     const payload = {
       ...deviceForm.value,
-      // When adding a new device: sheetId, x, and y are NULL so it's NOT placed on canvas automatically!
-      sheetId: isEdit ? (deviceForm.value.sheetId ?? null) : null,
-      x: isEdit ? (deviceForm.value.x ?? null) : null,
-      y: isEdit ? (deviceForm.value.y ?? null) : null,
+      // Place newly added manual devices directly onto the active canvas sheet
+      sheetId: isEdit ? (deviceForm.value.sheetId ?? currentSheet) : currentSheet,
+      x: isEdit ? (deviceForm.value.x ?? defaultX) : defaultX,
+      y: isEdit ? (deviceForm.value.y ?? defaultY) : defaultY,
     };
     const res = await axios.post('/api/v1/topology/devices', payload);
     if (res.data.success) {
@@ -580,7 +585,7 @@ const openRemoteSyncModal = async () => {
 // Check if a remote host is already in active sheet
 const isRemoteHostInActiveSheet = (host: any) => {
   return activeNodes.value.some(
-    n => n.id === `remote-${host.id}` || n.ipAddress === host.host || n.labels?.remoteHostId === host.id
+    n => n.id === `remote-${host.id}` || n.labels?.remoteHostId === host.id
   );
 };
 
@@ -597,7 +602,8 @@ const toggleSelectAllRemoteHosts = () => {
 const handleDirectSyncAllRemoteServers = async () => {
   syncRemoteLoading.value = true;
   try {
-    const sheetParam = activeSheetId.value ? `?sheetId=${activeSheetId.value}` : '';
+    const targetSheetId = activeSheetId.value ?? (sheets.value.length > 0 ? sheets.value[0].id : null);
+    const sheetParam = targetSheetId ? `?sheetId=${targetSheetId}` : '';
     const res = await axios.post(`/api/v1/topology/sync/remote-server${sheetParam}`);
     if (res.data.success) {
       isRemoteSyncModalOpen.value = false;
@@ -621,11 +627,13 @@ const handleSyncSelectedRemoteServers = async () => {
     const baseX = 220;
     const baseY = 130;
     const startIdx = activeNodes.value.length;
+    const targetSheetId = activeSheetId.value ?? (sheets.value.length > 0 ? sheets.value[0].id : null);
 
     for (let i = 0; i < targets.length; i++) {
       const h = targets[i];
+      // Match existing remote server node only, never overwrite manual devices
       const existing = activeNodes.value.find(
-        n => n.id === `remote-${h.id}` || n.ipAddress === h.host || n.labels?.remoteHostId === h.id
+        n => n.id === `remote-${h.id}` || n.labels?.remoteHostId === h.id
       );
 
       const x = existing?.x ?? (baseX + ((startIdx + i) % 4) * 200);
@@ -638,7 +646,7 @@ const handleSyncSelectedRemoteServers = async () => {
         deviceType: 'server',
         status: 'online',
         sources: ['REMOTE', 'SSH'],
-        sheetId: activeSheetId.value,
+        sheetId: targetSheetId,
         x,
         y,
         labels: {

@@ -244,13 +244,18 @@ func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *in
 		return nil, fmt.Errorf("failed to list remote hosts: %w", err)
 	}
 
+	// If sheetID is not specified, default to the first active sheet
+	if sheetID == nil {
+		sheets, err := s.topologyRepo.ListSheets(ctx)
+		if err == nil && len(sheets) > 0 {
+			sheetID = &sheets[0].ID
+		}
+	}
+
 	existingDevices, _ := s.topologyRepo.ListDevices(ctx, sheetID)
 	existingMap := make(map[string]domain.TopologyDevice)
 	for _, ed := range existingDevices {
 		existingMap[ed.ID] = ed
-		if ed.IPAddress != "" {
-			existingMap[ed.IPAddress] = ed
-		}
 	}
 
 	var synced []domain.TopologyDevice
@@ -263,10 +268,6 @@ func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *in
 
 		var posX, posY *float64
 		if ex, exists := existingMap[devID]; exists {
-			posX = ex.X
-			posY = ex.Y
-		} else if ex, exists := existingMap[host.Host]; exists {
-			devID = ex.ID
 			posX = ex.X
 			posY = ex.Y
 		} else {
