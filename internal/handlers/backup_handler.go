@@ -94,14 +94,14 @@ func (h *BackupHandler) TestDBConfig(c *gin.Context) {
 	}
 
 	// If testing an existing configuration without re-entering passwords
-	if cfg.ID != "" && cfg.Password == "" {
+	if cfg.ID != "" && (cfg.Password == "" || cfg.Password == "********") {
 		existing, err := h.backupRepo.GetRawDBConfig(c.Request.Context(), cfg.ID)
 		if err == nil && existing != nil {
 			cfg.Password = existing.Password
-			if cfg.SSHPassword == nil || *cfg.SSHPassword == "" {
+			if cfg.SSHPassword == nil || *cfg.SSHPassword == "" || *cfg.SSHPassword == "********" {
 				cfg.SSHPassword = existing.SSHPassword
 			}
-			if cfg.SSHKey == nil || *cfg.SSHKey == "" {
+			if cfg.SSHKey == nil || *cfg.SSHKey == "" || *cfg.SSHKey == "********" {
 				cfg.SSHKey = existing.SSHKey
 			}
 		}
@@ -163,6 +163,21 @@ func (h *BackupHandler) TestDestination(c *gin.Context) {
 
 	if dest.Name == "" {
 		dest.Name = "Test Destination"
+	}
+
+	if dest.ID != "" && dest.Config != nil {
+		existing, err := h.backupRepo.GetRawDestination(c.Request.Context(), dest.ID)
+		if err == nil && existing != nil && existing.Config != nil {
+			if sec, ok := dest.Config["secretAccessKey"].(string); ok && (sec == "" || sec == "********") {
+				dest.Config["secretAccessKey"] = existing.Config["secretAccessKey"]
+			}
+			if pwd, ok := dest.Config["password"].(string); ok && (pwd == "" || pwd == "********") {
+				dest.Config["password"] = existing.Config["password"]
+			}
+			if key, ok := dest.Config["sshKey"].(string); ok && (key == "" || key == "********") {
+				dest.Config["sshKey"] = existing.Config["sshKey"]
+			}
+		}
 	}
 
 	if err := h.backupService.TestDestination(c.Request.Context(), &dest); err != nil {

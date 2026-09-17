@@ -97,11 +97,11 @@ func (r *BackupRepository) SaveDBConfig(ctx context.Context, c domain.BackupDbCo
               ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name, db_type = EXCLUDED.db_type, host = EXCLUDED.host, port = EXCLUDED.port,
                 username = EXCLUDED.username,
-                password = CASE WHEN $7 = '********' THEN backup_database_configs.password ELSE $7 END,
+                password = CASE WHEN $7 = '********' OR $7 = '' THEN backup_database_configs.password ELSE $7 END,
                 database_name = EXCLUDED.database_name, ssh_host = EXCLUDED.ssh_host, ssh_port = EXCLUDED.ssh_port,
                 ssh_user = EXCLUDED.ssh_user, ssh_auth = EXCLUDED.ssh_auth,
-                ssh_password = CASE WHEN $13 IS NULL OR $13 = '********' THEN backup_database_configs.ssh_password ELSE $13 END,
-                ssh_key = CASE WHEN $14 IS NULL OR $14 = '********' THEN backup_database_configs.ssh_key ELSE $14 END`
+                ssh_password = CASE WHEN $13 IS NULL OR $13 = '********' OR $13 = '' THEN backup_database_configs.ssh_password ELSE $13 END,
+                ssh_key = CASE WHEN $14 IS NULL OR $14 = '********' OR $14 = '' THEN backup_database_configs.ssh_key ELSE $14 END`
 
 	_, err = pool.Exec(ctx, query, c.ID, c.Name, c.DBType, c.Host, c.Port, c.Username, encPassword, c.DatabaseName, c.SSHHost, c.SSHPort, c.SSHUser, c.SSHAuth, encSSHPassword, encSSHKey)
 	return err
@@ -186,6 +186,37 @@ func (r *BackupRepository) SaveDestination(ctx context.Context, d domain.BackupD
 	safeConfig := make(map[string]interface{})
 	for k, v := range d.Config {
 		safeConfig[k] = v
+	}
+
+	// If updating an existing destination and password, secretAccessKey, or sshKey was left unchanged ("********" or empty), preserve existing encrypted secrets
+	if d.ID != "" {
+		sec, secExists := safeConfig["secretAccessKey"].(string)
+		pwd, pwdExists := safeConfig["password"].(string)
+		key, keyExists := safeConfig["sshKey"].(string)
+		if (secExists && (sec == "********" || sec == "")) || (pwdExists && (pwd == "********" || pwd == "")) || (keyExists && (key == "********" || key == "")) {
+			existing, err := r.GetRawDestination(ctx, d.ID)
+			if err == nil && existing != nil && existing.Config != nil {
+				if secExists && (sec == "********" || sec == "") {
+					if oldSec, ok := existing.Config["secretAccessKey"].(string); ok && oldSec != "" {
+						if enc, err := config.EncryptText(oldSec); err == nil {
+							safeConfig["secretAccessKey"] = enc
+						}
+					}
+				}
+				if pwdExists && (pwd == "********" || pwd == "") {
+					if oldPwd, ok := existing.Config["password"].(string); ok && oldPwd != "" {
+						if enc, err := config.EncryptText(oldPwd); err == nil {
+							safeConfig["password"] = enc
+						}
+					}
+				}
+				if keyExists && (key == "********" || key == "") {
+					if oldKey, ok := existing.Config["sshKey"].(string); ok && oldKey != "" {
+						safeConfig["sshKey"] = oldKey
+					}
+				}
+			}
+		}
 	}
 
 	if sec, ok := safeConfig["secretAccessKey"].(string); ok && sec != "" && sec != "********" {

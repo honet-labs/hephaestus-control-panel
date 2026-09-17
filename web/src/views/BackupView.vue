@@ -8,6 +8,7 @@ import {
   Play,
   Plus,
   Trash2,
+  Edit2,
   CheckCircle2,
   AlertCircle,
   Calendar,
@@ -38,8 +39,9 @@ const runForm = ref({
   destinationId: '',
 });
 
-// Database Modal
+// Database Modal & Edit State
 const isDbModalOpen = ref(false);
+const editingDbId = ref<string | null>(null);
 const dbForm = ref({
   name: '',
   dbType: 'postgresql',
@@ -55,6 +57,46 @@ const dbForm = ref({
   sshPassword: '',
 });
 
+const openAddDBModal = () => {
+  editingDbId.value = null;
+  testDBResult.value = null;
+  dbForm.value = {
+    name: '',
+    dbType: 'postgresql',
+    host: 'localhost',
+    port: 5432,
+    username: 'postgres',
+    password: '',
+    databaseName: '',
+    useSsh: false,
+    sshHost: '',
+    sshPort: 22,
+    sshUser: 'root',
+    sshPassword: '',
+  };
+  isDbModalOpen.value = true;
+};
+
+const openEditDBModal = (db: any) => {
+  editingDbId.value = db.id;
+  testDBResult.value = null;
+  dbForm.value = {
+    name: db.name || '',
+    dbType: db.dbType || 'postgresql',
+    host: db.host || 'localhost',
+    port: Number(db.port) || 5432,
+    username: db.username || '',
+    password: '',
+    databaseName: db.databaseName || '',
+    useSsh: !!(db.sshHost && db.sshHost.trim()),
+    sshHost: db.sshHost || '',
+    sshPort: Number(db.sshPort) || 22,
+    sshUser: db.sshUser || 'root',
+    sshPassword: '',
+  };
+  isDbModalOpen.value = true;
+};
+
 const testingDB = ref(false);
 const testDBResult = ref<{ text: string; success: boolean } | null>(null);
 const testingDbId = ref<string | null>(null);
@@ -69,8 +111,10 @@ watch(() => dbForm.value.dbType, (newType) => {
   }
 });
 
-// Destination Modal
+// Destination Modal & Edit State
 const isDestModalOpen = ref(false);
+const editingDestId = ref<string | null>(null);
+const testingDestId = ref<string | null>(null);
 const destForm = ref({
   name: '',
   destType: 'nas',
@@ -88,8 +132,54 @@ const destForm = ref({
   accountId: '',
 });
 
-// Schedule Modal
+const openAddDestModal = () => {
+  editingDestId.value = null;
+  testDestResult.value = null;
+  destForm.value = {
+    name: '',
+    destType: 'nas',
+    host: '',
+    port: 22,
+    username: 'administrator',
+    authType: 'password',
+    password: '',
+    sshKey: '',
+    path: '/opt/backups',
+    bucket: '',
+    endpoint: '',
+    accessKeyId: '',
+    secretAccessKey: '',
+    accountId: '',
+  };
+  isDestModalOpen.value = true;
+};
+
+const openEditDestModal = (dest: any) => {
+  editingDestId.value = dest.id;
+  testDestResult.value = null;
+  const cfg = dest.config || {};
+  destForm.value = {
+    name: dest.name || '',
+    destType: dest.destType || 'nas',
+    host: cfg.host || '',
+    port: Number(cfg.port) || 22,
+    username: cfg.username || 'administrator',
+    authType: cfg.authType || 'password',
+    password: '',
+    sshKey: '',
+    path: cfg.path || '/opt/backups',
+    bucket: cfg.bucket || '',
+    endpoint: cfg.endpoint || '',
+    accessKeyId: cfg.accessKeyId || '',
+    secretAccessKey: '',
+    accountId: cfg.accountId || '',
+  };
+  isDestModalOpen.value = true;
+};
+
+// Schedule Modal & Edit State
 const isScheduleModalOpen = ref(false);
+const editingScheduleId = ref<string | null>(null);
 const scheduleForm = ref({
   name: '',
   dbConfigId: '',
@@ -97,6 +187,30 @@ const scheduleForm = ref({
   cronExpression: '0 2 * * *',
   isActive: true,
 });
+
+const openAddScheduleModal = () => {
+  editingScheduleId.value = null;
+  scheduleForm.value = {
+    name: '',
+    dbConfigId: databases.value.length > 0 ? databases.value[0].id : '',
+    destinationId: destinations.value.length > 0 ? destinations.value[0].id : '',
+    cronExpression: '0 2 * * *',
+    isActive: true,
+  };
+  isScheduleModalOpen.value = true;
+};
+
+const openEditScheduleModal = (sched: any) => {
+  editingScheduleId.value = sched.id;
+  scheduleForm.value = {
+    name: sched.name || '',
+    dbConfigId: sched.dbConfigId || '',
+    destinationId: sched.destinationId || '',
+    cronExpression: sched.cronExpression || '0 2 * * *',
+    isActive: sched.isActive !== undefined ? sched.isActive : true,
+  };
+  isScheduleModalOpen.value = true;
+};
 
 const fetchAll = async () => {
   loading.value = true;
@@ -157,19 +271,25 @@ const saveDBConfig = async () => {
       host: dbForm.value.host,
       port: Number(dbForm.value.port),
       username: dbForm.value.username,
-      password: dbForm.value.password,
       databaseName: dbForm.value.databaseName,
     };
+    if (editingDbId.value) {
+      payload.id = editingDbId.value;
+      payload.password = dbForm.value.password ? dbForm.value.password : '********';
+    } else {
+      payload.password = dbForm.value.password;
+    }
     if (dbForm.value.useSsh) {
       payload.sshHost = dbForm.value.sshHost;
       payload.sshPort = Number(dbForm.value.sshPort);
       payload.sshUser = dbForm.value.sshUser;
-      payload.sshPassword = dbForm.value.sshPassword;
+      payload.sshPassword = dbForm.value.sshPassword ? dbForm.value.sshPassword : (editingDbId.value ? '********' : '');
       payload.sshAuth = 'password';
     }
     const res = await axios.post('/api/v1/backup/databases', payload);
     if (res.data.success) {
       isDbModalOpen.value = false;
+      editingDbId.value = null;
       testDBResult.value = null;
       dbForm.value.name = '';
       dbForm.value.password = '';
@@ -195,9 +315,12 @@ const testDBConfig = async () => {
       host: dbForm.value.host,
       port: Number(dbForm.value.port),
       username: dbForm.value.username,
-      password: dbForm.value.password,
+      password: dbForm.value.password ? dbForm.value.password : (editingDbId.value ? '********' : ''),
       databaseName: dbForm.value.databaseName,
     };
+    if (editingDbId.value) {
+      payload.id = editingDbId.value;
+    }
     if (dbForm.value.useSsh) {
       if (!dbForm.value.sshHost || !dbForm.value.sshUser) {
         alert('SSH Host and SSH User are required when SSH tunnel is enabled.');
@@ -207,7 +330,7 @@ const testDBConfig = async () => {
       payload.sshHost = dbForm.value.sshHost;
       payload.sshPort = Number(dbForm.value.sshPort) || 22;
       payload.sshUser = dbForm.value.sshUser;
-      payload.sshPassword = dbForm.value.sshPassword;
+      payload.sshPassword = dbForm.value.sshPassword ? dbForm.value.sshPassword : (editingDbId.value ? '********' : '');
       payload.sshAuth = 'password';
     }
     const res = await axios.post('/api/v1/backup/databases/test', payload);
@@ -260,6 +383,25 @@ const deleteDBConfig = async (id: string) => {
   }
 };
 
+const testExistingDest = async (dest: any) => {
+  testingDestId.value = dest.id;
+  try {
+    const res = await axios.post('/api/v1/backup/destinations/test', {
+      id: dest.id,
+      name: dest.name,
+      destType: dest.destType,
+      config: dest.config || {},
+    });
+    if (res.data.success) {
+      alert(`[${dest.name}] ${res.data.message || 'Connection successful!'}`);
+    }
+  } catch (err: any) {
+    alert(`[${dest.name}] Test failed: ${err.response?.data?.error || err.message}`);
+  } finally {
+    testingDestId.value = null;
+  }
+};
+
 const testingDest = ref(false);
 const testDestResult = ref<{ text: string; success: boolean } | null>(null);
 
@@ -270,8 +412,8 @@ const prepareDestConfigData = () => {
     configData.port = Number(destForm.value.port) || 22;
     configData.username = destForm.value.username;
     configData.authType = destForm.value.authType;
-    configData.password = destForm.value.password;
-    configData.sshKey = destForm.value.sshKey;
+    configData.password = destForm.value.password ? destForm.value.password : (editingDestId.value ? '********' : '');
+    configData.sshKey = destForm.value.sshKey ? destForm.value.sshKey : (editingDestId.value ? '********' : '');
     configData.path = destForm.value.path || '/opt/backups';
   } else if (destForm.value.destType === 'local') {
     configData.path = destForm.value.path || '/opt/backups';
@@ -292,7 +434,7 @@ const prepareDestConfigData = () => {
     configData.bucket = bucket;
     configData.endpoint = endpoint;
     configData.accessKeyId = destForm.value.accessKeyId ? destForm.value.accessKeyId.trim() : '';
-    configData.secretAccessKey = destForm.value.secretAccessKey ? destForm.value.secretAccessKey.trim() : '';
+    configData.secretAccessKey = destForm.value.secretAccessKey ? destForm.value.secretAccessKey.trim() : (editingDestId.value ? '********' : '');
     configData.accountId = accountId;
   }
   return configData;
@@ -303,11 +445,15 @@ const testDestination = async () => {
   testingDest.value = true;
   testDestResult.value = null;
   try {
-    const res = await axios.post('/api/v1/backup/destinations/test', {
+    const payload: any = {
       name: destForm.value.name || 'Test Destination',
       destType: destForm.value.destType,
       config: configData,
-    });
+    };
+    if (editingDestId.value) {
+      payload.id = editingDestId.value;
+    }
+    const res = await axios.post('/api/v1/backup/destinations/test', payload);
     if (res.data.success) {
       testDestResult.value = { text: res.data.message || 'Storage connection succeeded! Test file uploaded.', success: true };
     }
@@ -325,13 +471,18 @@ const saveDestination = async () => {
   }
   try {
     const configData = prepareDestConfigData();
-    const res = await axios.post('/api/v1/backup/destinations', {
+    const payload: any = {
       name: destForm.value.name,
       destType: destForm.value.destType,
       config: configData,
-    });
+    };
+    if (editingDestId.value) {
+      payload.id = editingDestId.value;
+    }
+    const res = await axios.post('/api/v1/backup/destinations', payload);
     if (res.data.success) {
       isDestModalOpen.value = false;
+      editingDestId.value = null;
       testDestResult.value = null;
       destForm.value.name = '';
       destForm.value.host = '';
@@ -361,9 +512,16 @@ const saveSchedule = async () => {
     return;
   }
   try {
-    const res = await axios.post('/api/v1/backup/schedules', scheduleForm.value);
+    const payload: any = {
+      ...scheduleForm.value,
+    };
+    if (editingScheduleId.value) {
+      payload.id = editingScheduleId.value;
+    }
+    const res = await axios.post('/api/v1/backup/schedules', payload);
     if (res.data.success) {
       isScheduleModalOpen.value = false;
+      editingScheduleId.value = null;
       scheduleForm.value.name = '';
       fetchAll();
     }
@@ -588,8 +746,8 @@ onMounted(() => {
       <div class="flex items-center justify-between">
         <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Registered Database Targets for Automated & On-Demand Backup</p>
         <button
-          @click="isDbModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
+          @click="openAddDBModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Database</span>
@@ -636,13 +794,22 @@ onMounted(() => {
               </button>
             </div>
 
-            <button
-              @click="deleteDBConfig(db.id)"
-              class="p-1.5 rounded-md transition cursor-pointer"
-              title="Delete Database Config"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
+            <div class="flex items-center gap-1">
+              <button
+                @click="openEditDBModal(db)"
+                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
+                title="Edit Database Config"
+              >
+                <Edit2 class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click="deleteDBConfig(db.id)"
+                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
+                title="Delete Database Config"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -664,8 +831,8 @@ onMounted(() => {
       <div class="flex items-center justify-between">
         <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Storage Repositories (Local Filesystem, Cloudflare R2, AWS S3, MinIO)</p>
         <button
-          @click="isDestModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
+          @click="openAddDestModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Destination</span>
@@ -694,14 +861,33 @@ onMounted(() => {
             {{ (dest.destType === 'nas' || dest.destType === 'nfs') ? (dest.config?.host ? `${dest.config.host}:${dest.config.path || '/opt/backups'}` : (dest.config?.path || '/opt/backups')) : (dest.destType === 'local' ? (dest.config?.path || '/opt/backups') : (dest.config?.bucket || 'S3 Bucket')) }}
           </p>
 
-          <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
-              @click="deleteDestination(dest.id)"
-              class="p-1.5 rounded-md transition cursor-pointer"
-              title="Delete Storage Destination"
+              @click="testExistingDest(dest)"
+              :disabled="testingDestId === dest.id"
+              class="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md transition cursor-pointer disabled:opacity-50 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-200 dark:hover:bg-slate-700/50"
+              title="Test Connection"
             >
-              <Trash2 class="w-3.5 h-3.5" />
+              <RotateCw class="w-3 h-3" :class="{ 'animate-spin': testingDestId === dest.id }" />
+              <span>{{ testingDestId === dest.id ? 'Testing...' : 'Test' }}</span>
             </button>
+
+            <div class="flex items-center gap-1">
+              <button
+                @click="openEditDestModal(dest)"
+                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
+                title="Edit Storage Destination"
+              >
+                <Edit2 class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click="deleteDestination(dest.id)"
+                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
+                title="Delete Storage Destination"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -722,8 +908,8 @@ onMounted(() => {
       <div class="flex items-center justify-between">
         <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Automated Background Cron Backup Jobs</p>
         <button
-          @click="isScheduleModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm"
+          @click="openAddScheduleModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>Add Schedule</span>
@@ -750,10 +936,17 @@ onMounted(() => {
             </span>
           </div>
 
-          <div class="flex items-center justify-end pt-1 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center justify-end gap-1 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+            <button
+              @click="openEditScheduleModal(sched)"
+              class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
+              title="Edit Cron Schedule"
+            >
+              <Edit2 class="w-3.5 h-3.5" />
+            </button>
             <button
               @click="deleteSchedule(sched.id)"
-              class="p-1.5 rounded-md transition cursor-pointer"
+              class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
               title="Delete Schedule"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -911,7 +1104,7 @@ onMounted(() => {
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
-            <span>Add Database Configuration</span>
+            <span>{{ editingDbId ? 'Edit Database Configuration' : 'Add Database Configuration' }}</span>
           </h3>
           <button @click="isDbModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
@@ -952,7 +1145,7 @@ onMounted(() => {
             </div>
             <div>
               <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Password</label>
-              <input v-model="dbForm.password" type="password" placeholder="••••••" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+              <input v-model="dbForm.password" type="password" :placeholder="editingDbId ? '•••••••• (leave blank to keep current)' : '••••••'" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
             </div>
           </div>
 
@@ -986,7 +1179,7 @@ onMounted(() => {
                 </div>
                 <div>
                   <label class="block text-slate-500 text-[10px]">SSH Password</label>
-                  <input v-model="dbForm.sshPassword" type="password" placeholder="••••••" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
+                  <input v-model="dbForm.sshPassword" type="password" :placeholder="editingDbId ? '•••••••• (leave blank to keep current)' : '••••••'" class="w-full bg-white dark:bg-[#171a23] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white text-xs font-mono" />
                 </div>
               </div>
             </div>
@@ -1026,7 +1219,7 @@ onMounted(() => {
               type="submit"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow transition cursor-pointer text-xs"
             >
-              Save Database
+              {{ editingDbId ? 'Update Database' : 'Save Database' }}
             </button>
           </div>
         </form>
@@ -1041,7 +1234,7 @@ onMounted(() => {
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Cloud class="w-4 h-4 text-slate-500 dark:text-slate-400" />
-            <span>Add Storage Destination</span>
+            <span>{{ editingDestId ? 'Edit Storage Destination' : 'Add Storage Destination' }}</span>
           </h3>
           <button @click="isDestModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
@@ -1115,7 +1308,7 @@ onMounted(() => {
               <input
                 v-model="destForm.password"
                 type="password"
-                placeholder="••••••••"
+                :placeholder="editingDestId ? '•••••••• (leave blank to keep current)' : '••••••••'"
                 class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
               />
             </div>
@@ -1124,7 +1317,7 @@ onMounted(() => {
               <textarea
                 v-model="destForm.sshKey"
                 rows="3"
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                :placeholder="editingDestId ? '(leave blank to keep current private key)' : '-----BEGIN OPENSSH PRIVATE KEY-----'"
                 class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono text-[11px]"
               ></textarea>
             </div>
@@ -1206,8 +1399,8 @@ onMounted(() => {
                 <input
                   v-model="destForm.secretAccessKey"
                   type="password"
-                  required
-                  placeholder="Secret Access Key from R2 Token"
+                  :required="!editingDestId"
+                  :placeholder="editingDestId ? '•••••••• (leave blank to keep current)' : 'Secret Access Key from R2 Token'"
                   class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
                 />
               </div>
@@ -1250,7 +1443,7 @@ onMounted(() => {
               type="submit"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow transition cursor-pointer text-xs"
             >
-              Save Destination
+              {{ editingDestId ? 'Update Destination' : 'Save Destination' }}
             </button>
           </div>
         </form>
@@ -1265,7 +1458,7 @@ onMounted(() => {
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Clock class="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span>Add Backup Schedule</span>
+            <span>{{ editingScheduleId ? 'Edit Backup Schedule' : 'Add Backup Schedule' }}</span>
           </h3>
           <button @click="isScheduleModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X class="w-4 h-4" />
@@ -1302,9 +1495,18 @@ onMounted(() => {
             <span class="text-[10px] text-slate-500 mt-0.5 block">Format: min hour dom mon dow (e.g. 0 2 * * * for 2 AM daily)</span>
           </div>
 
+          <div class="flex items-center gap-2 pt-1">
+            <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+              <input type="checkbox" v-model="scheduleForm.isActive" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600" />
+              <span class="font-semibold">Schedule is Active</span>
+            </label>
+          </div>
+
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isScheduleModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow">Save Schedule</button>
+            <button type="button" @click="isScheduleModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow cursor-pointer">
+              {{ editingScheduleId ? 'Update Schedule' : 'Save Schedule' }}
+            </button>
           </div>
         </form>
       </div>
