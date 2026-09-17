@@ -26,7 +26,20 @@ Ketika menambahkan halaman atau fitur baru di antarmuka web (frontend), selalu i
   </div>
   ```
 
-## 2. Dukungan Light Mode & Dark Mode
+## 2. Standard Delete Confirmation Modal (Konfirmasi Hapus Wajib Modal Popup)
+Setiap kali menghapus (delete) resource atau entitas data apa pun di seluruh menu HCP:
+- **DILARANG menggunakan `window.confirm()` atau prompt browser**.
+- **WAJIB memunculkan modal popup konfirmasi** dengan standar:
+  - Lingkaran icon merah tempat sampah di tengah atas (`w-12 h-12 rounded-full bg-rose-500/10 text-rose-500`).
+  - Judul tegas: `<h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete [Nama Resource]?</h3>`.
+  - Teks penjelasan: `<p class="text-xs text-slate-500 dark:text-slate-400">Are you sure you want to remove ...?</p>`.
+  - Tombol aksi:
+    - **Cancel**: `text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer`
+    - **Confirm Delete**: `px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50`
+  - Backdrop blur: `bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm`.
+  - Card: `bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center`.
+
+## 3. Dukungan Light Mode & Dark Mode
 - Semua teks editor kode/YAML harus memiliki kontras yang tepat di kedua mode:
   - Gutter nomor baris: `bg-slate-100 dark:bg-[#070a10]` dengan `text-slate-400 dark:text-slate-500`.
   - Textarea/Container: `bg-white dark:bg-[#090d16]` dengan `text-slate-800 dark:text-slate-100`.
