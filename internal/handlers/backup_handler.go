@@ -314,15 +314,21 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 		dest, err := h.backupRepo.GetRawDestination(c.Request.Context(), *entry.DestinationID)
 		if err == nil && dest != nil && dest.Config != nil {
 			if cfgPath, ok := dest.Config["path"].(string); ok && cfgPath != "" {
-				possiblePaths = append(possiblePaths, filepath.Join(cfgPath, entry.Filename))
+				resolved := services.ResolveLocalBackupPath(cfgPath)
+				possiblePaths = append(possiblePaths,
+					filepath.Join(resolved, entry.Filename),
+					filepath.Join(cfgPath, entry.Filename),
+				)
 			}
 		}
 	}
 
 	// Fallback standard locations
 	possiblePaths = append(possiblePaths,
-		filepath.Join("/opt/backups", entry.Filename),
 		filepath.Join("/app/backups", entry.Filename),
+		filepath.Join("/opt/backups", entry.Filename),
+		filepath.Join("/app/backups/database", entry.Filename),
+		filepath.Join("/opt/backups/database", entry.Filename),
 		filepath.Join("backups", entry.Filename),
 	)
 
@@ -331,6 +337,24 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			foundPath = p
 			break
+		}
+	}
+
+	// If still not found, search recursively inside /app/backups or /opt/backups
+	if foundPath == "" {
+		for _, rootDir := range []string{"/app/backups", "/opt/backups"} {
+			if fi, err := os.Stat(rootDir); err == nil && fi.IsDir() {
+				_ = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+					if err == nil && !d.IsDir() && d.Name() == entry.Filename {
+						foundPath = path
+						return filepath.SkipAll
+					}
+					return nil
+				})
+			}
+			if foundPath != "" {
+				break
+			}
 		}
 	}
 

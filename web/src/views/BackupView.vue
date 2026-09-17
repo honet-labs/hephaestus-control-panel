@@ -118,14 +118,14 @@ const editingDestId = ref<string | null>(null);
 const testingDestId = ref<string | null>(null);
 const destForm = ref({
   name: '',
-  destType: 'nas',
+  destType: 'local',
   host: '',
   port: 22,
   username: 'administrator',
   authType: 'password',
   password: '',
   sshKey: '',
-  path: '/opt/backups',
+  path: '/app/backups',
   bucket: '',
   endpoint: '',
   accessKeyId: '',
@@ -133,19 +133,31 @@ const destForm = ref({
   accountId: '',
 });
 
+watch(() => destForm.value.destType, (newType) => {
+  if (newType === 'local') {
+    if (!destForm.value.path || destForm.value.path === '/opt/backups') {
+      destForm.value.path = '/app/backups';
+    }
+  } else if (newType === 'nas' || newType === 'nfs') {
+    if (!destForm.value.path || destForm.value.path === '/app/backups') {
+      destForm.value.path = '/opt/backups';
+    }
+  }
+});
+
 const openAddDestModal = () => {
   editingDestId.value = null;
   testDestResult.value = null;
   destForm.value = {
     name: '',
-    destType: 'nas',
+    destType: 'local',
     host: '',
     port: 22,
     username: 'administrator',
     authType: 'password',
     password: '',
     sshKey: '',
-    path: '/opt/backups',
+    path: '/app/backups',
     bucket: '',
     endpoint: '',
     accessKeyId: '',
@@ -161,14 +173,14 @@ const openEditDestModal = (dest: any) => {
   const cfg = dest.config || {};
   destForm.value = {
     name: dest.name || '',
-    destType: dest.destType || 'nas',
+    destType: dest.destType || 'local',
     host: cfg.host || '',
     port: Number(cfg.port) || 22,
     username: cfg.username || 'administrator',
     authType: cfg.authType || 'password',
     password: '',
     sshKey: '',
-    path: cfg.path || '/opt/backups',
+    path: cfg.path || (dest.destType === 'local' ? '/app/backups' : '/opt/backups'),
     bucket: cfg.bucket || '',
     endpoint: cfg.endpoint || '',
     accessKeyId: cfg.accessKeyId || '',
@@ -862,9 +874,15 @@ onMounted(() => {
             </span>
           </div>
 
-          <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
-            {{ (dest.destType === 'nas' || dest.destType === 'nfs') ? (dest.config?.host ? `${dest.config.host}:${dest.config.path || '/opt/backups'}` : (dest.config?.path || '/opt/backups')) : (dest.destType === 'local' ? (dest.config?.path || '/opt/backups') : (dest.config?.bucket || 'S3 Bucket')) }}
-          </p>
+          <div class="space-y-1">
+            <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
+              {{ (dest.destType === 'nas' || dest.destType === 'nfs') ? (dest.config?.host ? `${dest.config.host}:${dest.config.path || '/opt/backups'}` : (dest.config?.path || '/opt/backups')) : (dest.destType === 'local' ? (dest.config?.path || '/app/backups') : (dest.config?.bucket || 'S3 Bucket')) }}
+            </p>
+            <p v-if="dest.destType === 'local'" class="text-[10px] text-blue-600 dark:text-blue-400 flex items-center gap-1 font-medium px-1">
+              <span>Host storage directory:</span>
+              <code class="font-mono bg-blue-50 dark:bg-blue-950/40 px-1 rounded">./backups</code>
+            </p>
+          </div>
 
           <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
             <button
@@ -1263,8 +1281,8 @@ onMounted(() => {
             <div>
               <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Storage Type</label>
               <select v-model="destForm.destType" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
+                <option value="local">Local Storage (Host ./backups)</option>
                 <option value="nas">NAS (SMB/SSH)</option>
-                <option value="local">Local Filesystem Folder</option>
                 <option value="r2">Cloudflare R2 Object Storage</option>
                 <option value="s3">AWS S3 / MinIO Storage</option>
               </select>
@@ -1348,9 +1366,23 @@ onMounted(() => {
 
           <!-- ================= LOCAL FILESYSTEM ================= -->
           <template v-else-if="destForm.destType === 'local'">
-            <div>
-              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Local Directory Path</label>
-              <input v-model="destForm.path" required placeholder="/opt/backups" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
+            <div class="space-y-1.5">
+              <label class="block text-slate-700 dark:text-slate-400 font-bold">Local Directory Path</label>
+              <input
+                v-model="destForm.path"
+                required
+                placeholder="/app/backups or database"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono"
+              />
+              <div class="p-2.5 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 text-[11px] text-blue-900 dark:text-blue-300 space-y-1">
+                <p class="font-semibold flex items-center gap-1">
+                  <span>Persistent Host Mount:</span>
+                  <code class="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/60 rounded font-mono font-bold">./backups</code>
+                </p>
+                <p class="text-[10px] leading-relaxed text-blue-700 dark:text-blue-400">
+                  Files are saved directly to the <code class="font-bold">./backups</code> directory on your host server (container path: <code class="font-bold">/app/backups</code>). Any subfolder such as <code class="font-bold">database</code> or custom name is safely stored inside this persistent volume.
+                </p>
+              </div>
             </div>
           </template>
 

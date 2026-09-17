@@ -428,27 +428,72 @@ func (s *BackupService) testDBConfigViaSSHTunnel(ctx context.Context, dbCfg *dom
 	return resultMsg, nil
 }
 
+// ResolveLocalBackupPath resolves any user-specified path to the persistent backup volume on host
+func ResolveLocalBackupPath(rawPath string) string {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" || rawPath == "." {
+		return "/app/backups"
+	}
+
+	cleaned := filepath.Clean(filepath.ToSlash(rawPath))
+
+	// Direct persistent container mount targets
+	if cleaned == "/app/backups" || cleaned == "/opt/backups" || cleaned == "backups" {
+		return "/app/backups"
+	}
+	if strings.HasPrefix(cleaned, "/app/backups/") {
+		return cleaned
+	}
+	if strings.HasPrefix(cleaned, "/opt/backups/") {
+		return "/app/backups/" + strings.TrimPrefix(cleaned, "/opt/backups/")
+	}
+
+	// Normalizing /backup or /backups variants
+	if cleaned == "/backup" {
+		return "/app/backups"
+	}
+	if strings.HasPrefix(cleaned, "/backup/") {
+		return filepath.Join("/app/backups", strings.TrimPrefix(cleaned, "/backup/"))
+	}
+	if strings.HasPrefix(cleaned, "/backups/") {
+		return filepath.Join("/app/backups", strings.TrimPrefix(cleaned, "/backups/"))
+	}
+
+	// Relative paths (e.g. "database", "mysql/daily")
+	if !filepath.IsAbs(cleaned) {
+		return filepath.Join("/app/backups", cleaned)
+	}
+
+	// Arbitrary absolute paths like /database or /opt/hephaestus/database:
+	// Route safely to /app/backups to ensure persistence on host filesystem
+	trimmed := strings.TrimPrefix(cleaned, "/")
+	if strings.HasPrefix(trimmed, "opt/hephaestus/") {
+		trimmed = strings.TrimPrefix(trimmed, "opt/hephaestus/")
+	}
+	return filepath.Join("/app/backups", trimmed)
+}
+
 func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, filename string, dest *domain.BackupDestination) error {
 	switch dest.DestType {
 	case "local":
-		path, _ := dest.Config["path"].(string)
-		if path == "" {
-			path = "backups"
+		rawPath, _ := dest.Config["path"].(string)
+		targetDir := ResolveLocalBackupPath(rawPath)
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return fmt.Errorf("failed to create backup directory '%s': %w", targetDir, err)
 		}
-		_ = os.MkdirAll(path, 0755)
-		targetFile := filepath.Join(path, filename)
+		targetFile := filepath.Join(targetDir, filename)
 		return os.WriteFile(targetFile, data, 0644)
 
 	case "nas", "nfs", "nas_ssh":
 		host, _ := dest.Config["host"].(string)
 		if host == "" {
 			// If no remote host specified, treat as local filesystem/mount path
-			path, _ := dest.Config["path"].(string)
-			if path == "" {
-				path = "/opt/backups"
+			rawPath, _ := dest.Config["path"].(string)
+			targetDir := ResolveLocalBackupPath(rawPath)
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
+				return fmt.Errorf("failed to create backup directory '%s': %w", targetDir, err)
 			}
-			_ = os.MkdirAll(path, 0755)
-			targetFile := filepath.Join(path, filename)
+			targetFile := filepath.Join(targetDir, filename)
 			return os.WriteFile(targetFile, data, 0644)
 		}
 
@@ -548,7 +593,16 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 func (s *BackupService) TestDestination(ctx context.Context, dest *domain.BackupDestination) error {
 	testData := []byte(fmt.Sprintf("Hephaestus Connection Test at %s", time.Now().Format(time.RFC3339)))
 	testFilename := fmt.Sprintf(".hephaestus_test_%d.txt", time.Now().Unix())
-	return s.uploadToDestination(ctx, testData, testFilename, dest)
+	if err := s.uploadToDestination(ctx, testData, testFilename, dest); err != nil {
+		return err
+	}
+	// Clean up temporary test file on local filesystem
+	if dest.DestType == "local" || (dest.DestType == "nas" && dest.Config != nil && dest.Config["host"] == "") {
+		rawPath, _ := dest.Config["path"].(string)
+		targetDir := ResolveLocalBackupPath(rawPath)
+		_ = os.Remove(filepath.Join(targetDir, testFilename))
+	}
+	return nil
 }
 
 // TestDBConfig verifies connectivity, authentication, and database access for a database target

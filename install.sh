@@ -301,9 +301,10 @@ DB_NAME=${INPUT_DB_NAME}
 # Security Key (64-character Hexadecimal for AES-256-GCM)
 APP_ENCRYPTION_KEY=${RANDOM_ENCRYPTION_KEY}
 
-# Directories
+# Directories & Persistent Storage
 LOGS_DIR=/app/logs
 DATA_DIR=/app/data
+BACKUP_DIR=./backups
 EOF
         HTTP_PORT=${INPUT_HTTP_PORT}
         DB_EXTERNAL_PORT=${INPUT_DB_PORT}
@@ -350,6 +351,10 @@ deploy_containers() {
         exit 1
     fi
 
+    echo "Ensuring persistent storage directories on host..."
+    mkdir -p "$INSTALL_DIR/backups/database"
+    chmod -R 0777 "$INSTALL_DIR/backups" 2>/dev/null || true
+
     echo "Building container images with host networking..."
     $COMPOSE_CMD build
     
@@ -382,6 +387,7 @@ echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-en
 echo -e "PostgreSQL Database  : ${DB_NAME:-hephaestus} (External Port: ${DB_EXTERNAL_PORT:-5432})"
 echo -e "Database User        : ${DB_USER:-hephaestus}"
 echo -e "Installation Path    : ${INSTALL_DIR}"
+echo -e "Backup Directory     : ${INSTALL_DIR}/backups"
 echo -e "Configuration File   : ${INSTALL_DIR}/.env"
 echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
 echo -e "Restart Stack        : ${CYAN}docker compose restart${NC}"

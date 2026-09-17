@@ -218,6 +218,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_remote_host_shares_host_id ON remote_host_shares(host_id);
 		CREATE INDEX IF NOT EXISTS idx_remote_host_shares_user_id ON remote_host_shares(user_id);
+
+		INSERT INTO backup_destinations (id, name, dest_type, config, is_active)
+		SELECT 'dest-local-default', 'Local Storage (Default)', 'local', '{"path": "/app/backups"}'::jsonb, true
+		WHERE NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id = 'dest-local-default' OR (dest_type = 'local' AND (config->>'path' = '/app/backups' OR config->>'path' = '/opt/backups')));
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 

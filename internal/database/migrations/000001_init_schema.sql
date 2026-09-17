@@ -375,3 +375,9 @@ ON CONFLICT (key) DO NOTHING;
 INSERT INTO topology_sheets (name, sort_order) 
 SELECT 'Tab 1', 0 
 WHERE NOT EXISTS (SELECT 1 FROM topology_sheets);
+
+-- Seed default local storage backup destination (points to persistent volume mounted to ./backups on host)
+INSERT INTO backup_destinations (id, name, dest_type, config, is_active)
+SELECT 'dest-local-default', 'Local Storage (Default)', 'local', '{"path": "/app/backups"}'::jsonb, true
+WHERE NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id = 'dest-local-default' OR (dest_type = 'local' AND (config->>'path' = '/app/backups' OR config->>'path' = '/opt/backups')));
+
