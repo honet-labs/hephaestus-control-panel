@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import {
@@ -32,6 +32,22 @@ const isLoaded = ref(false);
 const loading = ref(false);
 const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
+let validationTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Auto-dismiss notification after 3 seconds
+watch(validationMessage, (newVal) => {
+  if (validationTimer) {
+    clearTimeout(validationTimer);
+    validationTimer = null;
+  }
+  if (newVal) {
+    validationTimer = setTimeout(() => {
+      validationMessage.value = null;
+      restartResult.value = null;
+      validationTimer = null;
+    }, 3000);
+  }
+});
 
 const yamlContent = ref('');
 const saving = ref(false);
@@ -336,18 +352,29 @@ onMounted(() => {
         <div
           v-if="validationMessage"
           :class="[
-            'p-3 rounded-lg border text-xs font-mono space-y-1',
-            isValidationSuccess ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            'p-3 rounded-lg border text-xs font-mono space-y-1 animate-in fade-in transition-all duration-200 shadow-xs',
+            isValidationSuccess
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
           ]"
         >
-          <div class="flex items-center gap-2 font-semibold">
-            <span class="w-2 h-2 rounded-full" :class="isValidationSuccess ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-            <span>{{ validationMessage }}</span>
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 font-semibold">
+              <span class="w-2 h-2 rounded-full shrink-0" :class="isValidationSuccess ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-rose-500 dark:bg-rose-400'"></span>
+              <span>{{ validationMessage }}</span>
+            </div>
+            <button
+              @click="validationMessage = null; restartResult = null"
+              class="opacity-60 hover:opacity-100 p-0.5 cursor-pointer text-sm leading-none font-bold"
+              title="Close notification"
+            >
+              &times;
+            </button>
           </div>
-          <div v-if="restartResult?.output" class="text-[11px] text-slate-300 pl-4 border-l border-slate-700/50 mt-1">
+          <div v-if="restartResult?.output" class="text-[11px] text-slate-700 dark:text-slate-300 pl-4 border-l border-slate-300 dark:border-slate-700/50 mt-1">
             Status: {{ restartResult.output }}
           </div>
-          <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-400 pl-4 border-l border-rose-700/50 mt-1">
+          <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-700 dark:text-rose-400 pl-4 border-l border-rose-300 dark:border-rose-700/50 mt-1">
             Error: {{ restartResult.error }}
           </div>
         </div>
