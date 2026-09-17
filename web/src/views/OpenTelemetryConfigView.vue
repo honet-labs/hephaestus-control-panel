@@ -91,7 +91,6 @@ const editorRef = ref<HTMLTextAreaElement | null>(null);
 const gutterRef = ref<HTMLDivElement | null>(null);
 
 // Status & diagnostics
-const testingHost = ref(false);
 const restartingService = ref(false);
 const feedbackMsg = ref<{ type: 'success' | 'error' | 'info'; title: string; detail?: string } | null>(null);
 let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -383,47 +382,6 @@ const saveConfig = async () => {
   }
 };
 
-const testCurrentHost = async () => {
-  if (!selectedHost.value) return;
-  testingHost.value = true;
-  feedbackMsg.value = null;
-
-  try {
-    const res = await axios.post('/api/v1/otel/hosts/test', {
-      id: selectedHost.value.id,
-      sshHost: selectedHost.value.sshHost,
-      serviceName: selectedHost.value.serviceName,
-    });
-
-    if (res.data?.success) {
-      const status = res.data.status || 'active';
-      updateHostStatusInList(selectedHost.value.id, status);
-      feedbackMsg.value = {
-        type: 'success',
-        title: 'Connection & Agent Verified',
-        detail: res.data.message,
-      };
-      // Fetch full systemctl status
-      fetchLiveStatus(selectedHost.value.id);
-    } else {
-      updateHostStatusInList(selectedHost.value.id, res.data.status || 'unreachable');
-      feedbackMsg.value = {
-        type: 'error',
-        title: 'Connection Test Failed',
-        detail: res.data.message,
-      };
-    }
-  } catch (err: any) {
-    updateHostStatusInList(selectedHost.value.id, 'unreachable');
-    feedbackMsg.value = {
-      type: 'error',
-      title: 'Host Unreachable',
-      detail: err.response?.data?.message || err.response?.data?.error || err.message,
-    };
-  } finally {
-    testingHost.value = false;
-  }
-};
 
 const fetchLiveStatus = async (hostId: string) => {
   try {
@@ -1060,16 +1018,6 @@ onMounted(async () => {
 
               <!-- Right side: Host Quick Action Buttons -->
               <div class="flex items-center gap-1.5 flex-wrap">
-                <!-- Test SSH & Status -->
-                <button
-                  @click="testCurrentHost"
-                  :disabled="testingHost"
-                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
-                  title="Test SSH connection and check systemd status"
-                >
-                  <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': testingHost }" />
-                  <span>Test SSH</span>
-                </button>
 
                 <!-- Restart Service Button -->
                 <button
