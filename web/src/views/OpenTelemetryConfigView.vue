@@ -3,7 +3,6 @@ import { ref, computed, onMounted, watch } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import {
-  Radio,
   Server,
   Plus,
   RotateCw,
@@ -756,23 +755,13 @@ onMounted(async () => {
   <div class="p-4 sm:p-6 space-y-5 max-w-[1600px] mx-auto min-h-screen">
     <!-- Header Section -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div class="space-y-1">
-        <div class="flex items-center gap-2.5">
-          <div class="p-2 rounded-xl bg-gradient-to-tr from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-500 shadow-sm">
-            <Radio class="w-5 h-5" />
-          </div>
-          <div>
-            <h1 class="text-xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <span>OpenTelemetry Remote Config</span>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-semibold">
-                AGENT FLEET
-              </span>
-            </h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">
-              Manage, validate, and hot-reload OpenTelemetry Collector agents across your multi-host infrastructure.
-            </p>
-          </div>
-        </div>
+      <div>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+          OpenTelemetry Remote Config
+        </h1>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          Manage, validate, and hot-reload OpenTelemetry Collector agents across your multi-host infrastructure.
+        </p>
       </div>
 
       <!-- Header Action Buttons -->
