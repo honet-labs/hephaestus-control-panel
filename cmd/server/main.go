@@ -269,7 +269,7 @@ func main() {
 		api.POST("/otel/hosts", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveHost)
 		api.PUT("/otel/hosts/:id", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveHost)
 		api.DELETE("/otel/hosts/:id", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.DeleteHost)
-		api.POST("/otel/hosts/test", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.TestHost)
+		api.POST("/otel/hosts/test", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.TestHost)
 		api.GET("/otel/hosts/:id/status", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetHostStatus)
 		api.GET("/otel/hosts/:id/config", middleware.RequirePermission("opentelemetry_config", "read"), otelHandler.GetConfigFile)
 		api.POST("/otel/hosts/:id/config", middleware.RequirePermission("opentelemetry_config", "manage"), otelHandler.SaveConfigFile)

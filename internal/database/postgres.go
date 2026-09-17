@@ -181,8 +181,8 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
 		INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
 			('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "read"}'::jsonb),
-			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
+			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "read", "connections": "read", "snmp": "manage", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "manage", "slideshow": "read", "settings": "read"}'::jsonb),
+			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
 		ON CONFLICT (name) DO UPDATE SET 
 			permissions = EXCLUDED.permissions,
 			description = EXCLUDED.description;

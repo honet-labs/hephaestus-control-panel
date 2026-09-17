@@ -1,6 +1,6 @@
-<script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import axios from 'axios';
+import { useAuthStore } from '../stores/auth';
 import {
   Radio,
   Server,
@@ -68,6 +68,10 @@ interface OTelHistoryItem {
   changeSummary?: string;
   createdAt: string;
 }
+
+// Auth & RBAC
+const authStore = useAuthStore();
+const canManage = computed(() => authStore.can('opentelemetry_config', 'manage'));
 
 // State
 const hosts = ref<OTelHost[]>([]);
@@ -780,6 +784,7 @@ onMounted(async () => {
         </button>
 
         <button
+          v-if="canManage"
           @click="openAddHostModal"
           class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 text-white text-xs font-bold transition shadow-sm shadow-blue-500/20 cursor-pointer"
         >
@@ -909,7 +914,7 @@ onMounted(async () => {
                 {{ hosts.length === 0 ? 'Click "+ Add OTel Host" to register your first OpenTelemetry agent.' : 'Try adjusting your search filter.' }}
               </p>
               <button
-                v-if="hosts.length === 0"
+                v-if="hosts.length === 0 && canManage"
                 @click="openAddHostModal"
                 class="mt-2 inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition"
               >
@@ -1008,6 +1013,7 @@ onMounted(async () => {
             </p>
           </div>
           <button
+            v-if="canManage"
             @click="openAddHostModal"
             class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition cursor-pointer shadow-sm shadow-blue-500/20"
           >
@@ -1074,6 +1080,7 @@ onMounted(async () => {
 
                 <!-- Restart Service Button -->
                 <button
+                  v-if="canManage"
                   @click="restartCurrentService('restart')"
                   :disabled="restartingService"
                   class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
@@ -1085,6 +1092,7 @@ onMounted(async () => {
 
                 <!-- Presets dropdown button -->
                 <button
+                  v-if="canManage"
                   @click="showPresetModal = true"
                   class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer"
                   title="Choose from pre-configured pipeline presets"
@@ -1105,6 +1113,7 @@ onMounted(async () => {
 
                 <!-- Edit Host Profile Button -->
                 <button
+                  v-if="canManage"
                   @click="openEditHostModal(selectedHost)"
                   class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#243046] transition cursor-pointer"
                   title="Edit host SSH settings & paths"
@@ -1114,6 +1123,7 @@ onMounted(async () => {
 
                 <!-- Delete Host Profile Button -->
                 <button
+                  v-if="canManage"
                   @click="confirmDeleteHost(selectedHost)"
                   class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 transition cursor-pointer"
                   title="Delete host profile"
@@ -1135,6 +1145,9 @@ onMounted(async () => {
                 </span>
                 <span v-if="hasUnsavedChanges" class="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                   Unsaved Changes
+                </span>
+                <span v-if="!canManage" class="text-[10px] font-mono font-bold px-2 py-0.2 rounded bg-slate-200 dark:bg-[#1c2436] text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-[#28354f]">
+                  READ ONLY
                 </span>
               </div>
 
@@ -1183,6 +1196,7 @@ onMounted(async () => {
                   v-model="yamlContent"
                   @scroll="syncScroll"
                   @keydown="handleKeyDown"
+                  :readonly="!canManage"
                   spellcheck="false"
                   placeholder="# OpenTelemetry Collector configuration YAML"
                   class="flex-1 p-3 bg-transparent text-slate-100 placeholder-slate-600 focus:outline-none resize-none font-mono text-[11px] leading-5 whitespace-pre tab-2 overflow-y-auto selection:bg-blue-600/40"
@@ -1192,34 +1206,41 @@ onMounted(async () => {
 
             <!-- Bottom Deployment Action Bar -->
             <div class="p-3.5 border-t border-slate-200 dark:border-[#1b2234] bg-slate-50 dark:bg-[#121826] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <!-- Change summary input -->
-              <div class="flex-1 flex items-center gap-2">
-                <input
-                  v-model="configSummary"
-                  type="text"
-                  placeholder="Optional commit / change note (e.g. Added Prometheus scrape target)"
-                  class="w-full sm:max-w-md px-3 py-1.5 bg-white dark:bg-[#0a0d15] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                />
-                <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 font-medium select-none cursor-pointer shrink-0">
+              <!-- If User can manage: show deployment inputs -->
+              <template v-if="canManage">
+                <div class="flex-1 flex items-center gap-2">
                   <input
-                    v-model="restartAfterSave"
-                    type="checkbox"
-                    class="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                    v-model="configSummary"
+                    type="text"
+                    placeholder="Optional commit / change note (e.g. Added Prometheus scrape target)"
+                    class="w-full sm:max-w-md px-3 py-1.5 bg-white dark:bg-[#0a0d15] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                   />
-                  <span>Restart agent after save</span>
-                </label>
-              </div>
+                  <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 font-medium select-none cursor-pointer shrink-0">
+                    <input
+                      v-model="restartAfterSave"
+                      type="checkbox"
+                      class="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                    />
+                    <span>Restart agent after save</span>
+                  </label>
+                </div>
 
-              <!-- Action button -->
-              <div class="flex items-center gap-2 shrink-0">
-                <button
-                  @click="saveConfig"
-                  :disabled="saving || !yamlValidation.valid"
-                  class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 text-white text-xs font-bold transition shadow-sm shadow-blue-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Save class="w-4 h-4" :class="{ 'animate-spin': saving }" />
-                  <span>{{ saving ? 'Deploying...' : 'Deploy & Restart Agent' }}</span>
-                </button>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    @click="saveConfig"
+                    :disabled="saving || !yamlValidation.valid"
+                    class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 text-white text-xs font-bold transition shadow-sm shadow-blue-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Save class="w-4 h-4" :class="{ 'animate-spin': saving }" />
+                    <span>{{ saving ? 'Deploying...' : 'Deploy & Restart Agent' }}</span>
+                  </button>
+                </div>
+              </template>
+
+              <!-- If User only has Read permission: display observer notice -->
+              <div v-else class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 py-1">
+                <Shield class="w-4 h-4 text-blue-500 shrink-0" />
+                <span>Read-Only mode: You have observer access to OpenTelemetry configurations. Contact an administrator to deploy changes or restart agents.</span>
               </div>
             </div>
           </div>
