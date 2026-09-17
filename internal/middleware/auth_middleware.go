@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -64,6 +65,16 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 		}
 
 		roleStr := userRole.(string)
+		if domain.IsAdminRole(roleStr) {
+			c.Next()
+			return
+		}
+		if userObj, ok := c.Get("user"); ok {
+			if u, ok := userObj.(*domain.User); ok && u.IsAdmin() {
+				c.Next()
+				return
+			}
+		}
 		for _, r := range roles {
 			if strings.EqualFold(r, roleStr) {
 				c.Next()

@@ -40,7 +40,7 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*d
 	if len(rawPerms) > 0 {
 		_ = json.Unmarshal(rawPerms, &u.Permissions)
 	}
-	if strings.EqualFold(u.Role, "ADMIN") {
+	if u.IsAdmin() || domain.IsAdminRole(u.Role) {
 		u.Permissions["*"] = "manage"
 	}
 
@@ -70,7 +70,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id int) (*domain.User, err
 	if len(rawPerms) > 0 {
 		_ = json.Unmarshal(rawPerms, &u.Permissions)
 	}
-	if strings.EqualFold(u.Role, "ADMIN") {
+	if u.IsAdmin() || domain.IsAdminRole(u.Role) {
 		u.Permissions["*"] = "manage"
 	}
 
@@ -104,7 +104,7 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 		if len(rawPerms) > 0 {
 			_ = json.Unmarshal(rawPerms, &u.Permissions)
 		}
-		if strings.EqualFold(u.Role, "ADMIN") {
+		if u.IsAdmin() || domain.IsAdminRole(u.Role) {
 			u.Permissions["*"] = "manage"
 		}
 		users = append(users, u)
@@ -200,7 +200,7 @@ func (r *UserRepository) GetSessionByToken(ctx context.Context, tokenHash string
 	if len(rawPerms) > 0 {
 		_ = json.Unmarshal(rawPerms, &u.Permissions)
 	}
-	if strings.EqualFold(u.Role, "ADMIN") {
+	if u.IsAdmin() || domain.IsAdminRole(u.Role) {
 		u.Permissions["*"] = "manage"
 	}
 

@@ -81,7 +81,7 @@ func (h *RemoteHostHandler) ensureAccess(c *gin.Context, hostID string, required
 		return false
 	}
 
-	if requiredPermission == "manage" && !isOwner && !strings.EqualFold(userRole, "ADMIN") && perm != "manage" {
+	if requiredPermission == "manage" && !isOwner && !domain.IsAdminRole(userRole) && perm != "manage" {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"error":   "Access denied: full management permission is required for this action",
@@ -564,7 +564,7 @@ func (h *RemoteHostHandler) ListShares(c *gin.Context) {
 	userID, userRole := getUserContext(c)
 
 	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
-	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+	if err != nil || !hasAccess || (!isOwner && !domain.IsAdminRole(userRole)) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can view shared access"})
 		return
 	}
@@ -582,7 +582,7 @@ func (h *RemoteHostHandler) AddShare(c *gin.Context) {
 	userID, userRole := getUserContext(c)
 
 	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
-	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+	if err != nil || !hasAccess || (!isOwner && !domain.IsAdminRole(userRole)) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can share access"})
 		return
 	}
@@ -620,7 +620,7 @@ func (h *RemoteHostHandler) DeleteShare(c *gin.Context) {
 
 	userID, userRole := getUserContext(c)
 	hasAccess, isOwner, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
-	if err != nil || !hasAccess || (!isOwner && !strings.EqualFold(userRole, "ADMIN")) {
+	if err != nil || !hasAccess || (!isOwner && !domain.IsAdminRole(userRole)) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied: only host owner or administrator can revoke access"})
 		return
 	}

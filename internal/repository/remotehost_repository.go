@@ -27,7 +27,7 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 
 	var query string
 
-	if strings.EqualFold(userRole, "ADMIN") {
+	if domain.IsAdminRole(userRole) {
 		query = `
 			SELECT 
 				r.id, r.name, r.host, r.port, r.username, r.auth_type, r.group_name, r.tags, r.user_id, r.created_at,
@@ -93,7 +93,7 @@ func (r *RemoteHostRepository) GetByID(ctx context.Context, id string, userID in
 	var query string
 	var c domain.RemoteHostConfig
 
-	if strings.EqualFold(userRole, "ADMIN") {
+	if domain.IsAdminRole(userRole) {
 		query = `
 			SELECT 
 				r.id, r.name, r.host, r.port, r.username, r.auth_type, r.group_name, r.tags, r.user_id, r.created_at,
@@ -166,7 +166,7 @@ func (r *RemoteHostRepository) GetRawByID(ctx context.Context, id string) (*doma
 }
 
 func (r *RemoteHostRepository) CheckAccess(ctx context.Context, hostID string, userID int, userRole string) (hasAccess bool, isOwner bool, perm string, err error) {
-	if strings.EqualFold(userRole, "ADMIN") {
+	if domain.IsAdminRole(userRole) {
 		return true, true, "manage", nil
 	}
 
@@ -214,7 +214,7 @@ func (r *RemoteHostRepository) Save(ctx context.Context, cfg domain.RemoteHostCo
 	err = pool.QueryRow(ctx, checkQuery, cfg.ID).Scan(&existingOwnerID)
 	if err == nil {
 		// Existing host: only owner or ADMIN can edit host details
-		if !strings.EqualFold(userRole, "ADMIN") && (existingOwnerID == nil || *existingOwnerID != userID) {
+		if !domain.IsAdminRole(userRole) && (existingOwnerID == nil || *existingOwnerID != userID) {
 			return errors.New("permission denied: only the host owner or administrator can edit this server")
 		}
 	}
@@ -251,7 +251,7 @@ func (r *RemoteHostRepository) Delete(ctx context.Context, id string, userID int
 		return err
 	}
 
-	if strings.EqualFold(userRole, "ADMIN") {
+	if domain.IsAdminRole(userRole) {
 		res, err := pool.Exec(ctx, `DELETE FROM remote_host_configs WHERE id = $1`, id)
 		if err != nil {
 			return err
@@ -390,7 +390,7 @@ func (r *RemoteHostRepository) BatchUpdateGroup(ctx context.Context, hostIDs []s
 		trimmedGroup = "Default"
 	}
 
-	if strings.EqualFold(userRole, "ADMIN") {
+	if domain.IsAdminRole(userRole) {
 		_, err = pool.Exec(ctx, `UPDATE remote_host_configs SET group_name = $1 WHERE id = ANY($2)`, trimmedGroup, hostIDs)
 		return err
 	}

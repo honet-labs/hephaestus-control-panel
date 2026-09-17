@@ -36,8 +36,8 @@ func RequirePermission(feature string, requiredAction string) gin.HandlerFunc {
 			return
 		}
 
-		// 1. Superadmin role check
-		if strings.EqualFold(user.Role, "ADMIN") {
+		// 1. Superadmin / Master Admin role check
+		if user.IsAdmin() || domain.IsAdminRole(user.Role) {
 			c.Next()
 			return
 		}

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,24 @@ type User struct {
 	Permissions         map[string]string `json:"permissions"`
 	ForcePasswordChange bool              `json:"forcePasswordChange"`
 	CreatedAt           time.Time         `json:"createdAt"`
+}
+
+// IsAdmin returns true if the user has an administrative role or is a master admin account
+func (u *User) IsAdmin() bool {
+	if u == nil {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(u.Username))
+	if name == "admin" || name == "administrator" || name == "root" {
+		return true
+	}
+	return IsAdminRole(u.Role)
+}
+
+// IsAdminRole checks if a role string represents an administrator role
+func IsAdminRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	return r == "admin" || r == "administrator" || r == "superadmin" || r == "super_admin" || r == "root" || r == "owner"
 }
 
 type UserSession struct {
