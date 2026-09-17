@@ -239,6 +239,8 @@ func main() {
 		api.GET("/opensearch/recovery", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetRecovery)
 		api.GET("/opensearch/config", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetConfig)
 		api.POST("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.SaveConfig)
+		api.DELETE("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
+		api.DELETE("/opensearch/config/:id", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
 		api.POST("/opensearch/test", middleware.RequirePermission("opensearch", "read"), openSearchHandler.TestConnection)
 
 		// Prometheus & PromQL (Feature: prometheus_config)

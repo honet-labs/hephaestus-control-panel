@@ -544,6 +544,7 @@ const handleTestConnection = async () => {
   testSuccess.value = false;
   try {
     const res = await axios.post('/api/v1/opensearch/test', {
+      id: configForm.value.id || undefined,
       host: configForm.value.host,
       port: configForm.value.port,
       username: configForm.value.username,

@@ -103,10 +103,23 @@ func (h *OpenSearchHandler) SaveConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": safeSaved})
 }
 
+func (h *OpenSearchHandler) DeleteConfig(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		id = c.Query("id")
+	}
+	if err := h.openSearchService.DeleteConfig(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "OpenSearch configuration deleted successfully."})
+}
+
 func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 	var req struct {
-		Host      string `json:"host" binding:"required"`
-		Port      int    `json:"port" binding:"required"`
+		ID        string `json:"id"`
+		Host      string `json:"host"`
+		Port      int    `json:"port"`
 		Username  string `json:"username"`
 		Password  string `json:"password"`
 		UseSSL    bool   `json:"useSsl"`
@@ -115,6 +128,40 @@ func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid connection parameters"})
 		return
+	}
+
+	// Resolve saved credentials if password is empty or masked
+	if services.IsMaskedOrEmptyPassword(req.Password) {
+		var saved *domain.OpenSearchConfig
+		if req.ID != "" && req.ID != "opensearch-active" {
+			saved, _ = h.openSearchService.GetConfigByID(c.Request.Context(), req.ID)
+		}
+		if saved == nil {
+			saved, _ = h.openSearchService.GetActiveConfig(c.Request.Context())
+		}
+		if saved != nil {
+			// If testing existing ID, or if host was omitted, or if host matches the saved configuration
+			if req.ID != "" || req.Host == "" || req.Host == saved.Host {
+				if req.Host == "" {
+					req.Host = saved.Host
+				}
+				if req.Port <= 0 {
+					req.Port = saved.Port
+				}
+				if req.Username == "" {
+					req.Username = saved.Username
+				}
+				req.Password = saved.Password
+			}
+		}
+	}
+
+	if req.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Cluster Host / IP is required"})
+		return
+	}
+	if req.Port <= 0 {
+		req.Port = 9200
 	}
 
 	res, err := h.openSearchService.TestConnection(c.Request.Context(), req.Host, req.Port, req.Username, req.Password, req.UseSSL, req.VerifySSL)

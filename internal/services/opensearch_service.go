@@ -49,6 +49,25 @@ func (s *OpenSearchService) RegisterWorker(wp *queue.WorkerPool) {
 	})
 }
 
+// IsMaskedOrEmptyPassword returns true if the password is empty or composed of masking characters (bullets, asterisks).
+func IsMaskedOrEmptyPassword(p string) bool {
+	trimmed := strings.TrimSpace(p)
+	if trimmed == "" {
+		return true
+	}
+	if trimmed == "••••••••" || trimmed == "••••••" || trimmed == "********" || trimmed == "******" {
+		return true
+	}
+	isMasked := true
+	for _, r := range trimmed {
+		if r != '*' && r != '•' && r != '\u2022' && r != '·' {
+			isMasked = false
+			break
+		}
+	}
+	return isMasked
+}
+
 func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSearchConfig, error) {
 	pool, err := database.GetPool()
 	if err != nil {
@@ -80,18 +99,66 @@ func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSe
 	return &cfg, nil
 }
 
+func (s *OpenSearchService) GetConfigByID(ctx context.Context, id string) (*domain.OpenSearchConfig, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, fmt.Errorf("database connection unavailable: %w", err)
+	}
+
+	query := `
+		SELECT id, name, host, port, username, password, use_ssl, verify_ssl, is_active, created_at
+		FROM opensearch_configs
+		WHERE id = $1
+		LIMIT 1
+	`
+	var cfg domain.OpenSearchConfig
+	err = pool.QueryRow(ctx, query, id).Scan(
+		&cfg.ID, &cfg.Name, &cfg.Host, &cfg.Port, &cfg.Username,
+		&cfg.Password, &cfg.UseSSL, &cfg.VerifySSL, &cfg.IsActive, &cfg.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.Password != "" {
+		if decrypted, err := config.DecryptText(cfg.Password); err == nil {
+			cfg.Password = decrypted
+		}
+	}
+
+	return &cfg, nil
+}
+
+func (s *OpenSearchService) DeleteConfig(ctx context.Context, id string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return fmt.Errorf("database connection unavailable: %w", err)
+	}
+
+	if id != "" && id != "opensearch-active" {
+		_, err = pool.Exec(ctx, "DELETE FROM opensearch_configs WHERE id = $1", id)
+	} else {
+		_, err = pool.Exec(ctx, "DELETE FROM opensearch_configs WHERE is_active = true")
+	}
+	return err
+}
+
 func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearchConfig) (*domain.OpenSearchConfig, error) {
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, fmt.Errorf("database connection unavailable: %w", err)
 	}
 
-	if cfg.ID == "" {
-		cfg.ID = "osc-primary"
+	if cfg.ID == "" || cfg.ID == "opensearch-active" {
+		if active, err := s.GetActiveConfig(ctx); err == nil && active != nil {
+			cfg.ID = active.ID
+		} else {
+			cfg.ID = "osc-primary"
+		}
 	}
 
 	var encPassword string
-	if cfg.Password != "" && cfg.Password != "••••••••" && cfg.Password != "********" {
+	if !IsMaskedOrEmptyPassword(cfg.Password) {
 		if enc, err := config.EncryptText(cfg.Password); err == nil {
 			encPassword = enc
 		} else {

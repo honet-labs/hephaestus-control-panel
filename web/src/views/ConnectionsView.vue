@@ -14,7 +14,8 @@ import {
   Pencil,
   Check,
   X,
-  RotateCcw
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -146,14 +147,17 @@ const handleTestConnection = async () => {
 
   try {
     if (form.value.type === 'OpenSearch Cluster') {
-      const res = await axios.post('/api/v1/opensearch/test', {
+      const payload: any = {
         host: form.value.osHost,
         port: Number(form.value.osPort) || 9200,
         username: form.value.osUser,
         password: form.value.osPassword,
         useSsl: form.value.osUseSsl,
         verifySsl: form.value.osVerifySsl,
-      });
+      };
+      if (editingId.value) payload.id = editingId.value;
+
+      const res = await axios.post('/api/v1/opensearch/test', payload);
       testStatus.value = {
         success: res.data?.success || false,
         message: res.data?.success ? 'Connection verified successfully!' : (res.data?.error || 'Test failed'),
@@ -260,7 +264,7 @@ const handleEditConnection = (item: RegistryItem) => {
     form.value.osHost = item.rawItem.host || '';
     form.value.osPort = item.rawItem.port || 9200;
     form.value.osUser = item.rawItem.username || '';
-    form.value.osPassword = item.rawItem.password === '••••••••' ? '' : (item.rawItem.password || '');
+    form.value.osPassword = '';
     form.value.osUseSsl = item.rawItem.useSsl ?? true;
     form.value.osVerifySsl = item.rawItem.verifySsl ?? false;
   }
@@ -285,9 +289,56 @@ const cancelEdit = () => {
   testStatus.value = null;
 };
 
+// Feedback Toast Notification (Auto-dismiss 3000ms)
+const toast = ref<{ message: string; type: 'success' | 'error' } | null>(null);
+let toastTimer: any = null;
+const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.value = { message, type };
+  toastTimer = setTimeout(() => {
+    toast.value = null;
+  }, 3000);
+};
+
+// Delete Confirmation Modal State
+const showDeleteModal = ref(false);
+const itemToDelete = ref<RegistryItem | null>(null);
+const deleting = ref(false);
+
+const confirmDelete = (item: RegistryItem) => {
+  itemToDelete.value = item;
+  showDeleteModal.value = true;
+};
+
+const executeDelete = async () => {
+  if (!itemToDelete.value) return;
+  deleting.value = true;
+  const item = itemToDelete.value;
+  try {
+    if (item.rawType === 'grafana') {
+      await axios.delete(`/api/v1/settings/grafana/${item.id}`);
+    } else if (item.rawType === 'prometheus') {
+      await axios.delete(`/api/v1/settings/prometheus/${item.id}`);
+    } else if (item.rawType === 'opensearch') {
+      await axios.delete(`/api/v1/opensearch/config/${item.id}`);
+    }
+    if (editingId.value === item.id) {
+      cancelEdit();
+    }
+    showDeleteModal.value = false;
+    itemToDelete.value = null;
+    showToast(`Connection "${item.name}" deleted successfully.`, 'success');
+    await fetchConnections();
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to delete connection', 'error');
+  } finally {
+    deleting.value = false;
+  }
+};
+
 const handleRegisterEndpoint = async () => {
   if (!form.value.name) {
-    alert('Please provide a Connection Name.');
+    showToast('Please provide a Connection Name.', 'error');
     return;
   }
 
@@ -348,9 +399,10 @@ const handleRegisterEndpoint = async () => {
     }
 
     cancelEdit();
+    showToast('Service endpoint registered successfully!', 'success');
     await fetchConnections();
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to save service endpoint.');
+    showToast(err.response?.data?.error || 'Failed to save service endpoint.', 'error');
   }
 };
 
@@ -363,12 +415,14 @@ const handlePingTest = async (item: RegistryItem) => {
       });
       if (res.data?.success) {
         item.status = 'connected';
+        showToast(`Connected to Prometheus: ${item.name}`, 'success');
       } else {
         item.status = 'offline';
-        alert(res.data?.error || res.data?.message || `Prometheus connection failed: ${item.name}`);
+        showToast(res.data?.error || res.data?.message || `Prometheus connection failed: ${item.name}`, 'error');
       }
     } else if (item.rawType === 'opensearch') {
       const res = await axios.post('/api/v1/opensearch/test', {
+        id: item.id,
         host: item.rawItem?.host,
         port: Number(item.rawItem?.port) || 9200,
         username: item.rawItem?.username,
@@ -378,34 +432,19 @@ const handlePingTest = async (item: RegistryItem) => {
       });
       if (res.data?.success) {
         item.status = 'connected';
+        showToast(`Connected to OpenSearch: ${item.name}`, 'success');
       } else {
         item.status = 'offline';
-        alert(res.data?.error || `OpenSearch cluster unreachable for ${item.name}`);
+        showToast(res.data?.error || `OpenSearch cluster unreachable for ${item.name}`, 'error');
       }
     } else {
       await new Promise((r) => setTimeout(r, 400));
       item.status = 'connected';
+      showToast(`Connection active: ${item.name}`, 'success');
     }
   } catch (e: any) {
     item.status = 'offline';
-    alert(e.response?.data?.error || e.message || `Ping test failed for ${item.name}`);
-  }
-};
-
-const handleDeleteConnection = async (item: RegistryItem) => {
-  if (!confirm(`Are you sure you want to delete ${item.name}?`)) return;
-  try {
-    if (item.rawType === 'grafana') {
-      await axios.delete(`/api/v1/settings/grafana/${item.id}`);
-    } else if (item.rawType === 'prometheus') {
-      await axios.delete(`/api/v1/settings/prometheus/${item.id}`);
-    }
-    if (editingId.value === item.id) {
-      cancelEdit();
-    }
-    await fetchConnections();
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete connection');
+    showToast(e.response?.data?.error || e.message || `Ping test failed for ${item.name}`, 'error');
   }
 };
 
@@ -608,44 +647,55 @@ onMounted(() => {
           <template v-if="form.type === 'OpenSearch Cluster'">
             <div class="grid grid-cols-3 gap-2">
               <div class="col-span-2">
-                <label class="block text-slate-400 text-[10px]">Cluster Host / IP</label>
-                <input v-model="form.osHost" required placeholder="103.171.31.56" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Cluster Host / IP</label>
+                <input v-model="form.osHost" required placeholder="103.171.31.56" class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]" />
               </div>
               <div>
-                <label class="block text-slate-400 text-[10px]">Port</label>
-                <input v-model.number="form.osPort" type="number" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Port</label>
+                <input v-model.number="form.osPort" type="number" class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-slate-400 text-[10px]">Username</label>
-                <input v-model="form.osUser" placeholder="admin" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Username</label>
+                <input v-model="form.osUser" placeholder="admin" class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]" />
               </div>
               <div>
-                <label class="block text-slate-400 text-[10px]">Password</label>
-                <input v-model="form.osPassword" type="password" autocomplete="new-password" placeholder="••••••" class="w-full bg-[#141824] border border-[#1b2234] rounded px-2 py-1.5 text-white font-mono" />
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Password</label>
+                  <span v-if="editingId && editingRawType === 'opensearch'" class="text-[9px] text-emerald-600 dark:text-emerald-400 font-normal">
+                    (saved)
+                  </span>
+                </div>
+                <input
+                  v-model="form.osPassword"
+                  type="password"
+                  autocomplete="new-password"
+                  :placeholder="editingId && editingRawType === 'opensearch' ? '•••••••• (leave blank to keep current)' : '••••••'"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
+                />
               </div>
             </div>
 
             <!-- SSL / TLS Checkboxes -->
             <div class="flex items-center gap-6 pt-1">
-              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                 <input
                   type="checkbox"
                   v-model="form.osUseSsl"
-                  class="rounded bg-[#141824] border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer"
+                  class="rounded bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer"
                 />
-                <span class="font-medium text-white">Use HTTPS (SSL/TLS)</span>
+                <span class="font-medium text-slate-800 dark:text-white">Use HTTPS (SSL/TLS)</span>
               </label>
 
-              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                 <input
                   type="checkbox"
                   v-model="form.osVerifySsl"
                   :disabled="!form.osUseSsl"
-                  class="rounded bg-[#141824] border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer disabled:opacity-40"
+                  class="rounded bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer disabled:opacity-40"
                 />
-                <span :class="{ 'text-slate-500': !form.osUseSsl, 'text-slate-300': form.osUseSsl }">Verify SSL Certificate</span>
+                <span :class="{ 'text-slate-400 dark:text-slate-500': !form.osUseSsl, 'text-slate-700 dark:text-slate-300': form.osUseSsl }">Verify SSL Certificate</span>
               </label>
             </div>
           </template>
@@ -806,7 +856,7 @@ onMounted(() => {
 
               <!-- Delete Button -->
               <button
-                @click="handleDeleteConnection(item)"
+                @click="confirmDelete(item)"
                 class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 dark:hover:bg-rose-950/60 border border-slate-300 dark:border-slate-700/60 transition shadow-xs cursor-pointer"
                 title="Delete Connection"
               >
@@ -826,6 +876,58 @@ onMounted(() => {
         </div>
       </div>
 
+    </div>
+
+    <!-- Standard HCP Delete Confirmation Modal -->
+    <div
+      v-if="showDeleteModal && itemToDelete"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Connection?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ itemToDelete.name }}</strong>? This action cannot be undone.
+          </p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showDeleteModal = false"
+            :disabled="deleting"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeDelete"
+            :disabled="deleting"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ deleting ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Banner (Auto-dismiss 3000ms) -->
+    <div
+      v-if="toast"
+      :class="[
+        'fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border text-xs font-medium transition-all duration-300 animate-in slide-in-from-bottom-5',
+        toast.type === 'success'
+          ? 'bg-emerald-50 dark:bg-[#0e1f18] text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800/60'
+          : 'bg-rose-50 dark:bg-[#201015] text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800/60'
+      ]"
+    >
+      <CheckCircle2 v-if="toast.type === 'success'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+      <AlertTriangle v-else class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+      <span>{{ toast.message }}</span>
+      <button @click="toast = null" class="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+        ✕
+      </button>
     </div>
   </div>
 </template>
