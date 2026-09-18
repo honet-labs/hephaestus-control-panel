@@ -247,3 +247,34 @@ func (wp *WorkerPool) Stop() {
 	wp.wg.Wait()
 	logger.Info("Queue", "Background worker pool stopped.")
 }
+
+type WorkerPoolStats struct {
+	TotalWorkers  int            `json:"totalWorkers"`
+	RunningJobs   int            `json:"runningJobs"`
+	QueuedJobs    int            `json:"queuedJobs"`
+	RunningByType map[string]int `json:"runningByType"`
+	QueuedByType  map[string]int `json:"queuedByType"`
+}
+
+func (wp *WorkerPool) GetStats() WorkerPoolStats {
+	wp.jobsMu.RLock()
+	defer wp.jobsMu.RUnlock()
+
+	stats := WorkerPoolStats{
+		TotalWorkers:  wp.numWorkers,
+		QueuedJobs:    len(wp.jobQueue),
+		RunningByType: make(map[string]int),
+		QueuedByType:  make(map[string]int),
+	}
+
+	for _, j := range wp.jobs {
+		switch j.Status {
+		case domain.JobStatusRunning:
+			stats.RunningJobs++
+			stats.RunningByType[j.Type]++
+		case domain.JobStatusPending:
+			stats.QueuedByType[j.Type]++
+		}
+	}
+	return stats
+}

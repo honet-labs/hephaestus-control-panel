@@ -206,7 +206,9 @@ const services = ref<ServiceItem[]>([
 ]);
 
 const servicesSearch = ref('');
+const loadingServices = ref(false);
 const tickerTimer = ref<any>(null);
+const servicesPollTimer = ref<any>(null);
 
 // View Log Modal States
 const showLogModal = ref(false);
@@ -742,35 +744,58 @@ onMounted(() => {
   fetchDatabaseConfig();
   fetchServices();
   startElapsedTicker();
+
+  // Auto-poll services every 3 seconds for real-time daemon queue & thread tracking
+  servicesPollTimer.value = setInterval(() => {
+    if (activeTab.value === 'services') {
+      fetchServices();
+    }
+  }, 3000);
 });
 
-const fetchServices = async () => {
+const fetchServices = async (isManual = false) => {
+  if (isManual) loadingServices.value = true;
   try {
     const res = await axios.get('/api/v1/services').catch(() => null);
     if (res && res.data && res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+      const existingMap = new Map(services.value.map(s => [s.id, s]));
+
       services.value = res.data.data.map((s: any) => {
         const parts = (s.tq || '4:0').split(':');
         const th = parseInt(parts[0]?.trim()) || 4;
         const qd = parseInt(parts[1]?.trim()) || 0;
+        const existing = existingMap.get(s.id);
+
+        let elapsed = 4;
+        if (s.updated) {
+          const num = parseInt(s.updated);
+          if (!isNaN(num)) elapsed = num;
+          else if (existing?.elapsedSec !== undefined) elapsed = existing.elapsedSec;
+        }
+
         return {
           id: s.id,
           name: s.type || s.name,
           status: (s.status || 'running') as 'running' | 'warning' | 'stopped',
           type: s.type || s.name,
-          updated: s.updated ? (s.updated.includes('ago') ? s.updated : `${s.updated} ago`) : '4 seconds ago',
+          updated: s.updated ? (s.updated.includes('ago') ? s.updated : `${s.updated} ago`) : (existing?.updated || '4 seconds ago'),
           description: s.description,
           moduleKey: s.moduleKey,
-          elapsedSec: parseInt(s.updated) || 4,
+          elapsedSec: elapsed,
           threads: th,
           queued: qd,
         };
       });
     }
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    if (isManual) loadingServices.value = false;
+  }
 };
 
 onUnmounted(() => {
   if (tickerTimer.value) clearInterval(tickerTimer.value);
+  if (servicesPollTimer.value) clearInterval(servicesPollTimer.value);
   if (logWs) logWs.close();
 });
 </script>
@@ -866,14 +891,26 @@ onUnmounted(() => {
           <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Active Service Daemons</h3>
         </div>
 
-        <!-- Search input daemon -->
-        <div class="relative w-64">
-          <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500 dark:text-slate-400" />
-          <input
-            v-model="servicesSearch"
-            placeholder="Search daemon..."
-            class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
-          />
+        <div class="flex items-center gap-2">
+          <!-- Refresh button -->
+          <button
+            @click="fetchServices(true)"
+            :disabled="loadingServices"
+            class="p-1.5 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-[#1b1e26] hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition shadow-sm cursor-pointer disabled:opacity-50"
+            title="Refresh services"
+          >
+            <RotateCw class="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" :class="{ 'animate-spin': loadingServices }" />
+          </button>
+
+          <!-- Search input daemon -->
+          <div class="relative w-64">
+            <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500 dark:text-slate-400" />
+            <input
+              v-model="servicesSearch"
+              placeholder="Search daemon..."
+              class="w-full bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30"
+            />
+          </div>
         </div>
       </div>
 
