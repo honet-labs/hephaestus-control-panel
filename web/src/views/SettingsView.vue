@@ -740,8 +740,34 @@ onMounted(() => {
   fetchAuditLogs();
   fetchSystemLogs();
   fetchDatabaseConfig();
+  fetchServices();
   startElapsedTicker();
 });
+
+const fetchServices = async () => {
+  try {
+    const res = await axios.get('/api/v1/services').catch(() => null);
+    if (res && res.data && res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+      services.value = res.data.data.map((s: any) => {
+        const parts = (s.tq || '4:0').split(':');
+        const th = parseInt(parts[0]?.trim()) || 4;
+        const qd = parseInt(parts[1]?.trim()) || 0;
+        return {
+          id: s.id,
+          name: s.type || s.name,
+          status: (s.status || 'running') as 'running' | 'warning' | 'stopped',
+          type: s.type || s.name,
+          updated: s.updated ? (s.updated.includes('ago') ? s.updated : `${s.updated} ago`) : '4 seconds ago',
+          description: s.description,
+          moduleKey: s.moduleKey,
+          elapsedSec: parseInt(s.updated) || 4,
+          threads: th,
+          queued: qd,
+        };
+      });
+    }
+  } catch (_) {}
+};
 
 onUnmounted(() => {
   if (tickerTimer.value) clearInterval(tickerTimer.value);
@@ -754,9 +780,8 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="border-b border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-          <Settings class="w-5 h-5 text-brand-500 dark:text-brand-400" />
-          <span>System Settings & Services</span>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+          System Settings & Services
         </h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           Manage HCP system parameters, background service daemons, user access control, database connection, and audit trail.
