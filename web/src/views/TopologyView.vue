@@ -44,6 +44,7 @@ import {
   Laptop,
   Cpu,
   Globe,
+  ArrowUpDown,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 
@@ -89,6 +90,7 @@ const loading = ref(false);
 // UI Controls & Sidebars
 const isSidebarCollapsed = ref(false);
 const selectedNode = ref<Device | null>(null);
+const selectedEdge = ref<any | null>(null);
 const selectedDiscoveredIds = ref<string[]>([]);
 const searchDiscoveredQuery = ref('');
 const searchCanvasQuery = ref('');
@@ -101,6 +103,7 @@ const isFlowLayout = ref(false);
 const isScanModalOpen = ref(false);
 const isDeviceModalOpen = ref(false);
 const isLinkModalOpen = ref(false);
+const isEditLink = ref(false);
 const isSheetModalOpen = ref(false);
 const isPingModalOpen = ref(false);
 const isEditDeviceModal = ref(false);
@@ -120,6 +123,7 @@ const deviceForm = ref<any>({
 });
 
 const linkForm = ref<any>({
+  id: undefined,
   sourceId: '',
   targetId: '',
   edgeType: 'Ethernet',
@@ -142,6 +146,34 @@ const contextMenu = ref<{
   x: 0,
   y: 0,
   node: null,
+});
+
+const edgeContextMenu = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  edge: any | null;
+}>({
+  visible: false,
+  x: 0,
+  y: 0,
+  edge: null,
+});
+
+// HCP Standard Delete Confirmation Modal State
+const deleteModal = ref<{
+  visible: boolean;
+  type: 'edge' | 'device' | 'sheet';
+  id?: any;
+  name: string;
+  subtitle?: string;
+  deleting: boolean;
+}>({
+  visible: false,
+  type: 'edge',
+  name: '',
+  subtitle: '',
+  deleting: false,
 });
 
 // Canvas Pan & Zoom
@@ -275,6 +307,7 @@ const fetchGraph = async () => {
 const handleSelectSheet = (sheetId: number) => {
   activeSheetId.value = sheetId;
   selectedNode.value = null;
+  selectedEdge.value = null;
   fetchGraph();
 };
 
@@ -298,24 +331,22 @@ const handleCreateSheet = async () => {
   }
 };
 
-// Delete Sheet
-const handleDeleteSheet = async (sheetId: number, e: MouseEvent) => {
+// Delete Sheet (using HCP Standard Modal)
+const promptDeleteSheet = (sheetId: number, e: MouseEvent) => {
   e.stopPropagation();
   if (sheets.value.length <= 1) {
     alert('You must have at least one topology sheet.');
     return;
   }
-  if (!confirm('Are you sure you want to delete this sheet?')) return;
-  try {
-    await axios.delete(`/api/v1/topology/sheets/${sheetId}`);
-    sheets.value = sheets.value.filter(s => s.id !== sheetId);
-    if (activeSheetId.value === sheetId) {
-      activeSheetId.value = sheets.value[0].id;
-    }
-    fetchGraph();
-  } catch (err) {
-    console.error('Failed to delete sheet:', err);
-  }
+  const s = sheets.value.find(item => item.id === sheetId);
+  deleteModal.value = {
+    visible: true,
+    type: 'sheet',
+    id: sheetId,
+    name: s ? s.name : `Sheet #${sheetId}`,
+    subtitle: `Are you sure you want to delete the sheet "${s ? s.name : sheetId}"? All device placements on this sheet will be cleared.`,
+    deleting: false,
+  };
 };
 
 // Toggle Device On Canvas
@@ -425,21 +456,19 @@ const handleRemoveDeviceFromCanvas = async (deviceId: string) => {
   }
 };
 
-// Permanently Delete Device from Inventory and System
-const handleDeleteDevice = async (deviceId: string) => {
+// Permanently Delete Device from Inventory (using HCP Standard Modal)
+const promptDeleteDevice = (deviceId: string) => {
   const dev = allDevices.value.find(d => d.id === deviceId);
   const devName = dev ? dev.name : deviceId;
-  if (!confirm(`Are you sure you want to permanently delete "${devName}" from the system inventory?`)) return;
-  try {
-    await axios.delete(`/api/v1/topology/devices/${deviceId}`);
-    if (selectedNode.value?.id === deviceId) {
-      selectedNode.value = null;
-    }
-    await fetchGraph();
-  } catch (err: any) {
-    console.error('Failed to delete device:', err);
-    alert(err.response?.data?.error || 'Failed to delete device');
-  }
+  deleteModal.value = {
+    visible: true,
+    type: 'device',
+    id: deviceId,
+    name: devName,
+    subtitle: `Are you sure you want to permanently delete "${devName}" from the system inventory? This action cannot be undone.`,
+    deleting: false,
+  };
+  contextMenu.value.visible = false;
 };
 
 // Open Edit Device Modal
@@ -458,39 +487,115 @@ const handleOpenEditDevice = (dev: Device) => {
   isEditDeviceModal.value = true;
 };
 
-// Save Edge / Link
+// Open Add Link Modal
+const handleOpenAddLink = () => {
+  isEditLink.value = false;
+  linkForm.value = {
+    id: undefined,
+    sourceId: '',
+    targetId: '',
+    edgeType: 'Ethernet',
+    label: 'Ethernet',
+  };
+  isLinkModalOpen.value = true;
+};
+
+// Open Edit Link Modal
+const handleOpenEditEdge = (edge: any) => {
+  isEditLink.value = true;
+  linkForm.value = {
+    id: edge.id,
+    sourceId: edge.sourceId,
+    targetId: edge.targetId,
+    edgeType: edge.edgeType || 'Ethernet',
+    label: edge.label || edge.edgeType || 'Ethernet',
+  };
+  edgeContextMenu.value.visible = false;
+  isLinkModalOpen.value = true;
+};
+
+const onLinkTypeChange = () => {
+  if (!isEditLink.value || !linkForm.value.label || linkForm.value.label === 'Ethernet' || linkForm.value.label === 'VPN' || linkForm.value.label === 'Wireless' || linkForm.value.label === 'Fiber') {
+    linkForm.value.label = linkForm.value.edgeType;
+  }
+};
+
+// Save or Update Edge / Link
 const handleSaveLink = async () => {
   if (!linkForm.value.sourceId || !linkForm.value.targetId) {
     alert('Please select both source and target devices');
     return;
   }
   try {
-    const res = await axios.post('/api/v1/topology/edges', {
+    const payload: any = {
       sourceId: linkForm.value.sourceId,
       targetId: linkForm.value.targetId,
       edgeType: linkForm.value.edgeType,
       label: linkForm.value.label,
       sheetId: activeSheetId.value,
-    });
+    };
+    if (isEditLink.value && linkForm.value.id) {
+      payload.id = linkForm.value.id;
+    }
+    const res = await axios.post('/api/v1/topology/edges', payload);
     if (res.data.success) {
       isLinkModalOpen.value = false;
-      linkForm.value = { sourceId: '', targetId: '', edgeType: 'Ethernet', label: 'Ethernet' };
+      isEditLink.value = false;
+      linkForm.value = { id: undefined, sourceId: '', targetId: '', edgeType: 'Ethernet', label: 'Ethernet' };
       await fetchGraph();
+      if (selectedEdge.value && payload.id && selectedEdge.value.id === payload.id) {
+        const fresh = renderedEdges.value.find(e => e.id === payload.id);
+        if (fresh) selectedEdge.value = fresh;
+      }
     }
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to create link');
+    alert(err.response?.data?.error || 'Failed to save link');
   }
 };
 
-// Delete Edge
-const handleDeleteEdge = async (edgeId?: number) => {
-  if (!edgeId) return;
-  if (!confirm('Delete this connection?')) return;
+// Delete Edge Prompt (using HCP Standard Modal)
+const promptDeleteEdge = (edge: any) => {
+  const sName = edge.sourceName || (activeNodes.value.find(n => n.id === edge.sourceId)?.name) || edge.sourceId;
+  const tName = edge.targetName || (activeNodes.value.find(n => n.id === edge.targetId)?.name) || edge.targetId;
+  deleteModal.value = {
+    visible: true,
+    type: 'edge',
+    id: edge.id,
+    name: `${edge.edgeType || 'Connection'} (${sName} ↔ ${tName})`,
+    subtitle: `Are you sure you want to remove the link between "${sName}" and "${tName}"? This action cannot be undone.`,
+    deleting: false,
+  };
+  edgeContextMenu.value.visible = false;
+};
+
+// Generic Delete Confirmation Execution (HCP Standard)
+const executeDelete = async () => {
+  if (deleteModal.value.deleting) return;
+  deleteModal.value.deleting = true;
   try {
-    await axios.delete(`/api/v1/topology/edges/${edgeId}`);
+    if (deleteModal.value.type === 'edge') {
+      await axios.delete(`/api/v1/topology/edges/${deleteModal.value.id}`);
+      if (selectedEdge.value?.id === deleteModal.value.id) {
+        selectedEdge.value = null;
+      }
+    } else if (deleteModal.value.type === 'device') {
+      await axios.delete(`/api/v1/topology/devices/${deleteModal.value.id}`);
+      if (selectedNode.value?.id === deleteModal.value.id) {
+        selectedNode.value = null;
+      }
+    } else if (deleteModal.value.type === 'sheet') {
+      await axios.delete(`/api/v1/topology/sheets/${deleteModal.value.id}`);
+      sheets.value = sheets.value.filter(s => s.id !== deleteModal.value.id);
+      if (activeSheetId.value === deleteModal.value.id) {
+        activeSheetId.value = sheets.value[0]?.id || null;
+      }
+    }
+    deleteModal.value.visible = false;
     await fetchGraph();
-  } catch (err) {
-    console.error('Failed to delete link:', err);
+  } catch (err: any) {
+    alert(err.response?.data?.error || 'Failed to delete');
+  } finally {
+    deleteModal.value.deleting = false;
   }
 };
 
@@ -711,6 +816,8 @@ const handleCanvasMouseDown = (e: MouseEvent) => {
     isPanning.value = true;
     panStart.value = { x: e.clientX - canvasTransform.value.x, y: e.clientY - canvasTransform.value.y };
     contextMenu.value.visible = false;
+    edgeContextMenu.value.visible = false;
+    selectedEdge.value = null;
   }
 };
 
@@ -762,6 +869,8 @@ const handleWindowMouseUp = () => {
 const handleNodeMouseDown = (dev: Device, e: MouseEvent) => {
   e.stopPropagation();
   contextMenu.value.visible = false;
+  edgeContextMenu.value.visible = false;
+  selectedEdge.value = null;
   if (e.button === 0) {
     // Left click
     draggingNodeId.value = dev.id;
@@ -783,6 +892,8 @@ const handleNodeContextMenu = (dev: Device, e: MouseEvent) => {
   e.preventDefault();
   e.stopPropagation();
   selectedNode.value = dev;
+  selectedEdge.value = null;
+  edgeContextMenu.value.visible = false;
   contextMenu.value = {
     visible: true,
     x: e.clientX,
@@ -791,8 +902,30 @@ const handleNodeContextMenu = (dev: Device, e: MouseEvent) => {
   };
 };
 
+// Edge / Link Left Click
+const handleEdgeClick = (edge: any) => {
+  selectedEdge.value = edge;
+  selectedNode.value = null;
+  edgeContextMenu.value.visible = false;
+  contextMenu.value.visible = false;
+};
 
-// Computed edges with real-time reactive paths tied to node movements
+// Edge / Link Right Click Context Menu
+const handleEdgeContextMenu = (edge: any, e: MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  selectedEdge.value = edge;
+  selectedNode.value = null;
+  contextMenu.value.visible = false;
+  edgeContextMenu.value = {
+    visible: true,
+    x: e.clientX,
+    y: e.clientY,
+    edge,
+  };
+};
+
+// Computed edges with multi-link separation and real-time reactive paths
 const renderedEdges = computed(() => {
   // Read nodePositionVersion to guarantee re-computation on every drag movement
   nodePositionVersion.value;
@@ -804,13 +937,33 @@ const renderedEdges = computed(() => {
     }
   }
 
+  // Group edges by canonical pair key to detect multiple links between the same devices
+  const pairGroups = new Map<string, Edge[]>();
+  for (const edge of edges.value) {
+    const sId = String(edge.sourceId);
+    const tId = String(edge.targetId);
+    const pairKey = [sId, tId].sort().join(':::');
+    if (!pairGroups.has(pairKey)) {
+      pairGroups.set(pairKey, []);
+    }
+    pairGroups.get(pairKey)!.push(edge);
+  }
+
   return edges.value.map((edge, idx) => {
-    const source = nodeMap.get(String(edge.sourceId));
-    const target = nodeMap.get(String(edge.targetId));
+    const sId = String(edge.sourceId);
+    const tId = String(edge.targetId);
+    const source = nodeMap.get(sId);
+    const target = nodeMap.get(tId);
 
     if (!source || !target || source.x === undefined || source.y === undefined || target.x === undefined || target.y === undefined) {
       return {
         ...edge,
+        sourceNode: source,
+        targetNode: target,
+        sourceName: source?.name || sId,
+        targetName: target?.name || tId,
+        sourceIP: source?.ipAddress || '',
+        targetIP: target?.ipAddress || '',
         renderKey: edge.id || `edge-${edge.sourceId}-${edge.targetId}-${idx}`,
         path: '',
         midX: 0,
@@ -826,17 +979,46 @@ const renderedEdges = computed(() => {
 
     const dx = x2 - x1;
     const dy = y2 - y1;
-    const cx1 = x1 + dx * 0.3;
-    const cy1 = y1 + dy * 0.1;
-    const cx2 = x1 + dx * 0.7;
-    const cy2 = y2 - dy * 0.1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    // Calculate parallel link curvature offset
+    const pairKey = [sId, tId].sort().join(':::');
+    const group = pairGroups.get(pairKey) || [edge];
+    const groupCount = group.length;
+    const indexInGroup = group.indexOf(edge);
+
+    let offset = 0;
+    if (groupCount > 1) {
+      // Fan out multiple links symmetrically: e.g. -24, +24 for 2 links; -36, 0, +36 for 3 links
+      offset = (indexInGroup - (groupCount - 1) / 2) * 36;
+      // Ensure canonical orientation consistency so A->B and B->A curve consistently
+      const isCanonical = sId <= tId;
+      if (!isCanonical) {
+        offset = -offset;
+      }
+    }
+
+    // Displace cubic bezier control points along normal vector
+    const cx1 = x1 + dx * 0.25 + nx * offset;
+    const cy1 = y1 + dy * 0.25 + ny * offset;
+    const cx2 = x1 + dx * 0.75 + nx * offset;
+    const cy2 = y1 + dy * 0.75 + ny * offset;
 
     const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
+    // Precise midpoint of cubic bezier at t = 0.5:
+    const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2;
+    const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2;
 
     return {
       ...edge,
+      sourceNode: source,
+      targetNode: target,
+      sourceName: source.name,
+      targetName: target.name,
+      sourceIP: source.ipAddress,
+      targetIP: target.ipAddress,
       renderKey: edge.id || `edge-${edge.sourceId}-${edge.targetId}-${idx}`,
       path,
       midX,
@@ -866,6 +1048,7 @@ const getNodeIcon = (type?: string) => {
 // Close all context menus on global click
 const handleGlobalClick = () => {
   contextMenu.value.visible = false;
+  edgeContextMenu.value.visible = false;
 };
 
 onMounted(() => {
@@ -931,8 +1114,8 @@ onUnmounted(() => {
         </button>
 
         <button
-          @click="isLinkModalOpen = true"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition"
+          @click="handleOpenAddLink"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-[#282d3a] border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
         >
           <Cable class="w-3.5 h-3.5" />
           <span>+ LINK</span>
@@ -1025,8 +1208,8 @@ onUnmounted(() => {
         <span>{{ s.name }}</span>
         <button
           v-if="sheets.length > 1"
-          @click="handleDeleteSheet(s.id, $event)"
-          class="p-0.5 hover:text-red-500 rounded transition"
+          @click="promptDeleteSheet(s.id, $event)"
+          class="p-0.5 hover:text-rose-500 rounded transition cursor-pointer"
           title="Delete Sheet"
         >
           <X class="w-3 h-3" />
@@ -1176,8 +1359,8 @@ onUnmounted(() => {
                 <Edit2 class="w-3 h-3" />
               </button>
               <button
-                @click="handleDeleteDevice(dev.id)"
-                class="p-1 hover:text-rose-400 text-slate-500 transition"
+                @click="promptDeleteDevice(dev.id)"
+                class="p-1 hover:text-rose-400 text-slate-500 transition cursor-pointer"
                 title="Permanently delete device from inventory"
               >
                 <Trash2 class="w-3 h-3" />
@@ -1231,17 +1414,31 @@ onUnmounted(() => {
           <!-- 1. Render Links / Edges -->
           <g class="edges-layer">
             <g v-for="edge in renderedEdges" :key="edge.renderKey" class="edge-group">
-              <!-- Edge Path -->
+              <!-- Invisible Hit Area Path for easy click/right-click -->
+              <path
+                v-if="edge.valid"
+                :d="edge.path"
+                fill="none"
+                stroke="transparent"
+                stroke-width="16"
+                class="cursor-pointer"
+                @click.stop="handleEdgeClick(edge)"
+                @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
+              />
+
+              <!-- Visible Edge Path -->
               <path
                 v-if="edge.valid"
                 :d="edge.path"
                 :class="[
-                  'transition-colors duration-150 cursor-pointer',
-                  (edge.edgeType || edge.label) === 'VPN'
+                  'transition-all duration-150 pointer-events-none',
+                  selectedEdge?.id === edge.id
+                    ? 'stroke-blue-500 dark:stroke-blue-400 stroke-[3.5]'
+                    : (edge.edgeType || edge.label) === 'VPN'
                     ? 'stroke-emerald-500 stroke-2'
                     : (edge.edgeType || edge.label) === 'Wireless'
                     ? 'stroke-cyan-500 stroke-[1.5]'
-                    : 'stroke-slate-400 dark:stroke-slate-600 hover:stroke-blue-500 dark:hover:stroke-slate-400 stroke-2'
+                    : 'stroke-slate-400 dark:stroke-slate-600 stroke-2'
                 ]"
                 :stroke-dasharray="(edge.edgeType || edge.label) === 'VPN' ? '6,4' : (edge.edgeType || edge.label) === 'Wireless' ? '4,4' : 'none'"
                 fill="none"
@@ -1251,22 +1448,31 @@ onUnmounted(() => {
               <g
                 v-if="edge.valid && (edge.label || edge.edgeType)"
                 :transform="`translate(${edge.midX}, ${edge.midY})`"
-                class="cursor-pointer"
-                @click="handleDeleteEdge(edge.id)"
+                class="cursor-pointer select-none"
+                @click.stop="handleEdgeClick(edge)"
+                @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
               >
                 <rect
-                  x="-28"
-                  y="-9"
-                  width="56"
-                  height="18"
-                  rx="9"
-                  class="fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1 shadow-sm"
+                  x="-30"
+                  y="-10"
+                  width="60"
+                  height="20"
+                  rx="10"
+                  :class="[
+                    'transition-colors shadow-sm',
+                    selectedEdge?.id === edge.id
+                      ? 'fill-blue-600 stroke-blue-400 stroke-1'
+                      : 'fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1 hover:stroke-blue-400'
+                  ]"
                 />
                 <text
                   x="0"
                   y="3.5"
                   text-anchor="middle"
-                  class="fill-slate-700 dark:fill-slate-300 text-[9px] font-mono font-medium pointer-events-none"
+                  :class="[
+                    'text-[9px] font-mono font-medium pointer-events-none',
+                    selectedEdge?.id === edge.id ? 'fill-white font-bold' : 'fill-slate-700 dark:fill-slate-300'
+                  ]"
                 >
                   {{ edge.label || edge.edgeType }}
                 </text>
@@ -1405,18 +1611,33 @@ onUnmounted(() => {
               <div
                 v-for="(conn, cIdx) in selectedNodeConnections"
                 :key="cIdx"
-                class="p-2 rounded bg-[#111317] border border-slate-800 flex items-center justify-between"
+                class="p-2 rounded-lg bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 flex items-center justify-between group hover:border-slate-300 dark:hover:border-slate-700 transition cursor-pointer"
+                @click="handleEdgeClick(conn.edge)"
+                title="Click to inspect this connection"
               >
-                <div class="overflow-hidden">
-                  <p class="text-xs font-medium text-slate-200 truncate">• {{ conn.peerName }}</p>
-                  <p class="text-[10px] text-slate-500 font-mono">({{ conn.edgeType }})</p>
+                <div class="overflow-hidden mr-2">
+                  <p class="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">• {{ conn.peerName }}</p>
+                  <div class="flex items-center gap-1 text-[10px] text-slate-500 font-mono">
+                    <span>{{ conn.edgeType }}</span>
+                    <span v-if="conn.edge.label && conn.edge.label !== conn.edgeType" class="text-slate-400 truncate">({{ conn.edge.label }})</span>
+                  </div>
                 </div>
-                <button
-                  @click="handleDeleteEdge(conn.edge.id)"
-                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 text-[10px] transition"
-                >
-                  Edit
-                </button>
+                <div class="flex items-center gap-1 shrink-0" @click.stop>
+                  <button
+                    @click="handleOpenEditEdge(conn.edge)"
+                    class="p-1 hover:text-slate-900 dark:hover:text-white text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition cursor-pointer"
+                    title="Edit Connection"
+                  >
+                    <Edit2 class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    @click="promptDeleteEdge(conn.edge)"
+                    class="p-1 hover:text-rose-500 text-slate-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
+                    title="Delete Connection"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
             <p v-else class="text-xs text-slate-500 italic">No direct connections attached.</p>
@@ -1464,19 +1685,114 @@ onUnmounted(() => {
         </div>
       </aside>
 
+      <!-- Selected Link / Connection Details Drawer -->
+      <aside
+        v-else-if="selectedEdge"
+        class="w-80 bg-white dark:bg-[#171a21] border-l border-slate-200 dark:border-slate-800 flex flex-col z-20 shrink-0 shadow-xl transition-all"
+      >
+        <!-- Drawer Header -->
+        <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2.5 overflow-hidden">
+            <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+              <Cable class="w-4 h-4" />
+            </div>
+            <div class="overflow-hidden">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide truncate">Connection Details</h3>
+              <p class="text-xs font-mono text-slate-500 dark:text-slate-400">{{ selectedEdge.edgeType || 'Ethernet' }} Link</p>
+            </div>
+          </div>
+          <button @click="selectedEdge = null" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Drawer Content -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+          <!-- Endpoints Card -->
+          <div class="space-y-2">
+            <h4 class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Connected Devices</h4>
+            
+            <!-- Source Node Box -->
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-2 overflow-hidden">
+                <component :is="getNodeIcon(selectedEdge.sourceNode?.deviceType)" class="w-4 h-4 text-slate-500 shrink-0" />
+                <div class="overflow-hidden">
+                  <p class="text-xs font-medium text-slate-900 dark:text-slate-200 truncate">{{ selectedEdge.sourceName || selectedEdge.sourceId }}</p>
+                  <p class="text-[10px] text-slate-500 font-mono">{{ selectedEdge.sourceIP || '-' }}</p>
+                </div>
+              </div>
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase font-mono font-semibold">Source</span>
+            </div>
+
+            <!-- Direction Indicator -->
+            <div class="flex items-center justify-center text-slate-400">
+              <ArrowUpDown class="w-3.5 h-3.5" />
+            </div>
+
+            <!-- Target Node Box -->
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-2 overflow-hidden">
+                <component :is="getNodeIcon(selectedEdge.targetNode?.deviceType)" class="w-4 h-4 text-slate-500 shrink-0" />
+                <div class="overflow-hidden">
+                  <p class="text-xs font-medium text-slate-900 dark:text-slate-200 truncate">{{ selectedEdge.targetName || selectedEdge.targetId }}</p>
+                  <p class="text-[10px] text-slate-500 font-mono">{{ selectedEdge.targetIP || '-' }}</p>
+                </div>
+              </div>
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase font-mono font-semibold">Target</span>
+            </div>
+          </div>
+
+          <!-- Attributes Table -->
+          <div class="space-y-2 font-mono">
+            <div class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
+              <span class="text-slate-500">Link Type</span>
+              <span class="font-bold text-slate-900 dark:text-slate-200 uppercase">{{ selectedEdge.edgeType || 'Ethernet' }}</span>
+            </div>
+            <div class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
+              <span class="text-slate-500">Label</span>
+              <span class="text-slate-700 dark:text-slate-300">{{ selectedEdge.label || '-' }}</span>
+            </div>
+            <div v-if="selectedEdge.id" class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
+              <span class="text-slate-500">Link ID</span>
+              <span class="text-slate-500 font-mono">#{{ selectedEdge.id }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Drawer Bottom Actions -->
+        <div class="p-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2 bg-slate-50 dark:bg-[#14161b]">
+          <button
+            @click="handleOpenEditEdge(selectedEdge)"
+            class="py-2 rounded bg-slate-200 hover:bg-slate-300 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold tracking-wide transition flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Edit2 class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <span>EDIT LINK</span>
+          </button>
+
+          <button
+            @click="promptDeleteEdge(selectedEdge)"
+            class="py-2 rounded bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold tracking-wide transition flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span>DELETE</span>
+          </button>
+        </div>
+      </aside>
+
     </div>
 
     <!-- ================================================================= -->
     <!-- RIGHT CLICK CONTEXT MENU -->
     <!-- ================================================================= -->
+    <!-- Node Right Click Context Menu -->
     <div
       v-if="contextMenu.visible && contextMenu.node"
-      class="fixed z-50 bg-[#171a21] border border-slate-700/80 rounded-xl py-1.5 w-48 shadow-2xl backdrop-blur-md text-xs font-sans"
+      class="fixed z-50 bg-white dark:bg-[#171a21] border border-slate-200 dark:border-slate-700/80 rounded-xl py-1.5 w-48 shadow-2xl backdrop-blur-md text-xs font-sans"
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
     >
       <button
-        @click="selectedNode = contextMenu.node; contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-300 hover:text-white hover:bg-slate-800 transition"
+        @click="selectedNode = contextMenu.node; selectedEdge = null; contextMenu.visible = false"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
       >
         <Eye class="w-3.5 h-3.5 text-slate-400" />
         <span>View Details</span>
@@ -1484,15 +1800,15 @@ onUnmounted(() => {
 
       <button
         @click="handleConnectSSHFromTopology(contextMenu.node); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-blue-400 hover:text-blue-300 hover:bg-slate-800 transition"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
       >
-        <Terminal class="w-3.5 h-3.5 text-blue-400" />
+        <Terminal class="w-3.5 h-3.5 text-blue-500" />
         <span>Open SSH Terminal</span>
       </button>
 
       <button
         @click="handleOpenEditDevice(contextMenu.node); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-300 hover:text-white hover:bg-slate-800 transition"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
       >
         <Edit2 class="w-3.5 h-3.5 text-slate-400" />
         <span>Edit Device</span>
@@ -1500,45 +1816,83 @@ onUnmounted(() => {
 
       <button
         @click="handleTriggerPing(contextMenu.node); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-slate-300 hover:text-white hover:bg-slate-800 transition"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
       >
         <span class="flex items-center gap-2">
-          <Activity class="w-3.5 h-3.5 text-emerald-400" />
+          <Activity class="w-3.5 h-3.5 text-emerald-500" />
           <span>Ping Device</span>
         </span>
         <span class="text-[10px] text-slate-500 font-mono">Ctrl+P</span>
       </button>
 
       <button
-        @click="linkForm.sourceId = contextMenu.node.id; isLinkModalOpen = true; contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-300 hover:text-white hover:bg-slate-800 transition border-t border-slate-800 mt-1 pt-1.5"
+        @click="linkForm.sourceId = contextMenu.node.id; handleOpenAddLink(); contextMenu.visible = false"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition border-t border-slate-100 dark:border-slate-800 mt-1 pt-1.5 cursor-pointer"
       >
-        <Cable class="w-3.5 h-3.5 text-cyan-400" />
+        <Cable class="w-3.5 h-3.5 text-cyan-500" />
         <span>Connect to...</span>
       </button>
 
       <button
         @click="handleRemoveDeviceFromCanvas(contextMenu.node.id); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-amber-400 hover:bg-amber-500/10 transition border-t border-slate-800 mt-1 pt-1.5"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition border-t border-slate-100 dark:border-slate-800 mt-1 pt-1.5 cursor-pointer"
         title="Remove node from active canvas sheet (device stays in sidebar inventory)"
       >
         <span class="flex items-center gap-2">
           <XCircle class="w-3.5 h-3.5" />
           <span>Remove from Canvas</span>
         </span>
-        <span class="text-[10px] text-amber-400/80 font-mono">Unplace</span>
+        <span class="text-[10px] text-amber-600/80 dark:text-amber-400/80 font-mono">Unplace</span>
       </button>
 
       <button
-        @click="handleDeleteDevice(contextMenu.node.id); contextMenu.visible = false"
-        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-rose-400 hover:bg-rose-500/10 transition"
+        @click="promptDeleteDevice(contextMenu.node.id); contextMenu.visible = false"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
         title="Permanently delete device from inventory"
       >
         <span class="flex items-center gap-2">
           <Trash2 class="w-3.5 h-3.5" />
           <span>Delete Permanently</span>
         </span>
-        <span class="text-[10px] text-rose-400 font-mono">Del</span>
+        <span class="text-[10px] text-rose-500/80 font-mono">Del</span>
+      </button>
+    </div>
+
+    <!-- Edge Right Click Context Menu -->
+    <div
+      v-if="edgeContextMenu.visible && edgeContextMenu.edge"
+      class="fixed z-50 bg-white dark:bg-[#171a21] border border-slate-200 dark:border-slate-700/80 rounded-xl py-1.5 w-52 shadow-2xl backdrop-blur-md text-xs font-sans"
+      :style="{ left: `${edgeContextMenu.x}px`, top: `${edgeContextMenu.y}px` }"
+    >
+      <div class="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
+        <span>{{ edgeContextMenu.edge.sourceName || 'Node' }} ↔ {{ edgeContextMenu.edge.targetName || 'Node' }}</span>
+      </div>
+
+      <button
+        @click="handleEdgeClick(edgeContextMenu.edge)"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+      >
+        <Eye class="w-3.5 h-3.5 text-slate-400" />
+        <span>View Details</span>
+      </button>
+
+      <button
+        @click="handleOpenEditEdge(edgeContextMenu.edge)"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+      >
+        <Edit2 class="w-3.5 h-3.5 text-slate-400" />
+        <span>Edit Link</span>
+      </button>
+
+      <button
+        @click="promptDeleteEdge(edgeContextMenu.edge)"
+        class="w-full px-3 py-1.5 text-left flex items-center justify-between text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition border-t border-slate-100 dark:border-slate-800 mt-1 pt-1.5 cursor-pointer"
+      >
+        <span class="flex items-center gap-2">
+          <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+          <span>Delete Link</span>
+        </span>
+        <span class="text-[10px] text-rose-500/80 font-mono">Del</span>
       </button>
     </div>
 
@@ -1724,8 +2078,8 @@ onUnmounted(() => {
             <button
               v-if="isEditDeviceModal && deviceForm.id"
               type="button"
-              @click="handleDeleteDevice(deviceForm.id); isEditDeviceModal = false"
-              class="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-medium rounded-lg text-xs transition"
+              @click="promptDeleteDevice(deviceForm.id); isEditDeviceModal = false"
+              class="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-medium rounded-lg text-xs transition cursor-pointer"
             >
               Delete Permanently
             </button>
@@ -1752,30 +2106,32 @@ onUnmounted(() => {
     </div>
 
     <!-- ================================================================= -->
-    <!-- MODAL: ADD LINK / CONNECTION -->
+    <!-- MODAL: ADD / EDIT LINK / CONNECTION -->
     <!-- ================================================================= -->
     <div
       v-if="isLinkModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
     >
-      <div class="bg-[#171a21] border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div class="bg-white dark:bg-[#171a21] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
           <div class="flex items-center gap-2">
-            <Cable class="w-4 h-4 text-cyan-400" />
-            <h3 class="text-sm font-bold text-white">Create Network Connection (Link)</h3>
+            <Cable class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              {{ isEditLink ? 'Edit Network Connection' : 'Create Network Connection' }}
+            </h3>
           </div>
-          <button @click="isLinkModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isLinkModalOpen = false" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded transition cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
         <form @submit.prevent="handleSaveLink" class="space-y-3 text-xs">
           <div>
-            <label class="block text-slate-400 mb-1">Source Device</label>
+            <label class="block text-slate-600 dark:text-slate-400 mb-1">Source Device</label>
             <select
               v-model="linkForm.sourceId"
               required
-              class="w-full bg-[#111317] border border-slate-700 rounded-lg px-3 py-2 text-white font-medium"
+              class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-medium focus:outline-none focus:border-brand-500"
             >
               <option value="" disabled>Select Source...</option>
               <option v-for="n in activeNodes" :key="n.id" :value="n.id">
@@ -1785,11 +2141,11 @@ onUnmounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1">Target Device</label>
+            <label class="block text-slate-600 dark:text-slate-400 mb-1">Target Device</label>
             <select
               v-model="linkForm.targetId"
               required
-              class="w-full bg-[#111317] border border-slate-700 rounded-lg px-3 py-2 text-white font-medium"
+              class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-medium focus:outline-none focus:border-brand-500"
             >
               <option value="" disabled>Select Target...</option>
               <option v-for="n in activeNodes" :key="n.id" :value="n.id">
@@ -1800,11 +2156,11 @@ onUnmounted(() => {
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1">Link Type</label>
+              <label class="block text-slate-600 dark:text-slate-400 mb-1">Link Type</label>
               <select
                 v-model="linkForm.edgeType"
-                @change="linkForm.label = linkForm.edgeType"
-                class="w-full bg-[#111317] border border-slate-700 rounded-lg px-3 py-2 text-white"
+                @change="onLinkTypeChange"
+                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-brand-500"
               >
                 <option value="Ethernet">Ethernet</option>
                 <option value="VPN">VPN</option>
@@ -1813,28 +2169,28 @@ onUnmounted(() => {
               </select>
             </div>
             <div>
-              <label class="block text-slate-400 mb-1">Label</label>
+              <label class="block text-slate-600 dark:text-slate-400 mb-1">Label</label>
               <input
                 v-model="linkForm.label"
-                class="w-full bg-[#111317] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
-                placeholder="Ethernet / VPN"
+                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-brand-500"
+                placeholder="Ethernet / VPN / Fiber"
               />
             </div>
           </div>
 
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
               @click="isLinkModalOpen = false"
-              class="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs"
+              class="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium cursor-pointer transition"
             >
               Cancel
             </button>
             <button
               type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition cursor-pointer shadow-sm"
             >
-              Save Link
+              {{ isEditLink ? 'Update Link' : 'Save Link' }}
             </button>
           </div>
         </form>
@@ -2039,6 +2395,48 @@ onUnmounted(() => {
     >
       <CheckCircle2 class="w-4 h-4 text-emerald-400" />
       <span>{{ syncToastMessage }}</span>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- HCP STANDARD DELETE CONFIRMATION MODAL -->
+    <!-- ================================================================= -->
+    <div
+      v-if="deleteModal.visible"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <!-- Circular Red Icon -->
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+
+        <!-- Title & Subtitle -->
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+            Delete {{ deleteModal.type === 'edge' ? 'Connection' : deleteModal.type === 'device' ? 'Device' : 'Sheet' }}?
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            {{ deleteModal.subtitle || `Are you sure you want to remove ${deleteModal.name}? This action cannot be undone.` }}
+          </p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="deleteModal.visible = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer transition"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeDelete"
+            :disabled="deleteModal.deleting"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ deleteModal.deleting ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
     </div>
 
   </div>

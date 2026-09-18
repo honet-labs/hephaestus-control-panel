@@ -193,6 +193,14 @@ func (r *TopologyRepository) SaveEdge(ctx context.Context, e domain.TopologyEdge
 		return err
 	}
 
+	if e.ID > 0 {
+		query := `UPDATE topology_edges 
+                  SET source_id = $1, target_id = $2, label = $3, source_label = $4, target_label = $5, edge_type = $6 
+                  WHERE id = $7`
+		_, err = pool.Exec(ctx, query, e.SourceID, e.TargetID, e.Label, e.SourceLabel, e.TargetLabel, e.EdgeType, e.ID)
+		return err
+	}
+
 	query := `INSERT INTO topology_edges (source_id, target_id, label, source_label, target_label, edge_type, sheet_id)
               VALUES ($1, $2, $3, $4, $5, $6, $7)
               ON CONFLICT (source_id, target_id, sheet_id) DO UPDATE SET
