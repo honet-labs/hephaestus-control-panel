@@ -735,7 +735,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="p-4 sm:p-6 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+  <div class="space-y-6 max-w-[1600px] mx-auto font-sans">
     <!-- Header Section -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>

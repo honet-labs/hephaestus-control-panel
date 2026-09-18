@@ -24,6 +24,10 @@ Setiap kali menambahkan halaman atau fitur baru di frontend (`web/`):
     </div>
   </div>
   ```
+- **Wadah Root Halaman (Keseragaman Margin & No Double Padding)**:
+  - Wadah layout utama (`AppLayout.vue`) sudah memiliki padding bawaan pada tag `<main>` (`p-3.5 sm:p-5 md:p-6`).
+  - Oleh karena itu, root `<div>` di setiap file halaman (`View.vue`) **DILARANG** menambahkan padding sendiri seperti `p-4 sm:p-6` atau `min-h-screen` karena akan menyebabkan padding atas berlipat ganda (*double padding*).
+  - Gunakan struktur standar root container: `<div class="space-y-6 max-w-7xl mx-auto font-sans">` (atau `max-w-[1600px]`). Hal ini memastikan jarak margin/padding top halaman selalu seragam dan presisi di seluruh fitur.
 
 ### Standard Delete Confirmation Modal (Konfirmasi Hapus Wajib Modal Popup)
 Setiap menu atau fitur di HCP jika ingin **MENGHAPUS (DELETE)** resource atau data apa pun:
