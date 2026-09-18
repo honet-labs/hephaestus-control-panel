@@ -1000,16 +1000,22 @@ const renderedEdges = computed(() => {
       }
     }
 
-    // Displace cubic bezier control points along normal vector
-    const cx1 = x1 + dx * 0.25 + nx * offset;
-    const cy1 = y1 + dy * 0.25 + ny * offset;
-    const cx2 = x1 + dx * 0.75 + nx * offset;
-    const cy2 = y1 + dy * 0.75 + ny * offset;
+    let path = '';
+    let midX = (x1 + x2) / 2;
+    let midY = (y1 + y2) / 2;
 
-    const path = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-    // Precise midpoint of cubic bezier at t = 0.5:
-    const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2;
-    const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2;
+    if (offset === 0) {
+      // Direct clean straight line for single links (perfect connection between device centers)
+      path = `M ${x1} ${y1} L ${x2} ${y2}`;
+    } else {
+      // Smooth quadratic bezier curve for parallel multi-links to fan them out cleanly
+      const ctrlX = midX + nx * offset * 1.5;
+      const ctrlY = midY + ny * offset * 1.5;
+      path = `M ${x1} ${y1} Q ${ctrlX} ${ctrlY} ${x2} ${y2}`;
+      // Midpoint on quadratic bezier at t = 0.5:
+      midX = 0.25 * x1 + 0.5 * ctrlX + 0.25 * x2;
+      midY = 0.25 * y1 + 0.5 * ctrlY + 0.25 * y2;
+    }
 
     return {
       ...edge,
@@ -1406,13 +1412,15 @@ onUnmounted(() => {
         <!-- SVG Rendering Plane with Transform Matrix -->
         <svg
           class="w-full h-full absolute inset-0 overflow-visible"
+          overflow="visible"
+          style="overflow: visible !important;"
           :style="{
             transform: `translate(${canvasTransform.x}px, ${canvasTransform.y}px) scale(${canvasTransform.scale})`,
             transformOrigin: '0 0'
           }"
         >
           <!-- 1. Render Links / Edges -->
-          <g class="edges-layer">
+          <g class="edges-layer" overflow="visible">
             <g v-for="edge in renderedEdges" :key="edge.renderKey" class="edge-group">
               <!-- Invisible Hit Area Path for easy click/right-click -->
               <path
@@ -1421,6 +1429,7 @@ onUnmounted(() => {
                 fill="none"
                 stroke="transparent"
                 stroke-width="16"
+                stroke-linecap="round"
                 class="cursor-pointer"
                 @click.stop="handleEdgeClick(edge)"
                 @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
@@ -1430,8 +1439,10 @@ onUnmounted(() => {
               <path
                 v-if="edge.valid"
                 :d="edge.path"
+                stroke-linecap="round"
+                stroke-linejoin="round"
                 :class="[
-                  'transition-all duration-150 pointer-events-none',
+                  'transition-colors duration-150 pointer-events-none',
                   selectedEdge?.id === edge.id
                     ? 'stroke-blue-500 dark:stroke-blue-400 stroke-[3.5]'
                     : (edge.edgeType || edge.label) === 'VPN'
