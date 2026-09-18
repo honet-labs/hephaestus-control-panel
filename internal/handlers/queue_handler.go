@@ -252,6 +252,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			LastUpdated: now.Add(-10 * time.Second),
 			Description: "Pattern matching, regex parser, and log structure transformation engine",
 			ModuleKey:   "Grok",
+		},
 		{
 			ID:          "srv-dataprepper-master",
 			Name:        "labs-hcp-master",
