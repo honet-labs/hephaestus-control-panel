@@ -57,6 +57,8 @@ interface ServiceItem {
   description: string;
   moduleKey: string;
   elapsedSec?: number;
+  threads: number;
+  queued: number;
 }
 
 interface LogEntry {
@@ -78,6 +80,8 @@ const services = ref<ServiceItem[]>([
     description: 'Periodic ICMP ping sweep, packet loss & device latency poller across subnets',
     moduleKey: 'Network',
     elapsedSec: 4,
+    threads: 4,
+    queued: 0,
   },
   {
     id: 'srv-opensearch',
@@ -88,6 +92,8 @@ const services = ref<ServiceItem[]>([
     description: 'Real-time OpenSearch cluster health, nodes performance stats, and shard telemetry',
     moduleKey: 'OpenSearch',
     elapsedSec: 5,
+    threads: 4,
+    queued: 1,
   },
   {
     id: 'srv-backup',
@@ -98,6 +104,8 @@ const services = ref<ServiceItem[]>([
     description: 'Scheduled automated database dumps, gzip compression, and cloud S3 archiving',
     moduleKey: 'Backup',
     elapsedSec: 18,
+    threads: 2,
+    queued: 0,
   },
   {
     id: 'srv-snmp',
@@ -108,6 +116,8 @@ const services = ref<ServiceItem[]>([
     description: 'SNMP v1/v2c/v3 trap listener, OID real-time query engine, and MIB dictionary compiler',
     moduleKey: 'SNMP',
     elapsedSec: 12,
+    threads: 2,
+    queued: 0,
   },
   {
     id: 'srv-discovery',
@@ -118,6 +128,8 @@ const services = ref<ServiceItem[]>([
     description: 'Automated network topology scanner, ARP lookup, and MAC address discovery daemon',
     moduleKey: 'Topology',
     elapsedSec: 6,
+    threads: 2,
+    queued: 0,
   },
   {
     id: 'srv-cron',
@@ -128,6 +140,8 @@ const services = ref<ServiceItem[]>([
     description: 'Robfig cron scheduler engine, periodic task dispatcher, and user session cleaner',
     moduleKey: 'Cron',
     elapsedSec: 8,
+    threads: 4,
+    queued: 0,
   },
   {
     id: 'srv-alert',
@@ -138,6 +152,8 @@ const services = ref<ServiceItem[]>([
     description: 'Real-time notification engine for Slack, Discord, Telegram, and Email alerts',
     moduleKey: 'Notification',
     elapsedSec: 15,
+    threads: 2,
+    queued: 0,
   },
   {
     id: 'srv-prometheus',
@@ -148,6 +164,8 @@ const services = ref<ServiceItem[]>([
     description: 'Periodic time-series metrics scraper for node_exporter, vCPUs, and RAM utilization',
     moduleKey: 'Prometheus',
     elapsedSec: 10,
+    threads: 4,
+    queued: 0,
   },
   {
     id: 'srv-worker',
@@ -158,6 +176,8 @@ const services = ref<ServiceItem[]>([
     description: 'Go goroutine worker pool executing background asynchronous jobs and queue dispatch',
     moduleKey: 'Queue',
     elapsedSec: 3,
+    threads: 5,
+    queued: 0,
   },
   {
     id: 'srv-grok',
@@ -168,6 +188,8 @@ const services = ref<ServiceItem[]>([
     description: 'High-throughput regex log parser extracting structured telemetry from raw log streams',
     moduleKey: 'Grok',
     elapsedSec: 22,
+    threads: 2,
+    queued: 0,
   },
   {
     id: 'srv-dataprepper',
@@ -178,6 +200,8 @@ const services = ref<ServiceItem[]>([
     description: 'Data Prepper YAML configuration validator, buffer health check, and sink router',
     moduleKey: 'DataPrepper',
     elapsedSec: 16,
+    threads: 2,
+    queued: 0,
   },
 ]);
 
@@ -828,14 +852,20 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 4 Core Columns Table -->
+      <!-- 5 Core Columns Table (including T/Q) -->
       <div class="bg-white dark:bg-[#1b1e26] border border-slate-300 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
         <table class="w-full text-left text-xs border-collapse">
           <thead class="bg-slate-100 dark:bg-[#20242e] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-300 dark:border-slate-800 select-none">
             <tr>
               <th class="py-3 px-4 w-36">Status Services</th>
               <th class="py-3 px-4">Nama Services</th>
-              <th class="py-3 px-4 w-44">Last Update</th>
+              <th class="py-3 px-4 w-28 text-center">
+                <div class="inline-flex items-center justify-center gap-1 cursor-help" title="Current threads / Queued tasks (Threads : Antrian)">
+                  <span>T/Q</span>
+                  <Info class="w-3 h-3 text-slate-400" />
+                </div>
+              </th>
+              <th class="py-3 px-4 w-40">Last Update</th>
               <th class="py-3 px-4 w-28 text-center">Actions</th>
             </tr>
           </thead>
@@ -861,18 +891,33 @@ onUnmounted(() => {
                 </div>
               </td>
 
-              <!-- 3. Last Update (Live Ticker) -->
+              <!-- 3. T/Q (Threads / Queued) -->
+              <td class="py-3 px-4 whitespace-nowrap text-center">
+                <div
+                  class="inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded font-mono text-xs font-semibold border transition"
+                  :class="srv.queued > 0
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 font-bold'
+                    : 'bg-slate-100 dark:bg-[#141824] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'"
+                  :title="`${srv.threads} Threads Concurrency / ${srv.queued} Queued Tasks`"
+                >
+                  <span>{{ srv.threads }}</span>
+                  <span class="text-slate-400 dark:text-slate-500 font-normal">:</span>
+                  <span :class="srv.queued > 0 ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'">{{ srv.queued }}</span>
+                </div>
+              </td>
+
+              <!-- 4. Last Update (Live Ticker) -->
               <td class="py-3 px-4 whitespace-nowrap text-xs font-mono text-slate-700 dark:text-slate-300 font-medium">
                 <span>{{ srv.updated }}</span>
               </td>
 
-              <!-- 4. Actions (View Log) -->
+              <!-- 5. Actions (View Log) -->
               <td class="py-3 px-4 text-center whitespace-nowrap">
                 <button
                   @click="openViewLogModal(srv)"
                   class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition inline-flex items-center gap-1.5 shadow-sm"
                 >
-                  <Terminal class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400" />
+                  <Terminal class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                   <span>View Log</span>
                 </button>
               </td>
