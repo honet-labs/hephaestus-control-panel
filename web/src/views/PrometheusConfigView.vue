@@ -320,7 +320,7 @@ onMounted(() => {
               :disabled="loading || !isLoaded"
               class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <Check class="w-3.5 h-3.5 text-emerald-500" />
+              <Check class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               <span>VALIDATE</span>
             </button>
 
@@ -329,7 +329,7 @@ onMounted(() => {
               :disabled="loading"
               class="flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
             >
-              <RotateCw class="w-3.5 h-3.5 text-amber-500" :class="{ 'animate-spin': loading }" />
+              <RotateCw class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': loading }" />
               <span>RESET</span>
             </button>
 

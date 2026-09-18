@@ -75,3 +75,23 @@ Setiap menu atau fitur di HCP jika ingin **MENGHAPUS (DELETE)** resource atau da
 - Pastikan semua elemen UI (termasuk editor kode YAML, gutter nomor baris, input, dan modal) memiliki styling kontras yang serasi dan terbaca jelas baik pada mode terang (`html.light`) maupun mode gelap (`dark`).
 - Jangan menetapkan warna gelap/hitam statis tanpa varian light mode.
 - Banner notifikasi feedback harus otomatis hilang (*auto-dismiss*) dalam 3 detik (`3000ms`).
+
+### Iconography & Emoticon Guidelines (Aturan Ikon dan Emoticon)
+Untuk menjaga tampilan HCP tetap profesional, bersih (*clean enterprise-grade*), dan konsisten:
+- **DILARANG MENGGUNAKAN EMOTICON / KARAKTER EMOJI**:
+  - Dilarang keras menggunakan emoticon atau karakter emoji Unicode (seperti 🚀, ⚙️, 🟢, 🔴, ⚠️, ✅, 📁, 💻, 📊, dsb.) pada judul halaman, label tombol aksi, card, badge/tag, pesan notifikasi/toast, maupun menu navigasi.
+  - Gunakan ikon SVG resmi dari `lucide-vue-next` jika elemen visual memang dibutuhkan.
+- **IKON HARUS BERSIH & MONOKROMATIK (Neutral Monochrome Icons)**:
+  - Hindari memberikan warna-warni cerah (`text-blue-500`, `text-blue-600`, `text-amber-500`, `text-purple-500`, `text-cyan-400`) pada ikon navigasi sidebar, tombol aksi toolbar (seperti *Refresh*, *Restart*, *Presets*, *History*, *Edit*, *Copy*), search bar, command palette, ataupun header card.
+  - Gunakan warna netral: `text-slate-400`, `text-slate-500`, `text-slate-600 dark:text-slate-400`, atau biarkan mewarisi `currentColor`.
+  - Ikon tombol hanya boleh berganti kontras saat hover atau active bersamaan dengan teks induknya (`group-hover:text-...` atau warna standar teks tombol).
+- **DILARANG MENAMBAHKAN BULLET DOT BERWARNA DEKORATIF**:
+  - Jangan menambahkan bulatan/dot berwarna (`bg-blue-600`, `bg-[#4274D9]`, dsb.) di samping judul halaman, breadcrumb top navigation bar, maupun link submenu sidebar.
+  - Gunakan indentasi vertikal (`pl-6`), border tipis netral (`border-l border-slate-200 dark:border-[#1b2234]`), atau teks bersih.
+- **PENGECUALIAN WARNA HANYA UNTUK STATUS SEMANTIK KRITIS (Critical Semantic Only)**:
+  - Warna (hijau, merah, kuning/amber) **HANYA** boleh digunakan secara terbatas untuk indikator status sistem nyata:
+    - Dot status koneksi host/agent: Aktif/Healthy (`emerald-500`), Failed/Down (`rose-500`), Inactive/Unreachable (`slate-400` / `amber-500`).
+    - Badge status teks (misal badge `ACTIVE` hijau, `FAILED` merah).
+    - Tombol aksi destruktif permanen (misal tombol Hapus berwarna merah `text-rose-600` / `bg-rose-600`).
+    - Banner notifikasi feedback (Success -> border hijau, Error -> border merah).
+  - Di luar status semantik di atas, seluruh komponen UI dan ikon wajib menggunakan palet monokromatik netral.
