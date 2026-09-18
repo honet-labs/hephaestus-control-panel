@@ -237,12 +237,12 @@ onUnmounted(() => {
             to="/"
             :class="[
               route.path === '/'
-                ? 'bg-slate-100 text-slate-900 border-slate-200 font-semibold dark:bg-[#151d2e] dark:text-white dark:border-[#243046] shadow-xs'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-xs'
                 : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <LayoutDashboard class="w-4 h-4 shrink-0 transition" :class="route.path === '/' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+            <LayoutDashboard class="w-4 h-4 shrink-0 transition" :class="route.path === '/' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             <span>Overview</span>
           </router-link>
 
@@ -252,12 +252,12 @@ onUnmounted(() => {
             to="/connections"
             :class="[
               route.path === '/connections'
-                ? 'bg-slate-100 text-slate-900 border-slate-200 font-semibold dark:bg-[#151d2e] dark:text-white dark:border-[#243046] shadow-xs'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-xs'
                 : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+            <Link2 class="w-4 h-4 shrink-0 transition" :class="route.path === '/connections' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             <span>Connections</span>
           </router-link>
 
@@ -267,16 +267,16 @@ onUnmounted(() => {
               @click="isServerOpen = !isServerOpen"
               :class="[
                 isServerActive
-                  ? 'text-slate-900 dark:text-white font-semibold bg-slate-100/80 dark:bg-[#151d2e] border-slate-200 dark:border-[#243046] shadow-xs'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Server class="w-4 h-4 shrink-0 transition" :class="isServerActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+                <Server class="w-4 h-4 shrink-0 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 <span>Server</span>
               </div>
-              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isServerActive ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Server Sub-Menu Items -->
@@ -286,7 +286,7 @@ onUnmounted(() => {
                 to="/inventory-server"
                 :class="[
                   (route.path === '/inventory-server' || route.path === '/inventory')
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -301,7 +301,7 @@ onUnmounted(() => {
                 @click="isMobileSidebarOpen = false"
                 :class="[
                   (route.path === '/remote-server' || route.path === '/remote-host')
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -317,16 +317,16 @@ onUnmounted(() => {
               @click="isNetworkingOpen = !isNetworkingOpen"
               :class="[
                 isNetworkingActive
-                  ? 'text-slate-900 dark:text-white font-semibold bg-slate-100/80 dark:bg-[#151d2e] border-slate-200 dark:border-[#243046] shadow-xs'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Network class="w-4 h-4 shrink-0 transition" :class="isNetworkingActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+                <Network class="w-4 h-4 shrink-0 transition" :class="isNetworkingActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 <span>Networking</span>
               </div>
-              <component :is="isNetworkingOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isNetworkingActive ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isNetworkingOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isNetworkingActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Networking Sub-Menu Items -->
@@ -338,7 +338,7 @@ onUnmounted(() => {
                 @click="isMobileSidebarOpen = false"
                 :class="[
                   route.path === '/network-topology'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -354,16 +354,16 @@ onUnmounted(() => {
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               :class="[
                 isRemoteConfigActive
-                  ? 'text-slate-900 dark:text-white font-semibold bg-slate-100/80 dark:bg-[#151d2e] border-slate-200 dark:border-[#243046] shadow-xs'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+                <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 <span>Remote Config</span>
               </div>
-              <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isRemoteConfigActive ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Remote Config Sub-Menu Items -->
@@ -373,7 +373,7 @@ onUnmounted(() => {
                 to="/dataprepper-config"
                 :class="[
                   route.path === '/dataprepper-config'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -386,7 +386,7 @@ onUnmounted(() => {
                 to="/prometheus-config"
                 :class="[
                   route.path === '/prometheus-config'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -399,7 +399,7 @@ onUnmounted(() => {
                 to="/opentelemetry-config"
                 :class="[
                   route.path === '/opentelemetry-config'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -415,16 +415,16 @@ onUnmounted(() => {
               @click="isToolsOpen = !isToolsOpen"
               :class="[
                 isToolsActive
-                  ? 'text-slate-900 dark:text-white font-semibold bg-slate-100/80 dark:bg-[#151d2e] border-slate-200 dark:border-[#243046] shadow-xs'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Wrench class="w-4 h-4 shrink-0 transition" :class="isToolsActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+                <Wrench class="w-4 h-4 shrink-0 transition" :class="isToolsActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 <span>Tools</span>
               </div>
-              <component :is="isToolsOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isToolsActive ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isToolsOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isToolsActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Tools Sub-Menu Items -->
@@ -434,7 +434,7 @@ onUnmounted(() => {
                 to="/snmp"
                 :class="[
                   route.path === '/snmp'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -447,7 +447,7 @@ onUnmounted(() => {
                 to="/grok-debugger"
                 :class="[
                   route.path === '/grok-debugger'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -460,7 +460,7 @@ onUnmounted(() => {
                 to="/backup"
                 :class="[
                   route.path === '/backup'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -476,16 +476,16 @@ onUnmounted(() => {
               @click="isMonitoringOpen = !isMonitoringOpen"
               :class="[
                 isMonitoringActive
-                  ? 'text-slate-900 dark:text-white font-semibold bg-slate-100/80 dark:bg-[#151d2e] border-slate-200 dark:border-[#243046] shadow-xs'
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
                 'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Activity class="w-4 h-4 shrink-0 transition" :class="isMonitoringActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+                <Activity class="w-4 h-4 shrink-0 transition" :class="isMonitoringActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 <span>Monitoring</span>
               </div>
-              <component :is="isMonitoringOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isMonitoringActive ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isMonitoringOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isMonitoringActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
             <!-- Monitoring Sub-Menu Items -->
@@ -497,7 +497,7 @@ onUnmounted(() => {
                 @click="isMobileSidebarOpen = false"
                 :class="[
                   route.path === '/opensearch-cluster'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -510,7 +510,7 @@ onUnmounted(() => {
                 to="/slideshow"
                 :class="[
                   route.path === '/slideshow'
-                    ? 'text-slate-900 dark:text-white font-semibold bg-slate-100 dark:bg-[#151d2e]'
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
@@ -526,15 +526,14 @@ onUnmounted(() => {
             to="/settings"
             :class="[
               route.path === '/settings'
-                ? 'bg-slate-100 text-slate-900 border-slate-200 font-semibold dark:bg-[#151d2e] dark:text-white dark:border-[#243046] shadow-xs'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-xs'
                 : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
               'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
             ]"
           >
-            <Settings class="w-4 h-4 shrink-0 transition" :class="route.path === '/settings' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'" />
+            <Settings class="w-4 h-4 shrink-0 transition" :class="route.path === '/settings' ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             <span>System Settings</span>
           </router-link>
-
         </nav>
       </div>
 

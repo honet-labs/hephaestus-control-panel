@@ -1227,7 +1227,8 @@ html.light aside nav .space-y-1 a:not([class*="text-blue"]):not([class*="bg-blue
 }
 
 html.light aside nav .space-y-1 a[class*="text-blue"],
-html.light aside nav .space-y-1 a[class*="bg-blue"] {
+html.light aside nav .space-y-1 a[class*="bg-blue"],
+html.light aside nav .space-y-1 a.router-link-exact-active {
   color: #1d4ed8 !important;
   background-color: #eff6ff !important;
   font-weight: 600 !important;
