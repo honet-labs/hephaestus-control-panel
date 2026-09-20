@@ -23,6 +23,7 @@ import {
   PanelLeftOpen,
   Search,
   Boxes,
+  Server,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -36,6 +37,12 @@ const isInfrastructureOpen = ref(
   route.path.startsWith('/remote-server') ||
   route.path.startsWith('/remote-host') ||
   route.path.startsWith('/infrastructure')
+);
+const isServerSubOpen = ref(
+  route.path.startsWith('/inventory-server') ||
+  route.path.startsWith('/inventory') ||
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
 );
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
 const isRemoteConfigOpen = ref(
@@ -61,6 +68,12 @@ const isInfrastructureActive = computed(() =>
   route.path.startsWith('/remote-server') ||
   route.path.startsWith('/remote-host') ||
   route.path.startsWith('/infrastructure')
+);
+const isServerSubActive = computed(() =>
+  route.path.startsWith('/inventory-server') ||
+  route.path.startsWith('/inventory') ||
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
 );
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology'));
 const isRemoteConfigActive = computed(() =>
@@ -119,9 +132,11 @@ watch(
       newPath.startsWith('/inventory-server') ||
       newPath.startsWith('/inventory') ||
       newPath.startsWith('/remote-server') ||
-      newPath.startsWith('/remote-host') ||
-      newPath.startsWith('/infrastructure')
+      newPath.startsWith('/remote-host')
     ) {
+      isInfrastructureOpen.value = true;
+      isServerSubOpen.value = true;
+    } else if (newPath.startsWith('/infrastructure')) {
       isInfrastructureOpen.value = true;
     }
     if (newPath.startsWith('/network-topology')) {
@@ -277,7 +292,7 @@ onUnmounted(() => {
             <span>Connections</span>
           </router-link>
 
-          <!-- 3. Infrastructure (Accordion - Merged with Server) -->
+          <!-- 3. Infrastructure (Accordion) -->
           <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
@@ -296,35 +311,58 @@ onUnmounted(() => {
             </button>
 
             <!-- Infrastructure Sub-Menu Items -->
-            <div v-show="isInfrastructureOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <router-link
-                v-if="authStore.can('connections', 'read')"
-                to="/inventory-server"
-                :class="[
-                  (route.path === '/inventory-server' || route.path === '/inventory')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>Inventory Server</span>
-              </router-link>
+            <div v-show="isInfrastructureOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <!-- Sub-group: Server (Collapsible Sub-menu) -->
+              <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
+                <button
+                  @click="isServerSubOpen = !isServerSubOpen"
+                  :class="[
+                    isServerSubActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Server class="w-3.5 h-3.5 shrink-0 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>Server</span>
+                  </div>
+                  <component :is="isServerSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
 
-              <a
-                v-if="authStore.can('remote_servers', 'read')"
-                href="/remote-server"
-                target="_blank"
-                @click="isMobileSidebarOpen = false"
-                :class="[
-                  (route.path === '/remote-server' || route.path === '/remote-host')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>Remote Server</span>
-              </a>
+                <!-- Sub-sub-menu items under Server -->
+                <div v-show="isServerSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <router-link
+                    v-if="authStore.can('connections', 'read')"
+                    to="/inventory-server"
+                    :class="[
+                      (route.path === '/inventory-server' || route.path === '/inventory')
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>Inventory Server</span>
+                  </router-link>
 
+                  <a
+                    v-if="authStore.can('remote_servers', 'read')"
+                    href="/remote-server"
+                    target="_blank"
+                    @click="isMobileSidebarOpen = false"
+                    :class="[
+                      (route.path === '/remote-server' || route.path === '/remote-host')
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>Remote Server</span>
+                  </a>
+                </div>
+              </div>
+
+              <!-- Management Containers -->
               <a
                 v-if="authStore.can('infrastructure', 'read')"
                 href="/infrastructure/containers"
