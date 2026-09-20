@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
@@ -303,6 +304,27 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	})
 }
 
+// GetContainer retrieves details of a specific container
+func (h *DockerHandler) GetContainer(c *gin.Context) {
+	id := c.Param("id")
+	connectionID := c.Query("connectionId")
+
+	containers, err := h.dockerService.ListContainers(c.Request.Context(), connectionID, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	for _, ct := range containers {
+		if ct.ID == id || (len(id) >= 8 && strings.HasPrefix(ct.ID, id)) {
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": ct})
+			return
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Container not found"})
+}
+
 func (h *DockerHandler) StartContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
@@ -493,3 +515,21 @@ func (h *DockerHandler) GetSystemInfo(c *gin.Context) {
 		"data":    info,
 	})
 }
+
+// Aliases for route flexibility
+func (h *DockerHandler) DeleteContainer(c *gin.Context) {
+	h.RemoveContainer(c)
+}
+
+func (h *DockerHandler) GetLogs(c *gin.Context) {
+	h.GetContainerLogs(c)
+}
+
+func (h *DockerHandler) GetStats(c *gin.Context) {
+	h.GetContainerStats(c)
+}
+
+func (h *DockerHandler) DeleteImage(c *gin.Context) {
+	h.RemoveImage(c)
+}
+
