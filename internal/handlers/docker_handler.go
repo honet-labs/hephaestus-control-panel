@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
