@@ -42,6 +42,16 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/security/vaultwarden',
+      name: 'vaultwarden',
+      component: () => import('../views/VaultwardenView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/vaultwarden',
+      redirect: '/security/vaultwarden',
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },

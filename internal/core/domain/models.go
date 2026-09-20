@@ -491,3 +491,43 @@ type NotificationPayload struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// ==================== VAULTWARDEN / BITWARDEN DOMAIN ====================
+
+type VaultwardenConfig struct {
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	ServerURL      string                `json:"serverUrl"`
+	Email          string                `json:"email"`
+	MasterPassword string                `json:"masterPassword,omitempty"`
+	IsActive       bool                  `json:"isActive"`
+	LastSyncedAt   *time.Time            `json:"lastSyncedAt,omitempty"`
+	CachedCiphers  []VaultCredentialItem `json:"cachedCiphers,omitempty"`
+	CreatedAt      time.Time             `json:"createdAt"`
+	UpdatedAt      time.Time             `json:"updatedAt"`
+}
+
+type VaultCredentialItem struct {
+	ID           string    `json:"id"`
+	FolderID     *string   `json:"folderId,omitempty"`
+	FolderName   string    `json:"folderName,omitempty"`
+	Name         string    `json:"name"`
+	Type         int       `json:"type"` // 1 = Login, 2 = Secure Note, 3 = Card, 4 = Identity
+	TypeLabel    string    `json:"typeLabel"`
+	Username     string    `json:"username"`
+	Password     string    `json:"password"`
+	Notes        string    `json:"notes,omitempty"`
+	URIs         []string  `json:"uris,omitempty"`
+	TOTP         string    `json:"totp,omitempty"`
+	RevisionDate time.Time `json:"revisionDate"`
+}
+
+type VaultSyncResponse struct {
+	Success      bool                  `json:"success"`
+	Message      string                `json:"message"`
+	TotalItems   int                   `json:"totalItems"`
+	LoginsCount  int                   `json:"loginsCount"`
+	NotesCount   int                   `json:"notesCount"`
+	LastSyncedAt time.Time             `json:"lastSyncedAt"`
+	Items        []VaultCredentialItem `json:"items"`
+}

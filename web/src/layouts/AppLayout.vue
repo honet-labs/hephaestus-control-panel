@@ -11,6 +11,7 @@ import {
   Network,
   Sliders,
   Wrench,
+  Shield,
   Activity,
   Settings,
   LogOut,
@@ -50,6 +51,7 @@ const isMonitoringOpen = ref(
   route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
 );
+const isSecurityOpen = ref(route.path.startsWith('/security'));
 
 // Active indicators for parent accordion headers
 const isServerActive = computed(() =>
@@ -69,6 +71,7 @@ const isToolsActive = computed(() =>
   route.path.startsWith('/grok-debugger') ||
   route.path.startsWith('/backup')
 );
+const isSecurityActive = computed(() => route.path.startsWith('/security'));
 const isMonitoringActive = computed(() =>
   route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
@@ -98,6 +101,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/snmp')) return 'SNMP Browser';
   if (route.path.startsWith('/grok-debugger')) return 'Grok Debugger';
   if (route.path.startsWith('/backup')) return 'Backup Manager';
+  if (route.path.startsWith('/security/vaultwarden')) return 'Vaultwarden';
   if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
   if (route.path.startsWith('/slideshow')) return 'Slide Show';
   if (route.path.startsWith('/settings')) return 'System Settings';
@@ -119,6 +123,9 @@ watch(
     }
     if (newPath.startsWith('/snmp') || newPath.startsWith('/grok-debugger') || newPath.startsWith('/backup')) {
       isToolsOpen.value = true;
+    }
+    if (newPath.startsWith('/security')) {
+      isSecurityOpen.value = true;
     }
     if (newPath.startsWith('/opensearch-cluster') || newPath.startsWith('/slideshow')) {
       isMonitoringOpen.value = true;
@@ -470,7 +477,44 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 7. Monitoring (Accordion) -->
+          <!-- 7. Security (Accordion) -->
+          <div v-if="authStore.can('security', 'read')">
+            <button
+              @click="isSecurityOpen = !isSecurityOpen"
+              :class="[
+                isSecurityActive
+                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
+                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border cursor-pointer'
+              ]"
+            >
+              <div class="flex items-center gap-3">
+                <Shield class="w-4 h-4 shrink-0 transition" :class="isSecurityActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                <span>Security</span>
+              </div>
+              <component :is="isSecurityOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isSecurityActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+            </button>
+
+            <!-- Security Sub-Menu Items -->
+            <div v-show="isSecurityOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <a
+                v-if="authStore.can('security', 'read')"
+                href="/security/vaultwarden"
+                target="_blank"
+                @click="isMobileSidebarOpen = false"
+                :class="[
+                  route.path.startsWith('/security/vaultwarden')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                ]"
+              >
+                <span>Vaultwarden</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- 8. Monitoring (Accordion) -->
           <div v-if="authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
             <button
               @click="isMonitoringOpen = !isMonitoringOpen"

@@ -70,6 +70,7 @@ func main() {
 	topologyRepo := repository.NewTopologyRepository()
 	backupRepo := repository.NewBackupRepository()
 	otelRepo := repository.NewOTelRepository()
+	vaultwardenRepo := repository.NewVaultwardenRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -91,6 +92,7 @@ func main() {
 	grokService := services.NewGrokService()
 	dpService := services.NewDataPrepperService(sshService)
 	otelService := services.NewOTelService(otelRepo, sshService)
+	vaultwardenService := services.NewVaultwardenService(vaultwardenRepo)
 	systemService := services.NewSystemService()
 
 	// 7. Initialize HTTP Handlers
@@ -106,6 +108,7 @@ func main() {
 	grokHandler := handlers.NewGrokHandler(grokService)
 	dpHandler := handlers.NewDataPrepperHandler(dpService)
 	otelHandler := handlers.NewOTelHandler(otelService, otelRepo)
+	vaultwardenHandler := handlers.NewVaultwardenHandler(vaultwardenService, vaultwardenRepo)
 	settingsHandler := handlers.NewSettingsHandler(configRepo, userRepo, systemService)
 	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
@@ -323,6 +326,14 @@ func main() {
 		api.GET("/monitoring-views", middleware.RequirePermission("slideshow", "read"), settingsHandler.ListMonitoringViews)
 		api.POST("/monitoring-views", middleware.RequirePermission("slideshow", "manage"), settingsHandler.SaveMonitoringView)
 		api.DELETE("/monitoring-views/:id", middleware.RequirePermission("slideshow", "manage"), settingsHandler.DeleteMonitoringView)
+
+		// Vaultwarden / Bitwarden E2EE Integration (Feature: security)
+		api.GET("/vaultwarden/config", middleware.RequirePermission("security", "read"), vaultwardenHandler.GetConfig)
+		api.POST("/vaultwarden/config", middleware.RequirePermission("security", "manage"), vaultwardenHandler.SaveConfig)
+		api.POST("/vaultwarden/test", middleware.RequirePermission("security", "read"), vaultwardenHandler.TestConnection)
+		api.GET("/vaultwarden/ciphers", middleware.RequirePermission("security", "read"), vaultwardenHandler.GetCiphers)
+		api.POST("/vaultwarden/sync", middleware.RequirePermission("security", "manage"), vaultwardenHandler.SyncVault)
+		api.DELETE("/vaultwarden/config", middleware.RequirePermission("security", "manage"), vaultwardenHandler.DeleteConfig)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)

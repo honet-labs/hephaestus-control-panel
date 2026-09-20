@@ -260,6 +260,19 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_otel_configs_ssh_host ON opentelemetry_configs(ssh_host);
 		CREATE INDEX IF NOT EXISTS idx_otel_config_history_config_id ON opentelemetry_config_history(otel_config_id);
 
+		CREATE TABLE IF NOT EXISTS vaultwarden_configs (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL DEFAULT 'Vaultwarden',
+			server_url TEXT NOT NULL,
+			email VARCHAR(255) NOT NULL,
+			master_password_encrypted TEXT NOT NULL,
+			is_active BOOLEAN DEFAULT true,
+			last_synced_at TIMESTAMP WITH TIME ZONE,
+			cached_ciphers JSONB DEFAULT '[]'::jsonb,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
 		UPDATE system_roles 
 		SET permissions = permissions || '{"opentelemetry_config": "manage"}'::jsonb 
 		WHERE name IN ('ADMIN', 'OPERATOR') AND NOT (permissions ? 'opentelemetry_config');
@@ -267,6 +280,14 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		UPDATE system_roles 
 		SET permissions = permissions || '{"opentelemetry_config": "read"}'::jsonb 
 		WHERE name = 'VIEWER' AND NOT (permissions ? 'opentelemetry_config');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"security": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR') AND NOT (permissions ? 'security');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"security": "read"}'::jsonb 
+		WHERE name = 'VIEWER' AND NOT (permissions ? 'security');
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 

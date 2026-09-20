@@ -355,6 +355,20 @@ CREATE TABLE IF NOT EXISTS opentelemetry_config_history (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 26. VaultwardenConfigs - Vaultwarden / Bitwarden service integration configuration
+CREATE TABLE IF NOT EXISTS vaultwarden_configs (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL DEFAULT 'Vaultwarden',
+    server_url TEXT NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    master_password_encrypted TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    cached_ciphers JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================================================
@@ -391,8 +405,8 @@ ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'
 
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "settings": "manage"}'::jsonb),
-    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "settings": "none"}'::jsonb)
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "settings": "manage"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "settings": "none"}'::jsonb)
 ON CONFLICT (name) DO UPDATE SET 
     permissions = EXCLUDED.permissions,
     description = EXCLUDED.description;
