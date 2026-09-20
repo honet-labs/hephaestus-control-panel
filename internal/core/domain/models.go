@@ -532,6 +532,16 @@ type VaultSyncResponse struct {
 	Items        []VaultCredentialItem `json:"items"`
 }
 
+type CreateVaultCipherRequest struct {
+	Type     int      `json:"type"` // 1 = Login, 2 = Secure Note
+	Name     string   `json:"name" binding:"required"`
+	Username string   `json:"username"`
+	Password string   `json:"password"`
+	URI      string   `json:"uri"`
+	Notes    string   `json:"notes"`
+	FolderID *string  `json:"folderId,omitempty"`
+}
+
 // ==================== DOCKER & CONTAINER INFRASTRUCTURE DOMAIN ====================
 
 type DockerConnection struct {

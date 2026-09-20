@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import {
@@ -22,7 +22,9 @@ import {
   Clock,
   Layers,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  RotateCcw
 } from 'lucide-vue-next';
 
 interface VaultCredentialItem {
@@ -72,7 +74,27 @@ const selectedType = ref('all');
 const showConfigModal = ref(false);
 const showDeleteModal = ref(false);
 const showDetailModal = ref(false);
+const showAddModal = ref(false);
+const showDeleteCipherModal = ref(false);
 const selectedItem = ref<VaultCredentialItem | null>(null);
+const cipherToDelete = ref<VaultCredentialItem | null>(null);
+const deletingCipher = ref(false);
+
+// Auto-sync state
+const autoSyncInterval = ref<number>(300); // 300s = 5 minutes default
+let autoSyncTimer: any = null;
+
+// Add Credential Form State
+const addForm = ref({
+  type: 1, // 1: Login, 2: Secure Note
+  name: '',
+  username: '',
+  password: '',
+  showPassword: true,
+  uri: '',
+  notes: '',
+});
+const addingCredential = ref(false);
 
 // Form State
 const formServerUrl = ref('');
@@ -204,26 +226,147 @@ const loadCiphers = async () => {
   }
 };
 
-const syncNow = async () => {
+const syncNow = async (silent = false) => {
   if (syncing.value) return;
   syncing.value = true;
   try {
     const res = await axios.post('/api/v1/vaultwarden/sync');
     if (res.data.success) {
-      triggerToast(res.data.data?.message || 'Vault synchronized successfully');
+      if (!silent) {
+        triggerToast(res.data.data?.message || 'Vault synchronized successfully');
+      }
       if (res.data.data?.items) {
         ciphers.value = res.data.data.items;
       }
       if (config.value && res.data.data?.lastSyncedAt) {
         config.value.lastSyncedAt = res.data.data.lastSyncedAt;
       }
-    } else {
+    } else if (!silent) {
       triggerToast(res.data.error || 'Failed to synchronize vault', 'error');
     }
   } catch (err: any) {
-    triggerToast(err.response?.data?.error || 'Sync request failed', 'error');
+    if (!silent) {
+      triggerToast(err.response?.data?.error || 'Sync request failed', 'error');
+    }
   } finally {
     syncing.value = false;
+  }
+};
+
+const startAutoSync = () => {
+  if (autoSyncTimer) {
+    clearInterval(autoSyncTimer);
+    autoSyncTimer = null;
+  }
+  if (autoSyncInterval.value > 0) {
+    autoSyncTimer = setInterval(() => {
+      if (isConfigured.value) {
+        syncNow(true);
+      }
+    }, autoSyncInterval.value * 1000);
+  }
+};
+
+watch(autoSyncInterval, () => {
+  startAutoSync();
+});
+
+const generatePassword = () => {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const digits = '0123456789';
+  const symbols = '!@#$%^&*()-_=+';
+  const all = upper + lower + digits + symbols;
+
+  let pwd = '';
+  const array = new Uint8Array(16);
+  window.crypto.getRandomValues(array);
+  
+  pwd += upper[array[0] % upper.length];
+  pwd += lower[array[1] % lower.length];
+  pwd += digits[array[2] % digits.length];
+  pwd += symbols[array[3] % symbols.length];
+
+  for (let i = 4; i < 16; i++) {
+    pwd += all[array[i] % all.length];
+  }
+
+  addForm.value.password = pwd.split('').sort(() => 0.5 - Math.random()).join('');
+  addForm.value.showPassword = true;
+};
+
+const handleCreateCredential = async () => {
+  if (!addForm.value.name.trim()) {
+    triggerToast('Credential name is required', 'error');
+    return;
+  }
+
+  addingCredential.value = true;
+  try {
+    const res = await axios.post('/api/v1/vaultwarden/ciphers', {
+      type: addForm.value.type,
+      name: addForm.value.name.trim(),
+      username: addForm.value.username.trim(),
+      password: addForm.value.password,
+      uri: addForm.value.uri.trim(),
+      notes: addForm.value.notes.trim(),
+    });
+
+    if (res.data.success) {
+      triggerToast(`Credential "${addForm.value.name}" added to Vaultwarden successfully!`);
+      showAddModal.value = false;
+      addForm.value = {
+        type: 1,
+        name: '',
+        username: '',
+        password: '',
+        showPassword: true,
+        uri: '',
+        notes: '',
+      };
+      await loadCiphers();
+      if (config.value) {
+        config.value.lastSyncedAt = new Date().toISOString();
+      }
+    } else {
+      triggerToast(res.data.error || 'Failed to create credential', 'error');
+    }
+  } catch (err: any) {
+    triggerToast(err.response?.data?.error || 'Failed to save credential to Vaultwarden', 'error');
+  } finally {
+    addingCredential.value = false;
+  }
+};
+
+const confirmDeleteCipher = (item: VaultCredentialItem) => {
+  cipherToDelete.value = item;
+  showDeleteCipherModal.value = true;
+};
+
+const executeDeleteCipher = async () => {
+  if (!cipherToDelete.value) return;
+  deletingCipher.value = true;
+  const target = cipherToDelete.value;
+  try {
+    const res = await axios.delete(`/api/v1/vaultwarden/ciphers/${target.id}`);
+    if (res.data.success) {
+      triggerToast(`Credential "${target.name}" removed from Vaultwarden`);
+      showDeleteCipherModal.value = false;
+      cipherToDelete.value = null;
+      if (selectedItem.value?.id === target.id) {
+        showDetailModal.value = false;
+      }
+      await loadCiphers();
+      if (config.value) {
+        config.value.lastSyncedAt = new Date().toISOString();
+      }
+    } else {
+      triggerToast(res.data.error || 'Failed to delete credential', 'error');
+    }
+  } catch (err: any) {
+    triggerToast(err.response?.data?.error || 'Failed to delete credential', 'error');
+  } finally {
+    deletingCipher.value = false;
   }
 };
 
@@ -325,8 +468,24 @@ const openDetail = (item: VaultCredentialItem) => {
   showDetailModal.value = true;
 };
 
-onMounted(() => {
-  loadConfig();
+const onWindowFocus = () => {
+  if (isConfigured.value && !syncing.value) {
+    syncNow(true);
+  }
+};
+
+onMounted(async () => {
+  await loadConfig();
+  if (isConfigured.value) {
+    syncNow(true);
+  }
+  startAutoSync();
+  window.addEventListener('focus', onWindowFocus);
+});
+
+onUnmounted(() => {
+  if (autoSyncTimer) clearInterval(autoSyncTimer);
+  window.removeEventListener('focus', onWindowFocus);
 });
 </script>
 
@@ -340,7 +499,7 @@ onMounted(() => {
           class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1b2234] hover:bg-slate-50 dark:hover:bg-[#121826] transition cursor-pointer"
         >
           <ArrowLeft class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-          <span>HCP Dashboard</span>
+          <span>Back to Dashboard</span>
         </a>
         <div class="h-4 w-px bg-slate-200 dark:bg-[#1b2234]"></div>
         <div class="flex items-center gap-2">
@@ -355,14 +514,30 @@ onMounted(() => {
       </div>
 
       <div class="flex items-center gap-2">
+        <!-- Connected status -->
         <div v-if="isConfigured" class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] text-[11px] text-slate-500 dark:text-slate-400">
           <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
           <span>Connected</span>
         </div>
 
+        <!-- Auto-sync selector -->
+        <div v-if="isConfigured" class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] text-[11px] text-slate-600 dark:text-slate-400">
+          <Clock class="w-3 h-3 text-slate-400" />
+          <span>Auto-sync:</span>
+          <select
+            v-model.number="autoSyncInterval"
+            class="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
+          >
+            <option :value="60" class="bg-white dark:bg-[#0c101a]">1m</option>
+            <option :value="300" class="bg-white dark:bg-[#0c101a]">5m</option>
+            <option :value="900" class="bg-white dark:bg-[#0c101a]">15m</option>
+            <option :value="0" class="bg-white dark:bg-[#0c101a]">Off</option>
+          </select>
+        </div>
+
         <button
           v-if="isConfigured"
-          @click="syncNow"
+          @click="syncNow(false)"
           :disabled="syncing"
           class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] hover:bg-slate-50 dark:hover:bg-[#1a2336] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer disabled:opacity-50"
         >
@@ -415,10 +590,17 @@ onMounted(() => {
           </p>
         </div>
 
-        <div v-if="isConfigured" class="flex items-center gap-2 shrink-0">
+        <div v-if="isConfigured" class="flex items-center gap-3 shrink-0">
           <span class="text-xs text-slate-500 dark:text-slate-400">
             Last sync: <strong class="text-slate-800 dark:text-slate-200">{{ formatRelativeTime(config?.lastSyncedAt) }}</strong>
           </span>
+          <button
+            @click="showAddModal = true"
+            class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Add Credential</span>
+          </button>
         </div>
       </div>
 
@@ -634,12 +816,21 @@ onMounted(() => {
             <!-- Card Actions -->
             <div class="pt-1 flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100 dark:border-[#161d2d]">
               <span>Modified: {{ formatRelativeTime(item.revisionDate) }}</span>
-              <button
-                @click="openDetail(item)"
-                class="hover:text-slate-900 dark:hover:text-white text-blue-600 dark:text-[#95CCDD] font-semibold cursor-pointer"
-              >
-                Details
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  @click="openDetail(item)"
+                  class="hover:text-slate-900 dark:hover:text-white text-blue-600 dark:text-[#95CCDD] font-semibold cursor-pointer"
+                >
+                  Details
+                </button>
+                <button
+                  @click="confirmDeleteCipher(item)"
+                  class="text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5"
+                  title="Delete Credential"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -823,7 +1014,14 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="pt-2 flex justify-end">
+        <div class="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-[#1b2234]">
+          <button
+            @click="showDetailModal = false; confirmDeleteCipher(selectedItem)"
+            class="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+            <span>Delete Credential</span>
+          </button>
           <button
             @click="showDetailModal = false"
             class="px-4 py-1.5 bg-slate-100 dark:bg-[#1b2339] hover:bg-slate-200 dark:hover:bg-[#252f4c] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
@@ -834,7 +1032,182 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Standard Delete Confirmation Modal (Conforming strictly to AGENTS.md) -->
+    <!-- Modal: Add New Credential -->
+    <div
+      v-if="showAddModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <div class="flex items-center gap-2">
+            <Key class="w-4 h-4 text-blue-600 dark:text-[#95CCDD]" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Credential to Vaultwarden</h3>
+          </div>
+          <button @click="showAddModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <form @submit.prevent="handleCreateCredential" class="space-y-3.5 text-xs">
+          <!-- Type selector -->
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Item Type</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="addForm.type = 1"
+                :class="[
+                  'py-1.5 px-3 rounded-lg border text-xs font-medium transition cursor-pointer text-center',
+                  addForm.type === 1
+                    ? 'bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'bg-slate-50 dark:bg-[#151c2d] border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400'
+                ]"
+              >
+                Login Account
+              </button>
+              <button
+                type="button"
+                @click="addForm.type = 2"
+                :class="[
+                  'py-1.5 px-3 rounded-lg border text-xs font-medium transition cursor-pointer text-center',
+                  addForm.type === 2
+                    ? 'bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'bg-slate-50 dark:bg-[#151c2d] border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400'
+                ]"
+              >
+                Secure Note
+              </button>
+            </div>
+          </div>
+
+          <!-- Name -->
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Name *</label>
+            <input
+              v-model="addForm.name"
+              required
+              placeholder="e.g. Proxmox VE, Production Database, Router Mikrotik"
+              class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs"
+            />
+          </div>
+
+          <!-- Login Specific Fields -->
+          <template v-if="addForm.type === 1">
+            <div>
+              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Username / Email</label>
+              <input
+                v-model="addForm.username"
+                placeholder="e.g. administrator, root, user@example.com"
+                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Password</label>
+                <button
+                  type="button"
+                  @click="generatePassword"
+                  class="text-[11px] text-blue-600 dark:text-[#95CCDD] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw class="w-3 h-3" />
+                  <span>Generate Password</span>
+                </button>
+              </div>
+              <div class="relative">
+                <input
+                  v-model="addForm.password"
+                  :type="addForm.showPassword ? 'text' : 'password'"
+                  placeholder="••••••••••••••••"
+                  class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg pl-3 pr-16 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  @click="addForm.showPassword = !addForm.showPassword"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 cursor-pointer"
+                >
+                  <EyeOff v-if="addForm.showPassword" class="w-3.5 h-3.5" />
+                  <Eye v-else class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Web URL / URI</label>
+              <input
+                v-model="addForm.uri"
+                placeholder="https://10.20.3.1:8006/"
+                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+              />
+            </div>
+          </template>
+
+          <!-- Notes -->
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Notes / Description</label>
+            <textarea
+              v-model="addForm.notes"
+              rows="3"
+              placeholder="Additional notes, recovery codes, server details..."
+              class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg p-3 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+            ></textarea>
+          </div>
+
+          <div class="pt-3 border-t border-slate-200 dark:border-[#1b2234] flex items-center justify-end gap-2">
+            <button
+              type="button"
+              @click="showAddModal = false"
+              class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="addingCredential"
+              class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <RefreshCw v-if="addingCredential" class="w-3.5 h-3.5 animate-spin" />
+              <span>{{ addingCredential ? 'Encrypting & Saving...' : 'Save Credential' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Standard Delete Confirmation Modal for Credential (Conforming strictly to AGENTS.md) -->
+    <div
+      v-if="showDeleteCipherModal && cipherToDelete"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Credential?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ cipherToDelete.name }}</strong> from Vaultwarden? This action cannot be undone.
+          </p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showDeleteCipherModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeDeleteCipher"
+            :disabled="deletingCipher"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ deletingCipher ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Standard Delete Confirmation Modal for Disconnect (Conforming strictly to AGENTS.md) -->
     <div
       v-if="showDeleteModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"

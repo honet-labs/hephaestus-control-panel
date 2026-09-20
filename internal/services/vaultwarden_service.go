@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
@@ -41,6 +42,31 @@ func NewVaultwardenService(repo *repository.VaultwardenRepository) *VaultwardenS
 			Timeout: 20 * time.Second,
 		},
 	}
+}
+
+// StartBackgroundSync starts periodic background synchronization every 5 minutes
+func (s *VaultwardenService) StartBackgroundSync(stopChan <-chan struct{}) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopChan:
+				return
+			case <-ticker.C:
+				cfg, err := s.repo.GetConfig(context.Background())
+				if err == nil && cfg != nil && cfg.ServerURL != "" && cfg.MasterPassword != "" && cfg.IsActive {
+					_, syncErr := s.SyncVault(context.Background())
+					if syncErr != nil {
+						logger.Warn("Vaultwarden", fmt.Sprintf("Background auto-sync failed: %v", syncErr))
+					} else {
+						logger.Info("Vaultwarden", "Background auto-sync completed successfully.")
+					}
+				}
+			}
+		}
+	}()
 }
 
 // -------------------------------------------------------------
@@ -222,11 +248,14 @@ func (s *VaultwardenService) GetCiphers(ctx context.Context, keyword, folder str
 	return filtered, nil
 }
 
-// -------------------------------------------------------------
-// Bitwarden E2EE Decryption Engine
-// -------------------------------------------------------------
+type vwAuthContext struct {
+	ServerURL   string
+	AccessToken string
+	UserEncKey  []byte
+	UserMacKey  []byte
+}
 
-func (s *VaultwardenService) fetchAndDecryptVault(ctx context.Context, serverURL, email, password string) ([]domain.VaultCredentialItem, error) {
+func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverURL, email, password string) (*vwAuthContext, error) {
 	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	email = strings.ToLower(strings.TrimSpace(email))
 
@@ -257,11 +286,28 @@ func (s *VaultwardenService) fetchAndDecryptVault(ctx context.Context, serverURL
 		return nil, fmt.Errorf("failed to decrypt user symmetric key: %w", err)
 	}
 
+	return &vwAuthContext{
+		ServerURL:   serverURL,
+		AccessToken: tokenResp.AccessToken,
+		UserEncKey:  userEncKey,
+		UserMacKey:  userMacKey,
+	}, nil
+}
+
+func (s *VaultwardenService) fetchAndDecryptVault(ctx context.Context, serverURL, email, password string) ([]domain.VaultCredentialItem, error) {
+	authCtx, err := s.authenticateAndGetKeys(ctx, serverURL, email, password)
+	if err != nil {
+		return nil, err
+	}
+
 	// Step 6: Sync Vault Data
-	syncData, err := s.doSync(ctx, serverURL, tokenResp.AccessToken)
+	syncData, err := s.doSync(ctx, authCtx.ServerURL, authCtx.AccessToken)
 	if err != nil {
 		return nil, fmt.Errorf("vault sync failed: %w", err)
 	}
+
+	userEncKey := authCtx.UserEncKey
+	userMacKey := authCtx.UserMacKey
 
 	// Step 7: Decrypt Folder Names
 	folderMap := make(map[string]string)
@@ -654,4 +700,218 @@ func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 		}
 	}
 	return data[:length-padLen], nil
+}
+
+func pkcs7Pad(data []byte, blockSize int) []byte {
+	padding := blockSize - len(data)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(data, padtext...)
+}
+
+// encryptCipherString encrypts plaintext UTF-8 into Bitwarden CipherString Type 2: "2.iv|ciphertext|mac"
+func (s *VaultwardenService) encryptCipherString(plaintext string, encKey, macKey []byte) (string, error) {
+	if plaintext == "" {
+		return "", nil
+	}
+
+	// 1. Generate 16 bytes IV
+	iv := make([]byte, aes.BlockSize)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", fmt.Errorf("failed to generate IV: %w", err)
+	}
+
+	// 2. PKCS7 Padding
+	padded := pkcs7Pad([]byte(plaintext), aes.BlockSize)
+
+	// 3. AES-256-CBC Encrypt
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		return "", err
+	}
+	ciphertext := make([]byte, len(padded))
+	mode := cipher.NewCBCEncrypter(block, iv)
+	mode.CryptBlocks(ciphertext, padded)
+
+	// 4. Compute HMAC-SHA256 over (iv + ciphertext)
+	h := hmac.New(sha256.New, macKey)
+	h.Write(iv)
+	h.Write(ciphertext)
+	mac := h.Sum(nil)
+
+	// 5. Format as Type 2: 2.iv|ciphertext|mac
+	ivB64 := base64.StdEncoding.EncodeToString(iv)
+	cipherB64 := base64.StdEncoding.EncodeToString(ciphertext)
+	macB64 := base64.StdEncoding.EncodeToString(mac)
+
+	return fmt.Sprintf("2.%s|%s|%s", ivB64, cipherB64, macB64), nil
+}
+
+// CreateCipher encrypts and posts a new credential directly to the remote Vaultwarden instance
+func (s *VaultwardenService) CreateCipher(ctx context.Context, req domain.CreateVaultCipherRequest) (*domain.VaultCredentialItem, error) {
+	cfg, err := s.repo.GetConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve vaultwarden configuration: %w", err)
+	}
+	if cfg == nil || cfg.ServerURL == "" || cfg.Email == "" || cfg.MasterPassword == "" {
+		return nil, errors.New("vaultwarden is not configured yet. Please configure Vaultwarden connection first")
+	}
+
+	authCtx, err := s.authenticateAndGetKeys(ctx, cfg.ServerURL, cfg.Email, cfg.MasterPassword)
+	if err != nil {
+		return nil, fmt.Errorf("vaultwarden authentication failed: %w", err)
+	}
+
+	encName, err := s.encryptCipherString(req.Name, authCtx.UserEncKey, authCtx.UserMacKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt name: %w", err)
+	}
+
+	var encNotes *string
+	if req.Notes != "" {
+		en, err := s.encryptCipherString(req.Notes, authCtx.UserEncKey, authCtx.UserMacKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt notes: %w", err)
+		}
+		encNotes = &en
+	}
+
+	cipherType := req.Type
+	if cipherType <= 0 {
+		cipherType = 1 // Default to Login
+	}
+
+	bodyMap := map[string]interface{}{
+		"type":           cipherType,
+		"folderId":       req.FolderID,
+		"organizationId": nil,
+		"name":           encName,
+		"notes":          encNotes,
+		"favorite":       false,
+	}
+
+	if cipherType == 1 {
+		loginObj := make(map[string]interface{})
+		if req.Username != "" {
+			eu, err := s.encryptCipherString(req.Username, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt username: %w", err)
+			}
+			loginObj["username"] = eu
+		}
+		if req.Password != "" {
+			ep, err := s.encryptCipherString(req.Password, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt password: %w", err)
+			}
+			loginObj["password"] = ep
+		}
+		if req.URI != "" {
+			eu, err := s.encryptCipherString(req.URI, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt URI: %w", err)
+			}
+			loginObj["uris"] = []map[string]interface{}{
+				{"uri": eu, "match": nil},
+			}
+		}
+		bodyMap["login"] = loginObj
+	} else if cipherType == 2 {
+		bodyMap["secureNote"] = map[string]interface{}{"type": 0}
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode cipher request: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/api/ciphers", authCtx.ServerURL)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+authCtx.AccessToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to post cipher to Vaultwarden: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vaultwarden rejected cipher creation (HTTP %d): %s", resp.StatusCode, string(raw))
+	}
+
+	var createdRaw struct {
+		ID string `json:"id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&createdRaw)
+
+	// Sync local vault cache in background
+	go func() {
+		_, _ = s.SyncVault(context.Background())
+	}()
+
+	uris := []string{}
+	if req.URI != "" {
+		uris = append(uris, req.URI)
+	}
+
+	return &domain.VaultCredentialItem{
+		ID:           createdRaw.ID,
+		Name:         req.Name,
+		Type:         cipherType,
+		TypeLabel:    map[int]string{1: "Login", 2: "Secure Note"}[cipherType],
+		Username:     req.Username,
+		Password:     req.Password,
+		Notes:        req.Notes,
+		URIs:         uris,
+		RevisionDate: time.Now(),
+	}, nil
+}
+
+// DeleteCipher removes a credential item from the remote Vaultwarden instance
+func (s *VaultwardenService) DeleteCipher(ctx context.Context, cipherID string) error {
+	cipherID = strings.TrimSpace(cipherID)
+	if cipherID == "" {
+		return errors.New("cipher ID is required")
+	}
+
+	cfg, err := s.repo.GetConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve vaultwarden configuration: %w", err)
+	}
+	if cfg == nil || cfg.ServerURL == "" || cfg.Email == "" || cfg.MasterPassword == "" {
+		return errors.New("vaultwarden is not configured")
+	}
+
+	authCtx, err := s.authenticateAndGetKeys(ctx, cfg.ServerURL, cfg.Email, cfg.MasterPassword)
+	if err != nil {
+		return fmt.Errorf("vaultwarden authentication failed: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/api/ciphers/%s", authCtx.ServerURL, url.PathEscape(cipherID))
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+authCtx.AccessToken)
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to delete cipher from Vaultwarden: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("vaultwarden rejected cipher deletion (HTTP %d): %s", resp.StatusCode, string(raw))
+	}
+
+	// Trigger vault sync to update local cache
+	_, err = s.SyncVault(ctx)
+	return err
 }

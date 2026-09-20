@@ -715,7 +715,7 @@ watch(selectedConnectionId, () => {
           class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1b2234] hover:bg-slate-50 dark:hover:bg-[#121826] transition cursor-pointer"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
-          <span class="hidden sm:inline">Back to HCP</span>
+          <span class="hidden sm:inline">Back to Dashboard</span>
         </a>
 
         <div class="h-4 w-px bg-slate-200 dark:bg-[#1b2234]"></div>

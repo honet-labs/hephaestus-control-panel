@@ -94,6 +94,7 @@ func main() {
 	dpService := services.NewDataPrepperService(sshService)
 	otelService := services.NewOTelService(otelRepo, sshService)
 	vaultwardenService := services.NewVaultwardenService(vaultwardenRepo)
+	vaultwardenService.StartBackgroundSync(nil)
 	dockerService := services.NewDockerService(dockerRepo, remoteRepo, sshService)
 	systemService := services.NewSystemService()
 
@@ -335,6 +336,8 @@ func main() {
 		api.POST("/vaultwarden/config", middleware.RequirePermission("security", "manage"), vaultwardenHandler.SaveConfig)
 		api.POST("/vaultwarden/test", middleware.RequirePermission("security", "read"), vaultwardenHandler.TestConnection)
 		api.GET("/vaultwarden/ciphers", middleware.RequirePermission("security", "read"), vaultwardenHandler.GetCiphers)
+		api.POST("/vaultwarden/ciphers", middleware.RequirePermission("security", "manage"), vaultwardenHandler.CreateCipher)
+		api.DELETE("/vaultwarden/ciphers/:id", middleware.RequirePermission("security", "manage"), vaultwardenHandler.DeleteCipher)
 		api.POST("/vaultwarden/sync", middleware.RequirePermission("security", "manage"), vaultwardenHandler.SyncVault)
 		api.DELETE("/vaultwarden/config", middleware.RequirePermission("security", "manage"), vaultwardenHandler.DeleteConfig)
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -99,7 +100,7 @@ func (h *VaultwardenHandler) SaveConfig(c *gin.Context) {
 	// Trigger initial background sync if autoSync requested
 	if input.AutoSync && input.MasterPassword != "" {
 		go func() {
-			_, _ = h.vwService.SyncVault(c.Request.Context())
+			_, _ = h.vwService.SyncVault(context.Background())
 		}()
 	}
 
@@ -217,5 +218,60 @@ func (h *VaultwardenHandler) DeleteConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Vaultwarden configuration deleted successfully",
+	})
+}
+
+// CreateCipher handles adding a new credential directly into Vaultwarden
+func (h *VaultwardenHandler) CreateCipher(c *gin.Context) {
+	var input domain.CreateVaultCipherRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Validation failed: Item name is required",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	item, err := h.vwService.CreateCipher(c.Request.Context(), input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to create credential in Vaultwarden",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Credential created and synchronized successfully",
+		"data":    item,
+	})
+}
+
+// DeleteCipher handles removing a credential directly from Vaultwarden
+func (h *VaultwardenHandler) DeleteCipher(c *gin.Context) {
+	cipherID := c.Param("id")
+	if cipherID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Cipher ID is required",
+		})
+		return
+	}
+
+	if err := h.vwService.DeleteCipher(c.Request.Context(), cipherID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to delete credential from Vaultwarden",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Credential deleted and vault synchronized successfully",
 	})
 }
