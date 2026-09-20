@@ -915,3 +915,130 @@ func (s *VaultwardenService) DeleteCipher(ctx context.Context, cipherID string) 
 	_, err = s.SyncVault(ctx)
 	return err
 }
+
+// UpdateCipher encrypts and updates an existing credential directly in the remote Vaultwarden instance
+func (s *VaultwardenService) UpdateCipher(ctx context.Context, cipherID string, req domain.CreateVaultCipherRequest) (*domain.VaultCredentialItem, error) {
+	cipherID = strings.TrimSpace(cipherID)
+	if cipherID == "" {
+		return nil, errors.New("cipher ID is required")
+	}
+
+	cfg, err := s.repo.GetConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve vaultwarden configuration: %w", err)
+	}
+	if cfg == nil || cfg.ServerURL == "" || cfg.Email == "" || cfg.MasterPassword == "" {
+		return nil, errors.New("vaultwarden is not configured yet. Please configure Vaultwarden connection first")
+	}
+
+	authCtx, err := s.authenticateAndGetKeys(ctx, cfg.ServerURL, cfg.Email, cfg.MasterPassword)
+	if err != nil {
+		return nil, fmt.Errorf("vaultwarden authentication failed: %w", err)
+	}
+
+	encName, err := s.encryptCipherString(req.Name, authCtx.UserEncKey, authCtx.UserMacKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt name: %w", err)
+	}
+
+	var encNotes *string
+	if req.Notes != "" {
+		en, err := s.encryptCipherString(req.Notes, authCtx.UserEncKey, authCtx.UserMacKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt notes: %w", err)
+		}
+		encNotes = &en
+	}
+
+	cipherType := req.Type
+	if cipherType <= 0 {
+		cipherType = 1 // Default to Login
+	}
+
+	bodyMap := map[string]interface{}{
+		"type":           cipherType,
+		"folderId":       req.FolderID,
+		"organizationId": nil,
+		"name":           encName,
+		"notes":          encNotes,
+		"favorite":       false,
+	}
+
+	if cipherType == 1 {
+		loginObj := make(map[string]interface{})
+		if req.Username != "" {
+			eu, err := s.encryptCipherString(req.Username, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt username: %w", err)
+			}
+			loginObj["username"] = eu
+		}
+		if req.Password != "" {
+			ep, err := s.encryptCipherString(req.Password, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt password: %w", err)
+			}
+			loginObj["password"] = ep
+		}
+		if req.URI != "" {
+			eu, err := s.encryptCipherString(req.URI, authCtx.UserEncKey, authCtx.UserMacKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt URI: %w", err)
+			}
+			loginObj["uris"] = []map[string]interface{}{
+				{"uri": eu, "match": nil},
+			}
+		}
+		bodyMap["login"] = loginObj
+	} else if cipherType == 2 {
+		bodyMap["secureNote"] = map[string]interface{}{"type": 0}
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode cipher request: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/api/ciphers/%s", authCtx.ServerURL, url.PathEscape(cipherID))
+	httpReq, err := http.NewRequestWithContext(ctx, "PUT", endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+authCtx.AccessToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to put cipher to Vaultwarden: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vaultwarden rejected cipher update (HTTP %d): %s", resp.StatusCode, string(raw))
+	}
+
+	// Sync local vault cache in background
+	go func() {
+		_, _ = s.SyncVault(context.Background())
+	}()
+
+	uris := []string{}
+	if req.URI != "" {
+		uris = append(uris, req.URI)
+	}
+
+	return &domain.VaultCredentialItem{
+		ID:           cipherID,
+		Name:         req.Name,
+		Type:         cipherType,
+		TypeLabel:    map[int]string{1: "Login", 2: "Secure Note"}[cipherType],
+		Username:     req.Username,
+		Password:     req.Password,
+		Notes:        req.Notes,
+		URIs:         uris,
+		RevisionDate: time.Now(),
+	}, nil
+}
+

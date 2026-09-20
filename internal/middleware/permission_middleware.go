@@ -87,3 +87,68 @@ func RequirePermission(feature string, requiredAction string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// RequireAnyPermission checks if user has requiredAction on any of the provided features
+func RequireAnyPermission(features []string, requiredAction string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userObj, exists := c.Get("user")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "Unauthorized",
+				"message": "Authentication required.",
+			})
+			return
+		}
+
+		user, ok := userObj.(*domain.User)
+		if !ok || user == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "Unauthorized",
+				"message": "User session invalid.",
+			})
+			return
+		}
+
+		// 1. Superadmin / Master Admin role check
+		if user.IsAdmin() || domain.IsAdminRole(user.Role) {
+			c.Next()
+			return
+		}
+
+		// 2. Check wildcard "*" permission
+		if user.Permissions != nil {
+			if wild, ok := user.Permissions["*"]; ok && strings.EqualFold(wild, "manage") {
+				c.Next()
+				return
+			}
+		}
+
+		// 3. Check any matching feature permission
+		reqAct := strings.ToLower(requiredAction)
+		for _, feature := range features {
+			featurePerm := "none"
+			if user.Permissions != nil {
+				if p, ok := user.Permissions[feature]; ok {
+					featurePerm = strings.ToLower(p)
+				}
+			}
+
+			if reqAct == "read" && (featurePerm == "read" || featurePerm == "manage") {
+				c.Next()
+				return
+			}
+			if (reqAct == "manage" || reqAct == "write" || reqAct == "edit") && featurePerm == "manage" {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Forbidden",
+			"message": "Access denied: insufficient permissions.",
+		})
+	}
+}

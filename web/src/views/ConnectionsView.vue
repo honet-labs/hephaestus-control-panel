@@ -150,21 +150,22 @@ const fetchConnections = async () => {
     // 4. Docker Engine Connections
     if (dockerRes.data?.success && Array.isArray(dockerRes.data.data)) {
       dockerRes.data.data.forEach((d: any) => {
+        const drv = String(d.driver || d.hostType || 'socket').toLowerCase();
         let displayUrl = '';
-        if (d.driver === 'socket') {
+        if (drv === 'socket' || drv === 'local') {
           displayUrl = d.socketPath || '/var/run/docker.sock';
-        } else if (d.driver === 'ssh') {
-          displayUrl = `${d.sshUser || 'root'}@${d.sshHost}:${d.sshPort || 22}`;
+        } else if (drv === 'ssh') {
+          displayUrl = `${d.sshUser || 'root'}@${d.sshHost || 'remote'}:${d.sshPort || 22}`;
         } else {
-          displayUrl = `${d.tcpHost}:${d.tcpPort || 2375}`;
+          displayUrl = d.tcpUrl || (d.tcpHost ? `${d.tcpHost}:${d.tcpPort || 2375}` : 'tcp://localhost:2375');
         }
         items.push({
           id: d.id,
           name: d.name,
           type: 'DOCKER ENGINE',
           url: displayUrl,
-          authType: d.driver.toUpperCase(),
-          isActive: d.isDefault,
+          authType: drv.toUpperCase(),
+          isActive: Boolean(d.isDefault),
           status: 'connected',
           rawType: 'docker',
           rawItem: d,
@@ -489,21 +490,25 @@ const handleRegisterEndpoint = async () => {
     } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
       const payload: any = {
         name: form.value.name,
-        driver: form.value.dockerDriver,
+        driver: form.value.dockerDriver || 'socket',
+        hostType: form.value.dockerDriver === 'socket' ? 'local' : (form.value.dockerDriver || 'local'),
         socketPath: form.value.dockerSocketPath || '/var/run/docker.sock',
-        tcpHost: form.value.dockerTcpHost,
+        tcpHost: form.value.dockerTcpHost || '',
         tcpPort: Number(form.value.dockerTcpPort) || 2375,
-        tcpTls: form.value.dockerTcpTls,
-        sshHost: form.value.dockerSshHost,
+        tcpTls: form.value.dockerTcpTls || false,
+        sshHost: form.value.dockerSshHost || '',
         sshPort: Number(form.value.dockerSshPort) || 22,
-        sshUser: form.value.dockerSshUser,
-        sshAuth: form.value.dockerSshAuth,
-        sshPassword: form.value.dockerSshPassword,
-        sshKey: form.value.dockerSshKey,
-        isDefault: form.value.dockerIsDefault,
+        sshUser: form.value.dockerSshUser || 'root',
+        sshAuth: form.value.dockerSshAuth || 'password',
+        sshPassword: form.value.dockerSshPassword || '',
+        sshKey: form.value.dockerSshKey || '',
+        isDefault: form.value.dockerIsDefault || false,
       };
       if (editingId.value) payload.id = editingId.value;
-      await axios.post('/api/v1/docker/connections', payload);
+      const res = await axios.post('/api/v1/docker/connections', payload);
+      if (res.data?.success === false) {
+        throw new Error(res.data?.error || 'Failed to save Docker connection');
+      }
     }
 
     cancelEdit();

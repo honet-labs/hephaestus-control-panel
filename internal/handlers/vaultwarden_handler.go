@@ -275,3 +275,42 @@ func (h *VaultwardenHandler) DeleteCipher(c *gin.Context) {
 		"message": "Credential deleted and vault synchronized successfully",
 	})
 }
+
+// UpdateCipher handles modifying an existing credential in Vaultwarden
+func (h *VaultwardenHandler) UpdateCipher(c *gin.Context) {
+	cipherID := c.Param("id")
+	if cipherID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Cipher ID is required",
+		})
+		return
+	}
+
+	var input domain.CreateVaultCipherRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Validation failed: Item name is required",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	item, err := h.vwService.UpdateCipher(c.Request.Context(), cipherID, input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to update credential in Vaultwarden",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Credential updated and synchronized successfully",
+		"data":    item,
+	})
+}
+

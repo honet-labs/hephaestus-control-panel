@@ -47,6 +47,11 @@ func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.Docker
 		); err != nil {
 			return nil, err
 		}
+		if c.HostType == "local" {
+			c.Driver = "socket"
+		} else {
+			c.Driver = c.HostType
+		}
 		connections = append(connections, c)
 	}
 
@@ -112,6 +117,12 @@ func (r *DockerRepository) GetConnectionByID(ctx context.Context, id string) (*d
 		} else {
 			c.SSHKey = encKey
 		}
+	}
+
+	if c.HostType == "local" {
+		c.Driver = "socket"
+	} else {
+		c.Driver = c.HostType
 	}
 
 	return &c, nil

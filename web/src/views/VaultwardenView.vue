@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Plus,
-  RotateCcw
+  RotateCcw,
+  Pencil
 } from 'lucide-vue-next';
 
 interface VaultCredentialItem {
@@ -84,7 +85,8 @@ const deletingCipher = ref(false);
 const autoSyncInterval = ref<number>(300); // 300s = 5 minutes default
 let autoSyncTimer: any = null;
 
-// Add Credential Form State
+// Add / Edit Credential Form State
+const editingCipherId = ref<string | null>(null);
 const addForm = ref({
   type: 1, // 1: Login, 2: Secure Note
   name: '',
@@ -95,6 +97,36 @@ const addForm = ref({
   notes: '',
 });
 const addingCredential = ref(false);
+
+const openCreateCipher = () => {
+  editingCipherId.value = null;
+  addForm.value = {
+    type: 1,
+    name: '',
+    username: '',
+    password: '',
+    showPassword: true,
+    uri: '',
+    notes: '',
+  };
+  showAddModal.value = true;
+};
+
+const openEditCipher = (item: VaultCredentialItem | null) => {
+  if (!item) return;
+  editingCipherId.value = item.id;
+  addForm.value = {
+    type: item.type || 1,
+    name: item.name || '',
+    username: item.username || '',
+    password: item.password || '',
+    showPassword: false,
+    uri: (item.uris && item.uris.length > 0) ? item.uris[0] : '',
+    notes: item.notes || '',
+  };
+  showDetailModal.value = false;
+  showAddModal.value = true;
+};
 
 // Form State
 const formServerUrl = ref('');
@@ -303,18 +335,27 @@ const handleCreateCredential = async () => {
 
   addingCredential.value = true;
   try {
-    const res = await axios.post('/api/v1/vaultwarden/ciphers', {
+    const payload = {
       type: addForm.value.type,
       name: addForm.value.name.trim(),
       username: addForm.value.username.trim(),
       password: addForm.value.password,
       uri: addForm.value.uri.trim(),
       notes: addForm.value.notes.trim(),
-    });
+    };
+
+    let res: any;
+    if (editingCipherId.value) {
+      res = await axios.put(`/api/v1/vaultwarden/ciphers/${editingCipherId.value}`, payload);
+    } else {
+      res = await axios.post('/api/v1/vaultwarden/ciphers', payload);
+    }
 
     if (res.data.success) {
-      triggerToast(`Credential "${addForm.value.name}" added to Vaultwarden successfully!`);
+      const actionLabel = editingCipherId.value ? 'updated in' : 'added to';
+      triggerToast(`Credential "${addForm.value.name}" ${actionLabel} Vaultwarden successfully!`);
       showAddModal.value = false;
+      editingCipherId.value = null;
       addForm.value = {
         type: 1,
         name: '',
@@ -329,7 +370,7 @@ const handleCreateCredential = async () => {
         config.value.lastSyncedAt = new Date().toISOString();
       }
     } else {
-      triggerToast(res.data.error || 'Failed to create credential', 'error');
+      triggerToast(res.data.error || 'Failed to save credential', 'error');
     }
   } catch (err: any) {
     triggerToast(err.response?.data?.error || 'Failed to save credential to Vaultwarden', 'error');
@@ -595,7 +636,7 @@ onUnmounted(() => {
             Last sync: <strong class="text-slate-800 dark:text-slate-200">{{ formatRelativeTime(config?.lastSyncedAt) }}</strong>
           </span>
           <button
-            @click="showAddModal = true"
+            @click="openCreateCipher"
             class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Plus class="w-3.5 h-3.5" />
@@ -824,6 +865,13 @@ onUnmounted(() => {
                   Details
                 </button>
                 <button
+                  @click="openEditCipher(item)"
+                  class="text-slate-400 hover:text-blue-600 dark:hover:text-[#95CCDD] transition cursor-pointer p-0.5"
+                  title="Edit Credential"
+                >
+                  <Pencil class="w-3.5 h-3.5" />
+                </button>
+                <button
                   @click="confirmDeleteCipher(item)"
                   class="text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5"
                   title="Delete Credential"
@@ -1022,12 +1070,21 @@ onUnmounted(() => {
             <Trash2 class="w-3.5 h-3.5" />
             <span>Delete Credential</span>
           </button>
-          <button
-            @click="showDetailModal = false"
-            class="px-4 py-1.5 bg-slate-100 dark:bg-[#1b2339] hover:bg-slate-200 dark:hover:bg-[#252f4c] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
-          >
-            Close
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              @click="openEditCipher(selectedItem)"
+              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1.5"
+            >
+              <Pencil class="w-3.5 h-3.5" />
+              <span>Edit</span>
+            </button>
+            <button
+              @click="showDetailModal = false"
+              class="px-4 py-1.5 bg-slate-100 dark:bg-[#1b2339] hover:bg-slate-200 dark:hover:bg-[#252f4c] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1040,8 +1097,11 @@ onUnmounted(() => {
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
           <div class="flex items-center gap-2">
-            <Key class="w-4 h-4 text-blue-600 dark:text-[#95CCDD]" />
-            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Credential to Vaultwarden</h3>
+            <Pencil v-if="editingCipherId" class="w-4 h-4 text-blue-600 dark:text-[#95CCDD]" />
+            <Key v-else class="w-4 h-4 text-blue-600 dark:text-[#95CCDD]" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              {{ editingCipherId ? 'Edit Credential' : 'Add Credential to Vaultwarden' }}
+            </h3>
           </div>
           <button @click="showAddModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
@@ -1167,7 +1227,7 @@ onUnmounted(() => {
               class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
             >
               <RefreshCw v-if="addingCredential" class="w-3.5 h-3.5 animate-spin" />
-              <span>{{ addingCredential ? 'Encrypting & Saving...' : 'Save Credential' }}</span>
+              <span>{{ addingCredential ? 'Encrypting & Saving...' : (editingCipherId ? 'Update Credential' : 'Save Credential') }}</span>
             </button>
           </div>
         </form>

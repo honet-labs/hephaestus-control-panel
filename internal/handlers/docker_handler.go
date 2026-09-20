@@ -123,11 +123,36 @@ func (h *DockerHandler) SaveConnection(c *gin.Context) {
 		isDefault = *input.IsDefault
 	}
 
+	if input.RemoteHostID != nil && strings.TrimSpace(*input.RemoteHostID) == "" {
+		input.RemoteHostID = nil
+	}
+	if input.SSHHost != nil && strings.TrimSpace(*input.SSHHost) == "" {
+		input.SSHHost = nil
+	}
+	if input.SSHUser != nil && strings.TrimSpace(*input.SSHUser) == "" {
+		input.SSHUser = nil
+	}
+	if input.SSHPassword != nil && strings.TrimSpace(*input.SSHPassword) == "" {
+		input.SSHPassword = nil
+	}
+	if input.SSHKey != nil && strings.TrimSpace(*input.SSHKey) == "" {
+		input.SSHKey = nil
+	}
+
+	driver := input.Driver
+	if driver == "" {
+		if hostType == "local" {
+			driver = "socket"
+		} else {
+			driver = hostType
+		}
+	}
+
 	conn := domain.DockerConnection{
 		ID:           input.ID,
 		Name:         input.Name,
 		HostType:     hostType,
-		Driver:       input.Driver,
+		Driver:       driver,
 		SocketPath:   socketPath,
 		TcpURL:       tcpURL,
 		RemoteHostID: input.RemoteHostID,
