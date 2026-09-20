@@ -49,23 +49,38 @@
 <img width="1919" height="949" alt="image" src="https://github.com/user-attachments/assets/1745672f-951b-467b-9670-3771d5dcdd0b" />
 
 - Backup Manager
-<img width="1919" height="949" alt="image" src="https://github.com/user-attachments/assets/4078fb7e-e638-4c05-81a7-5206ac1475c0" /> <img width="1919" height="948" alt="image" src="https://github.com/user-attachments/assets/c9b77afc-07b8-47c1-9614-c9c00eecc179" /> <img width="1919" height="951" alt="image" src="https://github.com/user-attachments/assets/175f5dbd-3eb6-4308-be45-c3e14b09c759" /> <img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/585e3154-6deb-4553-bc6b-cb0b1eb7a0cb" /> <img width="1919" height="851" alt="image" src="https://github.com/user-attachments/assets/ef900199-b1a9-417a-85e8-46961c3db3bf" /> <img width="1695" height="667" alt="image" src="https://github.com/user-attachments/assets/9d3429dc-df83-4a17-8406-1f6101b51277" />
+<img width="1919" height="949" alt="image" src="https://github.com/user-attachments/assets/4078fb7e-e638-4c05-81a7-5206ac1475c0" />
+<img width="1919" height="948" alt="image" src="https://github.com/user-attachments/assets/c9b77afc-07b8-47c1-9614-c9c00eecc179" />
+<img width="1919" height="951" alt="image" src="https://github.com/user-attachments/assets/175f5dbd-3eb6-4308-be45-c3e14b09c759" />
+<img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/585e3154-6deb-4553-bc6b-cb0b1eb7a0cb" />
+<img width="1919" height="851" alt="image" src="https://github.com/user-attachments/assets/ef900199-b1a9-417a-85e8-46961c3db3bf" />
+<img width="1695" height="667" alt="image" src="https://github.com/user-attachments/assets/9d3429dc-df83-4a17-8406-1f6101b51277" />
 
 ### Security
 - Vaultwarden
-<img width="1919" height="940" alt="vaultwarden-home" src="https://github.com/user-attachments/assets/1bf6ef8a-08e8-48ef-b383-e1dbe4270a64" /> <img width="1919" height="911" alt="vaultwarden" src="https://github.com/user-attachments/assets/b41a2d5c-c3cb-4892-90d0-345991d322fb" />
+<img width="1919" height="940" alt="vaultwarden-home" src="https://github.com/user-attachments/assets/1bf6ef8a-08e8-48ef-b383-e1dbe4270a64" />
+<img width="1919" height="911" alt="vaultwarden" src="https://github.com/user-attachments/assets/b41a2d5c-c3cb-4892-90d0-345991d322fb" />
 
 
 ### Monitoring
 - OpenSearch Cluster Monitor
-<img width="1919" height="955" alt="image" src="https://github.com/user-attachments/assets/0c5b9b76-0aae-4b83-9268-a84b4c1630a8" /> <img width="1919" height="945" alt="image" src="https://github.com/user-attachments/assets/6dff276b-9e72-4bf8-aeac-44e4c0a9e49e" /> <img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/7747cf20-9760-404a-8f05-224156998d2b" /> <img width="1919" height="944" alt="image" src="https://github.com/user-attachments/assets/819b59c0-20ee-4cac-a0fc-df209457ed05" /> <img width="1919" height="939" alt="image" src="https://github.com/user-attachments/assets/60b659ca-0f6c-44df-af39-b1054cff2845" /> <img width="1919" height="947" alt="image" src="https://github.com/user-attachments/assets/1d77cfd7-8993-45da-9b05-d5c041e27fd1" /> <img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/67632973-7d0e-436d-bc11-5eff56ad8f8a" />
+<img width="1919" height="955" alt="image" src="https://github.com/user-attachments/assets/0c5b9b76-0aae-4b83-9268-a84b4c1630a8" />
+<img width="1919" height="945" alt="image" src="https://github.com/user-attachments/assets/6dff276b-9e72-4bf8-aeac-44e4c0a9e49e" />
+<img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/7747cf20-9760-404a-8f05-224156998d2b" />
+<img width="1919" height="944" alt="image" src="https://github.com/user-attachments/assets/819b59c0-20ee-4cac-a0fc-df209457ed05" />
+<img width="1919" height="939" alt="image" src="https://github.com/user-attachments/assets/60b659ca-0f6c-44df-af39-b1054cff2845" />
+<img width="1919" height="947" alt="image" src="https://github.com/user-attachments/assets/1d77cfd7-8993-45da-9b05-d5c041e27fd1" />
+<img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/67632973-7d0e-436d-bc11-5eff56ad8f8a" />
 
 - Slide Show
-<img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/5b0ea24e-6b66-4e5a-9218-34c40316c8f1" /> <img width="1919" height="948" alt="image" src="https://github.com/user-attachments/assets/deb6ea29-224b-46da-9e65-6869035ced54" />
+<img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/5b0ea24e-6b66-4e5a-9218-34c40316c8f1" />
+<img width="1919" height="948" alt="image" src="https://github.com/user-attachments/assets/deb6ea29-224b-46da-9e65-6869035ced54" />
 
 ### Settings
 - RBAC
-<img width="1919" height="938" alt="image" src="https://github.com/user-attachments/assets/69059cc2-51f5-4c0d-80ce-857fcad155a1" /> <img width="1919" height="944" alt="image" src="https://github.com/user-attachments/assets/38e31ad4-06ba-4894-be49-f8e03436b547" /> <img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/8d6caa6c-88ed-4857-b0b9-fb02dc29c305" />
+<img width="1919" height="938" alt="image" src="https://github.com/user-attachments/assets/69059cc2-51f5-4c0d-80ce-857fcad155a1" />
+<img width="1919" height="944" alt="image" src="https://github.com/user-attachments/assets/38e31ad4-06ba-4894-be49-f8e03436b547" />
+<img width="1919" height="942" alt="image" src="https://github.com/user-attachments/assets/8d6caa6c-88ed-4857-b0b9-fb02dc29c305" />
 
 ---
 
