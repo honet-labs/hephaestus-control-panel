@@ -770,11 +770,6 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return "", err
-		}
-
 		args := []string{"run", "-d"}
 		if req.Name != "" {
 			args = append(args, fmt.Sprintf("--name %s", req.Name))
