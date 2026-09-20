@@ -97,6 +97,98 @@ func (s *DockerService) resolveRemoteHost(ctx context.Context, conn *domain.Dock
 }
 
 // -------------------------------------------------------------
+// Remote SSH Docker Helper
+// -------------------------------------------------------------
+
+func (s *DockerService) runRemoteDockerCommand(ctx context.Context, conn *domain.DockerConnection, dockerArgs string) (string, string, error) {
+	remoteHost, err := s.resolveRemoteHost(ctx, conn)
+	if err != nil {
+		return "", "", err
+	}
+
+	socketPath := "/var/run/docker.sock"
+	if conn.SocketPath != "" {
+		socketPath = conn.SocketPath
+	}
+
+	escapedPass := ""
+	if remoteHost.Password != nil && *remoteHost.Password != "" {
+		escapedPass = strings.ReplaceAll(*remoteHost.Password, "'", "'\\''")
+	}
+
+	// Smart Docker Remote Wrapper:
+	// 1. Export PATH so docker CLI is found across all distributions (/usr/bin, /usr/local/bin, /snap/bin)
+	// 2. Set DOCKER_HOST to socketPath
+	// 3. Test if user has direct permission on docker socket
+	// 4. If permission denied, auto-add user to 'docker' group in background
+	// 5. Ensure socket permissions if accessible and execute with elevation fallback
+	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
+_SOCK="%s"
+export DOCKER_HOST="unix://$_SOCK"
+_P='%s'
+
+_exec_docker() {
+    # 1. If running as root, execute directly
+    if [ "$(id -u)" -eq 0 ]; then
+        docker "$@"
+        return $?
+    fi
+
+    # 2. If user already has permission on docker socket
+    if docker ps >/dev/null 2>&1; then
+        docker "$@"
+        return $?
+    fi
+
+    # 3. User lacks docker permission.
+    # Auto-add user to docker group in background for permanent access
+    if [ -n "$_P" ]; then
+        echo "$_P" | sudo -S -p '' usermod -aG docker $(whoami) 2>/dev/null || true
+    elif sudo -n true 2>/dev/null; then
+        sudo -n usermod -aG docker $(whoami) 2>/dev/null || true
+    fi
+
+    # 4. Also ensure socket permissions if it is a unix socket
+    if [ -S "$_SOCK" ]; then
+        if [ -n "$_P" ]; then
+            echo "$_P" | sudo -S -p '' chmod 666 "$_SOCK" 2>/dev/null || true
+        elif sudo -n true 2>/dev/null; then
+            sudo -n chmod 666 "$_SOCK" 2>/dev/null || true
+        fi
+    fi
+
+    # 5. Execute with elevation so current command succeeds immediately
+    if [ -n "$_P" ]; then
+        echo "$_P" | sudo -S -p '' docker "$@"
+    elif sudo -n true 2>/dev/null; then
+        sudo -n docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
+_exec_docker %s
+`, socketPath, escapedPass, dockerArgs)
+
+	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHost, script)
+	if err != nil {
+		return "", stderr, err
+	}
+	if exitCode != 0 {
+		errMsg := strings.TrimSpace(stderr)
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(stdout)
+		}
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("docker command exited with code %d", exitCode)
+		}
+		return stdout, stderr, errors.New(errMsg)
+	}
+
+	return stdout, stderr, nil
+}
+
+// -------------------------------------------------------------
 // Container Operations
 // -------------------------------------------------------------
 
@@ -192,17 +284,11 @@ func (s *DockerService) listContainersLocal(ctx context.Context, conn *domain.Do
 }
 
 func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.DockerConnection, all bool) ([]domain.DockerContainer, error) {
-	remoteHost, err := s.resolveRemoteHost(ctx, conn)
-	if err != nil {
-		return nil, err
-	}
-
 	allFlag := ""
 	if all {
 		allFlag = "-a"
 	}
-	cmd := fmt.Sprintf(`docker ps %s --no-trunc --format '{{json .}}'`, allFlag)
-	stdout, _, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, cmd)
+	stdout, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("ps %s --no-trunc --format '{{json .}}'", allFlag))
 	if err != nil {
 		return nil, fmt.Errorf("remote docker ps failed: %w", err)
 	}
@@ -263,11 +349,7 @@ func (s *DockerService) StartContainer(ctx context.Context, connectionID, contai
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker start %s", containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("start %s", containerID))
 		return err
 	}
 
@@ -281,11 +363,7 @@ func (s *DockerService) StopContainer(ctx context.Context, connectionID, contain
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker stop %s", containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("stop %s", containerID))
 		return err
 	}
 
@@ -299,11 +377,7 @@ func (s *DockerService) RestartContainer(ctx context.Context, connectionID, cont
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker restart %s", containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("restart %s", containerID))
 		return err
 	}
 
@@ -317,11 +391,7 @@ func (s *DockerService) PauseContainer(ctx context.Context, connectionID, contai
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker pause %s", containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("pause %s", containerID))
 		return err
 	}
 
@@ -335,11 +405,7 @@ func (s *DockerService) UnpauseContainer(ctx context.Context, connectionID, cont
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker unpause %s", containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("unpause %s", containerID))
 		return err
 	}
 
@@ -353,15 +419,11 @@ func (s *DockerService) RemoveContainer(ctx context.Context, connectionID, conta
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
 		forceFlag := ""
 		if force {
 			forceFlag = "-f"
 		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker rm %s %s", forceFlag, containerID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rm %s %s", forceFlag, containerID))
 		return err
 	}
 
@@ -400,12 +462,7 @@ func (s *DockerService) GetContainerLogs(ctx context.Context, connectionID, cont
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return "", err
-		}
-		cmd := fmt.Sprintf("docker logs --tail %d %s", tail, containerID)
-		stdout, stderr, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, cmd)
+		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("logs --tail %d %s", tail, containerID))
 		if err != nil {
 			return "", err
 		}
@@ -445,12 +502,7 @@ func (s *DockerService) GetContainerStats(ctx context.Context, connectionID, con
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return nil, err
-		}
-		cmd := fmt.Sprintf(`docker stats --no-stream --format '{{json .}}' %s`, containerID)
-		stdout, _, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, cmd)
+		stdout, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf(`stats --no-stream --format '{{json .}}' %s`, containerID))
 		if err != nil {
 			return nil, err
 		}
@@ -563,12 +615,7 @@ func (s *DockerService) ListImages(ctx context.Context, connectionID string) ([]
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return nil, err
-		}
-		cmd := `docker images --no-trunc --format '{{json .}}'`
-		stdout, _, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, cmd)
+		stdout, _, err := s.runRemoteDockerCommand(ctx, conn, "images --no-trunc --format '{{json .}}'")
 		if err != nil {
 			return nil, err
 		}
@@ -649,12 +696,7 @@ func (s *DockerService) PullImage(ctx context.Context, connectionID, imageName s
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
-		cmd := fmt.Sprintf("docker pull %s", imageName)
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, cmd)
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("pull %s", imageName))
 		return err
 	}
 
@@ -685,15 +727,11 @@ func (s *DockerService) RemoveImage(ctx context.Context, connectionID, imageID s
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			return err
-		}
 		forceFlag := ""
 		if force {
 			forceFlag = "-f"
 		}
-		_, _, _, err = s.sshService.ExecuteElevatedCommand(remoteHost, fmt.Sprintf("docker rmi %s %s", forceFlag, imageID))
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi %s %s", forceFlag, imageID))
 		return err
 	}
 
@@ -768,8 +806,7 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 			args = append(args, req.Command)
 		}
 
-		runCmd := fmt.Sprintf("docker %s", strings.Join(args, " "))
-		stdout, stderr, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, runCmd)
+		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("run %s", strings.Join(args, " ")))
 		if err != nil {
 			return "", fmt.Errorf("deploy container failed: %w (stderr: %s)", err, stderr)
 		}
@@ -872,14 +909,41 @@ func (s *DockerService) TestConnection(ctx context.Context, conn *domain.DockerC
 			return false, fmt.Sprintf("SSH connection failed: %s", msg), nil
 		}
 
-		stdout, _, _, err := s.sshService.ExecuteElevatedCommand(remoteHost, "docker info --format '{{json .}}'")
+		stdout, _, err := s.runRemoteDockerCommand(ctx, conn, "info --format '{{json .}}'")
 		if err != nil {
 			return false, fmt.Sprintf("Docker is not accessible or not running on remote host: %v", err), nil
 		}
 
-		var info domain.DockerSystemInfo
-		_ = json.Unmarshal([]byte(strings.TrimSpace(stdout)), &info)
-		return true, "Successfully connected to remote Docker daemon via SSH!", &info
+		var rawInfo struct {
+			ServerVersion     string `json:"ServerVersion"`
+			Containers        int    `json:"Containers"`
+			ContainersRunning int    `json:"ContainersRunning"`
+			ContainersPaused  int    `json:"ContainersPaused"`
+			ContainersStopped int    `json:"ContainersStopped"`
+			Images            int    `json:"Images"`
+			OperatingSystem   string `json:"OperatingSystem"`
+			OSType            string `json:"OSType"`
+			Architecture      string `json:"Architecture"`
+			NCPU              int    `json:"NCPU"`
+			MemTotal          uint64 `json:"MemTotal"`
+		}
+		_ = json.Unmarshal([]byte(strings.TrimSpace(stdout)), &rawInfo)
+
+		info := &domain.DockerSystemInfo{
+			ServerVersion:     rawInfo.ServerVersion,
+			Containers:        rawInfo.Containers,
+			ContainersRunning: rawInfo.ContainersRunning,
+			ContainersPaused:  rawInfo.ContainersPaused,
+			ContainersStopped: rawInfo.ContainersStopped,
+			Images:            rawInfo.Images,
+			OperatingSystem:   rawInfo.OperatingSystem,
+			OSType:            rawInfo.OSType,
+			Architecture:      rawInfo.Architecture,
+			NCPU:              rawInfo.NCPU,
+			MemTotalMB:        float64(rawInfo.MemTotal) / (1024 * 1024),
+		}
+
+		return true, "Successfully connected to remote Docker daemon via SSH!", info
 	}
 
 	// Local Socket / TCP
