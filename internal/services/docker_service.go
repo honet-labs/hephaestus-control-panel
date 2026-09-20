@@ -497,6 +497,9 @@ func (s *DockerService) GetContainerLogs(ctx context.Context, connectionID, cont
 		if err != nil {
 			return "", err
 		}
+		if stdout != "" && stderr != "" {
+			return stdout + "\n" + stderr, nil
+		}
 		if stdout != "" {
 			return stdout, nil
 		}
@@ -1208,6 +1211,17 @@ func (s *DockerService) doLocalPost(ctx context.Context, conn *domain.DockerConn
 }
 
 func cleanDockerLogStream(raw []byte) string {
+	if len(raw) < 8 {
+		return string(raw)
+	}
+
+	// Validate if first 8 bytes match Docker's multiplexed stream header:
+	// Byte 0: stream type (0=stdin, 1=stdout, 2=stderr)
+	// Bytes 1-3: must be 0x00, 0x00, 0x00
+	if raw[0] > 2 || raw[1] != 0 || raw[2] != 0 || raw[3] != 0 {
+		return string(raw)
+	}
+
 	var buf strings.Builder
 	r := bytes.NewReader(raw)
 	header := make([]byte, 8)
@@ -1217,17 +1231,28 @@ func cleanDockerLogStream(raw []byte) string {
 		if err != nil {
 			break
 		}
-		frameSize := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
-		if frameSize <= 0 {
-			continue
-		}
-		frame := make([]byte, frameSize)
-		_, err = io.ReadFull(r, frame)
-		if err != nil {
-			buf.Write(frame)
+
+		// Verify frame header consistency
+		if header[0] > 2 || header[1] != 0 || header[2] != 0 || header[3] != 0 {
+			// Not a valid multiplexed frame header; dump remainder of stream
+			buf.Write(header)
+			io.Copy(&buf, r)
 			break
 		}
-		buf.Write(frame)
+
+		frameSize := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
+		if frameSize <= 0 || frameSize > len(raw) {
+			continue
+		}
+
+		frame := make([]byte, frameSize)
+		n, err := io.ReadFull(r, frame)
+		if n > 0 {
+			buf.Write(frame[:n])
+		}
+		if err != nil {
+			break
+		}
 	}
 
 	if buf.Len() == 0 && len(raw) > 0 {

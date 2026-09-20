@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import {
@@ -177,6 +177,137 @@ const logsLoading = ref(false);
 const logsTail = ref<number>(200);
 const autoRefreshLogs = ref(false);
 let logsInterval: any = null;
+const logsTerminalRef = ref<HTMLElement | null>(null);
+
+const scrollToBottom = () => {
+  if (logsTerminalRef.value) {
+    logsTerminalRef.value.scrollTop = logsTerminalRef.value.scrollHeight;
+  }
+};
+
+// ANSI Terminal Formatter & Parser for Container Logs
+const stripAnsi = (str: string): string => {
+  if (!str) return '';
+  return str
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+};
+
+const formatAnsiToHtml = (raw: string): string => {
+  if (!raw) return '';
+
+  // 1. Sanitize HTML characters to prevent XSS injection
+  let text = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 2. Parse ANSI SGR escape codes (\x1b[...m)
+  const ansiRegex = /\x1b\[([0-9;]*)m/g;
+
+  let hasAnsi = false;
+  let openSpans = 0;
+
+  text = text.replace(ansiRegex, (_, codes) => {
+    hasAnsi = true;
+    if (!codes || codes === '0' || codes === '00') {
+      let close = '';
+      while (openSpans > 0) {
+        close += '</span>';
+        openSpans--;
+      }
+      return close;
+    }
+
+    const codeList = codes.split(';');
+    let style = '';
+    for (const code of codeList) {
+      switch (code) {
+        case '1': // Bold
+          style += 'font-weight: 700;';
+          break;
+        case '2': // Dim
+          style += 'opacity: 0.85;';
+          break;
+        case '3': // Italic
+          style += 'font-style: italic;';
+          break;
+        case '4': // Underline
+          style += 'text-decoration: underline;';
+          break;
+        // High-contrast vibrant terminal colors
+        case '30': // Black -> soft gray
+        case '90': // Bright Black / Dark Gray -> soft slate-400 (never dark black)
+          style += 'color: #94a3b8;';
+          break;
+        case '31': // Red
+        case '91': // Bright Red
+          style += 'color: #f87171;';
+          break;
+        case '32': // Green
+        case '92': // Bright Green
+          style += 'color: #34d399;';
+          break;
+        case '33': // Yellow
+        case '93': // Bright Yellow
+          style += 'color: #fbbf24;';
+          break;
+        case '34': // Blue
+        case '94': // Bright Blue
+          style += 'color: #60a5fa;';
+          break;
+        case '35': // Magenta
+        case '95': // Bright Magenta
+          style += 'color: #c084fc;';
+          break;
+        case '36': // Cyan
+        case '96': // Bright Cyan
+          style += 'color: #38bdf8;';
+          break;
+        case '37': // White
+        case '97': // Bright White
+          style += 'color: #f8fafc;';
+          break;
+        case '39': // Default text color
+          style += 'color: #f1f5f9;';
+          break;
+      }
+    }
+
+    if (style) {
+      openSpans++;
+      return `<span style="${style}">`;
+    }
+    return '';
+  });
+
+  // Close any unclosed spans at the end
+  while (openSpans > 0) {
+    text += '</span>';
+    openSpans--;
+  }
+
+  // Remove any remaining stray ANSI escape sequences
+  text = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  // Clean other unprintable characters (preserve newline, carriage return, tab)
+  text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+  // If the log stream had NO ANSI color codes, apply graceful syntax highlighting
+  if (!hasAnsi) {
+    text = text.replace(/(\b\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b)/g, '<span style="color: #94a3b8;">$1</span>');
+    text = text.replace(/\b(INFO|info)\b/g, '<span style="color: #34d399; font-weight: 600;">$1</span>');
+    text = text.replace(/\b(WARN|WARNING|warn|warning)\b/g, '<span style="color: #fbbf24; font-weight: 600;">$1</span>');
+    text = text.replace(/\b(ERROR|FATAL|PANIC|error|fatal|panic)\b/g, '<span style="color: #f87171; font-weight: 700;">$1</span>');
+    text = text.replace(/\b(DEBUG|debug|TRACE|trace)\b/g, '<span style="color: #38bdf8;">$1</span>');
+  }
+
+  return text;
+};
+
+const renderedLogs = computed(() => {
+  return formatAnsiToHtml(containerLogs.value);
+});
 
 const liveStats = ref<DockerStats | null>(null);
 const statsLoading = ref(false);
@@ -403,6 +534,8 @@ const openLogsModal = async (container: DockerContainer) => {
   activeContainer.value = container;
   showLogsModal.value = true;
   await fetchLogs();
+  await nextTick();
+  scrollToBottom();
 };
 
 const fetchLogs = async () => {
@@ -418,7 +551,9 @@ const fetchLogs = async () => {
     });
     if (res.data?.success) {
       const output = res.data.logs !== undefined ? res.data.logs : (res.data.data?.logs !== undefined ? res.data.data.logs : res.data.data);
-      containerLogs.value = output !== undefined && output !== null && output !== '' ? String(output) : 'No log output recorded.';
+      containerLogs.value = output !== undefined && output !== null && output !== '' ? String(output) : '';
+      await nextTick();
+      scrollToBottom();
     } else {
       containerLogs.value = res.data?.error || 'Failed to fetch logs.';
     }
@@ -1911,9 +2046,9 @@ watch(selectedConnectionId, () => {
             </label>
 
             <button
-              @click="copyToClipboard(containerLogs, 'logs')"
+              @click="copyToClipboard(stripAnsi(containerLogs), 'logs')"
               class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1b2234] transition cursor-pointer"
-              title="Copy Logs"
+              title="Copy Clean Logs"
             >
               <Check v-if="copiedId === 'logs'" class="w-4 h-4 text-emerald-500" />
               <Copy v-else class="w-4 h-4" />
@@ -1929,13 +2064,20 @@ watch(selectedConnectionId, () => {
         </div>
 
         <!-- Terminal Log Body -->
-        <div class="flex-1 p-4 bg-[#080b12] text-slate-200 font-mono text-[11px] overflow-y-auto leading-relaxed whitespace-pre-wrap select-text">
-          <div v-if="logsLoading && !containerLogs" class="text-slate-500">
-            Fetching log stream...
+        <div
+          ref="logsTerminalRef"
+          data-terminal="true"
+          class="terminal-log-viewer flex-1 p-4 font-mono text-[11px] overflow-y-auto leading-relaxed whitespace-pre-wrap select-text selection:bg-blue-600 selection:text-white"
+          style="background-color: #080b12 !important; color: #f1f5f9 !important;"
+        >
+          <div v-if="logsLoading && !containerLogs" class="text-slate-400 flex items-center gap-2">
+            <RefreshCw class="w-3.5 h-3.5 animate-spin text-blue-400" />
+            <span>Fetching log stream...</span>
           </div>
-          <div v-else>
-            {{ containerLogs }}
+          <div v-else-if="!containerLogs" class="text-slate-500 italic">
+            No log output recorded.
           </div>
+          <div v-else v-html="renderedLogs" class="terminal-content"></div>
         </div>
       </div>
     </div>
@@ -2376,3 +2518,14 @@ watch(selectedConnectionId, () => {
 
   </div>
 </template>
+
+<style scoped>
+.terminal-log-viewer,
+.terminal-content {
+  color: #f1f5f9 !important;
+  background-color: #080b12 !important;
+}
+:deep(.terminal-content span) {
+  display: inline;
+}
+</style>

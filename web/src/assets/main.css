@@ -277,6 +277,22 @@ html.light .text-purple-300 {
   color: #7e22ce !important;
 }
 
+/* 8b. Terminal, Console Logs & Code Windows Protection (Crisp dark surfaces with light readable text in all modes) */
+html.light .terminal-log-viewer,
+html.light .terminal-log-viewer *,
+html.light .terminal-content,
+html.light .terminal-content *,
+html.light [data-terminal="true"],
+html.light [data-terminal="true"] * {
+  color: inherit !important;
+}
+
+html.light .terminal-log-viewer,
+html.light [data-terminal="true"] {
+  background-color: #080b12 !important;
+  color: #f1f5f9 !important;
+}
+
 /* 9. Sidebar Navigation in Light Mode (100% Uniform & Consistent) */
 html.light aside {
   background-color: #ffffff !important;
