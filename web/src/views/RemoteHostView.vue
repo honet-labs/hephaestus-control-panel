@@ -2313,18 +2313,54 @@ onUnmounted(() => {
               :key="gName"
               @click="selectedGroupFilter = selectedGroupFilter === gName ? null : gName"
               :class="[
-                'p-4 bg-white dark:bg-[#1b1e26] border rounded-xl flex items-center gap-3 cursor-pointer transition shadow-sm',
+                'p-3.5 border rounded-xl flex items-center justify-between gap-3 cursor-pointer transition shadow-xs select-none',
                 selectedGroupFilter === gName
-                  ? 'border-blue-500 bg-blue-50/50 dark:bg-[#202534]'
-                  : 'border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+                  ? 'bg-blue-50/90 dark:bg-[#1a2337] border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/25 dark:ring-blue-500/35 shadow-sm'
+                  : 'bg-white dark:bg-[#111624] border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-[#151c2d]/60'
               ]"
             >
-              <div class="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                <Server class="w-5 h-5" />
+              <div class="flex items-center gap-3 min-w-0">
+                <div
+                  :class="[
+                    'p-2.5 rounded-lg transition shrink-0',
+                    selectedGroupFilter === gName
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-[#151c2d] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#1f283d]'
+                  ]"
+                >
+                  <Server class="w-4 h-4" />
+                </div>
+                <div class="min-w-0">
+                  <p
+                    :class="[
+                      'text-xs truncate transition',
+                      selectedGroupFilter === gName
+                        ? 'font-bold text-blue-700 dark:text-blue-300'
+                        : 'font-bold text-slate-900 dark:text-white'
+                    ]"
+                  >
+                    {{ gName }}
+                  </p>
+                  <p
+                    :class="[
+                      'text-[11px] transition',
+                      selectedGroupFilter === gName
+                        ? 'text-blue-600 dark:text-blue-400 font-semibold'
+                        : 'text-slate-500 dark:text-slate-400'
+                    ]"
+                  >
+                    {{ gHosts.length }} Host{{ gHosts.length > 1 ? 's' : '' }}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p class="text-xs font-bold text-slate-900 dark:text-white">{{ gName }}</p>
-                <p class="text-[11px] text-slate-500">{{ gHosts.length }} Host{{ gHosts.length > 1 ? 's' : '' }}</p>
+
+              <!-- Selected Checkmark Indicator -->
+              <div
+                v-if="selectedGroupFilter === gName"
+                class="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs"
+                title="Active Filter"
+              >
+                <Check class="w-3 h-3 stroke-[3]" />
               </div>
             </div>
           </div>
