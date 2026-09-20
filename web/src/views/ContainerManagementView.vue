@@ -29,7 +29,8 @@ import {
   Clock,
   Radio,
   Sliders,
-  ChevronDown
+  ChevronDown,
+  Network
 } from 'lucide-vue-next';
 
 interface DockerConnection {
@@ -58,6 +59,7 @@ interface DockerPort {
 interface DockerContainer {
   id: string;
   names: string[];
+  name?: string;
   image: string;
   imageId: string;
   command: string;
@@ -65,6 +67,8 @@ interface DockerContainer {
   state: 'running' | 'exited' | 'paused' | 'restarting' | 'dead' | 'created';
   status: string;
   ports: DockerPort[];
+  networks?: string[];
+  ipAddress?: string;
   labels?: Record<string, string>;
 }
 
@@ -74,10 +78,26 @@ interface DockerImage {
   repoTags: string[];
   repoDigests?: string[];
   created: number;
+  createdStr?: string;
   size: number;
+  sizeMb?: number;
   virtualSize?: number;
   labels?: Record<string, string>;
   containers?: number;
+}
+
+interface DockerNetwork {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  subnet?: string;
+  gateway?: string;
+  internal: boolean;
+  enableIPv6: boolean;
+  containersCount: number;
+  containers?: Record<string, string>;
+  created?: string;
 }
 
 interface DockerStats {
@@ -116,6 +136,7 @@ const selectedConnectionId = ref<string>('');
 const systemInfo = ref<DockerSystemInfo | null>(null);
 const containers = ref<DockerContainer[]>([]);
 const images = ref<DockerImage[]>([]);
+const networks = ref<DockerNetwork[]>([]);
 
 // Loading states
 const loading = ref(true);
@@ -123,7 +144,7 @@ const refreshing = ref(false);
 const actionLoading = ref<Record<string, boolean>>({});
 
 // Tab Navigation
-const activeTab = ref<'containers' | 'images' | 'deploy' | 'connections'>('containers');
+const activeTab = ref<'containers' | 'images' | 'networks' | 'deploy' | 'connections'>('containers');
 
 // Filters
 const searchKeyword = ref('');
@@ -136,6 +157,18 @@ const showStatsModal = ref(false);
 const showDeleteModal = ref(false);
 const showPullModal = ref(false);
 const showAddConnModal = ref(false);
+const showCreateNetModal = ref(false);
+
+// Create Network Form State
+const newNetForm = ref({
+  name: '',
+  driver: 'bridge',
+  subnet: '',
+  gateway: '',
+  internal: false,
+  enableIPv6: false,
+});
+const creatingNet = ref(false);
 
 // Active Modal Data
 const activeContainer = ref<DockerContainer | null>(null);
@@ -151,7 +184,7 @@ let statsInterval: any = null;
 
 // Delete Target
 const deleteTarget = ref<{
-  type: 'container' | 'image' | 'connection';
+  type: 'container' | 'image' | 'connection' | 'network';
   id: string;
   name: string;
   force?: boolean;
@@ -232,14 +265,22 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 };
 
-const formatTimestamp = (unix: number): string => {
-  if (!unix) return '-';
-  const d = new Date(unix * 1000);
-  return d.toLocaleString();
+const formatTimestamp = (unix: number | string): string => {
+  if (!unix || unix === 0 || unix === '0') return '-';
+  if (typeof unix === 'number') {
+    const d = new Date(unix * 1000);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+  }
+  if (typeof unix === 'string') {
+    const d = new Date(unix);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+    return unix;
+  }
+  return '-';
 };
 
 const getCleanContainerName = (c: DockerContainer): string => {
-  if (!c.names || c.names.length === 0) return c.id.substring(0, 12);
+  if (!c.names || c.names.length === 0) return c.name || c.id.substring(0, 12);
   const n = c.names[0];
   return n.startsWith('/') ? n.substring(1) : n;
 };
@@ -290,7 +331,7 @@ const fetchConnections = async () => {
   }
 };
 
-// Fetch System Info & Containers & Images
+// Fetch System Info & Containers & Images & Networks
 const fetchData = async () => {
   if (!selectedConnectionId.value) {
     loading.value = false;
@@ -299,10 +340,11 @@ const fetchData = async () => {
   }
   refreshing.value = true;
   try {
-    const [infoRes, contRes, imgRes] = await Promise.all([
+    const [infoRes, contRes, imgRes, netRes] = await Promise.all([
       axios.get('/api/v1/docker/system/info', { params: { connectionId: selectedConnectionId.value } }).catch(() => ({ data: null })),
       axios.get('/api/v1/docker/containers', { params: { connectionId: selectedConnectionId.value, all: true } }).catch(() => ({ data: null })),
       axios.get('/api/v1/docker/images', { params: { connectionId: selectedConnectionId.value } }).catch(() => ({ data: null })),
+      axios.get('/api/v1/docker/networks', { params: { connectionId: selectedConnectionId.value } }).catch(() => ({ data: null })),
     ]);
 
     if (infoRes.data?.success) {
@@ -317,6 +359,11 @@ const fetchData = async () => {
       images.value = imgRes.data.data;
     } else {
       images.value = [];
+    }
+    if (netRes.data?.success && Array.isArray(netRes.data.data)) {
+      networks.value = netRes.data.data;
+    } else {
+      networks.value = [];
     }
   } catch (err: any) {
     showToast(err.response?.data?.error || 'Error refreshing Docker data', 'error');
@@ -562,6 +609,54 @@ const confirmDeleteConnection = (conn: DockerConnection) => {
   showDeleteModal.value = true;
 };
 
+const confirmDeleteNetwork = (net: DockerNetwork) => {
+  deleteTarget.value = {
+    type: 'network',
+    id: net.id,
+    name: net.name,
+  };
+  showDeleteModal.value = true;
+};
+
+const handleCreateNetwork = async () => {
+  if (!newNetForm.value.name.trim()) {
+    showToast('Network name is required', 'error');
+    return;
+  }
+  creatingNet.value = true;
+  try {
+    const res = await axios.post('/api/v1/docker/networks', {
+      name: newNetForm.value.name.trim(),
+      driver: newNetForm.value.driver,
+      subnet: newNetForm.value.subnet.trim(),
+      gateway: newNetForm.value.gateway.trim(),
+      internal: newNetForm.value.internal,
+      enableIPv6: newNetForm.value.enableIPv6,
+    }, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+    if (res.data?.success) {
+      showToast(`Network "${newNetForm.value.name}" created successfully`);
+      showCreateNetModal.value = false;
+      newNetForm.value = {
+        name: '',
+        driver: 'bridge',
+        subnet: '',
+        gateway: '',
+        internal: false,
+        enableIPv6: false,
+      };
+      await fetchData();
+    } else {
+      showToast(res.data?.error || 'Failed to create network', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to create network', 'error');
+  } finally {
+    creatingNet.value = false;
+  }
+};
+
 const executeDelete = async () => {
   if (!deleteTarget.value) return;
   deleting.value = true;
@@ -594,6 +689,17 @@ const executeDelete = async () => {
         await fetchData();
       } else {
         showToast(res.data?.error || 'Failed to remove image', 'error');
+      }
+    } else if (deleteTarget.value.type === 'network') {
+      const res = await axios.delete(`/api/v1/docker/networks/${deleteTarget.value.id}`, {
+        params: { connectionId: selectedConnectionId.value },
+      });
+      if (res.data?.success) {
+        showToast(`Network "${deleteTarget.value.name}" removed successfully`);
+        showDeleteModal.value = false;
+        await fetchData();
+      } else {
+        showToast(res.data?.error || 'Failed to remove network', 'error');
       }
     } else if (deleteTarget.value.type === 'connection') {
       const res = await axios.delete(`/api/v1/docker/connections/${deleteTarget.value.id}`);
@@ -916,6 +1022,19 @@ watch(selectedConnectionId, () => {
         </button>
 
         <button
+          @click="activeTab = 'networks'"
+          :class="[
+            'px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer',
+            activeTab === 'networks'
+              ? 'border-blue-600 text-blue-700 dark:text-[#95CCDD]'
+              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          ]"
+        >
+          <Network class="w-3.5 h-3.5" />
+          <span>Networks ({{ networks.length }})</span>
+        </button>
+
+        <button
           @click="activeTab = 'deploy'"
           :class="[
             'px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-2 cursor-pointer',
@@ -1016,6 +1135,7 @@ watch(selectedConnectionId, () => {
                   <th class="py-3 px-4">State</th>
                   <th class="py-3 px-4">Container Name</th>
                   <th class="py-3 px-4">Image</th>
+                  <th class="py-3 px-4">Network & IP</th>
                   <th class="py-3 px-4">Ports</th>
                   <th class="py-3 px-4">Status</th>
                   <th class="py-3 px-4 text-right">Actions</th>
@@ -1023,14 +1143,14 @@ watch(selectedConnectionId, () => {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
                 <tr v-if="loading" class="text-center">
-                  <td colspan="6" class="py-12 text-slate-500">
+                  <td colspan="7" class="py-12 text-slate-500">
                     <RefreshCw class="w-5 h-5 animate-spin mx-auto mb-2 text-slate-400" />
                     <span>Loading containers...</span>
                   </td>
                 </tr>
 
                 <tr v-else-if="filteredContainers.length === 0" class="text-center">
-                  <td colspan="6" class="py-12 text-slate-500">
+                  <td colspan="7" class="py-12 text-slate-500">
                     <Boxes class="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
                     <p class="font-bold text-slate-700 dark:text-slate-300">No containers found</p>
                     <p class="text-xs text-slate-400 mt-1">Deploy a new container or change filter parameters.</p>
@@ -1087,6 +1207,25 @@ watch(selectedConnectionId, () => {
                   <!-- Image -->
                   <td class="py-3 px-4 font-mono text-[11px] text-slate-700 dark:text-slate-300 max-w-[200px] truncate" :title="c.image">
                     {{ c.image }}
+                  </td>
+
+                  <!-- Network & IP -->
+                  <td class="py-3 px-4 text-[11px] font-mono">
+                    <div v-if="(c.networks && c.networks.length > 0) || c.ipAddress" class="flex flex-col gap-0.5">
+                      <div v-if="c.networks && c.networks.length > 0" class="flex flex-wrap gap-1">
+                        <span
+                          v-for="net in c.networks"
+                          :key="net"
+                          class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                        >
+                          {{ net }}
+                        </span>
+                      </div>
+                      <div v-if="c.ipAddress" class="text-[10px] text-slate-500 dark:text-slate-400">
+                        {{ c.ipAddress }}
+                      </div>
+                    </div>
+                    <span v-else class="text-slate-400">-</span>
                   </td>
 
                   <!-- Ports -->
@@ -1258,12 +1397,12 @@ watch(selectedConnectionId, () => {
 
                   <!-- Size -->
                   <td class="py-3 px-4 font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                    {{ formatBytes(img.size) }}
+                    {{ formatBytes(img.size || (img.sizeMb ? Math.round(img.sizeMb * 1024 * 1024) : 0)) }}
                   </td>
 
                   <!-- Created -->
                   <td class="py-3 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
-                    {{ formatTimestamp(img.created) }}
+                    {{ formatTimestamp(img.created) !== '-' ? formatTimestamp(img.created) : (img.createdStr || '-') }}
                   </td>
 
                   <!-- Actions -->
@@ -1284,7 +1423,136 @@ watch(selectedConnectionId, () => {
       </div>
 
       <!-- ============================================================= -->
-      <!-- TAB 3: DEPLOY CONTAINER WIZARD -->
+      <!-- TAB: NETWORKS VIEW -->
+      <!-- ============================================================= -->
+      <div v-if="activeTab === 'networks'" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Docker virtual network bridges, overlays, and host drivers configured on this environment.
+          </p>
+          <button
+            @click="showCreateNetModal = true"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Create Network</span>
+          </button>
+        </div>
+
+        <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl overflow-hidden shadow-xs">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 dark:bg-[#121826] border-b border-slate-200 dark:border-[#1b2234] text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <tr>
+                  <th class="py-3 px-4">Network Name</th>
+                  <th class="py-3 px-4">Network ID</th>
+                  <th class="py-3 px-4">Driver</th>
+                  <th class="py-3 px-4">Scope</th>
+                  <th class="py-3 px-4">Subnet / Gateway</th>
+                  <th class="py-3 px-4">Connected</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
+                <tr v-if="networks.length === 0" class="text-center">
+                  <td colspan="7" class="py-12 text-slate-500">
+                    <Network class="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
+                    <span>No Docker networks found on this host.</span>
+                  </td>
+                </tr>
+
+                <tr
+                  v-for="net in networks"
+                  :key="net.id"
+                  class="hover:bg-slate-50/70 dark:hover:bg-[#141b2c]/50 transition"
+                >
+                  <!-- Network Name -->
+                  <td class="py-3 px-4">
+                    <div class="font-bold text-slate-900 dark:text-white font-mono flex items-center gap-1.5">
+                      <span>{{ net.name }}</span>
+                      <span
+                        v-if="net.name === 'bridge' || net.name === 'host' || net.name === 'none'"
+                        class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1f283d] text-slate-500"
+                      >
+                        BUILT-IN
+                      </span>
+                    </div>
+                  </td>
+
+                  <!-- Short ID -->
+                  <td class="py-3 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                    <div class="flex items-center gap-1.5">
+                      <span>{{ net.id.substring(0, 12) }}</span>
+                      <button
+                        @click="copyToClipboard(net.id, net.id)"
+                        class="hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                        title="Copy Network ID"
+                      >
+                        <Check v-if="copiedId === net.id" class="w-3 h-3 text-emerald-500" />
+                        <Copy v-else class="w-3 h-3" />
+                      </button>
+                    </div>
+                  </td>
+
+                  <!-- Driver -->
+                  <td class="py-3 px-4 font-mono text-[11px]">
+                    <span
+                      :class="[
+                        'px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono',
+                        net.driver === 'bridge' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
+                        net.driver === 'host' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20' :
+                        net.driver === 'overlay' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
+                        'bg-slate-100 dark:bg-[#182136] text-slate-600 dark:text-slate-400'
+                      ]"
+                    >
+                      {{ net.driver }}
+                    </span>
+                  </td>
+
+                  <!-- Scope -->
+                  <td class="py-3 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                    {{ net.scope || 'local' }}
+                  </td>
+
+                  <!-- Subnet / Gateway -->
+                  <td class="py-3 px-4 font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                    <div v-if="net.subnet">
+                      <div>{{ net.subnet }}</div>
+                      <div v-if="net.gateway" class="text-[10px] text-slate-400">GW: {{ net.gateway }}</div>
+                    </div>
+                    <span v-else class="text-slate-400">-</span>
+                  </td>
+
+                  <!-- Connected Containers -->
+                  <td class="py-3 px-4 text-[11px] text-slate-600 dark:text-slate-400">
+                    <div v-if="net.containersCount > 0" class="flex items-center gap-1.5 font-mono">
+                      <span class="font-bold text-slate-900 dark:text-white">{{ net.containersCount }}</span>
+                      <span>connected</span>
+                    </div>
+                    <span v-else class="text-slate-400">0 connected</span>
+                  </td>
+
+                  <!-- Actions -->
+                  <td class="py-3 px-4 text-right">
+                    <button
+                      v-if="net.name !== 'bridge' && net.name !== 'host' && net.name !== 'none'"
+                      @click="confirmDeleteNetwork(net)"
+                      class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                      title="Delete Network"
+                    >
+                      <Trash2 class="w-3.5 h-3.5" />
+                    </button>
+                    <span v-else class="text-[10px] text-slate-400 italic px-1.5">System</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================= -->
+      <!-- TAB 4: DEPLOY CONTAINER WIZARD -->
       <!-- ============================================================= -->
       <div v-if="activeTab === 'deploy'" class="max-w-3xl mx-auto bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-5 sm:p-6 space-y-6 shadow-xs">
         <div class="border-b border-slate-200 dark:border-[#1b2234] pb-3">
@@ -1461,9 +1729,16 @@ watch(selectedConnectionId, () => {
                 v-model="deployForm.networkMode"
                 class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200"
               >
-                <option value="bridge">Bridge</option>
-                <option value="host">Host</option>
-                <option value="none">None</option>
+                <option value="bridge">bridge (Default NAT network)</option>
+                <option value="host">host (Use host network stack)</option>
+                <option value="none">none (No networking)</option>
+                <option
+                  v-for="net in networks.filter(n => n.name !== 'bridge' && n.name !== 'host' && n.name !== 'none')"
+                  :key="net.id"
+                  :value="net.name"
+                >
+                  {{ net.name }} ({{ net.driver }})
+                </option>
               </select>
             </div>
           </div>
@@ -1927,6 +2202,104 @@ watch(selectedConnectionId, () => {
     </div>
 
     <!-- ============================================================= -->
+    <!-- CREATE NETWORK MODAL -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showCreateNetModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <div class="flex items-center gap-2">
+            <Network class="w-4 h-4 text-slate-400" />
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Create Docker Network
+            </h3>
+          </div>
+          <button
+            @click="showCreateNetModal = false"
+            class="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1b2234] transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <form @submit.prevent="handleCreateNetwork" class="space-y-3.5 text-xs">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Network Name *</label>
+            <input
+              v-model="newNetForm.name"
+              required
+              placeholder="e.g. app-network, custom-bridge"
+              class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Driver</label>
+            <select
+              v-model="newNetForm.driver"
+              class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200 font-mono"
+            >
+              <option value="bridge">bridge (Standard virtual switch)</option>
+              <option value="overlay">overlay (Multi-host swarm routing)</option>
+              <option value="macvlan">macvlan (Direct physical MAC interface)</option>
+              <option value="ipvlan">ipvlan (Direct physical IP interface)</option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Subnet (CIDR)</label>
+              <input
+                v-model="newNetForm.subnet"
+                placeholder="172.28.0.0/16"
+                class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Gateway</label>
+              <input
+                v-model="newNetForm.gateway"
+                placeholder="172.28.0.1"
+                class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-1">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+              <input type="checkbox" v-model="newNetForm.internal" class="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer" />
+              <span>Internal Network (Restrict external internet access)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+              <input type="checkbox" v-model="newNetForm.enableIPv6" class="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer" />
+              <span>Enable IPv6 Networking</span>
+            </label>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#1b2234]">
+            <button
+              type="button"
+              @click="showCreateNetModal = false"
+              class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="creatingNet"
+              class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw v-if="creatingNet" class="w-3.5 h-3.5 animate-spin" />
+              <span>{{ creatingNet ? 'Creating...' : 'Create Network' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
     <!-- STANDARD DELETE CONFIRMATION MODAL (Strict AGENTS.md compliance) -->
     <!-- ============================================================= -->
     <div
@@ -1941,7 +2314,7 @@ watch(selectedConnectionId, () => {
 
         <div class="space-y-1">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            Delete {{ deleteTarget.type === 'container' ? 'Container' : deleteTarget.type === 'image' ? 'Image' : 'Connection' }}?
+            Delete {{ deleteTarget.type === 'container' ? 'Container' : deleteTarget.type === 'image' ? 'Image' : deleteTarget.type === 'network' ? 'Network' : 'Connection' }}?
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ deleteTarget.name }}</strong>? This action cannot be undone.

@@ -241,7 +241,12 @@ func (s *DockerService) listContainersLocal(ctx context.Context, conn *domain.Do
 			PublicPort  int    `json:"PublicPort"`
 			Type        string `json:"Type"`
 		} `json:"Ports"`
-		Labels map[string]string `json:"Labels"`
+		Labels          map[string]string `json:"Labels"`
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress string `json:"IPAddress"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -265,18 +270,29 @@ func (s *DockerService) listContainersLocal(ctx context.Context, conn *domain.Do
 			})
 		}
 
+		var netNames []string
+		ipAddr := ""
+		for netName, netData := range r.NetworkSettings.Networks {
+			netNames = append(netNames, netName)
+			if ipAddr == "" && netData.IPAddress != "" {
+				ipAddr = netData.IPAddress
+			}
+		}
+
 		containers = append(containers, domain.DockerContainer{
-			ID:      r.ID,
-			Names:   r.Names,
-			Name:    name,
-			Image:   r.Image,
-			ImageID: r.ImageID,
-			Command: r.Command,
-			Created: r.Created,
-			State:   r.State,
-			Status:  r.Status,
-			Ports:   ports,
-			Labels:  r.Labels,
+			ID:        r.ID,
+			Names:     r.Names,
+			Name:      name,
+			Image:     r.Image,
+			ImageID:   r.ImageID,
+			Command:   r.Command,
+			Created:   r.Created,
+			State:     r.State,
+			Status:    r.Status,
+			Ports:     ports,
+			Networks:  netNames,
+			IPAddress: ipAddr,
+			Labels:    r.Labels,
 		})
 	}
 
@@ -302,14 +318,15 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 		}
 
 		var item struct {
-			ID      string `json:"ID"`
-			Names   string `json:"Names"`
-			Image   string `json:"Image"`
-			Command string `json:"Command"`
-			Created string `json:"CreatedAt"`
-			State   string `json:"State"`
-			Status  string `json:"Status"`
-			Ports   string `json:"Ports"`
+			ID       string `json:"ID"`
+			Names    string `json:"Names"`
+			Image    string `json:"Image"`
+			Command  string `json:"Command"`
+			Created  string `json:"CreatedAt"`
+			State    string `json:"State"`
+			Status   string `json:"Status"`
+			Ports    string `json:"Ports"`
+			Networks string `json:"Networks"`
 		}
 
 		if err := json.Unmarshal([]byte(line), &item); err == nil {
@@ -322,15 +339,29 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 				}
 			}
 
+			var netNames []string
+			if item.Networks != "" {
+				for _, n := range strings.Split(item.Networks, ",") {
+					n = strings.TrimSpace(n)
+					if n != "" {
+						netNames = append(netNames, n)
+					}
+				}
+			}
+
+			createdUnix := parseDockerTime(item.Created)
+
 			containers = append(containers, domain.DockerContainer{
-				ID:      item.ID,
-				Names:   []string{"/" + item.Names},
-				Name:    item.Names,
-				Image:   item.Image,
-				Command: item.Command,
-				State:   state,
-				Status:  item.Status,
-				Ports:   parsePortsString(item.Ports),
+				ID:       item.ID,
+				Names:    []string{"/" + item.Names},
+				Name:     item.Names,
+				Image:    item.Image,
+				Command:  item.Command,
+				Created:  createdUnix,
+				State:    state,
+				Status:   item.Status,
+				Ports:    parsePortsString(item.Ports),
+				Networks: netNames,
 			})
 		}
 	}
@@ -628,18 +659,50 @@ func (s *DockerService) ListImages(ctx context.Context, connectionID string) ([]
 				continue
 			}
 			var item struct {
-				ID         string `json:"ID"`
-				Repository string `json:"Repository"`
-				Tag        string `json:"Tag"`
-				Size       string `json:"Size"`
-				CreatedAt  string `json:"CreatedAt"`
+				ID           string `json:"ID"`
+				Repository   string `json:"Repository"`
+				Tag          string `json:"Tag"`
+				Image        string `json:"Image"`
+				Size         string `json:"Size"`
+				VirtualSize  string `json:"VirtualSize"`
+				DiskUsage    string `json:"DiskUsage"`
+				ContentSize  string `json:"ContentSize"`
+				CreatedAt    string `json:"CreatedAt"`
+				CreatedSince string `json:"CreatedSince"`
 			}
 			if err := json.Unmarshal([]byte(line), &item); err == nil {
-				tag := fmt.Sprintf("%s:%s", item.Repository, item.Tag)
+				tag := ""
+				if item.Repository != "" && item.Tag != "" {
+					tag = fmt.Sprintf("%s:%s", item.Repository, item.Tag)
+				} else if item.Image != "" {
+					tag = item.Image
+				} else if item.Repository != "" {
+					tag = item.Repository
+				} else {
+					tag = "<none>:<none>"
+				}
+
+				sizeStr := item.Size
+				if sizeStr == "" || sizeStr == "0B" || sizeStr == "0 B" || sizeStr == "N/A" {
+					if item.VirtualSize != "" && item.VirtualSize != "0B" && item.VirtualSize != "0 B" && item.VirtualSize != "N/A" {
+						sizeStr = item.VirtualSize
+					} else if item.DiskUsage != "" {
+						sizeStr = item.DiskUsage
+					} else if item.ContentSize != "" {
+						sizeStr = item.ContentSize
+					}
+				}
+				sizeBytes, sizeMB := parseImageSize(sizeStr)
+				createdUnix := parseDockerTime(item.CreatedAt)
+
 				images = append(images, domain.DockerImage{
-					ID:       item.ID,
-					RepoTags: []string{tag},
-					SizeMB:   parseSizeMB(item.Size),
+					ID:          item.ID,
+					RepoTags:    []string{tag},
+					Size:        sizeBytes,
+					SizeMB:      sizeMB,
+					VirtualSize: sizeBytes,
+					Created:     createdUnix,
+					CreatedStr:  item.CreatedAt,
 				})
 			}
 		}
@@ -663,6 +726,7 @@ func (s *DockerService) ListImages(ctx context.Context, connectionID string) ([]
 		ID          string   `json:"Id"`
 		RepoTags    []string `json:"RepoTags"`
 		Size        int64    `json:"Size"`
+		VirtualSize int64    `json:"VirtualSize"`
 		Created     int64    `json:"Created"`
 		Containers  int      `json:"Containers"`
 	}
@@ -673,12 +737,18 @@ func (s *DockerService) ListImages(ctx context.Context, connectionID string) ([]
 
 	images := make([]domain.DockerImage, 0, len(raw))
 	for _, r := range raw {
+		vSize := r.VirtualSize
+		if vSize == 0 {
+			vSize = r.Size
+		}
 		images = append(images, domain.DockerImage{
-			ID:         r.ID,
-			RepoTags:   r.RepoTags,
-			SizeMB:     float64(r.Size) / (1024 * 1024),
-			Created:    r.Created,
-			Containers: r.Containers,
+			ID:          r.ID,
+			RepoTags:    r.RepoTags,
+			Size:        r.Size,
+			SizeMB:      float64(r.Size) / (1024 * 1024),
+			VirtualSize: vSize,
+			Created:     r.Created,
+			Containers:  r.Containers,
 		})
 	}
 	return images, nil
@@ -1125,18 +1195,360 @@ func parsePortsString(portsStr string) []domain.DockerContainerPort {
 }
 
 func parseSizeMB(sizeStr string) float64 {
+	_, mb := parseImageSize(sizeStr)
+	return mb
+}
+
+func parseImageSize(sizeStr string) (int64, float64) {
 	s := strings.TrimSpace(strings.ToUpper(sizeStr))
-	if strings.HasSuffix(s, "MB") {
-		val, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(s, "MB")), 64)
-		return val
+	if s == "" || s == "-" || s == "N/A" {
+		return 0, 0
 	}
-	if strings.HasSuffix(s, "GB") {
-		val, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(s, "GB")), 64)
-		return val * 1024
+
+	// Remove possible commas or quotes
+	s = strings.ReplaceAll(s, ",", "")
+
+	var multiplier float64 = 1
+	var numStr string
+
+	if strings.HasSuffix(s, "TIB") || strings.HasSuffix(s, "TB") {
+		multiplier = 1024 * 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(strings.TrimSuffix(s, "TIB"), "TB")
+	} else if strings.HasSuffix(s, "GIB") || strings.HasSuffix(s, "GB") {
+		multiplier = 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(strings.TrimSuffix(s, "GIB"), "GB")
+	} else if strings.HasSuffix(s, "MIB") || strings.HasSuffix(s, "MB") {
+		multiplier = 1024 * 1024
+		numStr = strings.TrimSuffix(strings.TrimSuffix(s, "MIB"), "MB")
+	} else if strings.HasSuffix(s, "KIB") || strings.HasSuffix(s, "KB") {
+		multiplier = 1024
+		numStr = strings.TrimSuffix(strings.TrimSuffix(s, "KIB"), "KB")
+	} else if strings.HasSuffix(s, "B") {
+		multiplier = 1
+		numStr = strings.TrimSuffix(s, "B")
+	} else {
+		numStr = s
 	}
-	if strings.HasSuffix(s, "KB") {
-		val, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(s, "KB")), 64)
-		return val / 1024
+
+	numStr = strings.TrimSpace(numStr)
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0, 0
+	}
+
+	totalBytes := int64(val * multiplier)
+	totalMB := float64(totalBytes) / (1024 * 1024)
+	return totalBytes, totalMB
+}
+
+func parseDockerTime(timeStr string) int64 {
+	timeStr = strings.TrimSpace(timeStr)
+	if timeStr == "" || timeStr == "-" || timeStr == "N/A" {
+		return 0
+	}
+	layouts := []string{
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05 -0700 -0700",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+		time.RFC3339Nano,
+	}
+	for _, l := range layouts {
+		if t, err := time.Parse(l, timeStr); err == nil {
+			return t.Unix()
+		}
+	}
+	if parts := strings.Split(timeStr, " "); len(parts) >= 2 {
+		datePart := parts[0] + " " + parts[1]
+		if t, err := time.Parse("2006-01-02 15:04:05", datePart); err == nil {
+			return t.Unix()
+		}
 	}
 	return 0
+}
+
+// -------------------------------------------------------------
+// Networks Management (List, Create, Remove)
+// -------------------------------------------------------------
+
+type rawDockerNetwork struct {
+	ID         string `json:"Id"`
+	Name       string `json:"Name"`
+	Created    string `json:"Created"`
+	Scope      string `json:"Scope"`
+	Driver     string `json:"Driver"`
+	EnableIPv6 bool   `json:"EnableIPv6"`
+	IPAM       struct {
+		Config []struct {
+			Subnet  string `json:"Subnet"`
+			Gateway string `json:"Gateway"`
+		} `json:"Config"`
+	} `json:"IPAM"`
+	Internal   bool `json:"Internal"`
+	Containers map[string]struct {
+		Name        string `json:"Name"`
+		IPv4Address string `json:"IPv4Address"`
+	} `json:"Containers"`
+}
+
+func (s *DockerService) ListNetworks(ctx context.Context, connectionID string) ([]domain.DockerNetwork, error) {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		// First try inspect for rich subnet, gateway, containers info
+		stdout, _, err := s.runRemoteDockerCommand(ctx, conn, `network inspect $(docker network ls -q 2>/dev/null) 2>/dev/null || true`)
+		if err == nil && strings.TrimSpace(stdout) != "" && strings.HasPrefix(strings.TrimSpace(stdout), "[") {
+			var rawList []rawDockerNetwork
+			if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &rawList); err == nil && len(rawList) > 0 {
+				networks := make([]domain.DockerNetwork, 0, len(rawList))
+				for _, r := range rawList {
+					subnet := ""
+					gateway := ""
+					if len(r.IPAM.Config) > 0 {
+						subnet = r.IPAM.Config[0].Subnet
+						gateway = r.IPAM.Config[0].Gateway
+					}
+					contMap := make(map[string]string)
+					for cId, cInfo := range r.Containers {
+						cName := cInfo.Name
+						if cName == "" {
+							cName = cId
+							if len(cName) > 12 {
+								cName = cName[:12]
+							}
+						}
+						contMap[cName] = cInfo.IPv4Address
+					}
+
+					networks = append(networks, domain.DockerNetwork{
+						ID:              r.ID,
+						Name:            r.Name,
+						Driver:          r.Driver,
+						Scope:           r.Scope,
+						Subnet:          subnet,
+						Gateway:         gateway,
+						Internal:        r.Internal,
+						EnableIPv6:      r.EnableIPv6,
+						ContainersCount: len(r.Containers),
+						Containers:      contMap,
+						Created:         r.Created,
+					})
+				}
+				return networks, nil
+			}
+		}
+
+		// Fallback to basic network ls --format '{{json .}}'
+		stdoutLs, _, errLs := s.runRemoteDockerCommand(ctx, conn, "network ls --no-trunc --format '{{json .}}'")
+		if errLs != nil {
+			return nil, fmt.Errorf("failed to list networks via ssh: %w", errLs)
+		}
+
+		var networks []domain.DockerNetwork
+		scanner := bufio.NewScanner(strings.NewReader(stdoutLs))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			var item struct {
+				ID        string `json:"ID"`
+				Name      string `json:"Name"`
+				Driver    string `json:"Driver"`
+				Scope     string `json:"Scope"`
+				Internal  string `json:"Internal"`
+				IPv6      string `json:"IPv6"`
+				CreatedAt string `json:"CreatedAt"`
+			}
+			if err := json.Unmarshal([]byte(line), &item); err == nil {
+				isInternal := strings.EqualFold(item.Internal, "true")
+				isIPv6 := strings.EqualFold(item.IPv6, "true")
+				networks = append(networks, domain.DockerNetwork{
+					ID:         item.ID,
+					Name:       item.Name,
+					Driver:     item.Driver,
+					Scope:      item.Scope,
+					Internal:   isInternal,
+					EnableIPv6: isIPv6,
+					Created:    item.CreatedAt,
+				})
+			}
+		}
+		return networks, nil
+	}
+
+	client, baseURL := s.getLocalHTTPClient(conn)
+	url := fmt.Sprintf("%s/v1.43/networks", baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rawList []rawDockerNetwork
+	if err := json.NewDecoder(resp.Body).Decode(&rawList); err != nil {
+		return nil, err
+	}
+
+	networks := make([]domain.DockerNetwork, 0, len(rawList))
+	for _, r := range rawList {
+		subnet := ""
+		gateway := ""
+		if len(r.IPAM.Config) > 0 {
+			subnet = r.IPAM.Config[0].Subnet
+			gateway = r.IPAM.Config[0].Gateway
+		}
+		contMap := make(map[string]string)
+		for cId, cInfo := range r.Containers {
+			cName := cInfo.Name
+			if cName == "" {
+				cName = cId
+				if len(cName) > 12 {
+					cName = cName[:12]
+				}
+			}
+			contMap[cName] = cInfo.IPv4Address
+		}
+
+		networks = append(networks, domain.DockerNetwork{
+			ID:              r.ID,
+			Name:            r.Name,
+			Driver:          r.Driver,
+			Scope:           r.Scope,
+			Subnet:          subnet,
+			Gateway:         gateway,
+			Internal:        r.Internal,
+			EnableIPv6:      r.EnableIPv6,
+			ContainersCount: len(r.Containers),
+			Containers:      contMap,
+			Created:         r.Created,
+		})
+	}
+	return networks, nil
+}
+
+func (s *DockerService) CreateNetwork(ctx context.Context, connectionID string, req domain.CreateNetworkRequest) error {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+
+	if req.Name == "" {
+		return errors.New("network name is required")
+	}
+	if req.Driver == "" {
+		req.Driver = "bridge"
+	}
+
+	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		var args []string
+		args = append(args, "network", "create", "--driver", req.Driver)
+		if req.Subnet != "" {
+			args = append(args, "--subnet", req.Subnet)
+		}
+		if req.Gateway != "" {
+			args = append(args, "--gateway", req.Gateway)
+		}
+		if req.Internal {
+			args = append(args, "--internal")
+		}
+		if req.EnableIPv6 {
+			args = append(args, "--ipv6")
+		}
+		args = append(args, req.Name)
+
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, strings.Join(args, " "))
+		return err
+	}
+
+	client, baseURL := s.getLocalHTTPClient(conn)
+	url := fmt.Sprintf("%s/v1.43/networks/create", baseURL)
+
+	payload := map[string]interface{}{
+		"Name":       req.Name,
+		"Driver":     req.Driver,
+		"Internal":   req.Internal,
+		"EnableIPv6": req.EnableIPv6,
+	}
+
+	if req.Subnet != "" || req.Gateway != "" {
+		ipamCfg := map[string]string{}
+		if req.Subnet != "" {
+			ipamCfg["Subnet"] = req.Subnet
+		}
+		if req.Gateway != "" {
+			ipamCfg["Gateway"] = req.Gateway
+		}
+		payload["IPAM"] = map[string]interface{}{
+			"Config": []map[string]string{ipamCfg},
+		}
+	}
+
+	bodyBytes, _ := json.Marshal(payload)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create network (%d): %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+func (s *DockerService) RemoveNetwork(ctx context.Context, connectionID, networkID string) error {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+
+	if networkID == "" {
+		return errors.New("network ID or Name is required")
+	}
+
+	// Protect default networks
+	if networkID == "bridge" || networkID == "host" || networkID == "none" {
+		return errors.New("cannot remove default system network (" + networkID + ")")
+	}
+
+	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		_, _, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("network rm %s", networkID))
+		return err
+	}
+
+	client, baseURL := s.getLocalHTTPClient(conn)
+	url := fmt.Sprintf("%s/v1.43/networks/%s", baseURL, networkID)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to remove network (%d): %s", resp.StatusCode, string(body))
+	}
+	return nil
 }

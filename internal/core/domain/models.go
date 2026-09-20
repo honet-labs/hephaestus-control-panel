@@ -581,8 +581,10 @@ type DockerContainer struct {
 	Created int64                 `json:"created"`
 	State   string                `json:"state"` // running, exited, paused, restarting
 	Status  string                `json:"status"`
-	Ports   []DockerContainerPort `json:"ports"`
-	Labels  map[string]string     `json:"labels,omitempty"`
+	Ports     []DockerContainerPort `json:"ports"`
+	Networks  []string              `json:"networks,omitempty"`
+	IPAddress string                `json:"ipAddress,omitempty"`
+	Labels    map[string]string     `json:"labels,omitempty"`
 }
 
 type DockerContainerStats struct {
@@ -596,11 +598,37 @@ type DockerContainerStats struct {
 }
 
 type DockerImage struct {
-	ID         string   `json:"id"`
-	RepoTags   []string `json:"repoTags"`
-	SizeMB     float64  `json:"sizeMb"`
-	Created    int64    `json:"created"`
-	Containers int      `json:"containers"`
+	ID          string   `json:"id"`
+	RepoTags    []string `json:"repoTags"`
+	Size        int64    `json:"size"`
+	SizeMB      float64  `json:"sizeMb"`
+	VirtualSize int64    `json:"virtualSize,omitempty"`
+	Created     int64    `json:"created"`
+	CreatedStr  string   `json:"createdStr,omitempty"`
+	Containers  int      `json:"containers"`
+}
+
+type DockerNetwork struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Driver          string            `json:"driver"`
+	Scope           string            `json:"scope"`
+	Subnet          string            `json:"subnet,omitempty"`
+	Gateway         string            `json:"gateway,omitempty"`
+	Internal        bool              `json:"internal"`
+	EnableIPv6      bool              `json:"enableIPv6"`
+	ContainersCount int               `json:"containersCount"`
+	Containers      map[string]string `json:"containers,omitempty"` // container ID/Name -> IP
+	Created         string            `json:"created,omitempty"`
+}
+
+type CreateNetworkRequest struct {
+	Name       string `json:"name"`
+	Driver     string `json:"driver"`
+	Subnet     string `json:"subnet,omitempty"`
+	Gateway    string `json:"gateway,omitempty"`
+	Internal   bool   `json:"internal"`
+	EnableIPv6 bool   `json:"enableIPv6"`
 }
 
 type DeployContainerRequest struct {

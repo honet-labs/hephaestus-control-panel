@@ -541,6 +541,65 @@ func (h *DockerHandler) GetSystemInfo(c *gin.Context) {
 	})
 }
 
+// -------------------------------------------------------------
+// Network Handlers
+// -------------------------------------------------------------
+
+func (h *DockerHandler) ListNetworks(c *gin.Context) {
+	connectionID := c.Query("connectionId")
+
+	networks, err := h.dockerService.ListNetworks(c.Request.Context(), connectionID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   err.Error(),
+			"data":    []domain.DockerNetwork{},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"total":   len(networks),
+		"data":    networks,
+	})
+}
+
+func (h *DockerHandler) CreateNetwork(c *gin.Context) {
+	connectionID := c.Query("connectionId")
+	var req domain.CreateNetworkRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid network specification"})
+		return
+	}
+
+	if err := h.dockerService.CreateNetwork(c.Request.Context(), connectionID, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Network created successfully",
+	})
+}
+
+func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
+	id := c.Param("id")
+	connectionID := c.Query("connectionId")
+
+	if err := h.dockerService.RemoveNetwork(c.Request.Context(), connectionID, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Network removed successfully",
+	})
+}
+
 // Aliases for route flexibility
 func (h *DockerHandler) DeleteContainer(c *gin.Context) {
 	h.RemoveContainer(c)
@@ -556,5 +615,9 @@ func (h *DockerHandler) GetStats(c *gin.Context) {
 
 func (h *DockerHandler) DeleteImage(c *gin.Context) {
 	h.RemoveImage(c)
+}
+
+func (h *DockerHandler) DeleteNetwork(c *gin.Context) {
+	h.RemoveNetwork(c)
 }
 

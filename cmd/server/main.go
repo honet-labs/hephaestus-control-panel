@@ -361,6 +361,9 @@ func main() {
 		api.GET("/docker/images", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListImages)
 		api.POST("/docker/images/pull", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.PullImage)
 		api.DELETE("/docker/images/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteImage)
+		api.GET("/docker/networks", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListNetworks)
+		api.POST("/docker/networks", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.CreateNetwork)
+		api.DELETE("/docker/networks/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteNetwork)
 		api.GET("/docker/system/info", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetSystemInfo)
 	}
 
