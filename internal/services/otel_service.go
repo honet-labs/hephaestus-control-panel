@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,6 +28,14 @@ type OTelSaveResult struct {
 	Message  string               `json:"message"`
 	BackupID string               `json:"backupId,omitempty"`
 	Restart  ServiceRestartResult `json:"restart"`
+}
+
+type OTelValidationResult struct {
+	Valid   bool   `json:"valid"`
+	Message string `json:"message"`
+	Output  string `json:"output,omitempty"`
+	Error   string `json:"error,omitempty"`
+	Binary  string `json:"binary,omitempty"`
 }
 
 type OTelHostStatusResult struct {
@@ -280,6 +289,127 @@ func (s *OTelService) SaveConfigFile(ctx context.Context, id string, content str
 	}
 
 	return result, nil
+}
+
+// ValidateConfig checks OpenTelemetry Collector configuration syntax and schema on the remote host
+func (s *OTelService) ValidateConfig(ctx context.Context, id string, content string) (*OTelValidationResult, error) {
+	// 1. If content is provided, perform initial Go-level YAML syntax verification
+	hasContent := strings.TrimSpace(content) != ""
+	if hasContent {
+		var yamlObj interface{}
+		if err := yaml.Unmarshal([]byte(content), &yamlObj); err != nil {
+			return &OTelValidationResult{
+				Valid:   false,
+				Message: "YAML syntax error: " + err.Error(),
+				Error:   fmt.Sprintf("YAML syntax error: %v", err),
+			}, nil
+		}
+	}
+
+	// 2. Fetch host configuration
+	cfg, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("host config not found: %w", err)
+	}
+
+	remoteCfg := s.makeRemoteHostConfig(cfg)
+
+	// 3. Determine target file path on remote host
+	validateTarget := cfg.ConfigPath
+	if hasContent {
+		tmpFile := fmt.Sprintf("/tmp/.otelcol_validate_%d_%d.yaml", time.Now().UnixNano(), rand.Intn(100000))
+		if err := s.sshService.WriteFile(remoteCfg, tmpFile, content); err != nil {
+			return nil, fmt.Errorf("failed to write temporary validation file '%s': %w", tmpFile, err)
+		}
+		defer func() {
+			cleanupCmd := fmt.Sprintf("_run_sudo rm -f '%s' 2>/dev/null || true", tmpFile)
+			_, _, _, _ = s.sshService.ExecuteElevatedCommand(remoteCfg, cleanupCmd)
+		}()
+		validateTarget = tmpFile
+	}
+
+	serviceName := cfg.ServiceName
+	if strings.TrimSpace(serviceName) == "" {
+		serviceName = "otelcol-contrib"
+	}
+
+	// 4. Find collector binary on host and run validation command
+	cmd := fmt.Sprintf(`
+		_run_sudo chmod 644 '%s' 2>/dev/null || true
+
+		find_otel_bin() {
+			if command -v systemctl >/dev/null 2>&1; then
+				svc_exec=$(systemctl show "%s" -p ExecStart --value 2>/dev/null | grep -o 'path=[^ ;]*' | cut -d= -f2 | head -n 1)
+				if [ -n "$svc_exec" ] && [ -x "$svc_exec" ]; then
+					echo "$svc_exec"
+					return 0
+				fi
+			fi
+			if command -v "%s" >/dev/null 2>&1; then
+				command -v "%s"
+				return 0
+			fi
+			for b in /usr/bin/otelcol-contrib /usr/local/bin/otelcol-contrib /usr/bin/otelcol /usr/local/bin/otelcol otelcol-contrib otelcol; do
+				if command -v "$b" >/dev/null 2>&1 || [ -x "$b" ]; then
+					echo "$b"
+					return 0
+				fi
+			done
+			return 1
+		}
+
+		BIN=$(find_otel_bin)
+		if [ -z "$BIN" ]; then
+			echo "ERROR: OpenTelemetry Collector binary not found on host (checked %s, otelcol-contrib, otelcol)" >&2
+			exit 127
+		fi
+
+		echo "USING_BIN:$BIN"
+		_run_sudo "$BIN" validate --config="%s" 2>&1
+	`, validateTarget, serviceName, serviceName, serviceName, serviceName, validateTarget)
+
+	stdout, stderr, exitCode, execErr := s.sshService.ExecuteElevatedCommand(remoteCfg, cmd)
+
+	var detectedBin string
+	var cleanLines []string
+	for _, line := range strings.Split(stdout, "\n") {
+		trimmed := strings.TrimRight(line, "\r")
+		if strings.HasPrefix(trimmed, "USING_BIN:") {
+			detectedBin = strings.TrimPrefix(trimmed, "USING_BIN:")
+		} else {
+			cleanLines = append(cleanLines, trimmed)
+		}
+	}
+	cleanOutput := strings.TrimSpace(strings.Join(cleanLines, "\n"))
+
+	if exitCode == 0 {
+		msg := "Validate OK: Configuration is valid and ready to apply."
+		if detectedBin != "" {
+			msg = fmt.Sprintf("Validate OK: Configuration is valid (%s)", filepath.Base(detectedBin))
+		}
+		return &OTelValidationResult{
+			Valid:   true,
+			Message: msg,
+			Output:  cleanOutput,
+			Binary:  detectedBin,
+		}, nil
+	}
+
+	errMsg := cleanOutput
+	if errMsg == "" {
+		errMsg = strings.TrimSpace(stderr)
+	}
+	if errMsg == "" && execErr != nil {
+		errMsg = execErr.Error()
+	}
+
+	return &OTelValidationResult{
+		Valid:   false,
+		Message: "Configuration validation failed",
+		Output:  cleanOutput,
+		Error:   errMsg,
+		Binary:  detectedBin,
+	}, nil
 }
 
 // RestartService restarts or reloads the OpenTelemetry systemd service

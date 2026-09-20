@@ -11,6 +11,7 @@ import {
   Trash2,
   Edit3,
   CheckCircle2,
+  CheckCheck,
   AlertTriangle,
   FileCode,
   History,
@@ -88,6 +89,24 @@ const gutterRef = ref<HTMLDivElement | null>(null);
 const restartingService = ref(false);
 const feedbackMsg = ref<{ type: 'success' | 'error' | 'info'; title: string; detail?: string } | null>(null);
 let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Remote Validation state
+const validating = ref(false);
+const copiedError = ref(false);
+const validationResult = ref<{
+  valid: boolean;
+  message: string;
+  output?: string;
+  error?: string;
+  binary?: string;
+} | null>(null);
+
+// Reset validation result when YAML content changes
+watch(yamlContent, () => {
+  if (validationResult.value) {
+    validationResult.value = null;
+  }
+});
 
 // Auto-dismiss notification after 3 seconds
 watch(feedbackMsg, (newVal) => {
@@ -297,6 +316,7 @@ const selectHost = async (hostId: string, forceReload = false) => {
   }
   selectedHostId.value = hostId;
   feedbackMsg.value = null;
+  validationResult.value = null;
   await loadHostConfig(hostId);
   checkHostStatus(hostId);
 };
@@ -420,7 +440,72 @@ const saveConfig = async () => {
   }
 };
 
+const validateConfig = async () => {
+  if (!selectedHost.value) return;
+  if (!yamlValidation.value.valid) {
+    feedbackMsg.value = {
+      type: 'error',
+      title: 'Invalid YAML Syntax',
+      detail: yamlValidation.value.error || 'Please fix syntax errors before validating.',
+    };
+    return;
+  }
 
+  validating.value = true;
+  validationResult.value = null;
+  feedbackMsg.value = null;
+
+  try {
+    const res = await axios.post(`/api/v1/otel/hosts/${selectedHost.value.id}/validate`, {
+      content: yamlContent.value,
+    });
+
+    if (res.data?.success && res.data.data) {
+      validationResult.value = res.data.data;
+      if (res.data.data.valid) {
+        feedbackMsg.value = {
+          type: 'success',
+          title: 'Validate OK',
+          detail: res.data.data.message || 'Configuration is valid and ready to apply.',
+        };
+      } else {
+        feedbackMsg.value = {
+          type: 'error',
+          title: 'Validation Failed',
+          detail: 'OpenTelemetry collector detected configuration errors.',
+        };
+      }
+    } else {
+      feedbackMsg.value = {
+        type: 'error',
+        title: 'Validation Failed',
+        detail: res.data?.error || 'Validation command encountered an error.',
+      };
+    }
+  } catch (err: any) {
+    feedbackMsg.value = {
+      type: 'error',
+      title: 'Validation Error',
+      detail: err.response?.data?.error || err.message || 'Failed to connect to host for validation.',
+    };
+  } finally {
+    validating.value = false;
+  }
+};
+
+const copyValidationError = async () => {
+  const errText = validationResult.value?.error || validationResult.value?.output || '';
+  if (!errText) return;
+  try {
+    await navigator.clipboard.writeText(errText);
+    copiedError.value = true;
+    setTimeout(() => {
+      copiedError.value = false;
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to copy error:', e);
+  }
+};
 
 const restartCurrentService = async (mode: 'restart' | 'reload' = 'restart') => {
   if (!selectedHost.value) return;
@@ -1044,6 +1129,17 @@ onMounted(async () => {
               <!-- Right side: Host Quick Action Buttons -->
               <div class="flex items-center gap-1.5 flex-wrap">
 
+                <!-- Validate Config Button -->
+                <button
+                  @click="validateConfig"
+                  :disabled="validating"
+                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
+                  title="Validate configuration syntax and schema with otelcol validate"
+                >
+                  <CheckCheck class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': validating }" />
+                  <span>{{ validating ? 'Validating...' : 'Validate Config' }}</span>
+                </button>
+
                 <!-- Restart Service Button -->
                 <button
                   v-if="canManage"
@@ -1097,6 +1193,111 @@ onMounted(async () => {
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- VALIDATION RESULT BANNER (OK OR ERROR) -->
+          <!-- Validate OK -->
+          <div
+            v-if="validationResult && validationResult.valid"
+            class="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 shadow-sm space-y-3 animate-in fade-in"
+          >
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="flex items-start sm:items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 class="w-5 h-5" />
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-bold text-emerald-900 dark:text-emerald-200">Validate OK</h4>
+                    <span v-if="validationResult.binary" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-semibold">
+                      {{ validationResult.binary }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
+                    {{ validationResult.message || 'Configuration is valid and passed collector schema check.' }} You can safely restart the OpenTelemetry service now.
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  v-if="canManage && hasUnsavedChanges"
+                  @click="saveConfig"
+                  :disabled="saving"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Deploy changes and restart agent service"
+                >
+                  <Save class="w-3.5 h-3.5" :class="{ 'animate-spin': saving }" />
+                  <span>Deploy & Restart</span>
+                </button>
+                <button
+                  v-if="canManage"
+                  @click="restartCurrentService('restart')"
+                  :disabled="restartingService"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Restart collector systemd service immediately"
+                >
+                  <Play class="w-3.5 h-3.5" :class="{ 'animate-spin': restartingService }" />
+                  <span>Restart Service Now</span>
+                </button>
+                <button
+                  @click="validationResult = null"
+                  class="p-1.5 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-100 rounded-lg cursor-pointer"
+                  title="Dismiss"
+                >
+                  <X class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div v-if="validationResult.output" class="pt-1">
+              <pre class="bg-black/30 dark:bg-black/50 border border-emerald-500/20 rounded-lg p-2.5 text-[11px] font-mono text-emerald-800 dark:text-emerald-200 overflow-x-auto whitespace-pre-wrap leading-relaxed">{{ validationResult.output }}</pre>
+            </div>
+          </div>
+
+          <!-- Validation Error -->
+          <div
+            v-else-if="validationResult && !validationResult.valid"
+            class="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 shadow-sm space-y-3 animate-in fade-in"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle class="w-5 h-5" />
+                </div>
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-bold text-rose-900 dark:text-rose-200">Validation Error</h4>
+                    <span v-if="validationResult.binary" class="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-800 dark:text-rose-300 font-semibold">
+                      {{ validationResult.binary }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-rose-800 dark:text-rose-300/90">
+                    OpenTelemetry Collector rejected the configuration with the following error(s):
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  @click="copyValidationError"
+                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-semibold transition cursor-pointer"
+                  title="Copy error details to clipboard"
+                >
+                  <component :is="copiedError ? Check : Copy" class="w-3.5 h-3.5" />
+                  <span>{{ copiedError ? 'Copied' : 'Copy Error' }}</span>
+                </button>
+                <button
+                  @click="validationResult = null"
+                  class="p-1.5 text-rose-700 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-100 rounded-lg cursor-pointer"
+                  title="Dismiss"
+                >
+                  <X class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Error code output block -->
+            <div class="relative bg-slate-900 dark:bg-[#070a10] border border-rose-500/20 rounded-xl p-3.5 overflow-hidden">
+              <pre class="font-mono text-xs text-rose-300 dark:text-rose-200 whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto leading-relaxed selection:bg-rose-500/30">{{ validationResult.error || validationResult.output }}</pre>
             </div>
           </div>
 
@@ -1185,6 +1386,16 @@ onMounted(async () => {
                 </div>
 
                 <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    @click="validateConfig"
+                    :disabled="validating"
+                    class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
+                    title="Validate configuration syntax and schema with otelcol validate"
+                  >
+                    <CheckCheck class="w-4 h-4 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': validating }" />
+                    <span>{{ validating ? 'Validating...' : 'Validate Config' }}</span>
+                  </button>
+
                   <button
                     @click="saveConfig"
                     :disabled="saving || !yamlValidation.valid"

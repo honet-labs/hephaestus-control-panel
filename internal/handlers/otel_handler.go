@@ -248,6 +248,23 @@ func (h *OTelHandler) SaveConfigFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": res.Message, "data": res})
 }
 
+// ValidateConfig checks OpenTelemetry configuration syntax and schema on the remote host
+func (h *OTelHandler) ValidateConfig(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Content string `json:"content"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	res, err := h.otelService.ValidateConfig(c.Request.Context(), id, req.Content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
+}
+
 // RestartService triggers a service reload or restart
 func (h *OTelHandler) RestartService(c *gin.Context) {
 	id := c.Param("id")
