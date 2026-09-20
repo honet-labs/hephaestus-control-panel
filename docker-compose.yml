@@ -49,6 +49,7 @@ services:
       - app_logs:/app/logs
       - ${BACKUP_DIR:-./backups}:/app/backups
       - ${BACKUP_DIR:-./backups}:/opt/backups
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - database
     networks:

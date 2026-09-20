@@ -23,7 +23,7 @@ const router = useRouter();
 interface RegistryItem {
   id: string;
   name: string;
-  type: 'GRAFANA API' | 'PROMETHEUS' | 'DATA PREPPER' | 'OPENSEARCH';
+  type: 'GRAFANA API' | 'PROMETHEUS' | 'DATA PREPPER' | 'OPENSEARCH' | 'DOCKER ENGINE';
   url: string;
   authType?: string;
   isActive: boolean;
@@ -42,7 +42,7 @@ const editingId = ref<string | null>(null);
 const editingRawType = ref<string | null>(null);
 
 const form = ref({
-  type: 'Grafana Core API' as 'Grafana Core API' | 'Prometheus Server (SSH / Local File)' | 'Data Prepper (SSH / Local Directory)' | 'OpenSearch Cluster',
+  type: 'Grafana Core API' as 'Grafana Core API' | 'Prometheus Server (SSH / Local File)' | 'Data Prepper (SSH / Local Directory)' | 'OpenSearch Cluster' | 'Docker Engine (Socket / SSH / TCP)',
   name: '',
   // Grafana
   url: '',
@@ -67,6 +67,19 @@ const form = ref({
   osPassword: '',
   osUseSsl: true,
   osVerifySsl: false,
+  // Docker Engine
+  dockerDriver: 'socket' as 'socket' | 'ssh' | 'tcp',
+  dockerSocketPath: '/var/run/docker.sock',
+  dockerTcpHost: '',
+  dockerTcpPort: 2375,
+  dockerTcpTls: false,
+  dockerSshHost: '',
+  dockerSshPort: 22,
+  dockerSshUser: 'root',
+  dockerSshAuth: 'password' as 'password' | 'key',
+  dockerSshPassword: '',
+  dockerSshKey: '',
+  dockerIsDefault: false,
 });
 
 // Fetch all registered connections from backend database
@@ -75,10 +88,11 @@ const fetchConnections = async () => {
   const items: RegistryItem[] = [];
 
   try {
-    const [grafanaRes, promRes, osRes] = await Promise.all([
+    const [grafanaRes, promRes, osRes, dockerRes] = await Promise.all([
       axios.get('/api/v1/settings/grafana').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/settings/prometheus').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/opensearch/config').catch(() => ({ data: { success: false } })),
+      axios.get('/api/v1/docker/connections').catch(() => ({ data: { success: false } })),
     ]);
 
     // 1. Grafana Configs
@@ -130,6 +144,31 @@ const fetchConnections = async () => {
         status: 'connected',
         rawType: 'opensearch',
         rawItem: os,
+      });
+    }
+
+    // 4. Docker Engine Connections
+    if (dockerRes.data?.success && Array.isArray(dockerRes.data.data)) {
+      dockerRes.data.data.forEach((d: any) => {
+        let displayUrl = '';
+        if (d.driver === 'socket') {
+          displayUrl = d.socketPath || '/var/run/docker.sock';
+        } else if (d.driver === 'ssh') {
+          displayUrl = `${d.sshUser || 'root'}@${d.sshHost}:${d.sshPort || 22}`;
+        } else {
+          displayUrl = `${d.tcpHost}:${d.tcpPort || 2375}`;
+        }
+        items.push({
+          id: d.id,
+          name: d.name,
+          type: 'DOCKER ENGINE',
+          url: displayUrl,
+          authType: d.driver.toUpperCase(),
+          isActive: d.isDefault,
+          status: 'connected',
+          rawType: 'docker',
+          rawItem: d,
+        });
       });
     }
 
@@ -212,6 +251,29 @@ const handleTestConnection = async () => {
           message: 'Local directory mode configured.',
         };
       }
+    } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
+      const payload: any = {
+        driver: form.value.dockerDriver,
+        socketPath: form.value.dockerSocketPath || '/var/run/docker.sock',
+        tcpHost: form.value.dockerTcpHost,
+        tcpPort: Number(form.value.dockerTcpPort) || 2375,
+        tcpTls: form.value.dockerTcpTls,
+        sshHost: form.value.dockerSshHost,
+        sshPort: Number(form.value.dockerSshPort) || 22,
+        sshUser: form.value.dockerSshUser,
+        sshAuth: form.value.dockerSshAuth,
+        sshPassword: form.value.dockerSshPassword,
+        sshKey: form.value.dockerSshKey,
+      };
+      if (editingId.value) payload.id = editingId.value;
+
+      const res = await axios.post('/api/v1/docker/connections/test', payload);
+      testStatus.value = {
+        success: res.data?.success || false,
+        message: res.data?.success
+          ? (res.data?.message || 'Docker connection verified successfully!')
+          : (res.data?.error || 'Failed to connect to Docker Engine.'),
+      };
     } else {
       testStatus.value = {
         success: true,
@@ -267,6 +329,21 @@ const handleEditConnection = (item: RegistryItem) => {
     form.value.osPassword = '';
     form.value.osUseSsl = item.rawItem.useSsl ?? true;
     form.value.osVerifySsl = item.rawItem.verifySsl ?? false;
+  } else if (item.rawType === 'docker') {
+    form.value.type = 'Docker Engine (Socket / SSH / TCP)';
+    form.value.name = item.name;
+    form.value.dockerDriver = item.rawItem.driver || 'socket';
+    form.value.dockerSocketPath = item.rawItem.socketPath || '/var/run/docker.sock';
+    form.value.dockerTcpHost = item.rawItem.tcpHost || '';
+    form.value.dockerTcpPort = item.rawItem.tcpPort || 2375;
+    form.value.dockerTcpTls = item.rawItem.tcpTls || false;
+    form.value.dockerSshHost = item.rawItem.sshHost || '';
+    form.value.dockerSshPort = item.rawItem.sshPort || 22;
+    form.value.dockerSshUser = item.rawItem.sshUser || 'root';
+    form.value.dockerSshAuth = item.rawItem.sshAuth || 'password';
+    form.value.dockerSshPassword = '';
+    form.value.dockerSshKey = '';
+    form.value.dockerIsDefault = item.rawItem.isDefault || false;
   }
 
   // Smooth scroll to top form
@@ -286,6 +363,17 @@ const cancelEdit = () => {
   form.value.osHost = '';
   form.value.osUser = '';
   form.value.osPassword = '';
+  form.value.dockerDriver = 'socket';
+  form.value.dockerSocketPath = '/var/run/docker.sock';
+  form.value.dockerTcpHost = '';
+  form.value.dockerTcpPort = 2375;
+  form.value.dockerTcpTls = false;
+  form.value.dockerSshHost = '';
+  form.value.dockerSshPort = 22;
+  form.value.dockerSshUser = 'root';
+  form.value.dockerSshPassword = '';
+  form.value.dockerSshKey = '';
+  form.value.dockerIsDefault = false;
   testStatus.value = null;
 };
 
@@ -321,6 +409,8 @@ const executeDelete = async () => {
       await axios.delete(`/api/v1/settings/prometheus/${item.id}`);
     } else if (item.rawType === 'opensearch') {
       await axios.delete(`/api/v1/opensearch/config/${item.id}`);
+    } else if (item.rawType === 'docker') {
+      await axios.delete(`/api/v1/docker/connections/${item.id}`);
     }
     if (editingId.value === item.id) {
       cancelEdit();
@@ -396,6 +486,24 @@ const handleRegisterEndpoint = async () => {
       };
       if (editingId.value) payload.id = editingId.value;
       await axios.post('/api/v1/opensearch/config', payload);
+    } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
+      const payload: any = {
+        name: form.value.name,
+        driver: form.value.dockerDriver,
+        socketPath: form.value.dockerSocketPath || '/var/run/docker.sock',
+        tcpHost: form.value.dockerTcpHost,
+        tcpPort: Number(form.value.dockerTcpPort) || 2375,
+        tcpTls: form.value.dockerTcpTls,
+        sshHost: form.value.dockerSshHost,
+        sshPort: Number(form.value.dockerSshPort) || 22,
+        sshUser: form.value.dockerSshUser,
+        sshAuth: form.value.dockerSshAuth,
+        sshPassword: form.value.dockerSshPassword,
+        sshKey: form.value.dockerSshKey,
+        isDefault: form.value.dockerIsDefault,
+      };
+      if (editingId.value) payload.id = editingId.value;
+      await axios.post('/api/v1/docker/connections', payload);
     }
 
     cancelEdit();
@@ -436,6 +544,17 @@ const handlePingTest = async (item: RegistryItem) => {
       } else {
         item.status = 'offline';
         showToast(res.data?.error || `OpenSearch cluster unreachable for ${item.name}`, 'error');
+      }
+    } else if (item.rawType === 'docker') {
+      const res = await axios.post('/api/v1/docker/connections/test', {
+        id: item.id,
+      });
+      if (res.data?.success) {
+        item.status = 'connected';
+        showToast(`Docker Engine reachable: ${item.name}`, 'success');
+      } else {
+        item.status = 'offline';
+        showToast(res.data?.error || `Docker Engine unreachable for ${item.name}`, 'error');
       }
     } else {
       await new Promise((r) => setTimeout(r, 400));
@@ -494,6 +613,7 @@ onMounted(() => {
               <option value="Prometheus Server (SSH / Local File)">Prometheus Server (SSH / Local File)</option>
               <option value="Data Prepper (SSH / Local Directory)">Data Prepper (SSH / Local Directory)</option>
               <option value="OpenSearch Cluster">OpenSearch Cluster</option>
+              <option value="Docker Engine (Socket / SSH / TCP)">Docker Engine (Socket / SSH / TCP)</option>
             </select>
           </div>
 
@@ -700,6 +820,112 @@ onMounted(() => {
             </div>
           </template>
 
+          <!-- ================= 4. DOCKER ENGINE FIELDS ================= -->
+          <template v-if="form.type === 'Docker Engine (Socket / SSH / TCP)'">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Docker Driver Mode</label>
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  @click="form.dockerDriver = 'socket'"
+                  :class="[
+                    'py-1.5 px-2 text-xs font-semibold rounded-lg border transition text-center cursor-pointer',
+                    form.dockerDriver === 'socket'
+                      ? 'bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-[#1b2234] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ]"
+                >
+                  Unix Socket
+                </button>
+                <button
+                  type="button"
+                  @click="form.dockerDriver = 'ssh'"
+                  :class="[
+                    'py-1.5 px-2 text-xs font-semibold rounded-lg border transition text-center cursor-pointer',
+                    form.dockerDriver === 'ssh'
+                      ? 'bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-[#1b2234] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ]"
+                >
+                  Remote SSH
+                </button>
+                <button
+                  type="button"
+                  @click="form.dockerDriver = 'tcp'"
+                  :class="[
+                    'py-1.5 px-2 text-xs font-semibold rounded-lg border transition text-center cursor-pointer',
+                    form.dockerDriver === 'tcp'
+                      ? 'bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-[#1b2234] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ]"
+                >
+                  TCP Socket
+                </button>
+              </div>
+            </div>
+
+            <!-- Socket Fields -->
+            <div v-if="form.dockerDriver === 'socket'">
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Docker Socket Path</label>
+              <input
+                v-model="form.dockerSocketPath"
+                placeholder="/var/run/docker.sock"
+                class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
+              />
+              <p class="text-[10px] text-slate-500 mt-1">Default local Docker daemon Unix domain socket.</p>
+            </div>
+
+            <!-- SSH Fields -->
+            <div v-if="form.dockerDriver === 'ssh'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
+              <div class="grid grid-cols-3 gap-2">
+                <div class="col-span-2">
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Host IP / Domain</label>
+                  <input v-model="form.dockerSshHost" placeholder="10.20.3.10" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+                <div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">Port</label>
+                  <input v-model.number="form.dockerSshPort" type="number" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Username</label>
+                  <input v-model="form.dockerSshUser" placeholder="root" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+                <div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">Password / Key</label>
+                  <input v-model="form.dockerSshPassword" type="password" placeholder="••••••" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+              </div>
+            </div>
+
+            <!-- TCP Fields -->
+            <div v-if="form.dockerDriver === 'tcp'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
+              <div class="grid grid-cols-3 gap-2">
+                <div class="col-span-2">
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">TCP Host / IP</label>
+                  <input v-model="form.dockerTcpHost" placeholder="10.20.3.15" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+                <div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">Port</label>
+                  <input v-model.number="form.dockerTcpPort" type="number" placeholder="2375" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Set as Default Connection checkbox -->
+            <div class="pt-1">
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  v-model="form.dockerIsDefault"
+                  class="rounded bg-slate-50 dark:bg-[#141824] border-slate-300 dark:border-slate-700 text-[#4274D9] focus:ring-0 w-4 h-4 cursor-pointer"
+                />
+                <span class="font-medium text-slate-800 dark:text-white">Default Environment for Container Management</span>
+              </label>
+            </div>
+          </template>
+
           <!-- Buttons: Test Connection & Register/Update -->
           <div class="grid grid-cols-2 gap-3 pt-2">
             <button
@@ -799,6 +1025,7 @@ onMounted(() => {
                       item.type === 'GRAFANA API' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30' :
                       item.type === 'PROMETHEUS' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30' :
                       item.type === 'DATA PREPPER' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' :
+                      item.type === 'DOCKER ENGINE' ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30' :
                       'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'
                     ]"
                   >

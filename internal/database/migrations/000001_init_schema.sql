@@ -369,6 +369,26 @@ CREATE TABLE IF NOT EXISTS vaultwarden_configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 27. DockerConnections - Docker host / engine connections (Local socket, Remote SSH, TCP)
+CREATE TABLE IF NOT EXISTS docker_connections (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    host_type VARCHAR(50) NOT NULL DEFAULT 'local',
+    socket_path VARCHAR(255) DEFAULT '/var/run/docker.sock',
+    tcp_url VARCHAR(255),
+    remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
+    ssh_host VARCHAR(255),
+    ssh_port INTEGER DEFAULT 22,
+    ssh_user VARCHAR(255),
+    ssh_auth VARCHAR(50) DEFAULT 'password',
+    ssh_password_encrypted TEXT,
+    ssh_key_encrypted TEXT,
+    is_active BOOLEAN DEFAULT true,
+    is_default BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================================================
@@ -405,8 +425,8 @@ ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'
 
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "settings": "manage"}'::jsonb),
-    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "settings": "none"}'::jsonb)
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "infrastructure": "manage", "settings": "manage"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "infrastructure": "read", "settings": "none"}'::jsonb)
 ON CONFLICT (name) DO UPDATE SET 
     permissions = EXCLUDED.permissions,
     description = EXCLUDED.description;
@@ -429,4 +449,9 @@ WHERE NOT EXISTS (SELECT 1 FROM topology_sheets);
 INSERT INTO backup_destinations (id, name, dest_type, config, is_active)
 SELECT 'dest-local-default', 'Local Storage (Default)', 'local', '{"path": "/app/backups"}'::jsonb, true
 WHERE NOT EXISTS (SELECT 1 FROM backup_destinations WHERE id = 'dest-local-default' OR (dest_type = 'local' AND (config->>'path' = '/app/backups' OR config->>'path' = '/opt/backups')));
+
+-- Seed default local Docker socket connection
+INSERT INTO docker_connections (id, name, host_type, socket_path, is_active, is_default)
+SELECT 'docker-local-default', 'Local Docker Host', 'local', '/var/run/docker.sock', true, true
+WHERE NOT EXISTS (SELECT 1 FROM docker_connections WHERE id = 'docker-local-default' OR is_default = true);
 

@@ -71,6 +71,7 @@ func main() {
 	backupRepo := repository.NewBackupRepository()
 	otelRepo := repository.NewOTelRepository()
 	vaultwardenRepo := repository.NewVaultwardenRepository()
+	dockerRepo := repository.NewDockerRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -93,6 +94,7 @@ func main() {
 	dpService := services.NewDataPrepperService(sshService)
 	otelService := services.NewOTelService(otelRepo, sshService)
 	vaultwardenService := services.NewVaultwardenService(vaultwardenRepo)
+	dockerService := services.NewDockerService(dockerRepo, remoteRepo, sshService)
 	systemService := services.NewSystemService()
 
 	// 7. Initialize HTTP Handlers
@@ -109,6 +111,7 @@ func main() {
 	dpHandler := handlers.NewDataPrepperHandler(dpService)
 	otelHandler := handlers.NewOTelHandler(otelService, otelRepo)
 	vaultwardenHandler := handlers.NewVaultwardenHandler(vaultwardenService, vaultwardenRepo)
+	dockerHandler := handlers.NewDockerHandler(dockerService, dockerRepo)
 	settingsHandler := handlers.NewSettingsHandler(configRepo, userRepo, systemService)
 	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
@@ -334,6 +337,27 @@ func main() {
 		api.GET("/vaultwarden/ciphers", middleware.RequirePermission("security", "read"), vaultwardenHandler.GetCiphers)
 		api.POST("/vaultwarden/sync", middleware.RequirePermission("security", "manage"), vaultwardenHandler.SyncVault)
 		api.DELETE("/vaultwarden/config", middleware.RequirePermission("security", "manage"), vaultwardenHandler.DeleteConfig)
+
+		// Docker & Container Management (Feature: infrastructure)
+		api.GET("/docker/connections", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListConnections)
+		api.POST("/docker/connections", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.SaveConnection)
+		api.POST("/docker/connections/test", middleware.RequirePermission("infrastructure", "read"), dockerHandler.TestConnection)
+		api.DELETE("/docker/connections/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteConnection)
+		api.GET("/docker/containers", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListContainers)
+		api.GET("/docker/containers/:id", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetContainer)
+		api.POST("/docker/containers/:id/start", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.StartContainer)
+		api.POST("/docker/containers/:id/stop", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.StopContainer)
+		api.POST("/docker/containers/:id/restart", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.RestartContainer)
+		api.POST("/docker/containers/:id/pause", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.PauseContainer)
+		api.POST("/docker/containers/:id/unpause", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.UnpauseContainer)
+		api.DELETE("/docker/containers/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteContainer)
+		api.GET("/docker/containers/:id/logs", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetLogs)
+		api.GET("/docker/containers/:id/stats", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetStats)
+		api.POST("/docker/containers/deploy", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeployContainer)
+		api.GET("/docker/images", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListImages)
+		api.POST("/docker/images/pull", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.PullImage)
+		api.DELETE("/docker/images/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteImage)
+		api.GET("/docker/system/info", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetSystemInfo)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)

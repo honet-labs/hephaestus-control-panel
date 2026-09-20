@@ -288,6 +288,37 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		UPDATE system_roles 
 		SET permissions = permissions || '{"security": "read"}'::jsonb 
 		WHERE name = 'VIEWER' AND NOT (permissions ? 'security');
+
+		CREATE TABLE IF NOT EXISTS docker_connections (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			host_type VARCHAR(50) NOT NULL DEFAULT 'local',
+			socket_path VARCHAR(255) DEFAULT '/var/run/docker.sock',
+			tcp_url VARCHAR(255),
+			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
+			ssh_host VARCHAR(255),
+			ssh_port INTEGER DEFAULT 22,
+			ssh_user VARCHAR(255),
+			ssh_auth VARCHAR(50) DEFAULT 'password',
+			ssh_password_encrypted TEXT,
+			ssh_key_encrypted TEXT,
+			is_active BOOLEAN DEFAULT true,
+			is_default BOOLEAN DEFAULT false,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		INSERT INTO docker_connections (id, name, host_type, socket_path, is_active, is_default)
+		SELECT 'docker-local-default', 'Local Docker Host', 'local', '/var/run/docker.sock', true, true
+		WHERE NOT EXISTS (SELECT 1 FROM docker_connections WHERE id = 'docker-local-default' OR is_default = true);
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"infrastructure": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR') AND NOT (permissions ? 'infrastructure');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"infrastructure": "read"}'::jsonb 
+		WHERE name = 'VIEWER' AND NOT (permissions ? 'infrastructure');
 	`
 	_, _ = pool.Exec(ctx, upgradeSQL)
 

@@ -52,6 +52,20 @@ const router = createRouter({
       redirect: '/security/vaultwarden',
     },
     {
+      path: '/infrastructure/containers',
+      name: 'container-management',
+      component: () => import('../views/ContainerManagementView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/containers',
+      redirect: '/infrastructure/containers',
+    },
+    {
+      path: '/management-containers',
+      redirect: '/infrastructure/containers',
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },

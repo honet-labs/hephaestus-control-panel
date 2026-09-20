@@ -531,3 +531,88 @@ type VaultSyncResponse struct {
 	LastSyncedAt time.Time             `json:"lastSyncedAt"`
 	Items        []VaultCredentialItem `json:"items"`
 }
+
+// ==================== DOCKER & CONTAINER INFRASTRUCTURE DOMAIN ====================
+
+type DockerConnection struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	HostType    string    `json:"hostType"` // "local", "ssh", "tcp"
+	Driver      string    `json:"driver"`   // "socket", "ssh", "tcp"
+	SocketPath  string    `json:"socketPath"`
+	TcpURL      string    `json:"tcpUrl,omitempty"`
+	RemoteHostID *string  `json:"remoteHostId,omitempty"`
+	SSHHost     *string   `json:"sshHost,omitempty"`
+	SSHPort     *int      `json:"sshPort,omitempty"`
+	SSHUser     *string   `json:"sshUser,omitempty"`
+	SSHAuth     *string   `json:"sshAuth,omitempty"`
+	SSHPassword *string   `json:"sshPassword,omitempty"`
+	SSHKey      *string   `json:"sshKey,omitempty"`
+	IsActive    bool      `json:"isActive"`
+	IsDefault   bool      `json:"isDefault"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type DockerContainerPort struct {
+	IP          string `json:"ip,omitempty"`
+	PrivatePort int    `json:"privatePort"`
+	PublicPort  int    `json:"publicPort,omitempty"`
+	Type        string `json:"type"` // tcp, udp
+}
+
+type DockerContainer struct {
+	ID      string                `json:"id"`
+	Names   []string              `json:"names"`
+	Name    string                `json:"name"`
+	Image   string                `json:"image"`
+	ImageID string                `json:"imageId"`
+	Command string                `json:"command"`
+	Created int64                 `json:"created"`
+	State   string                `json:"state"` // running, exited, paused, restarting
+	Status  string                `json:"status"`
+	Ports   []DockerContainerPort `json:"ports"`
+	Labels  map[string]string     `json:"labels,omitempty"`
+}
+
+type DockerContainerStats struct {
+	ContainerID   string  `json:"containerId"`
+	CPUPercent    float64 `json:"cpuPercent"`
+	MemoryUsageMB float64 `json:"memoryUsageMb"`
+	MemoryLimitMB float64 `json:"memoryLimitMb"`
+	MemoryPercent float64 `json:"memoryPercent"`
+	NetworkRxMB   float64 `json:"networkRxMb"`
+	NetworkTxMB   float64 `json:"networkTxMb"`
+}
+
+type DockerImage struct {
+	ID         string   `json:"id"`
+	RepoTags   []string `json:"repoTags"`
+	SizeMB     float64  `json:"sizeMb"`
+	Created    int64    `json:"created"`
+	Containers int      `json:"containers"`
+}
+
+type DeployContainerRequest struct {
+	Name           string   `json:"name"`
+	Image          string   `json:"image"`
+	PortBindings   []string `json:"portBindings"`   // e.g. ["8080:80", "443:443"]
+	VolumeBindings []string `json:"volumeBindings"` // e.g. ["/data:/app/data"]
+	EnvVars        []string `json:"envVars"`        // e.g. ["FOO=BAR"]
+	RestartPolicy  string   `json:"restartPolicy"`  // "always", "unless-stopped", "no"
+	Command        string   `json:"command,omitempty"`
+}
+
+type DockerSystemInfo struct {
+	ServerVersion     string  `json:"serverVersion"`
+	Containers        int     `json:"containers"`
+	ContainersRunning int     `json:"containersRunning"`
+	ContainersPaused  int     `json:"containersPaused"`
+	ContainersStopped int     `json:"containersStopped"`
+	Images            int     `json:"images"`
+	OperatingSystem   string  `json:"operatingSystem"`
+	OSType            string  `json:"osType"`
+	Architecture      string  `json:"architecture"`
+	NCPU              int     `json:"ncpu"`
+	MemTotalMB        float64 `json:"memTotalMb"`
+}
