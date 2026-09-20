@@ -526,6 +526,39 @@ func (s *DockerService) GetContainerLogs(ctx context.Context, connectionID, cont
 	return clean, nil
 }
 
+func parseHumanSizeToBytes(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" || s == "0B" {
+		return 0
+	}
+	var numStr, unitStr string
+	for i, r := range s {
+		if (r >= '0' && r <= '9') || r == '.' {
+			numStr += string(r)
+		} else {
+			unitStr = strings.TrimSpace(s[i:])
+			break
+		}
+	}
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+	unitLower := strings.ToLower(unitStr)
+	switch {
+	case strings.HasPrefix(unitLower, "tib") || strings.HasPrefix(unitLower, "tb"):
+		return int64(val * 1024 * 1024 * 1024 * 1024)
+	case strings.HasPrefix(unitLower, "gib") || strings.HasPrefix(unitLower, "gb"):
+		return int64(val * 1024 * 1024 * 1024)
+	case strings.HasPrefix(unitLower, "mib") || strings.HasPrefix(unitLower, "mb"):
+		return int64(val * 1024 * 1024)
+	case strings.HasPrefix(unitLower, "kib") || strings.HasPrefix(unitLower, "kb"):
+		return int64(val * 1024)
+	default:
+		return int64(val)
+	}
+}
+
 func (s *DockerService) GetContainerStats(ctx context.Context, connectionID, containerID string) (*domain.DockerContainerStats, error) {
 	conn, err := s.resolveConnection(ctx, connectionID)
 	if err != nil {
@@ -539,20 +572,65 @@ func (s *DockerService) GetContainerStats(ctx context.Context, connectionID, con
 		}
 
 		var statsItem struct {
-			CPUPerc string `json:"CPUPerc"`
-			MemPerc string `json:"MemPerc"`
+			Name     string `json:"Name"`
+			CPUPerc  string `json:"CPUPerc"`
+			MemPerc  string `json:"MemPerc"`
 			MemUsage string `json:"MemUsage"`
-			NetIO   string `json:"NetIO"`
+			NetIO    string `json:"NetIO"`
+			BlockIO  string `json:"BlockIO"`
+			PIDs     string `json:"PIDs"`
 		}
 		_ = json.Unmarshal([]byte(strings.TrimSpace(stdout)), &statsItem)
 
 		cpuVal, _ := strconv.ParseFloat(strings.TrimSuffix(statsItem.CPUPerc, "%"), 64)
 		memPercVal, _ := strconv.ParseFloat(strings.TrimSuffix(statsItem.MemPerc, "%"), 64)
 
+		var memUsageBytes, memLimitBytes int64
+		if strings.Contains(statsItem.MemUsage, "/") {
+			parts := strings.Split(statsItem.MemUsage, "/")
+			if len(parts) >= 2 {
+				memUsageBytes = parseHumanSizeToBytes(parts[0])
+				memLimitBytes = parseHumanSizeToBytes(parts[1])
+			}
+		}
+
+		var netRxBytes, netTxBytes int64
+		if strings.Contains(statsItem.NetIO, "/") {
+			parts := strings.Split(statsItem.NetIO, "/")
+			if len(parts) >= 2 {
+				netRxBytes = parseHumanSizeToBytes(parts[0])
+				netTxBytes = parseHumanSizeToBytes(parts[1])
+			}
+		}
+
+		var blockReadBytes, blockWriteBytes int64
+		if strings.Contains(statsItem.BlockIO, "/") {
+			parts := strings.Split(statsItem.BlockIO, "/")
+			if len(parts) >= 2 {
+				blockReadBytes = parseHumanSizeToBytes(parts[0])
+				blockWriteBytes = parseHumanSizeToBytes(parts[1])
+			}
+		}
+
+		pidsVal, _ := strconv.Atoi(strings.TrimSpace(statsItem.PIDs))
+
 		return &domain.DockerContainerStats{
 			ContainerID:   containerID,
+			Name:          statsItem.Name,
 			CPUPercent:    cpuVal,
+			MemoryUsageMB: float64(memUsageBytes) / (1024 * 1024),
+			MemoryLimitMB: float64(memLimitBytes) / (1024 * 1024),
 			MemoryPercent: memPercVal,
+			NetworkRxMB:   float64(netRxBytes) / (1024 * 1024),
+			NetworkTxMB:   float64(netTxBytes) / (1024 * 1024),
+			MemUsage:      memUsageBytes,
+			MemLimit:      memLimitBytes,
+			MemPercent:    memPercVal,
+			NetRx:         netRxBytes,
+			NetTx:         netTxBytes,
+			BlockRead:     blockReadBytes,
+			BlockWrite:    blockWriteBytes,
+			Pids:          pidsVal,
 		}, nil
 	}
 
@@ -632,6 +710,11 @@ func (s *DockerService) GetContainerStats(ctx context.Context, connectionID, con
 		MemoryPercent: memPercent,
 		NetworkRxMB:   float64(rxBytes) / (1024 * 1024),
 		NetworkTxMB:   float64(txBytes) / (1024 * 1024),
+		MemUsage:      int64(raw.MemoryStats.Usage),
+		MemLimit:      int64(raw.MemoryStats.Limit),
+		MemPercent:    memPercent,
+		NetRx:         int64(rxBytes),
+		NetTx:         int64(txBytes),
 	}, nil
 }
 

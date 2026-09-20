@@ -427,7 +427,13 @@ func (h *DockerHandler) GetContainerLogs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "logs": logs})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"logs":    logs,
+		"data": gin.H{
+			"logs": logs,
+		},
+	})
 }
 
 func (h *DockerHandler) GetContainerStats(c *gin.Context) {

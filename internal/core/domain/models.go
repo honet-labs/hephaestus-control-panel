@@ -589,12 +589,23 @@ type DockerContainer struct {
 
 type DockerContainerStats struct {
 	ContainerID   string  `json:"containerId"`
+	Name          string  `json:"name,omitempty"`
 	CPUPercent    float64 `json:"cpuPercent"`
 	MemoryUsageMB float64 `json:"memoryUsageMb"`
 	MemoryLimitMB float64 `json:"memoryLimitMb"`
 	MemoryPercent float64 `json:"memoryPercent"`
 	NetworkRxMB   float64 `json:"networkRxMb"`
 	NetworkTxMB   float64 `json:"networkTxMb"`
+
+	// Frontend compatibility fields
+	MemUsage   int64   `json:"memUsage"`
+	MemLimit   int64   `json:"memLimit"`
+	MemPercent float64 `json:"memPercent"`
+	NetRx      int64   `json:"netRx"`
+	NetTx      int64   `json:"netTx"`
+	BlockRead  int64   `json:"blockRead"`
+	BlockWrite int64   `json:"blockWrite"`
+	Pids       int     `json:"pids"`
 }
 
 type DockerImage struct {

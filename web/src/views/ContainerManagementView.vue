@@ -259,9 +259,10 @@ const copyToClipboard = async (text: string, id: string) => {
 
 // Format utilities
 const formatBytes = (bytes: number): string => {
-  if (!bytes || bytes <= 0) return '0 B';
+  if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  if (i < 0 || i >= units.length) return '0 B';
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 };
 
@@ -279,10 +280,14 @@ const formatTimestamp = (unix: number | string): string => {
   return '-';
 };
 
-const getCleanContainerName = (c: DockerContainer): string => {
-  if (!c.names || c.names.length === 0) return c.name || c.id.substring(0, 12);
-  const n = c.names[0];
-  return n.startsWith('/') ? n.substring(1) : n;
+const getCleanContainerName = (c?: DockerContainer | null): string => {
+  if (!c) return '-';
+  if (c.name && c.name.trim()) return c.name.startsWith('/') ? c.name.substring(1) : c.name;
+  if (Array.isArray(c.names) && c.names.length > 0 && c.names[0]) {
+    const n = c.names[0];
+    return n.startsWith('/') ? n.substring(1) : n;
+  }
+  return c.id ? c.id.substring(0, 12) : '-';
 };
 
 // Computed Active Connection
@@ -412,12 +417,13 @@ const fetchLogs = async () => {
       },
     });
     if (res.data?.success) {
-      containerLogs.value = res.data.data?.logs || 'No log output recorded.';
+      const output = res.data.logs !== undefined ? res.data.logs : (res.data.data?.logs !== undefined ? res.data.data.logs : res.data.data);
+      containerLogs.value = output !== undefined && output !== null && output !== '' ? String(output) : 'No log output recorded.';
     } else {
       containerLogs.value = res.data?.error || 'Failed to fetch logs.';
     }
   } catch (err: any) {
-    containerLogs.value = err.response?.data?.error || 'Error retrieving logs.';
+    containerLogs.value = err.response?.data?.error || err.message || 'Error retrieving logs.';
   } finally {
     logsLoading.value = false;
   }
@@ -449,8 +455,29 @@ const fetchStats = async () => {
     const res = await axios.get(`/api/v1/docker/containers/${activeContainer.value.id}/stats`, {
       params: { connectionId: selectedConnectionId.value },
     });
-    if (res.data?.success) {
-      liveStats.value = res.data.data;
+    if (res.data?.success && res.data.data) {
+      const raw = res.data.data;
+      const cpu = typeof raw.cpuPercent === 'number' && !isNaN(raw.cpuPercent) ? raw.cpuPercent : 0;
+      const memPerc = typeof raw.memPercent === 'number' && !isNaN(raw.memPercent) ? raw.memPercent : (typeof raw.memoryPercent === 'number' && !isNaN(raw.memoryPercent) ? raw.memoryPercent : 0);
+      const memUsage = typeof raw.memUsage === 'number' && !isNaN(raw.memUsage) ? raw.memUsage : (typeof raw.memoryUsageMb === 'number' && !isNaN(raw.memoryUsageMb) ? Math.round(raw.memoryUsageMb * 1024 * 1024) : 0);
+      const memLimit = typeof raw.memLimit === 'number' && !isNaN(raw.memLimit) ? raw.memLimit : (typeof raw.memoryLimitMb === 'number' && !isNaN(raw.memoryLimitMb) ? Math.round(raw.memoryLimitMb * 1024 * 1024) : 0);
+      const netRx = typeof raw.netRx === 'number' && !isNaN(raw.netRx) ? raw.netRx : (typeof raw.networkRxMb === 'number' && !isNaN(raw.networkRxMb) ? Math.round(raw.networkRxMb * 1024 * 1024) : 0);
+      const netTx = typeof raw.netTx === 'number' && !isNaN(raw.netTx) ? raw.netTx : (typeof raw.networkTxMb === 'number' && !isNaN(raw.networkTxMb) ? Math.round(raw.networkTxMb * 1024 * 1024) : 0);
+
+      liveStats.value = {
+        containerId: raw.containerId || activeContainer.value.id,
+        name: raw.name || getCleanContainerName(activeContainer.value),
+        cpuPercent: cpu,
+        memPercent: memPerc,
+        memUsage: memUsage,
+        memLimit: memLimit,
+        netRx: netRx,
+        netTx: netTx,
+        blockRead: typeof raw.blockRead === 'number' && !isNaN(raw.blockRead) ? raw.blockRead : 0,
+        blockWrite: typeof raw.blockWrite === 'number' && !isNaN(raw.blockWrite) ? raw.blockWrite : 0,
+        pids: typeof raw.pids === 'number' && !isNaN(raw.pids) ? raw.pids : (raw.pids ? parseInt(raw.pids, 10) || 0 : 0),
+        readAt: raw.readAt || new Date().toLocaleTimeString(),
+      };
     }
   } catch {
     // Silent polling error
@@ -1862,7 +1889,7 @@ watch(selectedConnectionId, () => {
               <h3 class="text-xs font-bold text-slate-900 dark:text-white font-mono">
                 {{ getCleanContainerName(activeContainer) }} - Logs
               </h3>
-              <p class="text-[10px] text-slate-500 font-mono">{{ activeContainer.id.substring(0, 12) }}</p>
+              <p class="text-[10px] text-slate-500 font-mono">{{ activeContainer?.id ? activeContainer.id.substring(0, 12) : '-' }}</p>
             </div>
           </div>
 
@@ -1949,7 +1976,7 @@ watch(selectedConnectionId, () => {
           <div class="p-3 bg-slate-50 dark:bg-[#141824] rounded-xl border border-slate-200 dark:border-[#1b2234] space-y-1">
             <span class="text-[10px] font-bold uppercase text-slate-400">CPU Usage</span>
             <div class="text-xl font-bold font-mono text-slate-900 dark:text-white">
-              {{ liveStats.cpuPercent.toFixed(2) }}%
+              {{ (liveStats.cpuPercent ?? 0).toFixed(2) }}%
             </div>
           </div>
 
@@ -1957,10 +1984,10 @@ watch(selectedConnectionId, () => {
           <div class="p-3 bg-slate-50 dark:bg-[#141824] rounded-xl border border-slate-200 dark:border-[#1b2234] space-y-1">
             <span class="text-[10px] font-bold uppercase text-slate-400">Memory Usage</span>
             <div class="text-xl font-bold font-mono text-slate-900 dark:text-white">
-              {{ formatBytes(liveStats.memUsage) }}
+              {{ formatBytes(liveStats.memUsage || 0) }}
             </div>
             <div class="text-[10px] text-slate-500">
-              of {{ formatBytes(liveStats.memLimit) }} ({{ liveStats.memPercent.toFixed(1) }}%)
+              of {{ formatBytes(liveStats.memLimit || 0) }} ({{ (liveStats.memPercent ?? 0).toFixed(1) }}%)
             </div>
           </div>
 
@@ -1968,10 +1995,10 @@ watch(selectedConnectionId, () => {
           <div class="p-3 bg-slate-50 dark:bg-[#141824] rounded-xl border border-slate-200 dark:border-[#1b2234] space-y-1">
             <span class="text-[10px] font-bold uppercase text-slate-400">Network I/O</span>
             <div class="font-mono text-xs text-slate-800 dark:text-slate-200">
-              Rx: {{ formatBytes(liveStats.netRx) }}
+              Rx: {{ formatBytes(liveStats.netRx || 0) }}
             </div>
             <div class="font-mono text-xs text-slate-800 dark:text-slate-200">
-              Tx: {{ formatBytes(liveStats.netTx) }}
+              Tx: {{ formatBytes(liveStats.netTx || 0) }}
             </div>
           </div>
 
@@ -1979,10 +2006,10 @@ watch(selectedConnectionId, () => {
           <div class="p-3 bg-slate-50 dark:bg-[#141824] rounded-xl border border-slate-200 dark:border-[#1b2234] space-y-1">
             <span class="text-[10px] font-bold uppercase text-slate-400">PIDs / Processes</span>
             <div class="text-xl font-bold font-mono text-slate-900 dark:text-white">
-              {{ liveStats.pids }}
+              {{ liveStats.pids ?? '-' }}
             </div>
             <div class="text-[10px] text-slate-500 font-mono">
-              IO: {{ formatBytes(liveStats.blockRead) }} / {{ formatBytes(liveStats.blockWrite) }}
+              IO: {{ formatBytes(liveStats.blockRead || 0) }} / {{ formatBytes(liveStats.blockWrite || 0) }}
             </div>
           </div>
         </div>
