@@ -7,7 +7,6 @@ import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   LayoutDashboard,
   Link2,
-  Server,
   Network,
   Sliders,
   Wrench,
@@ -31,14 +30,14 @@ const route = useRoute();
 const authStore = useAuthStore();
 
 // Accordion states - collapsed by default, open only if current route belongs to submenu
-const isServerOpen = ref(
+const isInfrastructureOpen = ref(
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
   route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
+  route.path.startsWith('/remote-host') ||
+  route.path.startsWith('/infrastructure')
 );
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
-const isInfrastructureOpen = ref(route.path.startsWith('/infrastructure'));
 const isRemoteConfigOpen = ref(
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
@@ -56,14 +55,14 @@ const isMonitoringOpen = ref(
 const isSecurityOpen = ref(route.path.startsWith('/security'));
 
 // Active indicators for parent accordion headers
-const isServerActive = computed(() =>
+const isInfrastructureActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
   route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
+  route.path.startsWith('/remote-host') ||
+  route.path.startsWith('/infrastructure')
 );
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology'));
-const isInfrastructureActive = computed(() => route.path.startsWith('/infrastructure'));
 const isRemoteConfigActive = computed(() =>
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
@@ -116,14 +115,17 @@ watch(
   () => route.path,
   (newPath) => {
     isMobileSidebarOpen.value = false;
-    if (newPath.startsWith('/inventory-server') || newPath.startsWith('/inventory') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
-      isServerOpen.value = true;
+    if (
+      newPath.startsWith('/inventory-server') ||
+      newPath.startsWith('/inventory') ||
+      newPath.startsWith('/remote-server') ||
+      newPath.startsWith('/remote-host') ||
+      newPath.startsWith('/infrastructure')
+    ) {
+      isInfrastructureOpen.value = true;
     }
     if (newPath.startsWith('/network-topology')) {
       isNetworkingOpen.value = true;
-    }
-    if (newPath.startsWith('/infrastructure')) {
-      isInfrastructureOpen.value = true;
     }
     if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config')) {
       isRemoteConfigOpen.value = true;
@@ -275,26 +277,26 @@ onUnmounted(() => {
             <span>Connections</span>
           </router-link>
 
-          <!-- 3. Server (Accordion) -->
-          <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
+          <!-- 3. Infrastructure (Accordion - Merged with Server) -->
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
             <button
-              @click="isServerOpen = !isServerOpen"
+              @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
-                isServerActive
+                isInfrastructureActive
                   ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
                   : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border cursor-pointer'
               ]"
             >
               <div class="flex items-center gap-3">
-                <Server class="w-4 h-4 shrink-0 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                <span>Server</span>
+                <Boxes class="w-4 h-4 shrink-0 transition" :class="isInfrastructureActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                <span>Infrastructure</span>
               </div>
-              <component :is="isServerOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isServerActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+              <component :is="isInfrastructureOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isInfrastructureActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
-            <!-- Server Sub-Menu Items -->
-            <div v-show="isServerOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+            <!-- Infrastructure Sub-Menu Items -->
+            <div v-show="isInfrastructureOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <router-link
                 v-if="authStore.can('connections', 'read')"
                 to="/inventory-server"
@@ -321,6 +323,21 @@ onUnmounted(() => {
                 ]"
               >
                 <span>Remote Server</span>
+              </a>
+
+              <a
+                v-if="authStore.can('infrastructure', 'read')"
+                href="/infrastructure/containers"
+                target="_blank"
+                @click="isMobileSidebarOpen = false"
+                :class="[
+                  route.path.startsWith('/infrastructure/containers')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                ]"
+              >
+                <span>Management Containers</span>
               </a>
             </div>
           </div>
@@ -358,43 +375,6 @@ onUnmounted(() => {
                 ]"
               >
                 <span>Network Topology</span>
-              </a>
-            </div>
-          </div>
-
-          <!-- 5. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read')">
-            <button
-              @click="isInfrastructureOpen = !isInfrastructureOpen"
-              :class="[
-                isInfrastructureActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
-                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border cursor-pointer'
-              ]"
-            >
-              <div class="flex items-center gap-3">
-                <Boxes class="w-4 h-4 shrink-0 transition" :class="isInfrastructureActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                <span>Infrastructure</span>
-              </div>
-              <component :is="isInfrastructureOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isInfrastructureActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-            </button>
-
-            <!-- Infrastructure Sub-Menu Items -->
-            <div v-show="isInfrastructureOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <a
-                v-if="authStore.can('infrastructure', 'read')"
-                href="/infrastructure/containers"
-                target="_blank"
-                @click="isMobileSidebarOpen = false"
-                :class="[
-                  route.path.startsWith('/infrastructure/containers')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                ]"
-              >
-                <span>Management Containers</span>
               </a>
             </div>
           </div>
