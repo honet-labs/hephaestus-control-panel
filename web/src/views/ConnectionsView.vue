@@ -165,7 +165,7 @@ const fetchConnections = async () => {
           type: 'DOCKER ENGINE',
           url: displayUrl,
           authType: drv.toUpperCase(),
-          isActive: Boolean(d.isDefault),
+          isActive: d.isActive !== undefined ? Boolean(d.isActive) : true,
           status: 'connected',
           rawType: 'docker',
           rawItem: d,

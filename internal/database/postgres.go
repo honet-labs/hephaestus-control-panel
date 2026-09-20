@@ -173,7 +173,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("schema migration SQL is empty")
 	}
 	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
-		return err
+		logger.Warn("Database", fmt.Sprintf("Schema initial migration notice (continuing with incremental upgrades): %v", err))
 	}
 
 	// Dynamic incremental updates for existing databases
@@ -308,19 +308,21 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
 
-		INSERT INTO docker_connections (id, name, host_type, socket_path, is_active, is_default)
-		SELECT 'docker-local-default', 'Local Docker Host', 'local', '/var/run/docker.sock', true, true
+		INSERT INTO docker_connections (id, name, host_type, socket_path, tcp_url, is_active, is_default)
+		SELECT 'docker-local-default', 'Local Docker Host', 'local', '/var/run/docker.sock', '', true, true
 		WHERE NOT EXISTS (SELECT 1 FROM docker_connections WHERE id = 'docker-local-default' OR is_default = true);
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"infrastructure": "manage"}'::jsonb 
-		WHERE name IN ('ADMIN', 'OPERATOR') AND NOT (permissions ? 'infrastructure');
+		SET permissions = permissions || '{"infrastructure": "manage", "connections": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR');
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"infrastructure": "read"}'::jsonb 
-		WHERE name = 'VIEWER' AND NOT (permissions ? 'infrastructure');
+		SET permissions = permissions || '{"infrastructure": "read", "connections": "read"}'::jsonb 
+		WHERE name = 'VIEWER';
 	`
-	_, _ = pool.Exec(ctx, upgradeSQL)
+	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
+		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))
+	}
 
 	return nil
 }

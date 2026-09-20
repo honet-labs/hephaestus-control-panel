@@ -292,7 +292,11 @@ const fetchConnections = async () => {
 
 // Fetch System Info & Containers & Images
 const fetchData = async () => {
-  if (!selectedConnectionId.value) return;
+  if (!selectedConnectionId.value) {
+    loading.value = false;
+    refreshing.value = false;
+    return;
+  }
   refreshing.value = true;
   try {
     const [infoRes, contRes, imgRes] = await Promise.all([
@@ -878,7 +882,7 @@ watch(selectedConnectionId, () => {
             {{ systemInfo?.serverVersion || 'Docker API' }}
           </div>
           <div class="text-[10px] text-slate-500 dark:text-slate-400 pt-0.5 truncate">
-            {{ systemInfo?.operatingSystem || (activeConnection?.driver?.toUpperCase() + ' Driver') }}
+            {{ systemInfo?.operatingSystem || (activeConnection?.driver ? (activeConnection.driver.toUpperCase() + ' Driver') : 'Docker Host') }}
           </div>
         </div>
       </div>

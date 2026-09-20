@@ -20,6 +20,30 @@ func NewDockerRepository() *DockerRepository {
 	return &DockerRepository{}
 }
 
+// ensureTable guarantees that docker_connections exists even if schema migrations had partial failures
+func (r *DockerRepository) ensureTable(ctx context.Context, pool *pgxpool.Pool) {
+	_, _ = pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS docker_connections (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			host_type VARCHAR(50) NOT NULL DEFAULT 'local',
+			socket_path VARCHAR(255) DEFAULT '/var/run/docker.sock',
+			tcp_url VARCHAR(255),
+			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
+			ssh_host VARCHAR(255),
+			ssh_port INTEGER DEFAULT 22,
+			ssh_user VARCHAR(255),
+			ssh_auth VARCHAR(50) DEFAULT 'password',
+			ssh_password_encrypted TEXT,
+			ssh_key_encrypted TEXT,
+			is_active BOOLEAN DEFAULT true,
+			is_default BOOLEAN DEFAULT false,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+}
+
 // ListConnections retrieves all configured Docker hosts
 func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.DockerConnection, error) {
 	pool, err := database.GetPool()
@@ -27,8 +51,10 @@ func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.Docker
 		return nil, err
 	}
 
+	r.ensureTable(ctx, pool)
+
 	rows, err := pool.Query(ctx, `
-		SELECT id, name, host_type, socket_path, tcp_url, remote_host_id,
+		SELECT id, name, host_type, COALESCE(socket_path, ''), COALESCE(tcp_url, ''), remote_host_id,
 		       ssh_host, ssh_port, ssh_user, ssh_auth, is_active, is_default, created_at, updated_at
 		FROM docker_connections
 		ORDER BY is_default DESC, name ASC
@@ -47,8 +73,12 @@ func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.Docker
 		); err != nil {
 			return nil, err
 		}
-		if c.HostType == "local" {
+		if c.HostType == "local" || c.HostType == "socket" || c.HostType == "" {
 			c.Driver = "socket"
+			c.HostType = "local"
+			if c.SocketPath == "" {
+				c.SocketPath = "/var/run/docker.sock"
+			}
 		} else {
 			c.Driver = c.HostType
 		}
@@ -61,6 +91,7 @@ func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.Docker
 			ID:         "docker-local-default",
 			Name:       "Local Docker Host",
 			HostType:   "local",
+			Driver:     "socket",
 			SocketPath: "/var/run/docker.sock",
 			IsActive:   true,
 			IsDefault:  true,
@@ -68,6 +99,8 @@ func (r *DockerRepository) ListConnections(ctx context.Context) ([]domain.Docker
 		saved, err := r.SaveConnection(ctx, defaultConn)
 		if err == nil && saved != nil {
 			connections = append(connections, *saved)
+		} else {
+			connections = append(connections, defaultConn)
 		}
 	}
 
@@ -81,11 +114,13 @@ func (r *DockerRepository) GetConnectionByID(ctx context.Context, id string) (*d
 		return nil, err
 	}
 
+	r.ensureTable(ctx, pool)
+
 	var c domain.DockerConnection
 	var encPassword, encKey *string
 
 	err = pool.QueryRow(ctx, `
-		SELECT id, name, host_type, socket_path, tcp_url, remote_host_id,
+		SELECT id, name, host_type, COALESCE(socket_path, ''), COALESCE(tcp_url, ''), remote_host_id,
 		       ssh_host, ssh_port, ssh_user, ssh_auth, ssh_password_encrypted, ssh_key_encrypted,
 		       is_active, is_default, created_at, updated_at
 		FROM docker_connections
@@ -119,8 +154,12 @@ func (r *DockerRepository) GetConnectionByID(ctx context.Context, id string) (*d
 		}
 	}
 
-	if c.HostType == "local" {
+	if c.HostType == "local" || c.HostType == "socket" || c.HostType == "" {
 		c.Driver = "socket"
+		c.HostType = "local"
+		if c.SocketPath == "" {
+			c.SocketPath = "/var/run/docker.sock"
+		}
 	} else {
 		c.Driver = c.HostType
 	}
@@ -165,6 +204,8 @@ func (r *DockerRepository) SaveConnection(ctx context.Context, c domain.DockerCo
 		return nil, err
 	}
 
+	r.ensureTable(ctx, pool)
+
 	if c.ID == "" {
 		c.ID = fmt.Sprintf("docker-%s", uuid.New().String()[:8])
 	}
@@ -174,8 +215,33 @@ func (r *DockerRepository) SaveConnection(ctx context.Context, c domain.DockerCo
 	if c.HostType == "" {
 		c.HostType = "local"
 	}
-	if c.SocketPath == "" {
-		c.SocketPath = "/var/run/docker.sock"
+	if c.HostType == "local" || c.HostType == "socket" {
+		c.HostType = "local"
+		c.Driver = "socket"
+		if c.SocketPath == "" {
+			c.SocketPath = "/var/run/docker.sock"
+		}
+	} else {
+		c.Driver = c.HostType
+	}
+
+	if c.RemoteHostID != nil && *c.RemoteHostID == "" {
+		c.RemoteHostID = nil
+	}
+	if c.SSHHost != nil && *c.SSHHost == "" {
+		c.SSHHost = nil
+	}
+	if c.SSHUser != nil && *c.SSHUser == "" {
+		c.SSHUser = nil
+	}
+	if c.SSHAuth != nil && *c.SSHAuth == "" {
+		c.SSHAuth = nil
+	}
+	if c.SSHPassword != nil && *c.SSHPassword == "" {
+		c.SSHPassword = nil
+	}
+	if c.SSHKey != nil && *c.SSHKey == "" {
+		c.SSHKey = nil
 	}
 
 	// Encrypt SSH secrets if provided
