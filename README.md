@@ -1,5 +1,3 @@
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/91908d01-16d9-47d6-b0a9-b40e3ddfd00d" /># Hephaestus Control Panel (HCP)
-
 > **Unified DevOps, Server, Database & Network Infrastructure Control Panel**  
 > High-performance Go backend, PostgreSQL ACID persistence, native in-memory worker pool, and sleek modern Vue 3 + Tailwind CSS web interface.
 
