@@ -80,6 +80,7 @@ const showDeleteCipherModal = ref(false);
 const selectedItem = ref<VaultCredentialItem | null>(null);
 const cipherToDelete = ref<VaultCredentialItem | null>(null);
 const deletingCipher = ref(false);
+const showServerUrl = ref(false);
 
 // Auto-sync state
 const autoSyncInterval = ref<number>(300); // 300s = 5 minutes default
@@ -709,8 +710,22 @@ onUnmounted(() => {
               <span class="text-xs font-medium">Vault Server</span>
               <Clock class="w-4 h-4 text-slate-400 dark:text-slate-500" />
             </div>
-            <div class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" :title="config?.serverUrl">
-              {{ config?.serverUrl?.replace(/^https?:\/\//, '') }}
+            <div class="flex items-center justify-between gap-1.5">
+              <div
+                class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate font-mono"
+                :title="showServerUrl ? (config?.serverUrl || '') : 'Server URL hidden'"
+              >
+                {{ showServerUrl ? (config?.serverUrl?.replace(/^https?:\/\//, '') || 'Not configured') : '••••••••••••••••' }}
+              </div>
+              <button
+                type="button"
+                @click="showServerUrl = !showServerUrl"
+                class="p-1 hover:text-slate-700 dark:hover:text-white text-slate-400 cursor-pointer rounded transition shrink-0"
+                :title="showServerUrl ? 'Hide server URL' : 'Show server URL'"
+              >
+                <EyeOff v-if="showServerUrl" class="w-3.5 h-3.5" />
+                <Eye v-else class="w-3.5 h-3.5" />
+              </button>
             </div>
             <div class="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
