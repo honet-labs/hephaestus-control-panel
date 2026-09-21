@@ -129,7 +129,7 @@ func (s *ReportService) QueryWidgetData(ctx context.Context, req domain.ReportQu
 
 // queryGrafanaData handles fetching or proxying Grafana metrics
 func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQueryDataRequest) (*domain.ReportQueryDataResponse, error) {
-	grafanaCfg, err := s.configRepo.GetActiveGrafanaConfig(ctx)
+	grafanaCfg, err := s.configRepo.GetActiveGrafana(ctx)
 	isConnected := (err == nil && grafanaCfg != nil && grafanaCfg.Host != "")
 
 	// Extract requested metric title or agent
