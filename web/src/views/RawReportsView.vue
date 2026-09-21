@@ -162,7 +162,7 @@ const loadMetadata = async () => {
 // -----------------------------------------------------------------------------
 // Generate & Query Report Data
 // -----------------------------------------------------------------------------
-const generateReport = async () => {
+const generateReport = async (isManual = false) => {
   loading.value = true;
   currentPage.value = 1;
   try {
@@ -208,7 +208,9 @@ const generateReport = async () => {
         tableRows: res.data.data.tableRows || [],
         message: res.data.data.message || '',
       };
-      showNotice('Report generated successfully', 'success');
+      if (isManual) {
+        showNotice('Report data updated', 'success');
+      }
     } else {
       showNotice(res.data?.error || 'Failed to fetch report data', 'error');
     }
@@ -451,7 +453,7 @@ const generateAreaPath = (points?: Array<{ value: number }>, width = 800, height
 
 onMounted(async () => {
   await loadMetadata();
-  await generateReport();
+  await generateReport(false);
 });
 </script>
 
@@ -486,7 +488,7 @@ onMounted(async () => {
 
       <div class="flex items-center gap-2 shrink-0 flex-wrap">
         <button
-          @click="generateReport"
+          @click="generateReport(true)"
           :disabled="loading"
           class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#151c2e] dark:hover:bg-[#1d273e] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
         >
@@ -651,7 +653,7 @@ onMounted(async () => {
             v-for="opt in prometheusMetricOptions"
             :key="opt.key"
             type="button"
-            @click="prometheusMetric = opt.key; generateReport();"
+            @click="prometheusMetric = opt.key; generateReport(true);"
             :class="[
               prometheusMetric === opt.key
                 ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-[#95CCDD] font-semibold ring-1 ring-blue-500/30'
@@ -701,10 +703,10 @@ onMounted(async () => {
               type="text"
               placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
               class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
-              @keyup.enter="generateReport"
+              @keyup.enter="generateReport(true)"
             />
             <button
-              @click="generateReport"
+              @click="generateReport(true)"
               :disabled="loading"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs shrink-0 disabled:opacity-50"
             >
@@ -758,7 +760,7 @@ onMounted(async () => {
               v-for="t in openSearchDslTemplates"
               :key="t.name"
               type="button"
-              @click="opensearchDsl = t.code; generateReport();"
+              @click="opensearchDsl = t.code; generateReport(true);"
               class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-medium transition cursor-pointer"
             >
               {{ t.name }}
@@ -804,7 +806,7 @@ onMounted(async () => {
               Native OpenSearch Query DSL with support for bool, match, term, range filters and aggregations.
             </span>
             <button
-              @click="generateReport"
+              @click="generateReport(true)"
               :disabled="loading"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs disabled:opacity-50"
             >
@@ -820,10 +822,10 @@ onMounted(async () => {
             type="text"
             placeholder="e.g. status:>=500 OR level:ERROR, service:nginx"
             class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
-            @keyup.enter="generateReport"
+            @keyup.enter="generateReport(true)"
           />
           <button
-            @click="generateReport"
+            @click="generateReport(true)"
             :disabled="loading"
             class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs shrink-0 disabled:opacity-50"
           >
