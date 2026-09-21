@@ -166,19 +166,23 @@ func (h *ReportHandler) DeleteReport(c *gin.Context) {
 // CreateWidget adds a new chart/table widget to a report
 func (h *ReportHandler) CreateWidget(c *gin.Context) {
 	reportID := c.Param("id")
-	if reportID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "Report ID is required",
-		})
-		return
-	}
 
 	var w domain.VisualReportWidget
 	if err := c.ShouldBindJSON(&w); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   err.Error(),
+		})
+		return
+	}
+
+	if reportID == "" {
+		reportID = w.ReportID
+	}
+	if reportID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Report ID is required",
 		})
 		return
 	}

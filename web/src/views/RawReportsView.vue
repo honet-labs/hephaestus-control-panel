@@ -354,7 +354,7 @@ const savePanel = async () => {
       await axios.put(`/api/v1/reports/widgets/${editingWidgetId.value}`, payload);
       showNotice('Panel updated successfully', 'success');
     } else {
-      await axios.post('/api/v1/reports/widgets', payload);
+      await axios.post(`/api/v1/reports/${activeReport.value.id}/widgets`, payload);
       showNotice('Panel added successfully', 'success');
     }
 

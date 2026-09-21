@@ -377,6 +377,7 @@ func main() {
 		api.PUT("/reports/:id", middleware.RequirePermission("reports", "manage"), reportHandler.UpdateReport)
 		api.DELETE("/reports/:id", middleware.RequirePermission("reports", "manage"), reportHandler.DeleteReport)
 		api.POST("/reports/:id/widgets", middleware.RequirePermission("reports", "manage"), reportHandler.CreateWidget)
+		api.POST("/reports/widgets", middleware.RequirePermission("reports", "manage"), reportHandler.CreateWidget)
 		api.PUT("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.UpdateWidget)
 		api.DELETE("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.DeleteWidget)
 		api.POST("/reports/query-data", middleware.RequirePermission("reports", "read"), reportHandler.QueryWidgetData)
