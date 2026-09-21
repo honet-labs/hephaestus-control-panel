@@ -621,6 +621,8 @@ const executeDelete = async () => {
   } finally {
     deleting.value = false;
   }
+};
+
 const handleRegisterEndpoint = async () => {
   // 1. Validate Connection Name
   if (!form.value.name || !form.value.name.trim()) {
