@@ -728,11 +728,19 @@ type ReportQueryDataRequest struct {
 	MetricKey    string                 `json:"metricKey,omitempty"`
 }
 
+type ReportSeries struct {
+	Name    string              `json:"name"`
+	Host    string              `json:"host,omitempty"`
+	Points  []ReportDataPoint   `json:"points"`
+	Summary ReportWidgetSummary `json:"summary,omitempty"`
+}
+
 type ReportQueryDataResponse struct {
 	Title       string              `json:"title"`
 	SourceType  string              `json:"sourceType"`
 	Points      []ReportDataPoint   `json:"points"`
 	Summary     ReportWidgetSummary `json:"summary"`
+	Series      []ReportSeries      `json:"series,omitempty"`
 	Categories  []string            `json:"categories,omitempty"`
 	TableRows   []map[string]any    `json:"tableRows,omitempty"`
 	IsConnected bool                `json:"isConnected"`

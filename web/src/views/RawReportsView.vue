@@ -27,6 +27,22 @@ import {
 // -----------------------------------------------------------------------------
 // Interfaces
 // -----------------------------------------------------------------------------
+interface ReportSeries {
+  name: string;
+  host?: string;
+  points: Array<{ timestamp: string; label: string; value: number }>;
+  summary?: {
+    min: number;
+    max: number;
+    avg: number;
+    current: number;
+    total: number;
+    count: number;
+    unit: string;
+    peakTime?: string;
+  };
+}
+
 interface ReportWidget {
   id: string;
   reportId: string;
@@ -37,6 +53,7 @@ interface ReportWidget {
     grafanaId?: string;
     datasourceUid?: string;
     targetHost?: string;
+    targetHosts?: string[];
     metricPreset?: string;
     query?: string;
     indexPattern?: string;
@@ -53,6 +70,7 @@ interface ReportWidget {
   // Runtime telemetry cache
   loading?: boolean;
   points?: Array<{ timestamp: string; label: string; value: number }>;
+  series?: ReportSeries[];
   summary?: {
     min: number;
     max: number;
@@ -119,6 +137,7 @@ const widgetForm = ref<{
   grafanaId: string;
   datasourceUid: string;
   targetHost: string;
+  targetHosts: string[];
   metricPreset: string;
   query: string;
   indexPattern: string;
@@ -134,6 +153,7 @@ const widgetForm = ref<{
   grafanaId: '',
   datasourceUid: '',
   targetHost: 'all',
+  targetHosts: ['all'],
   metricPreset: 'cpu',
   query: '',
   indexPattern: '*',
@@ -144,6 +164,97 @@ const widgetForm = ref<{
   widthPercent: 50,
   colorPalette: 'emerald',
 });
+
+// Multi-Host Selection Dropdown & Filter State
+const activeHostDropdown = ref<'prom' | 'graf' | null>(null);
+const hostFilterText = ref('');
+
+const filteredDiscoveredHosts = computed(() => {
+  if (!hostFilterText.value.trim()) return discoveredHosts.value;
+  const q = hostFilterText.value.toLowerCase();
+  return discoveredHosts.value.filter(
+    (h) => h.name.toLowerCase().includes(q) || h.host.toLowerCase().includes(q)
+  );
+});
+
+const toggleHostSelection = (host: string) => {
+  if (host === 'all') {
+    widgetForm.value.targetHosts = ['all'];
+    widgetForm.value.targetHost = 'all';
+    return;
+  }
+  let current = widgetForm.value.targetHosts.filter((h) => h !== 'all');
+  const idx = current.indexOf(host);
+  if (idx > -1) {
+    current.splice(idx, 1);
+  } else {
+    current.push(host);
+  }
+  if (current.length === 0) {
+    current = ['all'];
+  }
+  widgetForm.value.targetHosts = current;
+  widgetForm.value.targetHost = current.join(',');
+};
+
+const selectAllHosts = () => {
+  if (discoveredHosts.value.length === 0) return;
+  widgetForm.value.targetHosts = discoveredHosts.value.map((h) => h.host);
+  widgetForm.value.targetHost = widgetForm.value.targetHosts.join(',');
+};
+
+const clearAllHosts = () => {
+  widgetForm.value.targetHosts = ['all'];
+  widgetForm.value.targetHost = 'all';
+};
+
+const getHostDisplayName = (host: string) => {
+  if (host === 'all') return 'All Monitored Hosts';
+  const found = discoveredHosts.value.find((h) => h.host === host);
+  return found ? `${found.name} (${found.host})` : host;
+};
+
+const isHostSelected = (host: string) => {
+  if (host === 'all') {
+    return widgetForm.value.targetHosts.includes('all');
+  }
+  return widgetForm.value.targetHosts.includes(host);
+};
+
+const hexToRgba = (hex: string, alpha: number) => {
+  let c = hex.replace('#', '');
+  if (c.length === 3) {
+    c = c.split('').map((x) => x + x).join('');
+  }
+  const num = parseInt(c, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const hostPalette = [
+  '#10b981', // emerald
+  '#3b82f6', // blue
+  '#f59e0b', // amber
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#14b8a6', // teal
+  '#6366f1', // indigo
+];
+
+const getSeriesColor = (widget: ReportWidget, index: number = 0) => {
+  if (!widget.series || widget.series.length <= 1) {
+    const pal = widget.sourceConfig?.colorPalette || 'emerald';
+    if (pal === 'blue') return '#3b82f6';
+    if (pal === 'amber') return '#f59e0b';
+    if (pal === 'purple') return '#8b5cf6';
+    return '#10b981';
+  }
+  return hostPalette[index % hostPalette.length];
+};
 
 // Delete target
 const itemToDelete = ref<{
@@ -350,20 +461,19 @@ const saveReport = async () => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Add / Edit Panel Widget
-// -----------------------------------------------------------------------------
 const openAddPanelModal = (presetMetric: string = 'cpu') => {
   editingWidgetId.value = null;
   const activeGrafana = grafanaConfigs.value.find((g) => g.isActive) || grafanaConfigs.value[0];
   const defaultDS = grafanaDatasources.value.find((d) => d.isDefault) || grafanaDatasources.value[0];
+  const defHost = discoveredHosts.value[0]?.host || 'all';
 
   widgetForm.value = {
     title: presetMetric === 'cpu' ? 'CPU Usage' : presetMetric === 'memory' ? 'Memory Used' : 'System Metrics',
     sourceType: 'prometheus',
     grafanaId: activeGrafana?.id || '',
     datasourceUid: defaultDS?.uid || activeGrafana?.datasourceUid || '',
-    targetHost: discoveredHosts.value[0]?.host || 'all',
+    targetHost: defHost,
+    targetHosts: [defHost],
     metricPreset: presetMetric,
     query: '',
     indexPattern: discoveredIndices.value[0] || '*',
@@ -374,6 +484,8 @@ const openAddPanelModal = (presetMetric: string = 'cpu') => {
     widthPercent: 50,
     colorPalette: 'emerald',
   };
+  activeHostDropdown.value = null;
+  hostFilterText.value = '';
   showWidgetModal.value = true;
 };
 
@@ -382,12 +494,23 @@ const openEditPanelModal = (widget: ReportWidget) => {
   const activeGrafana = grafanaConfigs.value.find((g) => g.isActive) || grafanaConfigs.value[0];
   const defaultDS = grafanaDatasources.value.find((d) => d.isDefault) || grafanaDatasources.value[0];
 
+  let initialHosts: string[] = [];
+  if (Array.isArray(widget.sourceConfig?.targetHosts) && widget.sourceConfig.targetHosts.length > 0) {
+    initialHosts = [...widget.sourceConfig.targetHosts];
+  } else if (widget.sourceConfig?.targetHost) {
+    initialHosts = widget.sourceConfig.targetHost.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  if (initialHosts.length === 0) {
+    initialHosts = [discoveredHosts.value[0]?.host || 'all'];
+  }
+
   widgetForm.value = {
     title: widget.title,
     sourceType: widget.sourceType || 'prometheus',
     grafanaId: widget.sourceConfig?.grafanaId || activeGrafana?.id || '',
     datasourceUid: widget.sourceConfig?.datasourceUid || defaultDS?.uid || activeGrafana?.datasourceUid || '',
-    targetHost: widget.sourceConfig?.targetHost || 'all',
+    targetHost: initialHosts.join(','),
+    targetHosts: initialHosts,
     metricPreset: widget.sourceConfig?.metricPreset || 'cpu',
     query: widget.sourceConfig?.query || '',
     indexPattern: widget.sourceConfig?.indexPattern || '*',
@@ -398,6 +521,8 @@ const openEditPanelModal = (widget: ReportWidget) => {
     widthPercent: widget.widthPercent || 50,
     colorPalette: widget.sourceConfig?.colorPalette || 'emerald',
   };
+  activeHostDropdown.value = null;
+  hostFilterText.value = '';
   showWidgetModal.value = true;
 };
 
@@ -419,7 +544,8 @@ const savePanel = async () => {
       sourceConfig: {
         grafanaId: widgetForm.value.grafanaId,
         datasourceUid: widgetForm.value.datasourceUid,
-        targetHost: widgetForm.value.targetHost,
+        targetHost: widgetForm.value.targetHosts.join(','),
+        targetHosts: widgetForm.value.targetHosts,
         metricPreset: widgetForm.value.metricPreset,
         query: widgetForm.value.query,
         indexPattern: widgetForm.value.indexPattern,
@@ -509,6 +635,10 @@ const refreshAllPanels = async () => {
   const promises = activeReport.value.widgets.map(async (widget) => {
     widget.loading = true;
     try {
+      const targetHosts: string[] = Array.isArray(widget.sourceConfig?.targetHosts) && widget.sourceConfig.targetHosts.length > 0
+        ? widget.sourceConfig.targetHosts
+        : (widget.sourceConfig?.targetHost ? widget.sourceConfig.targetHost.split(',').map((s) => s.trim()).filter(Boolean) : ['all']);
+
       const payload = {
         sourceType: widget.sourceType,
         sourceConfig: {
@@ -516,7 +646,8 @@ const refreshAllPanels = async () => {
           datasourceUid: widget.sourceConfig?.datasourceUid || '',
           query: widget.sourceConfig?.query || '',
           metric: widget.sourceConfig?.metricPreset || 'cpu',
-          targetHost: widget.sourceConfig?.targetHost || 'all',
+          targetHost: targetHosts.join(','),
+          targetHosts: targetHosts,
           indexPattern: widget.sourceConfig?.indexPattern || '*',
           module: widget.sourceConfig?.module || 'CPU Load',
           aggregation: widget.sourceConfig?.aggregation || 'actual',
@@ -527,8 +658,35 @@ const refreshAllPanels = async () => {
 
       const res = await axios.post('/api/v1/reports/query-data', payload);
       if (res.data?.success && res.data.data) {
-        widget.points = res.data.data.points || [];
-        widget.summary = res.data.data.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' };
+        if (res.data.data.series && res.data.data.series.length > 0) {
+          widget.series = res.data.data.series;
+        } else if (targetHosts.length > 1 && !targetHosts.includes('all')) {
+          // Multi-host fallback in case backend returned single series
+          const multiPromises = targetHosts.map(async (h) => {
+            const hPayload = {
+              ...payload,
+              sourceConfig: { ...payload.sourceConfig, targetHost: h, targetHosts: [h] },
+            };
+            const hRes = await axios.post('/api/v1/reports/query-data', hPayload);
+            return {
+              name: `${h} - ${widget.title}`,
+              host: h,
+              points: hRes.data?.data?.points || [],
+              summary: hRes.data?.data?.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' },
+            };
+          });
+          widget.series = await Promise.all(multiPromises);
+        } else {
+          widget.series = [{
+            name: `${widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : ''}${widget.title}`,
+            host: widget.sourceConfig?.targetHost,
+            points: res.data.data.points || [],
+            summary: res.data.data.summary,
+          }];
+        }
+
+        widget.points = res.data.data.points || widget.series[0]?.points || [];
+        widget.summary = res.data.data.summary || widget.series[0]?.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' };
         widget.statusMessage = res.data.data.message || '';
         widget.isLive = Boolean(
           res.data.data.isConnected &&
@@ -604,13 +762,31 @@ const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
 };
 
 const getProcessedTablePoints = (widget: ReportWidget) => {
-  let list = (widget.points || []).slice();
+  let list: Array<{ timestamp: string; label: string; value: number; host?: string }> = [];
+  if (widget.series && widget.series.length > 1) {
+    for (const s of widget.series) {
+      for (const p of s.points) {
+        list.push({
+          ...p,
+          host: s.host || (s.name ? s.name.split(' - ')[0] : undefined),
+        });
+      }
+    }
+  } else {
+    const host = widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : undefined;
+    list = (widget.points || []).map((p) => ({
+      ...p,
+      host: host || p.label || widget.title,
+    }));
+  }
+
   if (widget.tableSearch && widget.tableSearch.trim()) {
     const q = widget.tableSearch.trim().toLowerCase();
     list = list.filter((p) => {
       const timeStr = (formatPointLocalTooltip(p) || p.label || p.timestamp || '').toLowerCase();
       const valStr = String(p.value).toLowerCase();
-      return timeStr.includes(q) || valStr.includes(q);
+      const hostStr = (p.host || '').toLowerCase();
+      return timeStr.includes(q) || valStr.includes(q) || hostStr.includes(q);
     });
   }
 
@@ -669,8 +845,12 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   const textColor = isDark ? '#94a3b8' : '#64748b';
   const splitLineColor = isDark ? '#1e293b' : '#f1f5f9';
 
-  const points = widget.points || [];
-  if (points.length === 0) {
+  const hasMultiSeries = Boolean(widget.series && widget.series.length > 1);
+  const referencePoints = (widget.series && widget.series[0]?.points?.length)
+    ? widget.series[0].points
+    : (widget.points || []);
+
+  if (referencePoints.length === 0) {
     const emptyOption = {
       title: {
         text: widget.statusMessage || 'No Telemetry Records Found',
@@ -688,13 +868,13 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
     return;
   }
 
-  const labels = points.map((p) => formatPointLocalLabel(p, widget.timeRange));
-  const values = points.map((p) => p.value);
+  const labels = referencePoints.map((p) => formatPointLocalLabel(p, widget.timeRange));
+  const values = referencePoints.map((p) => p.value);
 
   let option: any = {};
 
   if (widget.chartType === 'pie' || widget.chartType === 'donut') {
-    const pieData = points.slice(0, 6).map((p, idx) => ({
+    const pieData = referencePoints.slice(0, 6).map((p, idx) => ({
       name: formatPointLocalLabel(p, widget.timeRange) || `Point ${idx + 1}`,
       value: p.value,
     }));
@@ -737,6 +917,36 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
       ],
     };
   } else if (widget.chartType === 'bar') {
+    let barSeriesList: any[] = [];
+    if (hasMultiSeries) {
+      barSeriesList = widget.series!.map((s, sIdx) => {
+        const sColor = hostPalette[sIdx % hostPalette.length];
+        return {
+          name: s.name,
+          type: 'bar',
+          barMaxWidth: 24,
+          itemStyle: {
+            color: sColor,
+            borderRadius: [4, 4, 0, 0],
+          },
+          data: s.points.map((p) => p.value),
+        };
+      });
+    } else {
+      barSeriesList = [
+        {
+          name: widget.title,
+          type: 'bar',
+          barMaxWidth: 24,
+          itemStyle: {
+            color: primaryColor,
+            borderRadius: [4, 4, 0, 0],
+          },
+          data: values,
+        },
+      ];
+    }
+
     option = {
       tooltip: {
         trigger: 'axis',
@@ -745,13 +955,31 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
         textStyle: { color: isDark ? '#f8fafc' : '#0f172a', fontSize: 11 },
         formatter: (params: any) => {
           if (!params || !params.length) return '';
-          const item = params[0];
-          const pt = points[item.dataIndex];
-          const timeLabel = pt ? formatPointLocalTooltip(pt) : item.name;
+          const first = params[0];
+          const timeLabel = referencePoints[first.dataIndex]
+            ? (formatPointLocalTooltip(referencePoints[first.dataIndex]) || referencePoints[first.dataIndex].label || first.name)
+            : first.name;
           const unit = widget.summary?.unit || '';
+          if (hasMultiSeries) {
+            const rows = params
+              .map((p: any) => {
+                return `<div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 2px;">
+                  <span style="display: flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${p.color};"></span>
+                    <span style="opacity: 0.85;">${p.seriesName}</span>
+                  </span>
+                  <strong style="font-weight: 700;">${p.value} ${unit}</strong>
+                </div>`;
+              })
+              .join('');
+            return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
+              <div style="opacity: 0.7; margin-bottom: 3px; font-weight: 600;">${timeLabel}</div>
+              ${rows}
+            </div>`;
+          }
           return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
             <div style="opacity: 0.7; margin-bottom: 2px;">${timeLabel}</div>
-            <div style="font-weight: 700; font-size: 13px;">${item.value} ${unit}</div>
+            <div style="font-weight: 700; font-size: 13px;">${first.value} ${unit}</div>
           </div>`;
         },
       },
@@ -772,22 +1000,68 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
         axisLabel: { color: textColor, fontSize: 10 },
         splitLine: { lineStyle: { color: splitLineColor } },
       },
-      series: [
-        {
-          name: widget.title,
-          type: 'bar',
-          barMaxWidth: 24,
-          itemStyle: {
-            color: primaryColor,
-            borderRadius: [4, 4, 0, 0],
-          },
-          data: values,
-        },
-      ],
+      series: barSeriesList,
     };
   } else {
     // line or area
     const isArea = widget.chartType === 'area';
+    let lineSeriesList: any[] = [];
+    if (hasMultiSeries) {
+      lineSeriesList = widget.series!.map((s, sIdx) => {
+        const sColor = hostPalette[sIdx % hostPalette.length];
+        const sGradStop = hexToRgba(sColor, 0.25);
+        return {
+          name: s.name,
+          type: 'line',
+          smooth: true,
+          showSymbol: s.points.length <= 25,
+          symbolSize: 6,
+          lineStyle: {
+            color: sColor,
+            width: 2.5,
+          },
+          itemStyle: {
+            color: sColor,
+          },
+          areaStyle: isArea
+            ? {
+                color: new echartsLib.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: sGradStop },
+                  { offset: 1, color: 'rgba(0, 0, 0, 0)' },
+                ]),
+              }
+            : undefined,
+          data: s.points.map((p) => p.value),
+        };
+      });
+    } else {
+      lineSeriesList = [
+        {
+          name: widget.title,
+          type: 'line',
+          smooth: true,
+          showSymbol: referencePoints.length <= 25,
+          symbolSize: 6,
+          lineStyle: {
+            color: primaryColor,
+            width: 2.5,
+          },
+          itemStyle: {
+            color: primaryColor,
+          },
+          areaStyle: isArea
+            ? {
+                color: new echartsLib.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: gradientStop },
+                  { offset: 1, color: 'rgba(0, 0, 0, 0)' },
+                ]),
+              }
+            : undefined,
+          data: values,
+        },
+      ];
+    }
+
     option = {
       tooltip: {
         trigger: 'axis',
@@ -796,13 +1070,31 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
         textStyle: { color: isDark ? '#f8fafc' : '#0f172a', fontSize: 11 },
         formatter: (params: any) => {
           if (!params || !params.length) return '';
-          const item = params[0];
-          const pt = points[item.dataIndex];
-          const timeLabel = pt ? formatPointLocalTooltip(pt) : item.name;
+          const first = params[0];
+          const timeLabel = referencePoints[first.dataIndex]
+            ? (formatPointLocalTooltip(referencePoints[first.dataIndex]) || referencePoints[first.dataIndex].label || first.name)
+            : first.name;
           const unit = widget.summary?.unit || '';
+          if (hasMultiSeries) {
+            const rows = params
+              .map((p: any) => {
+                return `<div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 2px;">
+                  <span style="display: flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${p.color};"></span>
+                    <span style="opacity: 0.85;">${p.seriesName}</span>
+                  </span>
+                  <strong style="font-weight: 700;">${p.value} ${unit}</strong>
+                </div>`;
+              })
+              .join('');
+            return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
+              <div style="opacity: 0.7; margin-bottom: 3px; font-weight: 600;">${timeLabel}</div>
+              ${rows}
+            </div>`;
+          }
           return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
             <div style="opacity: 0.7; margin-bottom: 2px;">${timeLabel}</div>
-            <div style="font-weight: 700; font-size: 13px;">${item.value} ${unit}</div>
+            <div style="font-weight: 700; font-size: 13px;">${first.value} ${unit}</div>
           </div>`;
         },
       },
@@ -823,31 +1115,7 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
         axisLabel: { color: textColor, fontSize: 10 },
         splitLine: { lineStyle: { color: splitLineColor } },
       },
-      series: [
-        {
-          name: widget.title,
-          type: 'line',
-          smooth: true,
-          showSymbol: points.length <= 25,
-          symbolSize: 6,
-          lineStyle: {
-            color: primaryColor,
-            width: 2.5,
-          },
-          itemStyle: {
-            color: primaryColor,
-          },
-          areaStyle: isArea
-            ? {
-                color: new echartsLib.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: gradientStop },
-                  { offset: 1, color: 'rgba(0, 0, 0, 0)' },
-                ]),
-              }
-            : undefined,
-          data: values,
-        },
-      ],
+      series: lineSeriesList,
     };
   }
 
@@ -866,7 +1134,7 @@ const downloadPanelData = (widget: ReportWidget) => {
 };
 
 const downloadTableCsv = (widget: ReportWidget) => {
-  const points = widget.points || [];
+  const points = getProcessedTablePoints(widget);
   if (points.length === 0) {
     showNotice('No data points to export', 'error');
     return;
@@ -874,7 +1142,7 @@ const downloadTableCsv = (widget: ReportWidget) => {
   const headers = ['Timestamp', 'Host', 'Metric', 'Value', 'Unit'];
   const rows = points.map((p) => [
     `"${(formatPointLocalTooltip(p) || p.timestamp || '').replace(/"/g, '""')}"`,
-    `"${(widget.sourceConfig?.targetHost || 'all').replace(/"/g, '""')}"`,
+    `"${(p.host || widget.sourceConfig?.targetHost || 'all').replace(/"/g, '""')}"`,
     `"${(widget.title || '').replace(/"/g, '""')}"`,
     p.value,
     `"${(widget.summary?.unit || '').replace(/"/g, '""')}"`,
@@ -890,27 +1158,144 @@ const downloadTableCsv = (widget: ReportWidget) => {
   showNotice('Table exported as CSV successfully', 'success');
 };
 
-const downloadPanelPng = (widget: ReportWidget) => {
+const downloadPanelPng = async (widget: ReportWidget) => {
   const chart = chartInstances.get(widget.id);
   if (!chart) {
     showNotice('Chart instance not ready for export', 'error');
     return;
   }
 
-  const isDark = document.documentElement.classList.contains('dark');
-  const dataUrl = chart.getDataURL({
-    type: 'png',
-    pixelRatio: 2,
-    backgroundColor: isDark ? '#0f172a' : '#ffffff',
-  });
+  try {
+    // 1. Get raw chart canvas from ECharts at 2x resolution with clean white background
+    const rawDataUrl = chart.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#ffffff',
+    });
 
-  const link = document.createElement('a');
-  link.href = dataUrl;
-  link.download = `${widget.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}.png`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  showNotice('Chart PNG downloaded successfully', 'success');
+    const img = new Image();
+    img.src = rawDataUrl;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+
+    // 2. Setup composite canvas
+    const headerHeight = 120; // Room for Title + Subtitle
+    const footerHeight = 90;  // Room for Legend items
+    const totalWidth = img.width;
+    const totalHeight = headerHeight + img.height + footerHeight;
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = totalWidth;
+    exportCanvas.height = totalHeight;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) {
+      showNotice('Failed to create canvas context', 'error');
+      return;
+    }
+
+    // 3. Fill clean white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+    // 4. Draw Header Title (e.g. "CPU Usage")
+    ctx.font = 'bold 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(widget.title, totalWidth / 2, 45);
+
+    // 5. Draw Subtitle ("Time Range: Last 30d • daily • GRAFANA • Live Connected")
+    const agg = widget.sourceConfig?.aggregation || 'daily';
+    const sType = widget.sourceType.toUpperCase();
+    const prefixText = `Time Range: Last ${widget.timeRange} • ${agg} • ${sType} `;
+    const rawStatus = widget.isLive
+      ? 'Live Connected'
+      : (widget.statusMessage?.includes('Simulated') || widget.statusMessage?.includes('Fallback')
+        ? 'Simulated Preview'
+        : 'Connected');
+    const statusText = `• ${rawStatus}`;
+
+    ctx.font = '500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const prefixW = ctx.measureText(prefixText).width;
+    const statusW = ctx.measureText(statusText).width;
+    const fullSubtitleW = prefixW + statusW;
+    const subtitleStartX = (totalWidth - fullSubtitleW) / 2;
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(prefixText, subtitleStartX, 85);
+
+    ctx.fillStyle = widget.isLive ? '#10b981' : '#f59e0b';
+    ctx.fillText(statusText, subtitleStartX + prefixW, 85);
+
+    // 6. Draw the Chart in the middle
+    ctx.drawImage(img, 0, headerHeight, img.width, img.height);
+
+    // 7. Draw Legend at the bottom
+    const legendItems: Array<{ label: string; color: string }> = [];
+    if (widget.series && widget.series.length > 1) {
+      widget.series.forEach((s, idx) => {
+        legendItems.push({
+          label: s.name,
+          color: hostPalette[idx % hostPalette.length],
+        });
+      });
+    } else {
+      const pal = widget.sourceConfig?.colorPalette || 'emerald';
+      let singleColor = '#10b981';
+      if (pal === 'blue') singleColor = '#3b82f6';
+      else if (pal === 'amber') singleColor = '#f59e0b';
+      else if (pal === 'purple') singleColor = '#8b5cf6';
+
+      const singleLabel = `${widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : ''}${widget.title}`;
+      legendItems.push({
+        label: singleLabel,
+        color: singleColor,
+      });
+    }
+
+    ctx.font = '600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const dotRadius = 7;
+    const dotTextGap = 12;
+    const itemGap = 35;
+
+    const itemWidths = legendItems.map((item) => {
+      return dotRadius * 2 + dotTextGap + ctx.measureText(item.label).width;
+    });
+    const totalLegendWidth = itemWidths.reduce((sum, w) => sum + w, 0) + (legendItems.length - 1) * itemGap;
+    let curX = (totalWidth - totalLegendWidth) / 2;
+    const legendY = headerHeight + img.height + footerHeight / 2;
+
+    legendItems.forEach((item, idx) => {
+      // Draw bullet dot circle
+      ctx.beginPath();
+      ctx.arc(curX + dotRadius, legendY, dotRadius, 0, Math.PI * 2);
+      ctx.fillStyle = item.color;
+      ctx.fill();
+
+      // Draw label
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(item.label, curX + dotRadius * 2 + dotTextGap, legendY);
+
+      curX += itemWidths[idx] + itemGap;
+    });
+
+    // 8. Download image
+    const finalDataUrl = exportCanvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = finalDataUrl;
+    link.download = `${widget.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotice('Chart PNG downloaded successfully', 'success');
+  } catch (err) {
+    console.error('Failed to export chart composite:', err);
+    showNotice('Failed to generate export image', 'error');
+  }
 };
 
 // -----------------------------------------------------------------------------
@@ -1269,7 +1654,7 @@ onBeforeUnmount(() => {
                       {{ formatPointLocalTooltip(pt) || formatPointLocalLabel(pt, widget.timeRange) }}
                     </td>
                     <td class="py-2 px-3 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[130px]">
-                      {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : (pt.label || widget.title) }}
+                      {{ pt.host || (widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : (pt.label || widget.title)) }}
                     </td>
                     <td class="py-2 px-3 text-right font-semibold text-slate-900 dark:text-white text-[11px]">
                       <span
@@ -1308,7 +1693,18 @@ onBeforeUnmount(() => {
           <div v-else :ref="(el) => setChartRef(widget.id, el)" class="w-full h-56 relative"></div>
 
           <!-- Legend Indicator -->
-          <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
+          <div v-if="widget.series && widget.series.length > 1" class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 pt-1">
+            <div v-for="(s, sIdx) in widget.series" :key="sIdx" class="flex items-center gap-1.5">
+              <span
+                class="w-2.5 h-2.5 rounded-full shrink-0"
+                :style="{ backgroundColor: getSeriesColor(widget, sIdx) }"
+              ></span>
+              <span class="font-medium text-[11px]">
+                {{ s.name || s.host || widget.title }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
             <span
               :class="[
                 widget.sourceConfig?.colorPalette === 'blue'
@@ -1450,7 +1846,7 @@ onBeforeUnmount(() => {
       v-if="showWidgetModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div @click="activeHostDropdown = null" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">
@@ -1552,17 +1948,151 @@ onBeforeUnmount(() => {
           <!-- Prometheus Config -->
           <div v-if="widgetForm.sourceType === 'prometheus'" class="p-3 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl space-y-3">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
-                <select
-                  v-model="widgetForm.targetHost"
-                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              <!-- Target Server / Host (Multi-Select) -->
+              <div class="space-y-1 relative" @click.stop>
+                <div class="flex items-center justify-between">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
+                  <span v-if="widgetForm.targetHosts.length > 0 && !widgetForm.targetHosts.includes('all')" class="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                    {{ widgetForm.targetHosts.length }} selected
+                  </span>
+                </div>
+
+                <!-- Trigger Input / Box -->
+                <div
+                  @click="activeHostDropdown = activeHostDropdown === 'prom' ? null : 'prom'"
+                  class="min-h-[38px] w-full px-2.5 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2a3650] rounded-lg cursor-pointer flex items-center justify-between gap-1.5 transition"
                 >
-                  <option value="all">All Monitored Hosts</option>
-                  <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
-                    {{ h.name }} ({{ h.host }})
-                  </option>
-                </select>
+                  <div class="flex flex-wrap items-center gap-1.5 overflow-hidden flex-1">
+                    <template v-if="widgetForm.targetHosts.includes('all')">
+                      <span class="text-xs text-slate-700 dark:text-slate-200 font-medium">All Monitored Hosts</span>
+                    </template>
+                    <template v-else>
+                      <span
+                        v-for="h in widgetForm.targetHosts.slice(0, 2)"
+                        :key="h"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium border border-blue-200 dark:border-blue-800/60"
+                      >
+                        <span class="truncate max-w-[110px]">{{ getHostDisplayName(h) }}</span>
+                        <button
+                          type="button"
+                          @click.stop="toggleHostSelection(h)"
+                          class="hover:text-rose-500 rounded p-0.5 cursor-pointer"
+                        >
+                          <X class="w-3 h-3" />
+                        </button>
+                      </span>
+                      <span
+                        v-if="widgetForm.targetHosts.length > 2"
+                        class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium"
+                      >
+                        +{{ widgetForm.targetHosts.length - 2 }} more
+                      </span>
+                    </template>
+                  </div>
+                  <ChevronDown
+                    class="w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200"
+                    :class="{ 'rotate-180': activeHostDropdown === 'prom' }"
+                  />
+                </div>
+
+                <!-- Multi-Host Popup Dropdown -->
+                <div
+                  v-if="activeHostDropdown === 'prom'"
+                  class="absolute z-50 left-0 right-0 top-full mt-1 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-2.5 space-y-2 text-xs animate-in fade-in"
+                >
+                  <!-- Search Filter -->
+                  <div class="relative">
+                    <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      v-model="hostFilterText"
+                      type="text"
+                      placeholder="Search hosts..."
+                      class="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <!-- Quick Action Buttons -->
+                  <div class="flex items-center justify-between px-1 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-[#1b2234] pb-1.5">
+                    <button
+                      type="button"
+                      @click="toggleHostSelection('all')"
+                      class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer font-medium"
+                    >
+                      All (Aggregated)
+                    </button>
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        @click="selectAllHosts"
+                        class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+                      >
+                        Select All
+                      </button>
+                      <span>•</span>
+                      <button
+                        type="button"
+                        @click="clearAllHosts"
+                        class="hover:text-rose-500 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Host List -->
+                  <div class="max-h-48 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234]">
+                    <!-- All Hosts Option -->
+                    <div
+                      @click="toggleHostSelection('all')"
+                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isHostSelected('all')"
+                        class="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                        @click.stop="toggleHostSelection('all')"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <span class="font-medium text-slate-800 dark:text-slate-200">All Monitored Hosts</span>
+                        <span class="text-[10px] text-slate-400 ml-1.5">(Aggregate telemetry)</span>
+                      </div>
+                    </div>
+
+                    <!-- Specific Discovered Hosts -->
+                    <div
+                      v-for="h in filteredDiscoveredHosts"
+                      :key="h.id || h.host"
+                      @click="toggleHostSelection(h.host)"
+                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isHostSelected(h.host)"
+                        class="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                        @click.stop="toggleHostSelection(h.host)"
+                      />
+                      <div class="flex-1 min-w-0 flex items-center justify-between gap-1">
+                        <span class="text-slate-800 dark:text-slate-200 truncate font-medium">{{ h.name }}</span>
+                        <span class="text-slate-400 font-mono text-[10px] shrink-0">({{ h.host }})</span>
+                      </div>
+                    </div>
+
+                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-3 text-center text-slate-400 text-xs">
+                      No hosts found matching "{{ hostFilterText }}"
+                    </div>
+                  </div>
+
+                  <!-- Done Button -->
+                  <div class="pt-1.5 border-t border-slate-100 dark:border-[#1b2234] flex justify-end">
+                    <button
+                      type="button"
+                      @click="activeHostDropdown = null"
+                      class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div class="space-y-1">
@@ -1632,18 +2162,151 @@ onBeforeUnmount(() => {
                 </p>
               </div>
 
-              <!-- Target Server / Host -->
-              <div class="space-y-1">
-                <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
-                <select
-                  v-model="widgetForm.targetHost"
-                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              <!-- Target Server / Host (Multi-Select) -->
+              <div class="space-y-1 relative" @click.stop>
+                <div class="flex items-center justify-between">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
+                  <span v-if="widgetForm.targetHosts.length > 0 && !widgetForm.targetHosts.includes('all')" class="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                    {{ widgetForm.targetHosts.length }} selected
+                  </span>
+                </div>
+
+                <!-- Trigger Input / Box -->
+                <div
+                  @click="activeHostDropdown = activeHostDropdown === 'graf' ? null : 'graf'"
+                  class="min-h-[38px] w-full px-2.5 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2a3650] rounded-lg cursor-pointer flex items-center justify-between gap-1.5 transition"
                 >
-                  <option value="all">All Monitored Hosts</option>
-                  <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
-                    {{ h.name }} ({{ h.host }})
-                  </option>
-                </select>
+                  <div class="flex flex-wrap items-center gap-1.5 overflow-hidden flex-1">
+                    <template v-if="widgetForm.targetHosts.includes('all')">
+                      <span class="text-xs text-slate-700 dark:text-slate-200 font-medium">All Monitored Hosts</span>
+                    </template>
+                    <template v-else>
+                      <span
+                        v-for="h in widgetForm.targetHosts.slice(0, 2)"
+                        :key="h"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium border border-blue-200 dark:border-blue-800/60"
+                      >
+                        <span class="truncate max-w-[110px]">{{ getHostDisplayName(h) }}</span>
+                        <button
+                          type="button"
+                          @click.stop="toggleHostSelection(h)"
+                          class="hover:text-rose-500 rounded p-0.5 cursor-pointer"
+                        >
+                          <X class="w-3 h-3" />
+                        </button>
+                      </span>
+                      <span
+                        v-if="widgetForm.targetHosts.length > 2"
+                        class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium"
+                      >
+                        +{{ widgetForm.targetHosts.length - 2 }} more
+                      </span>
+                    </template>
+                  </div>
+                  <ChevronDown
+                    class="w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200"
+                    :class="{ 'rotate-180': activeHostDropdown === 'graf' }"
+                  />
+                </div>
+
+                <!-- Multi-Host Popup Dropdown -->
+                <div
+                  v-if="activeHostDropdown === 'graf'"
+                  class="absolute z-50 left-0 right-0 top-full mt-1 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-2.5 space-y-2 text-xs animate-in fade-in"
+                >
+                  <!-- Search Filter -->
+                  <div class="relative">
+                    <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      v-model="hostFilterText"
+                      type="text"
+                      placeholder="Search hosts..."
+                      class="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <!-- Quick Action Buttons -->
+                  <div class="flex items-center justify-between px-1 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-[#1b2234] pb-1.5">
+                    <button
+                      type="button"
+                      @click="toggleHostSelection('all')"
+                      class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer font-medium"
+                    >
+                      All (Aggregated)
+                    </button>
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        @click="selectAllHosts"
+                        class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+                      >
+                        Select All
+                      </button>
+                      <span>•</span>
+                      <button
+                        type="button"
+                        @click="clearAllHosts"
+                        class="hover:text-rose-500 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Host List -->
+                  <div class="max-h-48 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234]">
+                    <!-- All Hosts Option -->
+                    <div
+                      @click="toggleHostSelection('all')"
+                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isHostSelected('all')"
+                        class="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                        @click.stop="toggleHostSelection('all')"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <span class="font-medium text-slate-800 dark:text-slate-200">All Monitored Hosts</span>
+                        <span class="text-[10px] text-slate-400 ml-1.5">(Aggregate telemetry)</span>
+                      </div>
+                    </div>
+
+                    <!-- Specific Discovered Hosts -->
+                    <div
+                      v-for="h in filteredDiscoveredHosts"
+                      :key="h.id || h.host"
+                      @click="toggleHostSelection(h.host)"
+                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isHostSelected(h.host)"
+                        class="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                        @click.stop="toggleHostSelection(h.host)"
+                      />
+                      <div class="flex-1 min-w-0 flex items-center justify-between gap-1">
+                        <span class="text-slate-800 dark:text-slate-200 truncate font-medium">{{ h.name }}</span>
+                        <span class="text-slate-400 font-mono text-[10px] shrink-0">({{ h.host }})</span>
+                      </div>
+                    </div>
+
+                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-3 text-center text-slate-400 text-xs">
+                      No hosts found matching "{{ hostFilterText }}"
+                    </div>
+                  </div>
+
+                  <!-- Done Button -->
+                  <div class="pt-1.5 border-t border-slate-100 dark:border-[#1b2234] flex justify-end">
+                    <button
+                      type="button"
+                      @click="activeHostDropdown = null"
+                      class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
                 <p class="text-[10px] text-slate-400">
                   Filters telemetry for specific instance or aggregates across all hosts.
                 </p>
