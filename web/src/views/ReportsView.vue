@@ -210,6 +210,12 @@ const openSearchDslTemplates = [
   },
 ];
 
+const opensearchPlaceholder = computed(() => {
+  return widgetDslMode.value === 'dsl'
+    ? '{\n  "query": {\n    "match_all": {}\n  }\n}'
+    : 'e.g. status:>=500 OR level:ERROR, service:nginx, *';
+});
+
 // Presets for OpenSearch, Prometheus, and Grafana
 const openSearchPresets = [
   {
@@ -1755,7 +1761,7 @@ onMounted(async () => {
                   <textarea
                     v-model="widgetForm.query"
                     :rows="widgetDslMode === 'dsl' ? 6 : 2"
-                    :placeholder="widgetDslMode === 'dsl' ? '{ \"query\": { \"match_all\": {} } }' : 'e.g. status:>=500 OR level:ERROR, service:nginx, *'"
+                    :placeholder="opensearchPlaceholder"
                     class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 leading-relaxed"
                   ></textarea>
                 </div>
