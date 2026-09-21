@@ -106,6 +106,20 @@ func (r *ConfigRepository) DeleteGrafana(ctx context.Context, id string) error {
 	return err
 }
 
+func (r *ConfigRepository) GetGrafanaByID(ctx context.Context, id string) (*domain.GrafanaConfig, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	var c domain.GrafanaConfig
+	err = pool.QueryRow(ctx, `SELECT id, name, host, token, datasource_uid, is_active, created_at FROM grafana_configs WHERE id = $1`, id).
+		Scan(&c.ID, &c.Name, &c.Host, &c.Token, &c.DatasourceUID, &c.IsActive, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // Prometheus Configs
 func (r *ConfigRepository) ListPrometheus(ctx context.Context) ([]domain.PrometheusConfig, error) {
 	pool, err := database.GetPool()

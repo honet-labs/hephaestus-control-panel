@@ -464,6 +464,54 @@ const refreshAllPanels = async () => {
   }
 };
 
+const formatPointLocalLabel = (p: { timestamp: string; label?: string }, timeRange?: string) => {
+  if (!p) return '';
+  let ts = (p.timestamp || '').trim();
+  if (!ts) return p.label || '';
+
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(ts)) {
+    ts = ts.replace(' ', 'T') + ':00Z';
+  } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(ts)) {
+    ts = ts.replace(' ', 'T') + 'Z';
+  }
+
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) {
+    return p.label || p.timestamp;
+  }
+
+  if (timeRange === '7d' || timeRange === '30d') {
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
+  if (!p) return '';
+  let ts = (p.timestamp || '').trim();
+  if (!ts) return p.label || '';
+
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(ts)) {
+    ts = ts.replace(' ', 'T') + ':00Z';
+  } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(ts)) {
+    ts = ts.replace(' ', 'T') + 'Z';
+  }
+
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) {
+    return p.label || p.timestamp;
+  }
+
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+};
+
 const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   const dom = chartRefs.get(widget.id);
   if (!dom || !echartsLib) return;
@@ -495,14 +543,14 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   const splitLineColor = isDark ? '#1e293b' : '#f1f5f9';
 
   const points = widget.points || [];
-  const labels = points.map((p) => p.label || p.timestamp);
+  const labels = points.map((p) => formatPointLocalLabel(p, widget.timeRange));
   const values = points.map((p) => p.value);
 
   let option: any = {};
 
   if (widget.chartType === 'pie' || widget.chartType === 'donut') {
     const pieData = points.slice(0, 6).map((p, idx) => ({
-      name: p.label || `Point ${idx + 1}`,
+      name: formatPointLocalLabel(p, widget.timeRange) || `Point ${idx + 1}`,
       value: p.value,
     }));
 
@@ -547,7 +595,20 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
     option = {
       tooltip: {
         trigger: 'axis',
-        formatter: `{b}<br/><b>{c} ${widget.summary?.unit || ''}</b>`,
+        backgroundColor: isDark ? '#0c101a' : '#ffffff',
+        borderColor: isDark ? '#1f283d' : '#e2e8f0',
+        textStyle: { color: isDark ? '#f8fafc' : '#0f172a', fontSize: 11 },
+        formatter: (params: any) => {
+          if (!params || !params.length) return '';
+          const item = params[0];
+          const pt = points[item.dataIndex];
+          const timeLabel = pt ? formatPointLocalTooltip(pt) : item.name;
+          const unit = widget.summary?.unit || '';
+          return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
+            <div style="opacity: 0.7; margin-bottom: 2px;">${timeLabel}</div>
+            <div style="font-weight: 700; font-size: 13px;">${item.value} ${unit}</div>
+          </div>`;
+        },
       },
       grid: {
         left: 45,
@@ -585,7 +646,20 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
     option = {
       tooltip: {
         trigger: 'axis',
-        formatter: `{b}<br/><b>{c} ${widget.summary?.unit || ''}</b>`,
+        backgroundColor: isDark ? '#0c101a' : '#ffffff',
+        borderColor: isDark ? '#1f283d' : '#e2e8f0',
+        textStyle: { color: isDark ? '#f8fafc' : '#0f172a', fontSize: 11 },
+        formatter: (params: any) => {
+          if (!params || !params.length) return '';
+          const item = params[0];
+          const pt = points[item.dataIndex];
+          const timeLabel = pt ? formatPointLocalTooltip(pt) : item.name;
+          const unit = widget.summary?.unit || '';
+          return `<div style="font-family: inherit; font-size: 11px; line-height: 1.4;">
+            <div style="opacity: 0.7; margin-bottom: 2px;">${timeLabel}</div>
+            <div style="font-weight: 700; font-size: 13px;">${item.value} ${unit}</div>
+          </div>`;
+        },
       },
       grid: {
         left: 45,

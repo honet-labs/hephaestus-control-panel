@@ -374,6 +374,22 @@ const handleTestConnection = async () => {
           ? (res.data?.message || 'Docker connection verified successfully!')
           : (res.data?.error || 'Failed to connect to Docker Engine.'),
       };
+    } else if (form.value.type === 'Grafana Core API') {
+      const payload: any = {
+        name: form.value.name,
+        host: form.value.url,
+        token: form.value.token,
+        datasourceUid: form.value.datasourceUid,
+      };
+      if (editingId.value) payload.id = editingId.value;
+
+      const res = await axios.post('/api/v1/settings/grafana/test', payload);
+      testStatus.value = {
+        success: res.data?.success || false,
+        message: res.data?.success
+          ? (res.data?.message || 'Grafana connection verified successfully!')
+          : (res.data?.error || res.data?.message || 'Failed to connect to Grafana API.'),
+      };
     } else {
       testStatus.value = {
         success: true,
@@ -621,7 +637,21 @@ const handleRegisterEndpoint = async () => {
 const handlePingTest = async (item: RegistryItem) => {
   item.status = 'checking';
   try {
-    if (item.rawType === 'prometheus') {
+    if (item.rawType === 'grafana') {
+      const res = await axios.post('/api/v1/settings/grafana/test', {
+        id: item.id,
+        host: item.rawItem?.host,
+        token: item.rawItem?.token,
+        datasourceUid: item.rawItem?.datasourceUid || item.rawItem?.datasource_uid,
+      });
+      if (res.data?.success) {
+        item.status = 'connected';
+        showToast(res.data?.message || `Connected to Grafana: ${item.name}`, 'success');
+      } else {
+        item.status = 'offline';
+        showToast(res.data?.error || `Grafana connection failed: ${item.name}`, 'error');
+      }
+    } else if (item.rawType === 'prometheus') {
       const res = await axios.post('/api/v1/settings/prometheus/test', {
         id: item.id,
       });

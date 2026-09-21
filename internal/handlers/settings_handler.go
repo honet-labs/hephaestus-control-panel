@@ -209,6 +209,114 @@ func (h *SettingsHandler) DeleteGrafana(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Grafana config deleted."})
 }
 
+// TestGrafana verifies network connectivity, bearer token, and datasource UID against Grafana server
+func (h *SettingsHandler) TestGrafana(c *gin.Context) {
+	var req domain.GrafanaConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
+		return
+	}
+
+	host := strings.TrimRight(strings.TrimSpace(req.Host), "/")
+	token := strings.TrimSpace(req.Token)
+
+	if req.ID != "" && (host == "" || token == "" || token == "••••••••" || token == "********") {
+		dbCfg, err := h.configRepo.GetGrafanaByID(c.Request.Context(), req.ID)
+		if err == nil && dbCfg != nil {
+			if host == "" {
+				host = strings.TrimRight(strings.TrimSpace(dbCfg.Host), "/")
+			}
+			if token == "" || token == "••••••••" || token == "********" {
+				token = dbCfg.Token
+			}
+			if req.DatasourceUID == "" {
+				req.DatasourceUID = dbCfg.DatasourceUID
+			}
+		}
+	}
+
+	if host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "API Endpoint URL is required"})
+		return
+	}
+	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+		host = "http://" + host
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	// 1. Test basic reachability via /api/health
+	healthURL := host + "/api/health"
+	resp, err := client.Get(healthURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to reach Grafana server at %s: %v", host, err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Grafana returned error status %d from %s", resp.StatusCode, healthURL),
+		})
+		return
+	}
+
+	// 2. If token is provided, verify authentication via /api/org
+	if token != "" {
+		orgReq, err := http.NewRequestWithContext(c.Request.Context(), "GET", host+"/api/org", nil)
+		if err == nil {
+			orgReq.Header.Set("Authorization", "Bearer "+token)
+			orgResp, err := client.Do(orgReq)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"error":   fmt.Sprintf("Authentication query failed: %v", err),
+				})
+				return
+			}
+			defer orgResp.Body.Close()
+
+			if orgResp.StatusCode == http.StatusUnauthorized || orgResp.StatusCode == http.StatusForbidden {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"error":   "Invalid Bearer Token: Unauthorized (401). Please verify your Service Account Token.",
+				})
+				return
+			}
+		}
+	}
+
+	// 3. If Datasource UID is provided, verify existence
+	if req.DatasourceUID != "" && token != "" {
+		dsReq, err := http.NewRequestWithContext(c.Request.Context(), "GET", host+"/api/datasources/uid/"+req.DatasourceUID, nil)
+		if err == nil {
+			dsReq.Header.Set("Authorization", "Bearer "+token)
+			dsResp, err := client.Do(dsReq)
+			if err == nil {
+				defer dsResp.Body.Close()
+				if dsResp.StatusCode == http.StatusNotFound {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"error":   fmt.Sprintf("Datasource UID '%s' not found in Grafana (404)", req.DatasourceUID),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Grafana connection verified successfully!",
+	})
+}
+
 // Prometheus Configs
 func (h *SettingsHandler) ListPrometheus(c *gin.Context) {
 	list, err := h.configRepo.ListPrometheus(c.Request.Context())

@@ -389,10 +389,10 @@ func (s *ReportService) queryOpenSearchData(ctx context.Context, req domain.Repo
 	}
 
 	tableRows := []map[string]any{
-		{"timestamp": time.Now().Add(-15 * time.Minute).Format("15:04:05"), "level": "INFO", "message": "Pipeline worker ingested 4,120 events successfully", "source": "dataprepper"},
-		{"timestamp": time.Now().Add(-30 * time.Minute).Format("15:04:05"), "level": "WARN", "message": "High heap utilization threshold reached (78%)", "source": "opensearch-node-1"},
-		{"timestamp": time.Now().Add(-45 * time.Minute).Format("15:04:05"), "level": "INFO", "message": "Cluster state green, all shards active", "source": "cluster-health"},
-		{"timestamp": time.Now().Add(-60 * time.Minute).Format("15:04:05"), "level": "ERROR", "message": "Connection timeout during telemetry export to external gateway", "source": "otelcol"},
+		{"timestamp": time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339), "level": "INFO", "message": "Pipeline worker ingested 4,120 events successfully", "source": "dataprepper"},
+		{"timestamp": time.Now().UTC().Add(-30 * time.Minute).Format(time.RFC3339), "level": "WARN", "message": "High heap utilization threshold reached (78%)", "source": "opensearch-node-1"},
+		{"timestamp": time.Now().UTC().Add(-45 * time.Minute).Format(time.RFC3339), "level": "INFO", "message": "Cluster state green, all shards active", "source": "cluster-health"},
+		{"timestamp": time.Now().UTC().Add(-60 * time.Minute).Format(time.RFC3339), "level": "ERROR", "message": "Connection timeout during telemetry export to external gateway", "source": "otelcol"},
 	}
 
 	return &domain.ReportQueryDataResponse{
@@ -536,8 +536,8 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 
 						t := time.Unix(int64(tsFloat), 0)
 						points = append(points, domain.ReportDataPoint{
-							Timestamp: t.Format(time.RFC3339),
-							Label:     t.Format(labelFmt),
+							Timestamp: t.UTC().Format(time.RFC3339),
+							Label:     t.UTC().Format(labelFmt),
 							Value:     math.Round(valFloat*100) / 100,
 						})
 					}
@@ -548,8 +548,8 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 				valFloat, _ := strconv.ParseFloat(valStr, 64)
 				t := time.Unix(int64(tsFloat), 0)
 				points = append(points, domain.ReportDataPoint{
-					Timestamp: t.Format(time.RFC3339),
-					Label:     t.Format(labelFmt),
+					Timestamp: t.UTC().Format(time.RFC3339),
+					Label:     t.UTC().Format(labelFmt),
 					Value:     math.Round(valFloat*100) / 100,
 				})
 			}
@@ -644,8 +644,8 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 					tm := time.Unix(tSec, 0)
 
 					points = append(points, domain.ReportDataPoint{
-						Timestamp: tm.Format("2006-01-02 15:04"),
-						Label:     tm.Format("15:04"),
+						Timestamp: tm.UTC().Format(time.RFC3339),
+						Label:     tm.UTC().Format("15:04"),
 						Value:     math.Round(vFloat*100) / 100,
 					})
 				}
@@ -977,8 +977,8 @@ func (s *ReportService) generateTimeSeriesData(title, timeRange, source, host st
 
 		rounded := math.Round(val*10) / 10
 		points = append(points, domain.ReportDataPoint{
-			Timestamp: t.Format("2006-01-02 15:04"),
-			Label:     t.Format(dateFormat),
+			Timestamp: t.UTC().Format(time.RFC3339),
+			Label:     t.UTC().Format(dateFormat),
 			Value:     rounded,
 		})
 	}
