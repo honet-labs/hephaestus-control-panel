@@ -98,7 +98,7 @@ func main() {
 	vaultwardenService.StartBackgroundSync(nil)
 	dockerService := services.NewDockerService(dockerRepo, remoteRepo, sshService)
 	systemService := services.NewSystemService()
-	reportService := services.NewReportService(reportRepo, configRepo, openSearchService)
+	reportService := services.NewReportService(reportRepo, configRepo, openSearchService, promService)
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)

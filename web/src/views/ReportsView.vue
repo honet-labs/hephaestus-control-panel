@@ -125,29 +125,31 @@ const reportForm = ref<{
   showDate: true,
 });
 
-// Add / Edit Widget Form (PandoraFMS Add Widget Panel Model)
+// Add / Edit Widget Form
 const editingWidgetId = ref<string | null>(null);
 const widgetForm = ref<{
   title: string;
   chartType: string;
-  sourceType: 'opensearch' | 'grafana';
-  agent: string;
-  module: string;
+  sourceType: 'opensearch' | 'prometheus' | 'grafana';
+  queryMode: 'preset' | 'custom';
+  presetKey: string;
+  query: string;
   indexPattern: string;
-  queryKeyword: string;
+  targetHost: string;
   timeRange: string;
   theme: string;
   colorPalette: string;
   widthPercent: number;
   pageNumber: number;
 }>({
-  title: 'Metrics Trend Chart',
+  title: 'Log Event Volume Trend',
   chartType: 'line',
-  sourceType: 'grafana',
-  agent: '[Primary] DB_Production_Master',
-  module: 'CPU Utilization',
-  indexPattern: 'opensearch-logs-*',
-  queryKeyword: 'error OR status:500',
+  sourceType: 'opensearch',
+  queryMode: 'preset',
+  presetKey: 'log_volume',
+  query: '*',
+  indexPattern: '*',
+  targetHost: 'all',
   timeRange: '24h',
   theme: 'default',
   colorPalette: 'Grafana Classic',
@@ -155,23 +157,179 @@ const widgetForm = ref<{
   pageNumber: 1,
 });
 
-// Sample Agent and Module Lists for Grafana configuration
-const availableAgents = [
-  '[Primary] DB_Production_Master',
-  '[Primary] App_Backend_Cluster',
-  '[Primary] Web_Gateway_Nginx',
-  '[Secondary] OpenSearch_Cluster_Node_1',
-  '[Secondary] Redis_Cache_Leader',
+// Presets for OpenSearch, Prometheus, and Grafana
+const openSearchPresets = [
+  {
+    key: 'log_volume',
+    title: 'Log Event Volume Trend',
+    chartType: 'line',
+    query: '*',
+    desc: 'Total events aggregated over time',
+  },
+  {
+    key: 'error_logs',
+    title: 'Application & System Error Rates',
+    chartType: 'bar',
+    query: 'status:>=500 OR level:ERROR OR level:FATAL',
+    desc: 'Failures and HTTP 5xx responses',
+  },
+  {
+    key: 'warn_logs',
+    title: 'Warning & Incident Degradations',
+    chartType: 'bar',
+    query: 'level:WARN OR level:WARNING',
+    desc: 'Degradation alerts and notices',
+  },
+  {
+    key: 'incident_table',
+    title: 'Recent Incident Logs Table',
+    chartType: 'table',
+    query: 'level:ERROR OR status:500',
+    desc: 'Tabular log records with timestamps',
+  },
 ];
 
-const availableModules = [
-  'CPU Utilization',
-  'Memory Used',
-  'Disk Storage Usage',
-  'Network Ingress / Egress',
-  'Process Load Average',
-  'IOPS Read/Write',
+const prometheusPresets = [
+  {
+    key: 'cpu_util',
+    title: 'CPU Core Utilization (%)',
+    chartType: 'line',
+    query: '100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
+    desc: 'Total system CPU load percentage',
+  },
+  {
+    key: 'mem_util',
+    title: 'Memory / RAM Usage (%)',
+    chartType: 'area',
+    query: '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100',
+    desc: 'Active RAM consumption versus total',
+  },
+  {
+    key: 'disk_util',
+    title: 'Disk Storage Space Used (%)',
+    chartType: 'bar',
+    query: '(1 - (node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100',
+    desc: 'Root disk usage percentage',
+  },
+  {
+    key: 'net_traffic',
+    title: 'Network Traffic Throughput',
+    chartType: 'line',
+    query: 'sum(rate(node_network_receive_bytes_total[5m])) * 8',
+    desc: 'Ingress bandwidth in bits per second',
+  },
+  {
+    key: 'sys_load',
+    title: 'System Load Average (1m)',
+    chartType: 'line',
+    query: 'node_load1',
+    desc: 'Normalized 1-minute system load',
+  },
 ];
+
+const grafanaPresets = [
+  {
+    key: 'grafana_cpu',
+    title: 'Grafana Monitored CPU Load',
+    chartType: 'line',
+    query: 'CPU Load',
+    desc: 'Queries active Grafana datasource',
+  },
+  {
+    key: 'grafana_mem',
+    title: 'Grafana Memory Allocation',
+    chartType: 'area',
+    query: 'Memory Allocation',
+    desc: 'Heap and resident memory metrics',
+  },
+];
+
+// Discovered Indices & Remote Hosts
+const discoveredIndices = ref<string[]>([]);
+const discoveredHosts = ref<Array<{ id: string; name: string; host: string }>>([]);
+const testingQuery = ref(false);
+const testQueryResult = ref<{ success: boolean; message: string } | null>(null);
+
+const loadClusterMetadata = async () => {
+  try {
+    const [indicesRes, hostsRes] = await Promise.allSettled([
+      axios.get('/api/v1/opensearch/indices'),
+      axios.get('/api/v1/remote-host'),
+    ]);
+
+    if (indicesRes.status === 'fulfilled' && indicesRes.value.data?.success && Array.isArray(indicesRes.value.data.data)) {
+      discoveredIndices.value = indicesRes.value.data.data.map((idx: any) => idx.index || idx.name).filter(Boolean);
+    }
+    if (hostsRes.status === 'fulfilled' && hostsRes.value.data?.success && Array.isArray(hostsRes.value.data.data)) {
+      discoveredHosts.value = hostsRes.value.data.data.map((h: any) => ({
+        id: h.id || h.host,
+        name: h.name || h.hostname || h.host,
+        host: h.host || h.ip,
+      }));
+    }
+  } catch (e) {
+    console.warn('Metadata discovery error:', e);
+  }
+};
+
+const applyPreset = (preset: { key: string; title: string; chartType: string; query: string }) => {
+  widgetForm.value.presetKey = preset.key;
+  widgetForm.value.title = preset.title;
+  widgetForm.value.chartType = preset.chartType;
+  widgetForm.value.query = preset.query;
+  testQueryResult.value = null;
+};
+
+const setQueryChip = (snippet: string) => {
+  if (snippet === '*' || snippet === 'clear') {
+    widgetForm.value.query = snippet === 'clear' ? '' : '*';
+  } else {
+    if (!widgetForm.value.query || widgetForm.value.query === '*') {
+      widgetForm.value.query = snippet;
+    } else {
+      widgetForm.value.query += ` AND (${snippet})`;
+    }
+  }
+  testQueryResult.value = null;
+};
+
+const testWidgetQuery = async () => {
+  testingQuery.value = true;
+  testQueryResult.value = null;
+  try {
+    const payload = {
+      sourceType: widgetForm.value.sourceType,
+      sourceConfig: {
+        query: widgetForm.value.query,
+        indexPattern: widgetForm.value.indexPattern,
+        targetHost: widgetForm.value.targetHost,
+      },
+      timeRange: widgetForm.value.timeRange,
+      metricKey: widgetForm.value.title,
+    };
+    const res = await axios.post('/api/v1/reports/query-data', payload);
+    if (res.data?.success) {
+      const pts = res.data.data?.points?.length || 0;
+      const rows = res.data.data?.tableRows?.length || 0;
+      testQueryResult.value = {
+        success: true,
+        message: `${res.data.data.message || 'Connected'} (${pts} points${rows > 0 ? `, ${rows} rows` : ''})`,
+      };
+    } else {
+      testQueryResult.value = {
+        success: false,
+        message: res.data?.error || 'Query returned empty result',
+      };
+    }
+  } catch (err: any) {
+    testQueryResult.value = {
+      success: false,
+      message: err?.response?.data?.error || err?.message || 'Query test failed',
+    };
+  } finally {
+    testingQuery.value = false;
+  }
+};
 
 // -----------------------------------------------------------------------------
 // Feedback Banner Auto-Dismiss
@@ -300,18 +458,20 @@ const submitReportForm = async () => {
 };
 
 // -----------------------------------------------------------------------------
-// Add / Edit Widget (PandoraFMS Style Modal)
+// Add / Edit Widget Modal
 // -----------------------------------------------------------------------------
 const openAddWidgetModal = (chartType: string = 'line') => {
   editingWidgetId.value = null;
+  testQueryResult.value = null;
   widgetForm.value = {
-    title: chartType === 'table' ? 'OpenSearch Error Log Events' : `${widgetForm.value.module || 'CPU Usage'} Chart`,
+    title: chartType === 'table' ? 'Recent Incident Logs Table' : 'Log Event Volume Trend',
     chartType,
-    sourceType: chartType === 'table' ? 'opensearch' : 'grafana',
-    agent: '[Primary] DB_Production_Master',
-    module: 'CPU Utilization',
-    indexPattern: 'opensearch-logs-*',
-    queryKeyword: 'error OR status:500',
+    sourceType: 'opensearch',
+    queryMode: 'preset',
+    presetKey: chartType === 'table' ? 'incident_table' : 'log_volume',
+    query: chartType === 'table' ? 'level:ERROR OR status:500' : '*',
+    indexPattern: '*',
+    targetHost: 'all',
     timeRange: '24h',
     theme: 'default',
     colorPalette: 'Grafana Classic',
@@ -323,14 +483,16 @@ const openAddWidgetModal = (chartType: string = 'line') => {
 
 const openEditWidgetModal = (w: ReportWidget) => {
   editingWidgetId.value = w.id;
+  testQueryResult.value = null;
   widgetForm.value = {
     title: w.title,
     chartType: w.chartType,
-    sourceType: (w.sourceType as any) || 'grafana',
-    agent: w.sourceConfig?.agent || '[Primary] DB_Production_Master',
-    module: w.sourceConfig?.module || 'CPU Utilization',
-    indexPattern: w.sourceConfig?.indexPattern || 'opensearch-logs-*',
-    queryKeyword: w.sourceConfig?.queryKeyword || '',
+    sourceType: (w.sourceType as any) || 'opensearch',
+    queryMode: (w.sourceConfig?.queryMode as any) || 'custom',
+    presetKey: w.sourceConfig?.presetKey || '',
+    query: w.sourceConfig?.query || w.sourceConfig?.queryKeyword || '*',
+    indexPattern: w.sourceConfig?.indexPattern || '*',
+    targetHost: w.sourceConfig?.targetHost || 'all',
     timeRange: w.timeRange || '24h',
     theme: w.theme || 'default',
     colorPalette: w.sourceConfig?.colorPalette || 'Grafana Classic',
@@ -356,10 +518,11 @@ const saveWidget = async () => {
       chartType: widgetForm.value.chartType,
       sourceType: widgetForm.value.sourceType,
       sourceConfig: {
-        agent: widgetForm.value.agent,
-        module: widgetForm.value.module,
+        query: widgetForm.value.query,
+        queryMode: widgetForm.value.queryMode,
+        presetKey: widgetForm.value.presetKey,
         indexPattern: widgetForm.value.indexPattern,
-        queryKeyword: widgetForm.value.queryKeyword,
+        targetHost: widgetForm.value.targetHost,
         colorPalette: widgetForm.value.colorPalette,
       },
       timeRange: widgetForm.value.timeRange,
@@ -488,8 +651,9 @@ const triggerPrint = () => {
   window.print();
 };
 
-onMounted(() => {
-  fetchReports();
+onMounted(async () => {
+  await fetchReports();
+  await loadClusterMetadata();
 });
 </script>
 
@@ -1042,165 +1206,417 @@ onMounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL 1: ADD / EDIT WIDGET PANEL (PandoraFMS Image 3)                 -->
+    <!-- MODAL 1: ADD / EDIT WIDGET PANEL                                      -->
     <!-- ===================================================================== -->
     <div
       v-if="showWidgetModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-4">
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            {{ editingWidgetId ? 'Edit Widget Panel' : 'Add Widget Panel' }}
-          </h3>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              {{ editingWidgetId ? 'Edit Widget Panel' : 'Add Widget Panel' }}
+            </h3>
+            <p class="text-[11px] text-slate-500">
+              Configure data source, query metrics, and visual parameters
+            </p>
+          </div>
           <button @click="showWidgetModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 text-xs">
-          <!-- Panel Widget Title -->
-          <div class="col-span-1 space-y-1">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Widget Title</label>
-            <input
-              v-model="widgetForm.title"
-              type="text"
-              placeholder="e.g. Metrics Trend Chart"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
+        <div class="space-y-4 text-xs">
+          <!-- Row 1: Widget Title & Chart Type -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Widget Title</label>
+              <input
+                v-model="widgetForm.title"
+                type="text"
+                placeholder="e.g. Metrics Trend Chart"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
 
-          <!-- Chart Type -->
-          <div class="col-span-1 space-y-1">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">Chart Type</label>
-            <select
-              v-model="widgetForm.chartType"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            >
-              <option value="line">Line Chart</option>
-              <option value="area">Area Chart</option>
-              <option value="bar">Bar / Histogram</option>
-              <option value="table">Data Table</option>
-            </select>
-          </div>
-
-          <!-- Source Type Selector (OpenSearch vs Grafana) -->
-          <div class="col-span-2 space-y-1.5">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">Data Source Provider</label>
-            <div class="grid grid-cols-2 gap-2">
-              <label
-                :class="[
-                  widgetForm.sourceType === 'grafana'
-                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
-                    : 'border-slate-200 dark:border-[#1f283d]',
-                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium'
-                ]"
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Chart Type</label>
+              <select
+                v-model="widgetForm.chartType"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
               >
-                <input type="radio" value="grafana" v-model="widgetForm.sourceType" class="hidden" />
-                <Activity class="w-4 h-4 shrink-0" />
-                <span>Grafana Connection</span>
-              </label>
+                <option value="line">Line Chart</option>
+                <option value="area">Area Chart</option>
+                <option value="bar">Bar / Histogram</option>
+                <option value="table">Data Table</option>
+              </select>
+            </div>
+          </div>
 
+          <!-- Row 2: Data Source Provider (OpenSearch vs Prometheus vs Grafana) -->
+          <div class="space-y-1.5">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">Data Source Provider</label>
+            <div class="grid grid-cols-3 gap-2">
               <label
                 :class="[
                   widgetForm.sourceType === 'opensearch'
                     ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
                     : 'border-slate-200 dark:border-[#1f283d]',
-                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium'
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
                 ]"
               >
                 <input type="radio" value="opensearch" v-model="widgetForm.sourceType" class="hidden" />
-                <Database class="w-4 h-4 shrink-0" />
-                <span>OpenSearch Connection</span>
+                <Database class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">OpenSearch</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Logs & Events</div>
+                </div>
+              </label>
+
+              <label
+                :class="[
+                  widgetForm.sourceType === 'prometheus'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
+                    : 'border-slate-200 dark:border-[#1f283d]',
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
+                ]"
+              >
+                <input type="radio" value="prometheus" v-model="widgetForm.sourceType" class="hidden" />
+                <Activity class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">Prometheus</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Server Telemetry</div>
+                </div>
+              </label>
+
+              <label
+                :class="[
+                  widgetForm.sourceType === 'grafana'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
+                    : 'border-slate-200 dark:border-[#1f283d]',
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
+                ]"
+              >
+                <input type="radio" value="grafana" v-model="widgetForm.sourceType" class="hidden" />
+                <TrendingUp class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">Grafana API</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Optional Dashboards</div>
+                </div>
               </label>
             </div>
           </div>
 
-          <!-- Grafana Specific Config: Select Agents & Modules -->
-          <template v-if="widgetForm.sourceType === 'grafana'">
-            <div class="col-span-1 space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Select Agents</label>
-              <select
-                v-model="widgetForm.agent"
-                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-              >
-                <option v-for="agent in availableAgents" :key="agent" :value="agent">{{ agent }}</option>
-              </select>
+          <!-- Row 3: Mode Toggle (Quick Presets vs Custom Query) -->
+          <div class="space-y-2 pt-1 border-t border-slate-100 dark:border-[#1b2234]">
+            <div class="flex items-center justify-between">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Data Query Method</label>
+              <div class="flex items-center rounded-lg bg-slate-100 dark:bg-[#0c101a] p-0.5 text-[11px] font-medium border border-slate-200 dark:border-[#1f283d]">
+                <button
+                  type="button"
+                  @click="widgetForm.queryMode = 'preset'"
+                  :class="[
+                    widgetForm.queryMode === 'preset'
+                      ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white shadow-xs font-semibold'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                    'px-2.5 py-1 rounded-md transition cursor-pointer'
+                  ]"
+                >
+                  Quick Presets
+                </button>
+                <button
+                  type="button"
+                  @click="widgetForm.queryMode = 'custom'"
+                  :class="[
+                    widgetForm.queryMode === 'custom'
+                      ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white shadow-xs font-semibold'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                    'px-2.5 py-1 rounded-md transition cursor-pointer'
+                  ]"
+                >
+                  Custom Query
+                </button>
+              </div>
             </div>
 
-            <div class="col-span-1 space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Select Modules</label>
-              <select
-                v-model="widgetForm.module"
-                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-              >
-                <option v-for="mod in availableModules" :key="mod" :value="mod">{{ mod }}</option>
-              </select>
-            </div>
-          </template>
+            <!-- MODE A: PRESETS CARDS -->
+            <div v-if="widgetForm.queryMode === 'preset'" class="space-y-2">
+              <div class="text-[11px] text-slate-500">
+                Choose a ready-to-use telemetry or log analysis preset:
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <template v-if="widgetForm.sourceType === 'opensearch'">
+                  <div
+                    v-for="p in openSearchPresets"
+                    :key="p.key"
+                    @click="applyPreset(p)"
+                    :class="[
+                      widgetForm.presetKey === p.key
+                        ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/40 dark:bg-blue-950/30'
+                        : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2a3754]',
+                      'p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between'
+                    ]"
+                  >
+                    <div>
+                      <div class="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
+                        <span>{{ p.title }}</span>
+                        <span class="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-[#0c101a] px-1.5 py-0.5 rounded">{{ p.chartType }}</span>
+                      </div>
+                      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-tight">{{ p.desc }}</p>
+                    </div>
+                    <div class="mt-2 pt-1 border-t border-slate-100 dark:border-[#1a2336] text-[10px] font-mono text-slate-400 truncate">
+                      {{ p.query }}
+                    </div>
+                  </div>
+                </template>
 
-          <!-- OpenSearch Specific Config: Index Pattern & Query -->
-          <template v-else>
-            <div class="col-span-1 space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Index Pattern</label>
-              <input
-                v-model="widgetForm.indexPattern"
-                type="text"
-                placeholder="e.g. opensearch-logs-*"
-                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-              />
+                <template v-else-if="widgetForm.sourceType === 'prometheus'">
+                  <div
+                    v-for="p in prometheusPresets"
+                    :key="p.key"
+                    @click="applyPreset(p)"
+                    :class="[
+                      widgetForm.presetKey === p.key
+                        ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/40 dark:bg-blue-950/30'
+                        : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2a3754]',
+                      'p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between'
+                    ]"
+                  >
+                    <div>
+                      <div class="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
+                        <span>{{ p.title }}</span>
+                        <span class="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-[#0c101a] px-1.5 py-0.5 rounded">{{ p.chartType }}</span>
+                      </div>
+                      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-tight">{{ p.desc }}</p>
+                    </div>
+                    <div class="mt-2 pt-1 border-t border-slate-100 dark:border-[#1a2336] text-[10px] font-mono text-slate-400 truncate">
+                      {{ p.query }}
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div
+                    v-for="p in grafanaPresets"
+                    :key="p.key"
+                    @click="applyPreset(p)"
+                    :class="[
+                      widgetForm.presetKey === p.key
+                        ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/40 dark:bg-blue-950/30'
+                        : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2a3754]',
+                      'p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between'
+                    ]"
+                  >
+                    <div>
+                      <div class="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
+                        <span>{{ p.title }}</span>
+                        <span class="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-[#0c101a] px-1.5 py-0.5 rounded">{{ p.chartType }}</span>
+                      </div>
+                      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-tight">{{ p.desc }}</p>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </div>
 
-            <div class="col-span-1 space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Query / Filter Keyword</label>
-              <input
-                v-model="widgetForm.queryKeyword"
-                type="text"
-                placeholder="e.g. error OR status:500"
-                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-              />
-            </div>
-          </template>
+            <!-- MODE B: CUSTOM QUERY -->
+            <div v-else class="space-y-3 p-3.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl">
+              <!-- OpenSearch Index & Query -->
+              <template v-if="widgetForm.sourceType === 'opensearch'">
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <label class="font-semibold text-slate-700 dark:text-slate-300">Target Index Pattern</label>
+                    <div class="relative">
+                      <select
+                        v-if="discoveredIndices.length > 0"
+                        v-model="widgetForm.indexPattern"
+                        class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                      >
+                        <option value="*">* (All Indices)</option>
+                        <option v-for="idx in discoveredIndices" :key="idx" :value="idx">{{ idx }}</option>
+                      </select>
+                      <input
+                        v-else
+                        v-model="widgetForm.indexPattern"
+                        type="text"
+                        placeholder="e.g. * or logs-*"
+                        class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                      />
+                    </div>
+                  </div>
 
-          <!-- Time Range -->
-          <div class="col-span-1 space-y-1">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">Time Range</label>
-            <select
-              v-model="widgetForm.timeRange"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            >
-              <option value="1h">Last 1 Hour</option>
-              <option value="6h">Last 6 Hours</option>
-              <option value="24h">Last 24 Hours</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-            </select>
+                  <div class="space-y-1">
+                    <label class="font-semibold text-slate-700 dark:text-slate-300">Quick Filter Preset</label>
+                    <div class="flex items-center gap-1.5 flex-wrap pt-1">
+                      <button
+                        type="button"
+                        @click="setQueryChip('*')"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        All (*)
+                      </button>
+                      <button
+                        type="button"
+                        @click="setQueryChip('status:>=500')"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        status:>=500
+                      </button>
+                      <button
+                        type="button"
+                        @click="setQueryChip('level:ERROR')"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        level:ERROR
+                      </button>
+                      <button
+                        type="button"
+                        @click="setQueryChip('level:WARN')"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        level:WARN
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-1">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">Lucene Query / Filter Expression</label>
+                  <textarea
+                    v-model="widgetForm.query"
+                    rows="2"
+                    placeholder="e.g. status:>=500 OR level:ERROR, service:nginx, *"
+                    class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                  ></textarea>
+                </div>
+              </template>
+
+              <!-- Prometheus Host & PromQL Query -->
+              <template v-else>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="space-y-1">
+                    <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
+                    <select
+                      v-model="widgetForm.targetHost"
+                      class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                    >
+                      <option value="all">All Monitored Hosts</option>
+                      <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
+                        {{ h.name }} ({{ h.host }})
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="space-y-1">
+                    <label class="font-semibold text-slate-700 dark:text-slate-300">Quick Metric Formula</label>
+                    <div class="flex items-center gap-1.5 flex-wrap pt-1">
+                      <button
+                        type="button"
+                        @click="widgetForm.query = '100 - (avg(rate(node_cpu_seconds_total{mode=\'idle\'}[5m])) * 100)'"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        CPU %
+                      </button>
+                      <button
+                        type="button"
+                        @click="widgetForm.query = '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        RAM %
+                      </button>
+                      <button
+                        type="button"
+                        @click="widgetForm.query = '(1 - (node_filesystem_free_bytes{mountpoint=\'/\'} / node_filesystem_size_bytes{mountpoint=\'/\'})) * 100'"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        Disk %
+                      </button>
+                      <button
+                        type="button"
+                        @click="widgetForm.query = 'node_load1'"
+                        class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-mono cursor-pointer"
+                      >
+                        Load Avg
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-1">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">PromQL / Metric Expression</label>
+                  <textarea
+                    v-model="widgetForm.query"
+                    rows="2"
+                    placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
+                    class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                  ></textarea>
+                </div>
+              </template>
+            </div>
           </div>
 
-          <!-- Panel Size (Width) -->
-          <div class="col-span-1 space-y-1">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Size (Width)</label>
-            <select
-              v-model="widgetForm.widthPercent"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            >
-              <option :value="50">Half Width (50%)</option>
-              <option :value="100">Full Width (100%)</option>
-            </select>
+          <!-- Live Query Test & Feedback Row -->
+          <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d]">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="testWidgetQuery"
+                :disabled="testingQuery"
+                class="px-3 py-1 bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 dark:hover:bg-[#283550] text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw :class="['w-3.5 h-3.5 text-slate-500', testingQuery ? 'animate-spin' : '']" />
+                <span>{{ testingQuery ? 'Testing...' : 'Test Query' }}</span>
+              </button>
+              <span v-if="testQueryResult" :class="[testQueryResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500', 'text-[11px] font-medium']">
+                {{ testQueryResult.message }}
+              </span>
+              <span v-else class="text-[11px] text-slate-400">
+                Click to preview live response before saving
+              </span>
+            </div>
+          </div>
+
+          <!-- Row 4: Time Range & Panel Size -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Time Range</label>
+              <select
+                v-model="widgetForm.timeRange"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="1h">Last 1 Hour</option>
+                <option value="6h">Last 6 Hours</option>
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Size (Width)</label>
+              <select
+                v-model="widgetForm.widthPercent"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option :value="50">Half Width (50%)</option>
+                <option :value="100">Full Width (100%)</option>
+              </select>
+            </div>
           </div>
         </div>
 
         <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#1b2234]">
           <button
             @click="showWidgetModal = false"
-            class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 cursor-pointer"
+            class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
             Cancel
           </button>
           <button
             @click="saveWidget"
             :disabled="isSaving"
-            class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
           >
             {{ isSaving ? 'Saving...' : 'Save Widget' }}
           </button>

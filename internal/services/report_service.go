@@ -10,6 +10,8 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ type ReportService struct {
 	reportRepo        *repository.ReportRepository
 	configRepo        *repository.ConfigRepository
 	openSearchService *OpenSearchService
+	promService       *PrometheusService
 	httpClient        *http.Client
 }
 
@@ -31,6 +34,7 @@ func NewReportService(
 	reportRepo *repository.ReportRepository,
 	configRepo *repository.ConfigRepository,
 	openSearchService *OpenSearchService,
+	promService *PrometheusService,
 ) *ReportService {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -39,6 +43,7 @@ func NewReportService(
 		reportRepo:        reportRepo,
 		configRepo:        configRepo,
 		openSearchService: openSearchService,
+		promService:       promService,
 		httpClient: &http.Client{
 			Transport: tr,
 			Timeout:   12 * time.Second,
@@ -111,13 +116,15 @@ func (s *ReportService) DeleteWidget(ctx context.Context, id string) error {
 }
 
 // -----------------------------------------------------------------------------
-// Data Query Resolver for Widgets (Grafana & OpenSearch)
+// Data Query Resolver for Widgets (Prometheus, OpenSearch, & Grafana)
 // -----------------------------------------------------------------------------
 
 func (s *ReportService) QueryWidgetData(ctx context.Context, req domain.ReportQueryDataRequest) (*domain.ReportQueryDataResponse, error) {
 	sourceType := strings.ToLower(strings.TrimSpace(req.SourceType))
 
 	switch sourceType {
+	case "prometheus":
+		return s.queryPrometheusData(ctx, req)
 	case "grafana":
 		return s.queryGrafanaData(ctx, req)
 	case "opensearch":
@@ -125,6 +132,81 @@ func (s *ReportService) QueryWidgetData(ctx context.Context, req domain.ReportQu
 	default:
 		return s.queryOpenSearchData(ctx, req)
 	}
+}
+
+// queryPrometheusData handles executing PromQL queries against Prometheus
+func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.ReportQueryDataRequest) (*domain.ReportQueryDataResponse, error) {
+	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
+	isConnected := (err == nil && promCfg != nil && promCfg.ReloadURL != "")
+
+	// Extract PromQL query or build from metric preset
+	promQL := ""
+	if q, ok := req.SourceConfig["query"].(string); ok && strings.TrimSpace(q) != "" {
+		promQL = strings.TrimSpace(q)
+	} else if req.MetricKey != "" && !strings.EqualFold(req.MetricKey, "System Metric") {
+		promQL = req.MetricKey
+	} else if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
+		switch strings.ToLower(m) {
+		case "cpu", "cpu utilization":
+			promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+		case "memory", "memory usage", "ram":
+			promQL = `(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100`
+		case "disk", "disk storage", "storage":
+			promQL = `(1 - (node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100`
+		case "network", "network traffic":
+			promQL = `sum(rate(node_network_receive_bytes_total[5m])) * 8`
+		case "load", "system load":
+			promQL = `node_load1`
+		default:
+			promQL = m
+		}
+	} else {
+		promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+	}
+
+	timeRange := req.TimeRange
+	if timeRange == "" {
+		timeRange = "24h"
+	}
+
+	metricTitle := req.MetricKey
+	if metricTitle == "" {
+		if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
+			metricTitle = m
+		} else {
+			metricTitle = "Prometheus Metrics"
+		}
+	}
+
+	if isConnected && s.promService != nil {
+		livePoints, liveSummary, err := s.fetchPrometheusLive(ctx, promCfg, promQL, timeRange)
+		if err == nil && len(livePoints) > 0 {
+			return &domain.ReportQueryDataResponse{
+				Title:       metricTitle,
+				SourceType:  "prometheus",
+				Points:      livePoints,
+				Summary:     liveSummary,
+				IsConnected: true,
+				Message:     fmt.Sprintf("Live data from Prometheus (%s)", promCfg.Name),
+			}, nil
+		}
+		logger.Warn("ReportService", fmt.Sprintf("Prometheus live query fallback: %v", err))
+	}
+
+	points, summary := s.generateTimeSeriesData(metricTitle, timeRange, "prometheus")
+	message := "Demonstration / Fallback Data (Prometheus server query pending)"
+	if isConnected {
+		message = fmt.Sprintf("Simulated preview (Connected to Prometheus: %s)", promCfg.Name)
+	}
+
+	return &domain.ReportQueryDataResponse{
+		Title:       metricTitle,
+		SourceType:  "prometheus",
+		Points:      points,
+		Summary:     summary,
+		IsConnected: isConnected,
+		Message:     message,
+	}, nil
 }
 
 // queryGrafanaData handles fetching or proxying Grafana metrics
@@ -241,6 +323,114 @@ func (s *ReportService) queryOpenSearchData(ctx context.Context, req domain.Repo
 	}, nil
 }
 
+// fetchPrometheusLive executes range query against Prometheus server
+func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.PrometheusConfig, promQL, timeRange string) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
+	baseURL := strings.TrimSuffix(cfg.ReloadURL, "/-/reload")
+
+	now := time.Now()
+	var startTime time.Time
+	step := "15m"
+
+	switch timeRange {
+	case "1h":
+		startTime = now.Add(-1 * time.Hour)
+		step = "1m"
+	case "6h":
+		startTime = now.Add(-6 * time.Hour)
+		step = "5m"
+	case "24h":
+		startTime = now.Add(-24 * time.Hour)
+		step = "15m"
+	case "7d":
+		startTime = now.Add(-7 * 24 * time.Hour)
+		step = "1h"
+	case "30d":
+		startTime = now.Add(-30 * 24 * time.Hour)
+		step = "4h"
+	default:
+		startTime = now.Add(-24 * time.Hour)
+		step = "15m"
+	}
+
+	queryURL := fmt.Sprintf(
+		"%s/api/v1/query_range?query=%s&start=%d&end=%d&step=%s",
+		baseURL,
+		url.QueryEscape(promQL),
+		startTime.Unix(),
+		now.Unix(),
+		step,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	if err != nil {
+		return nil, domain.ReportWidgetSummary{}, err
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, domain.ReportWidgetSummary{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, domain.ReportWidgetSummary{}, fmt.Errorf("prometheus returned status %d", resp.StatusCode)
+	}
+
+	var pResp struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Metric map[string]string `json:"metric"`
+				Values [][]interface{}   `json:"values"`
+				Value  []interface{}     `json:"value"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&pResp); err != nil {
+		return nil, domain.ReportWidgetSummary{}, err
+	}
+
+	var points []domain.ReportDataPoint
+	if len(pResp.Data.Result) > 0 {
+		firstSeries := pResp.Data.Result[0]
+		if len(firstSeries.Values) > 0 {
+			for _, valPair := range firstSeries.Values {
+				if len(valPair) >= 2 {
+					tsFloat, _ := valPair[0].(float64)
+					valStr, _ := valPair[1].(string)
+					valFloat, _ := strconv.ParseFloat(valStr, 64)
+
+					t := time.Unix(int64(tsFloat), 0)
+					points = append(points, domain.ReportDataPoint{
+						Timestamp: t.Format(time.RFC3339),
+						Label:     t.Format("15:04"),
+						Value:     math.Round(valFloat*100) / 100,
+					})
+				}
+			}
+		} else if len(firstSeries.Value) >= 2 {
+			tsFloat, _ := firstSeries.Value[0].(float64)
+			valStr, _ := firstSeries.Value[1].(string)
+			valFloat, _ := strconv.ParseFloat(valStr, 64)
+			t := time.Unix(int64(tsFloat), 0)
+			points = append(points, domain.ReportDataPoint{
+				Timestamp: t.Format(time.RFC3339),
+				Label:     t.Format("15:04"),
+				Value:     math.Round(valFloat*100) / 100,
+			})
+		}
+	}
+
+	if len(points) == 0 {
+		return nil, domain.ReportWidgetSummary{}, fmt.Errorf("empty series returned for query")
+	}
+
+	summary := s.calculateSummary(points, "")
+	return points, summary, nil
+}
+
 // fetchGrafanaLive attempts to execute query against Grafana API
 func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.GrafanaConfig, req domain.ReportQueryDataRequest) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
 	endpoint := strings.TrimRight(cfg.Host, "/") + "/api/ds/query"
@@ -355,16 +545,44 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 		interval = "1d"
 	}
 
-	aggsPayload := map[string]interface{}{
-		"size": 5,
-		"query": map[string]interface{}{
-			"range": map[string]interface{}{
-				"@timestamp": map[string]interface{}{
-					"gte": s.parseTimeRangeStart(req.TimeRange),
-					"lte": "now",
-				},
+	// Custom Lucene / Query String support
+	queryString := ""
+	if q, ok := req.SourceConfig["query"].(string); ok && strings.TrimSpace(q) != "" {
+		queryString = strings.TrimSpace(q)
+	} else if qk, ok := req.SourceConfig["queryKeyword"].(string); ok && strings.TrimSpace(qk) != "" {
+		queryString = strings.TrimSpace(qk)
+	}
+
+	rangeFilter := map[string]interface{}{
+		"range": map[string]interface{}{
+			"@timestamp": map[string]interface{}{
+				"gte": s.parseTimeRangeStart(req.TimeRange),
+				"lte": "now",
 			},
 		},
+	}
+
+	var rootQuery map[string]interface{}
+	if queryString != "" && queryString != "*" {
+		rootQuery = map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": []interface{}{
+					rangeFilter,
+					map[string]interface{}{
+						"query_string": map[string]interface{}{
+							"query": queryString,
+						},
+					},
+				},
+			},
+		}
+	} else {
+		rootQuery = rangeFilter
+	}
+
+	aggsPayload := map[string]interface{}{
+		"size": 10,
+		"query": rootQuery,
 		"aggs": map[string]interface{}{
 			"events_over_time": map[string]interface{}{
 				"date_histogram": map[string]interface{}{
