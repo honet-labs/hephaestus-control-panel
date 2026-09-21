@@ -71,6 +71,10 @@
 <img width="1919" height="939" alt="image" src="https://github.com/user-attachments/assets/60b659ca-0f6c-44df-af39-b1054cff2845" />
 <img width="1919" height="947" alt="image" src="https://github.com/user-attachments/assets/1d77cfd7-8993-45da-9b05-d5c041e27fd1" />
 <img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/67632973-7d0e-436d-bc11-5eff56ad8f8a" />
+<img width="1920" height="1080" alt="Screenshot (5880)" src="https://github.com/user-attachments/assets/9f43a7e1-a01c-457e-8154-5a9d31930b0f" />
+<img width="1919" height="946" alt="Screenshot 2026-09-21 110017" src="https://github.com/user-attachments/assets/f8e925f3-128c-4c09-8750-cec0a954f0bd" />
+<img width="1919" height="950" alt="Screenshot 2026-09-21 110029" src="https://github.com/user-attachments/assets/c213a440-5ca8-4874-8e54-1bec1dac31d7" />
+<img width="1919" height="943" alt="Screenshot 2026-09-21 110053" src="https://github.com/user-attachments/assets/06389434-dfd6-4a4f-8a3c-0635b3e75d39" />
 
 - Slide Show
 <img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/5b0ea24e-6b66-4e5a-9218-34c40316c8f1" />
