@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -330,6 +331,91 @@ func (h *SettingsHandler) TestGrafana(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Grafana connection verified successfully!",
+	})
+}
+
+// GetGrafanaDatasources fetches all datasources from Grafana API
+func (h *SettingsHandler) GetGrafanaDatasources(c *gin.Context) {
+	grafanaID := c.Query("id")
+	var cfg *domain.GrafanaConfig
+	var err error
+
+	if grafanaID != "" {
+		cfg, err = h.configRepo.GetGrafanaByID(c.Request.Context(), grafanaID)
+	} else {
+		cfg, err = h.configRepo.GetActiveGrafana(c.Request.Context())
+	}
+
+	if err != nil || cfg == nil || cfg.Host == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   "No active Grafana configuration found. Please add a Grafana connection in Add Connections.",
+			"data":    []interface{}{},
+		})
+		return
+	}
+
+	endpoint := strings.TrimRight(cfg.Host, "/") + "/api/datasources"
+	httpReq, err := http.NewRequestWithContext(c.Request.Context(), "GET", endpoint, nil)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error(), "data": []interface{}{}})
+		return
+	}
+
+	if cfg.Token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+
+	client := &http.Client{Timeout: 6 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to query Grafana at %s: %v", cfg.Host, err),
+			"data":    []interface{}{},
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("Grafana returned HTTP %d", resp.StatusCode),
+			"data":    []interface{}{},
+		})
+		return
+	}
+
+	var rawList []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rawList); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": "Failed to parse Grafana datasources", "data": []interface{}{}})
+		return
+	}
+
+	var result []gin.H
+	for _, item := range rawList {
+		uid, _ := item["uid"].(string)
+		name, _ := item["name"].(string)
+		dsType, _ := item["type"].(string)
+		isDef, _ := item["isDefault"].(bool)
+		result = append(result, gin.H{
+			"uid":       uid,
+			"name":      name,
+			"type":      dsType,
+			"isDefault": isDef,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+		"activeConfig": gin.H{
+			"id":            cfg.ID,
+			"name":          cfg.Name,
+			"host":          cfg.Host,
+			"datasourceUid": cfg.DatasourceUID,
+		},
 	})
 }
 

@@ -294,13 +294,24 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 
 // queryGrafanaData handles fetching or proxying Grafana metrics
 func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQueryDataRequest) (*domain.ReportQueryDataResponse, error) {
-	grafanaCfg, err := s.configRepo.GetActiveGrafana(ctx)
+	var grafanaCfg *domain.GrafanaConfig
+	var err error
+
+	if gID, ok := req.SourceConfig["grafanaId"].(string); ok && strings.TrimSpace(gID) != "" {
+		grafanaCfg, err = s.configRepo.GetGrafanaByID(ctx, strings.TrimSpace(gID))
+	}
+	if grafanaCfg == nil {
+		grafanaCfg, err = s.configRepo.GetActiveGrafana(ctx)
+	}
+
 	isConnected := (err == nil && grafanaCfg != nil && grafanaCfg.Host != "")
 
 	// Extract requested metric title or agent
 	metricKey := req.MetricKey
 	if metricKey == "" {
 		if m, ok := req.SourceConfig["module"].(string); ok && m != "" {
+			metricKey = m
+		} else if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
 			metricKey = m
 		} else if a, ok := req.SourceConfig["agent"].(string); ok && a != "" {
 			metricKey = a
@@ -313,6 +324,8 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 	if timeRange == "" {
 		timeRange = "24h"
 	}
+
+	targetHost, _ := req.SourceConfig["targetHost"].(string)
 
 	// Try querying live Grafana API if connection is configured
 	if isConnected {
@@ -331,7 +344,7 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 	}
 
 	// High-fidelity fallback generator if Grafana is unreachable or target metric is pending
-	points, summary := s.generateTimeSeriesData(metricKey, timeRange, "grafana", "")
+	points, summary := s.generateTimeSeriesData(metricKey, timeRange, "grafana", targetHost)
 	message := "Demonstration / Fallback Data (Configure Grafana Connection in Add Connections)"
 	if isConnected {
 		message = fmt.Sprintf("Simulated preview (Connected to Grafana: %s)", grafanaCfg.Name)
@@ -572,13 +585,61 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.GrafanaConfig, req domain.ReportQueryDataRequest) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
 	endpoint := strings.TrimRight(cfg.Host, "/") + "/api/ds/query"
 
+	dsUID := cfg.DatasourceUID
+	if customUID, ok := req.SourceConfig["datasourceUid"].(string); ok && strings.TrimSpace(customUID) != "" {
+		dsUID = strings.TrimSpace(customUID)
+	}
+
+	targetHost, _ := req.SourceConfig["targetHost"].(string)
+	targetHost = strings.TrimSpace(targetHost)
+
+	expr := ""
+	customQ, _ := req.SourceConfig["query"].(string)
+	customQ = strings.TrimSpace(customQ)
+	if customQ != "" && customQ != "*" {
+		expr = customQ
+	} else {
+		metric := ""
+		if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
+			metric = m
+		} else if m, ok := req.SourceConfig["module"].(string); ok && m != "" {
+			metric = m
+		}
+
+		hostFilter := ""
+		if targetHost != "" && targetHost != "all" {
+			hostFilter = fmt.Sprintf(`{instance=~".*%s.*"}`, targetHost)
+		}
+
+		switch strings.ToLower(metric) {
+		case "cpu", "cpu load", "cpu usage":
+			expr = fmt.Sprintf("100 - (avg(rate(node_cpu_seconds_total{mode='idle'}%s[5m])) * 100)", hostFilter)
+		case "memory", "memory used":
+			expr = fmt.Sprintf("(1 - (node_memory_MemAvailable_bytes%s / node_memory_MemTotal_bytes%s)) * 100", hostFilter, hostFilter)
+		case "disk", "disk storage":
+			expr = fmt.Sprintf("(1 - (node_filesystem_avail_bytes{mountpoint='/'}%s / node_filesystem_size_bytes{mountpoint='/'}%s)) * 100", hostFilter, hostFilter)
+		case "network", "network throughput", "network traffic":
+			expr = fmt.Sprintf("sum(rate(node_network_receive_bytes_total%s[5m])) * 8", hostFilter)
+		case "load", "system load":
+			expr = fmt.Sprintf("node_load1%s", hostFilter)
+		default:
+			if req.MetricKey != "" {
+				expr = req.MetricKey
+			} else {
+				expr = fmt.Sprintf("100 - (avg(rate(node_cpu_seconds_total{mode='idle'}%s[5m])) * 100)", hostFilter)
+			}
+		}
+	}
+
 	queryPayload := map[string]interface{}{
 		"queries": []map[string]interface{}{
 			{
+				"refId": "A",
 				"datasource": map[string]string{
-					"uid": cfg.DatasourceUID,
+					"uid": dsUID,
 				},
-				"expr": req.MetricKey,
+				"expr":   expr,
+				"format": "time_series",
 			},
 		},
 		"from": s.parseTimeRangeStart(req.TimeRange),

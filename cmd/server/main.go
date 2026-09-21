@@ -320,6 +320,8 @@ func main() {
 		api.GET("/settings/grafana", middleware.RequirePermission("connections", "read"), settingsHandler.ListGrafana)
 		api.POST("/settings/grafana", middleware.RequirePermission("connections", "manage"), settingsHandler.SaveGrafana)
 		api.POST("/settings/grafana/test", middleware.RequirePermission("connections", "read"), settingsHandler.TestGrafana)
+		api.GET("/settings/grafana/datasources", middleware.RequirePermission("connections", "read"), settingsHandler.GetGrafanaDatasources)
+		api.GET("/reports/grafana/datasources", middleware.RequirePermission("reports", "read"), settingsHandler.GetGrafanaDatasources)
 		api.POST("/settings/grafana/:id/active", middleware.RequirePermission("connections", "manage"), settingsHandler.SetActiveGrafana)
 		api.DELETE("/settings/grafana/:id", middleware.RequirePermission("connections", "manage"), settingsHandler.DeleteGrafana)
 		api.GET("/settings/prometheus", middleware.RequirePermission("connections", "read"), settingsHandler.ListPrometheus)

@@ -34,6 +34,8 @@ interface ReportWidget {
   chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut' | 'table';
   sourceType: 'prometheus' | 'grafana' | 'opensearch';
   sourceConfig: {
+    grafanaId?: string;
+    datasourceUid?: string;
     targetHost?: string;
     metricPreset?: string;
     query?: string;
@@ -86,6 +88,9 @@ const notification = ref<{ text: string; type: 'success' | 'error' } | null>(nul
 // Discovered Metadata
 const discoveredHosts = ref<Array<{ id: string; name: string; host: string }>>([]);
 const discoveredIndices = ref<string[]>([]);
+const grafanaConfigs = ref<Array<{ id: string; name: string; host: string; datasourceUid: string; isActive: boolean }>>([]);
+const grafanaDatasources = ref<Array<{ uid: string; name: string; type: string; isDefault: boolean }>>([]);
+const loadingGrafanaDS = ref(false);
 
 // Modals
 const showCreateModal = ref(false);
@@ -105,6 +110,8 @@ const editingWidgetId = ref<string | null>(null);
 const widgetForm = ref<{
   title: string;
   sourceType: 'prometheus' | 'grafana' | 'opensearch';
+  grafanaId: string;
+  datasourceUid: string;
   targetHost: string;
   metricPreset: string;
   query: string;
@@ -118,6 +125,8 @@ const widgetForm = ref<{
 }>({
   title: 'CPU Usage',
   sourceType: 'prometheus',
+  grafanaId: '',
+  datasourceUid: '',
   targetHost: 'all',
   metricPreset: 'cpu',
   query: '',
@@ -177,13 +186,15 @@ const showNotice = (text: string, type: 'success' | 'error' = 'success') => {
 };
 
 // -----------------------------------------------------------------------------
-// Load Metadata (Remote Hosts & OpenSearch Indices)
+// Load Metadata (Remote Hosts, OpenSearch Indices, & Grafana Datasources)
 // -----------------------------------------------------------------------------
 const loadMetadata = async () => {
   try {
-    const [hostsRes, indicesRes] = await Promise.allSettled([
+    const [hostsRes, indicesRes, grafanaRes, dsRes] = await Promise.allSettled([
       axios.get('/api/v1/remote-host'),
       axios.get('/api/v1/opensearch/indices'),
+      axios.get('/api/v1/settings/grafana'),
+      axios.get('/api/v1/reports/grafana/datasources'),
     ]);
 
     if (hostsRes.status === 'fulfilled' && hostsRes.value.data?.success && Array.isArray(hostsRes.value.data.data)) {
@@ -197,8 +208,40 @@ const loadMetadata = async () => {
     if (indicesRes.status === 'fulfilled' && indicesRes.value.data?.success && Array.isArray(indicesRes.value.data.data)) {
       discoveredIndices.value = indicesRes.value.data.data.map((idx: any) => idx.index || idx.name).filter(Boolean);
     }
+
+    if (grafanaRes.status === 'fulfilled' && grafanaRes.value.data?.success && Array.isArray(grafanaRes.value.data.data)) {
+      grafanaConfigs.value = grafanaRes.value.data.data;
+    }
+
+    if (dsRes.status === 'fulfilled' && dsRes.value.data?.success && Array.isArray(dsRes.value.data.data)) {
+      grafanaDatasources.value = dsRes.value.data.data;
+    }
   } catch (e) {
     console.warn('Metadata discovery error:', e);
+  }
+};
+
+const fetchGrafanaDatasources = async (grafanaId?: string) => {
+  loadingGrafanaDS.value = true;
+  try {
+    const url = grafanaId
+      ? `/api/v1/reports/grafana/datasources?id=${encodeURIComponent(grafanaId)}`
+      : '/api/v1/reports/grafana/datasources';
+    const res = await axios.get(url);
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      grafanaDatasources.value = res.data.data;
+      if (!widgetForm.value.datasourceUid && res.data.data.length > 0) {
+        const def = res.data.data.find((d: any) => d.isDefault) || res.data.data[0];
+        widgetForm.value.datasourceUid = def.uid;
+      }
+      showNotice(`Loaded ${res.data.data.length} datasources from Grafana`, 'success');
+    } else if (res.data?.error) {
+      showNotice(res.data.error, 'error');
+    }
+  } catch (e: any) {
+    showNotice(e?.response?.data?.error || 'Failed to load Grafana datasources', 'error');
+  } finally {
+    loadingGrafanaDS.value = false;
   }
 };
 
@@ -284,9 +327,14 @@ const saveReport = async () => {
 // -----------------------------------------------------------------------------
 const openAddPanelModal = (presetMetric: string = 'cpu') => {
   editingWidgetId.value = null;
+  const activeGrafana = grafanaConfigs.value.find((g) => g.isActive) || grafanaConfigs.value[0];
+  const defaultDS = grafanaDatasources.value.find((d) => d.isDefault) || grafanaDatasources.value[0];
+
   widgetForm.value = {
     title: presetMetric === 'cpu' ? 'CPU Usage' : presetMetric === 'memory' ? 'Memory Used' : 'System Metrics',
     sourceType: 'prometheus',
+    grafanaId: activeGrafana?.id || '',
+    datasourceUid: defaultDS?.uid || activeGrafana?.datasourceUid || '',
     targetHost: discoveredHosts.value[0]?.host || 'all',
     metricPreset: presetMetric,
     query: '',
@@ -303,9 +351,14 @@ const openAddPanelModal = (presetMetric: string = 'cpu') => {
 
 const openEditPanelModal = (widget: ReportWidget) => {
   editingWidgetId.value = widget.id;
+  const activeGrafana = grafanaConfigs.value.find((g) => g.isActive) || grafanaConfigs.value[0];
+  const defaultDS = grafanaDatasources.value.find((d) => d.isDefault) || grafanaDatasources.value[0];
+
   widgetForm.value = {
     title: widget.title,
     sourceType: widget.sourceType || 'prometheus',
+    grafanaId: widget.sourceConfig?.grafanaId || activeGrafana?.id || '',
+    datasourceUid: widget.sourceConfig?.datasourceUid || defaultDS?.uid || activeGrafana?.datasourceUid || '',
     targetHost: widget.sourceConfig?.targetHost || 'all',
     metricPreset: widget.sourceConfig?.metricPreset || 'cpu',
     query: widget.sourceConfig?.query || '',
@@ -336,6 +389,8 @@ const savePanel = async () => {
       chartType: widgetForm.value.chartType,
       sourceType: widgetForm.value.sourceType,
       sourceConfig: {
+        grafanaId: widgetForm.value.grafanaId,
+        datasourceUid: widgetForm.value.datasourceUid,
         targetHost: widgetForm.value.targetHost,
         metricPreset: widgetForm.value.metricPreset,
         query: widgetForm.value.query,
@@ -430,6 +485,8 @@ const refreshAllPanels = async () => {
       const payload = {
         sourceType: widget.sourceType,
         sourceConfig: {
+          grafanaId: widget.sourceConfig?.grafanaId || '',
+          datasourceUid: widget.sourceConfig?.datasourceUid || '',
           query: widget.sourceConfig?.query || '',
           metric: widget.sourceConfig?.metricPreset || 'cpu',
           targetHost: widget.sourceConfig?.targetHost || 'all',
@@ -1370,18 +1427,103 @@ onBeforeUnmount(() => {
 
           <!-- Grafana Config -->
           <div v-else-if="widgetForm.sourceType === 'grafana'" class="p-3 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl space-y-3">
-            <div class="space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Target Module / Metric</label>
-              <select
-                v-model="widgetForm.module"
-                @change="widgetForm.title = widgetForm.module"
-                class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-              >
-                <option value="CPU Load">CPU Load</option>
-                <option value="Memory Used">Memory Used</option>
-                <option value="Disk Storage">Disk Storage</option>
-                <option value="Network Throughput">Network Throughput</option>
-              </select>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <!-- Grafana Datasource Dropdown -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between">
+                  <label class="font-semibold text-slate-700 dark:text-slate-300">Grafana Datasource</label>
+                  <button
+                    type="button"
+                    @click="fetchGrafanaDatasources(widgetForm.grafanaId)"
+                    :disabled="loadingGrafanaDS"
+                    class="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw class="w-2.5 h-2.5" :class="{ 'animate-spin': loadingGrafanaDS }" />
+                    <span>Sync Datasources</span>
+                  </button>
+                </div>
+                <select
+                  v-if="grafanaDatasources.length > 0"
+                  v-model="widgetForm.datasourceUid"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option v-for="ds in grafanaDatasources" :key="ds.uid" :value="ds.uid">
+                    {{ ds.name }} ({{ ds.type }}){{ ds.isDefault ? ' - Default' : '' }}
+                  </option>
+                </select>
+                <div v-else class="flex items-center gap-2">
+                  <input
+                    v-model="widgetForm.datasourceUid"
+                    type="text"
+                    placeholder="e.g. prometheus, default, or UID"
+                    class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 text-xs"
+                  />
+                </div>
+                <p class="text-[10px] text-slate-400">
+                  Select target datasource configured within your connected Grafana server.
+                </p>
+              </div>
+
+              <!-- Target Server / Host -->
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
+                <select
+                  v-model="widgetForm.targetHost"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option value="all">All Monitored Hosts</option>
+                  <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
+                    {{ h.name }} ({{ h.host }})
+                  </option>
+                </select>
+                <p class="text-[10px] text-slate-400">
+                  Filters telemetry for specific instance or aggregates across all hosts.
+                </p>
+              </div>
+            </div>
+
+            <!-- Metric Telemetry & Query -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Metric Telemetry</label>
+                <select
+                  v-model="widgetForm.metricPreset"
+                  @change="if (widgetForm.metricPreset === 'cpu') widgetForm.title = 'CPU Usage'; else if (widgetForm.metricPreset === 'memory') widgetForm.title = 'Memory Used'; else if (widgetForm.metricPreset === 'disk') widgetForm.title = 'Disk Storage'; else if (widgetForm.metricPreset === 'network') widgetForm.title = 'Network Traffic'; else if (widgetForm.metricPreset === 'load') widgetForm.title = 'System Load';"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option value="cpu">CPU Usage (%)</option>
+                  <option value="memory">Memory Used (%)</option>
+                  <option value="disk">Disk Storage (%)</option>
+                  <option value="network">Network Traffic (bps)</option>
+                  <option value="load">System Load (1m avg)</option>
+                  <option value="custom">Custom Query / Expression</option>
+                </select>
+              </div>
+
+              <!-- If multi Grafana instances exist, allow choosing -->
+              <div v-if="grafanaConfigs.length > 1" class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Grafana Instance</label>
+                <select
+                  v-model="widgetForm.grafanaId"
+                  @change="fetchGrafanaDatasources(widgetForm.grafanaId)"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option v-for="g in grafanaConfigs" :key="g.id" :value="g.id">
+                    {{ g.name }} ({{ g.host }})
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Custom Query Input -->
+            <div v-if="widgetForm.metricPreset === 'custom'" class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Custom Query Expression</label>
+              <input
+                v-model="widgetForm.query"
+                type="text"
+                placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
+                class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              />
             </div>
           </div>
 
