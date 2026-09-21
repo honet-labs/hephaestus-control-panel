@@ -10,8 +10,16 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Layers,
   Image as ImageIcon,
+  Cpu,
+  Server,
+  HardDrive,
+  Gauge,
+  Terminal,
+  Code2,
 } from 'lucide-vue-next';
 
 // -----------------------------------------------------------------------------
@@ -23,6 +31,77 @@ const targetHost = ref('all');
 const queryString = ref('*');
 const timeRange = ref('24h');
 const chartType = ref<'line' | 'area' | 'bar'>('line');
+
+// OpenSearch Query Mode & Query DSL
+const opensearchQueryMode = ref<'dsl' | 'lucene'>('dsl');
+const opensearchDsl = ref<string>(JSON.stringify({
+  query: {
+    match_all: {}
+  }
+}, null, 2));
+
+// Prometheus Metric Presets (like PandoraFMS in Gambar 2)
+const prometheusMetric = ref<'cpu' | 'memory' | 'disk' | 'network' | 'load' | 'custom'>('cpu');
+const prometheusCustomQuery = ref<string>('');
+const showWidgetSummary = ref<boolean>(false);
+
+const prometheusMetricOptions = [
+  { key: 'cpu', label: 'CPU Usage (%)', icon: Cpu, desc: 'Average CPU utilization across cores' },
+  { key: 'memory', label: 'Memory Used (%)', icon: Server, desc: 'RAM usage percentage' },
+  { key: 'disk', label: 'Disk Storage (%)', icon: HardDrive, desc: 'Root filesystem usage' },
+  { key: 'network', label: 'Network Traffic', icon: Activity, desc: 'Incoming network throughput (bps)' },
+  { key: 'load', label: 'System Load (1m)', icon: Gauge, desc: '1-minute system load average' },
+  { key: 'custom', label: 'Custom PromQL', icon: Terminal, desc: 'Raw Prometheus expression' },
+];
+
+const openSearchDslTemplates = [
+  {
+    name: 'Match All',
+    code: JSON.stringify({
+      query: { match_all: {} }
+    }, null, 2),
+  },
+  {
+    name: 'Status >= 500',
+    code: JSON.stringify({
+      query: {
+        range: {
+          status: { gte: 500 }
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Error Logs',
+    code: JSON.stringify({
+      query: {
+        match: {
+          level: 'ERROR'
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Search Message',
+    code: JSON.stringify({
+      query: {
+        match_phrase: {
+          message: 'error'
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Term Filter',
+    code: JSON.stringify({
+      query: {
+        term: {
+          "host.keyword": "server-horus"
+        }
+      }
+    }, null, 2),
+  },
+];
 
 const loading = ref(false);
 const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -87,15 +166,37 @@ const generateReport = async () => {
   loading.value = true;
   currentPage.value = 1;
   try {
+    let finalQuery = '';
+    let metricTitle = '';
+
+    if (sourceType.value === 'opensearch') {
+      if (opensearchQueryMode.value === 'dsl') {
+        finalQuery = opensearchDsl.value;
+      } else {
+        finalQuery = queryString.value;
+      }
+      metricTitle = `OpenSearch Logs (${indexPattern.value})`;
+    } else {
+      const opt = prometheusMetricOptions.find((m) => m.key === prometheusMetric.value);
+      metricTitle = opt ? opt.label : 'Prometheus Metric';
+      if (prometheusMetric.value === 'custom') {
+        finalQuery = prometheusCustomQuery.value;
+      } else {
+        finalQuery = ''; // Backend builds exact PromQL for preset + targetHost
+      }
+    }
+
     const payload = {
       sourceType: sourceType.value,
       sourceConfig: {
-        query: queryString.value,
+        query: finalQuery,
+        queryDsl: sourceType.value === 'opensearch' && opensearchQueryMode.value === 'dsl' ? opensearchDsl.value : undefined,
+        metric: prometheusMetric.value,
         indexPattern: indexPattern.value,
         targetHost: targetHost.value,
       },
       timeRange: timeRange.value,
-      metricKey: sourceType.value === 'opensearch' ? 'OpenSearch Logs' : 'Prometheus Telemetry',
+      metricKey: metricTitle,
     };
 
     const res = await axios.post('/api/v1/reports/query-data', payload);
@@ -534,67 +635,190 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Query Filter & Helper Chips -->
-      <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
+      <!-- PROMETHEUS METRIC PRESETS (Gambar 2 / PandoraFMS Style) -->
+      <div v-if="sourceType === 'prometheus'" class="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
         <div class="flex items-center justify-between">
           <label class="font-semibold text-slate-700 dark:text-slate-300">
-            {{ sourceType === 'opensearch' ? 'Lucene Filter Query' : 'PromQL Query Expression' }}
+            Select Metric Preset (Prometheus / PandoraFMS)
           </label>
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <template v-if="sourceType === 'opensearch'">
+          <span class="text-[11px] text-slate-400">
+            Target Host: <strong class="text-slate-700 dark:text-slate-300">{{ targetHost === 'all' ? 'All Monitored Hosts' : targetHost }}</strong>
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+          <button
+            v-for="opt in prometheusMetricOptions"
+            :key="opt.key"
+            type="button"
+            @click="prometheusMetric = opt.key; generateReport();"
+            :class="[
+              prometheusMetric === opt.key
+                ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-[#95CCDD] font-semibold ring-1 ring-blue-500/30'
+                : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2b3752] text-slate-700 dark:text-slate-300',
+              'p-2.5 rounded-xl border transition text-left flex flex-col justify-between cursor-pointer shadow-xs'
+            ]"
+          >
+            <div class="flex items-center gap-1.5">
+              <component :is="opt.icon" class="w-3.5 h-3.5 text-slate-400" />
+              <span class="text-xs font-bold leading-tight">{{ opt.label }}</span>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-1 line-clamp-1">{{ opt.desc }}</p>
+          </button>
+        </div>
+
+        <!-- If Custom PromQL is chosen -->
+        <div v-if="prometheusMetric === 'custom'" class="pt-2 space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Custom PromQL Expression</label>
+            <div class="flex items-center gap-1.5">
               <button
                 type="button"
-                @click="setQueryChip('*')"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                All (*)
-              </button>
-              <button
-                type="button"
-                @click="setQueryChip('status:>=500')"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                status:>=500
-              </button>
-              <button
-                type="button"
-                @click="setQueryChip('level:ERROR')"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                level:ERROR
-              </button>
-            </template>
-            <template v-else>
-              <button
-                type="button"
-                @click="queryString = '100 - (avg(rate(node_cpu_seconds_total{mode=\'idle\'}[5m])) * 100)'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                @click="prometheusCustomQuery = '100 - (avg(rate(node_cpu_seconds_total{mode=\'idle\'}[5m])) * 100)'"
+                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
               >
                 CPU %
               </button>
               <button
                 type="button"
-                @click="queryString = '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                @click="prometheusCustomQuery = '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'"
+                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
               >
                 RAM %
               </button>
               <button
                 type="button"
-                @click="queryString = 'node_load1'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                @click="prometheusCustomQuery = 'node_load1'"
+                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
               >
                 Load
               </button>
-            </template>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              v-model="prometheusCustomQuery"
+              type="text"
+              placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
+              class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+              @keyup.enter="generateReport"
+            />
+            <button
+              @click="generateReport"
+              :disabled="loading"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs shrink-0 disabled:opacity-50"
+            >
+              Run PromQL
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPENSEARCH QUERY DSL & LUCENE -->
+      <div v-else class="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-3">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">
+              OpenSearch Query Method
+            </label>
+            <!-- Mode Toggle -->
+            <div class="flex items-center p-0.5 bg-slate-100 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-[11px]">
+              <button
+                type="button"
+                @click="opensearchQueryMode = 'dsl'"
+                :class="[
+                  opensearchQueryMode === 'dsl'
+                    ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] shadow-xs font-semibold'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
+                  'px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1.5'
+                ]"
+              >
+                <Code2 class="w-3.5 h-3.5" />
+                <span>Query DSL (JSON)</span>
+              </button>
+              <button
+                type="button"
+                @click="opensearchQueryMode = 'lucene'"
+                :class="[
+                  opensearchQueryMode === 'lucene'
+                    ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] shadow-xs font-semibold'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
+                  'px-2.5 py-1 rounded-md transition cursor-pointer'
+                ]"
+              >
+                <span>Lucene String</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- DSL Quick Templates -->
+          <div v-if="opensearchQueryMode === 'dsl'" class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-slate-400">DSL Templates:</span>
+            <button
+              v-for="t in openSearchDslTemplates"
+              :key="t.name"
+              type="button"
+              @click="opensearchDsl = t.code; generateReport();"
+              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-medium transition cursor-pointer"
+            >
+              {{ t.name }}
+            </button>
+          </div>
+
+          <!-- Lucene Quick Chips -->
+          <div v-else class="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              @click="setQueryChip('*')"
+              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+            >
+              All (*)
+            </button>
+            <button
+              type="button"
+              @click="setQueryChip('status:>=500')"
+              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+            >
+              status:>=500
+            </button>
+            <button
+              type="button"
+              @click="setQueryChip('level:ERROR')"
+              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+            >
+              level:ERROR
+            </button>
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <!-- Query DSL JSON Editor -->
+        <div v-if="opensearchQueryMode === 'dsl'" class="space-y-2">
+          <textarea
+            v-model="opensearchDsl"
+            rows="6"
+            placeholder='{ "query": { "match_all": {} } }'
+            class="w-full p-3 font-mono text-xs bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 leading-relaxed"
+          ></textarea>
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-slate-400">
+              Native OpenSearch Query DSL with support for bool, match, term, range filters and aggregations.
+            </span>
+            <button
+              @click="generateReport"
+              :disabled="loading"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs disabled:opacity-50"
+            >
+              Run Query DSL
+            </button>
+          </div>
+        </div>
+
+        <!-- Lucene String Input -->
+        <div v-else class="flex items-center gap-2">
           <input
             v-model="queryString"
             type="text"
-            :placeholder="sourceType === 'opensearch' ? 'e.g. status:>=500 OR level:ERROR, service:nginx' : 'e.g. 100 - (avg(rate(node_cpu_seconds_total{mode=\'idle\'}[5m])) * 100)'"
+            placeholder="e.g. status:>=500 OR level:ERROR, service:nginx"
             class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
             @keyup.enter="generateReport"
           />
@@ -742,6 +966,48 @@ onMounted(async () => {
             {{ p.label }}
           </text>
         </svg>
+      </div>
+
+      <!-- Chart Legend (Gambar 2 / PandoraFMS Style) -->
+      <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
+        <span class="font-medium">
+          {{ (discoveredHosts.find(h => h.host === targetHost)?.name || targetHost) }} &bull; {{ reportData.title }}
+        </span>
+      </div>
+
+      <!-- Pandora Style View Widget Summary Accordion -->
+      <div class="pt-3 border-t border-slate-100 dark:border-[#1b2234]">
+        <button
+          type="button"
+          @click="showWidgetSummary = !showWidgetSummary"
+          class="text-xs font-semibold text-blue-600 dark:text-[#95CCDD] hover:text-blue-500 flex items-center gap-1 cursor-pointer"
+        >
+          <component :is="showWidgetSummary ? ChevronUp : ChevronDown" class="w-3.5 h-3.5" />
+          <span>View Widget Summary</span>
+        </button>
+
+        <div
+          v-if="showWidgetSummary"
+          class="mt-3 p-3 bg-slate-50 dark:bg-[#0c101a] rounded-xl border border-slate-200 dark:border-[#1f283d] grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs"
+        >
+          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+            <span class="text-[10px] text-slate-400 block font-medium">Minimum</span>
+            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.min || 0 }} {{ reportData.summary?.unit }}</strong>
+          </div>
+          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+            <span class="text-[10px] text-slate-400 block font-medium">Average</span>
+            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.avg || 0 }} {{ reportData.summary?.unit }}</strong>
+          </div>
+          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+            <span class="text-[10px] text-slate-400 block font-medium">Peak / Maximum</span>
+            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.max || 0 }} {{ reportData.summary?.unit }}</strong>
+          </div>
+          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+            <span class="text-[10px] text-slate-400 block font-medium">Current Reading</span>
+            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.current || reportData.points?.[reportData.points.length - 1]?.value || 0 }} {{ reportData.summary?.unit }}</strong>
+          </div>
+        </div>
       </div>
     </div>
 

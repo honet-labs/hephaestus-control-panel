@@ -159,6 +159,57 @@ const widgetForm = ref<{
   pageNumber: 1,
 });
 
+// OpenSearch DSL Mode & Templates
+const widgetDslMode = ref<'dsl' | 'lucene'>('dsl');
+const openSearchDslTemplates = [
+  {
+    name: 'Match All',
+    code: JSON.stringify({
+      query: { match_all: {} }
+    }, null, 2),
+  },
+  {
+    name: 'Status >= 500',
+    code: JSON.stringify({
+      query: {
+        range: {
+          status: { gte: 500 }
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Error Logs',
+    code: JSON.stringify({
+      query: {
+        match: {
+          level: 'ERROR'
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Search Message',
+    code: JSON.stringify({
+      query: {
+        match_phrase: {
+          message: 'error'
+        }
+      }
+    }, null, 2),
+  },
+  {
+    name: 'Term Filter',
+    code: JSON.stringify({
+      query: {
+        term: {
+          "host.keyword": "server-horus"
+        }
+      }
+    }, null, 2),
+  },
+];
+
 // Presets for OpenSearch, Prometheus, and Grafana
 const openSearchPresets = [
   {
@@ -736,6 +787,59 @@ const generateAreaPath = (points?: Array<{ value: number }>, width = 500, height
 };
 
 // -----------------------------------------------------------------------------
+// Download Individual Widget as PNG (Pandora Style)
+// -----------------------------------------------------------------------------
+const downloadSingleWidgetPng = (widget: ReportWidget) => {
+  const svgElement = document.getElementById(`widget-svg-${widget.id}`);
+  if (!svgElement) {
+    showNotice('Widget SVG element not found', 'error');
+    return;
+  }
+
+  const svgData = new XMLSerializer().serializeToString(svgElement);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+
+  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+
+  img.onload = () => {
+    const width = 800;
+    const height = 360;
+    canvas.width = width;
+    canvas.height = height;
+
+    if (ctx) {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(
+        `HCP - ${widget.title} (${(widget.sourceType || 'METRICS').toUpperCase()})`,
+        24,
+        28
+      );
+
+      ctx.drawImage(img, 15, 40, width - 30, height - 60);
+
+      const pngUrl = canvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.href = pngUrl;
+      downloadLink.download = `${widget.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}.png`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+      showNotice('Widget chart PNG downloaded', 'success');
+    }
+    URL.revokeObjectURL(url);
+  };
+
+  img.src = url;
+};
+
+// -----------------------------------------------------------------------------
 // Print / Export PDF Handler
 // -----------------------------------------------------------------------------
 const triggerPrint = () => {
@@ -1199,6 +1303,13 @@ onMounted(async () => {
         </div>
         <div class="flex items-center gap-2">
           <button
+            @click="openAddWidgetModal('line')"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Add Panel</span>
+          </button>
+          <button
             @click="refreshAllWidgetData"
             class="px-3 py-1.5 border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer flex items-center gap-1.5"
           >
@@ -1219,6 +1330,14 @@ onMounted(async () => {
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ widget.title }}</h3>
             <div class="flex items-center gap-2 text-slate-400">
+              <button
+                v-if="widget.chartType !== 'table'"
+                @click="downloadSingleWidgetPng(widget)"
+                class="hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                title="Download Chart PNG"
+              >
+                <Download class="w-3.5 h-3.5" />
+              </button>
               <button @click="openEditWidgetModal(widget)" class="hover:text-blue-500 cursor-pointer" title="Edit Widget">
                 <Edit3 class="w-3.5 h-3.5" />
               </button>
@@ -1236,7 +1355,7 @@ onMounted(async () => {
 
           <!-- Chart SVG Visualization -->
           <div v-if="widget.chartType !== 'table'" class="h-48 w-full relative">
-            <svg class="w-full h-full" viewBox="0 0 500 180" preserveAspectRatio="none">
+            <svg :id="'widget-svg-' + widget.id" class="w-full h-full" viewBox="0 0 500 180" preserveAspectRatio="none">
               <path :d="generateSvgPath(widget.points)" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" />
               <circle
                 v-for="(pt, idx) in widget.points || []"
@@ -1249,10 +1368,10 @@ onMounted(async () => {
               />
             </svg>
 
-            <!-- Legend Indicator -->
+            <!-- Legend Indicator (Pandora Style) -->
             <div class="flex items-center justify-center gap-2 text-[11px] text-slate-500 mt-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span>{{ widget.sourceConfig?.module || widget.sourceConfig?.indexPattern || 'Metrics Value' }}</span>
+              <span>{{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : '' }}{{ widget.title }}</span>
             </div>
           </div>
 
@@ -1586,13 +1705,58 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <div class="space-y-1">
-                  <label class="font-semibold text-slate-700 dark:text-slate-300">Lucene Query / Filter Expression</label>
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <label class="font-semibold text-slate-700 dark:text-slate-300">
+                      {{ widgetDslMode === 'dsl' ? 'OpenSearch Query DSL (JSON)' : 'Lucene Query Expression' }}
+                    </label>
+                    <div class="flex items-center p-0.5 bg-slate-100 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-[10px]">
+                      <button
+                        type="button"
+                        @click="widgetDslMode = 'dsl'; if (!widgetForm.query.startsWith('{')) widgetForm.query = openSearchDslTemplates[0].code;"
+                        :class="[
+                          widgetDslMode === 'dsl'
+                            ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] font-semibold shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
+                          'px-2 py-0.5 rounded cursor-pointer transition'
+                        ]"
+                      >
+                        Query DSL (JSON)
+                      </button>
+                      <button
+                        type="button"
+                        @click="widgetDslMode = 'lucene'; if (widgetForm.query.startsWith('{')) widgetForm.query = '*';"
+                        :class="[
+                          widgetDslMode === 'lucene'
+                            ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] font-semibold shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
+                          'px-2 py-0.5 rounded cursor-pointer transition'
+                        ]"
+                      >
+                        Lucene String
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Quick Templates for DSL -->
+                  <div v-if="widgetDslMode === 'dsl'" class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-[10px] text-slate-400">DSL Templates:</span>
+                    <button
+                      v-for="t in openSearchDslTemplates"
+                      :key="t.name"
+                      type="button"
+                      @click="widgetForm.query = t.code"
+                      class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-[#1f283d] hover:bg-slate-300 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                    >
+                      {{ t.name }}
+                    </button>
+                  </div>
+
                   <textarea
                     v-model="widgetForm.query"
-                    rows="2"
-                    placeholder="e.g. status:>=500 OR level:ERROR, service:nginx, *"
-                    class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                    :rows="widgetDslMode === 'dsl' ? 6 : 2"
+                    :placeholder="widgetDslMode === 'dsl' ? '{ \"query\": { \"match_all\": {} } }' : 'e.g. status:>=500 OR level:ERROR, service:nginx, *'"
+                    class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 leading-relaxed"
                   ></textarea>
                 </div>
               </template>

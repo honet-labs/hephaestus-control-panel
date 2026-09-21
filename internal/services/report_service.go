@@ -139,29 +139,84 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
 	isConnected := (err == nil && promCfg != nil && promCfg.ReloadURL != "")
 
-	// Extract PromQL query or build from metric preset
+	targetHost, _ := req.SourceConfig["targetHost"].(string)
+	metricPreset, _ := req.SourceConfig["metric"].(string)
+	if metricPreset == "" {
+		if p, ok := req.SourceConfig["presetKey"].(string); ok {
+			metricPreset = p
+		}
+	}
+
+	customQ, _ := req.SourceConfig["query"].(string)
+	customQ = strings.TrimSpace(customQ)
+
 	promQL := ""
-	if q, ok := req.SourceConfig["query"].(string); ok && strings.TrimSpace(q) != "" {
-		promQL = strings.TrimSpace(q)
-	} else if req.MetricKey != "" && !strings.EqualFold(req.MetricKey, "System Metric") {
-		promQL = req.MetricKey
-	} else if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
-		switch strings.ToLower(m) {
-		case "cpu", "cpu utilization":
-			promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
-		case "memory", "memory usage", "ram":
-			promQL = `(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100`
-		case "disk", "disk storage", "storage":
-			promQL = `(1 - (node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100`
-		case "network", "network traffic":
-			promQL = `sum(rate(node_network_receive_bytes_total[5m])) * 8`
-		case "load", "system load":
-			promQL = `node_load1`
-		default:
-			promQL = m
+	unit := "%"
+	metricTitle := req.MetricKey
+
+	// If custom query is provided and is NOT "*", use it
+	if customQ != "" && customQ != "*" {
+		promQL = customQ
+		if metricTitle == "" {
+			metricTitle = "PromQL Query"
 		}
 	} else {
-		promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+		// Build PromQL from metric preset with host filtering
+		hostFilter := ""
+		if targetHost != "" && targetHost != "all" {
+			hostFilter = fmt.Sprintf(`, instance=~".*%s.*"`, targetHost)
+		}
+
+		switch strings.ToLower(metricPreset) {
+		case "cpu", "cpu usage", "cpu utilization", "cpu_util", "log_volume":
+			metricTitle = "CPU Usage"
+			unit = "%"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`100 - (avg(rate(node_cpu_seconds_total{mode="idle"%s}[5m])) * 100)`, hostFilter)
+			} else {
+				promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+			}
+		case "memory", "memory usage", "memory used", "mem_util", "ram":
+			metricTitle = "Memory Used"
+			unit = "%"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`(1 - (node_memory_MemAvailable_bytes{instance=~".*%s.*"} / node_memory_MemTotal_bytes{instance=~".*%s.*"})) * 100`, targetHost, targetHost)
+			} else {
+				promQL = `(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100`
+			}
+		case "disk", "disk storage", "storage", "disk_util", "all storage":
+			metricTitle = "Disk Storage"
+			unit = "%"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`(1 - (node_filesystem_free_bytes{mountpoint="/"%s} / node_filesystem_size_bytes{mountpoint="/"%s})) * 100`, hostFilter, hostFilter)
+			} else {
+				promQL = `(1 - (node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100`
+			}
+		case "network", "network traffic", "net_traffic":
+			metricTitle = "Network Traffic"
+			unit = "bps"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`sum(rate(node_network_receive_bytes_total{instance=~".*%s.*"}[5m])) * 8`, targetHost)
+			} else {
+				promQL = `sum(rate(node_network_receive_bytes_total[5m])) * 8`
+			}
+		case "load", "system load", "sys_load":
+			metricTitle = "System Load"
+			unit = "load"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`node_load1{instance=~".*%s.*"}`, targetHost)
+			} else {
+				promQL = `node_load1`
+			}
+		default:
+			metricTitle = "CPU Usage"
+			unit = "%"
+			if hostFilter != "" {
+				promQL = fmt.Sprintf(`100 - (avg(rate(node_cpu_seconds_total{mode="idle"%s}[5m])) * 100)`, hostFilter)
+			} else {
+				promQL = `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+			}
+		}
 	}
 
 	timeRange := req.TimeRange
@@ -169,34 +224,55 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 		timeRange = "24h"
 	}
 
-	metricTitle := req.MetricKey
-	if metricTitle == "" {
-		if m, ok := req.SourceConfig["metric"].(string); ok && m != "" {
-			metricTitle = m
-		} else {
-			metricTitle = "Prometheus Metrics"
-		}
-	}
-
 	if isConnected && s.promService != nil {
 		livePoints, liveSummary, err := s.fetchPrometheusLive(ctx, promCfg, promQL, timeRange)
 		if err == nil && len(livePoints) > 0 {
+			liveSummary.Unit = unit
+			tableRows := make([]map[string]any, 0, len(livePoints))
+			for idx, pt := range livePoints {
+				tableRows = append(tableRows, map[string]any{
+					"id":        idx + 1,
+					"timestamp": pt.Timestamp,
+					"source":    "PROMETHEUS",
+					"host":      targetHost,
+					"level":     "DATA",
+					"metric":    metricTitle,
+					"value":     fmt.Sprintf("%.2f %s", pt.Value, unit),
+					"message":   fmt.Sprintf("%s on %s: %.2f %s", metricTitle, targetHost, pt.Value, unit),
+				})
+			}
 			return &domain.ReportQueryDataResponse{
 				Title:       metricTitle,
 				SourceType:  "prometheus",
 				Points:      livePoints,
 				Summary:     liveSummary,
+				TableRows:   tableRows,
 				IsConnected: true,
-				Message:     fmt.Sprintf("Live data from Prometheus (%s)", promCfg.Name),
+				Message:     fmt.Sprintf("Live data from Prometheus (%s) [%s]", promCfg.Name, promQL),
 			}, nil
 		}
-		logger.Warn("ReportService", fmt.Sprintf("Prometheus live query fallback: %v", err))
+		logger.Warn("ReportService", fmt.Sprintf("Prometheus live query fallback (promql: %s): %v", promQL, err))
 	}
 
 	points, summary := s.generateTimeSeriesData(metricTitle, timeRange, "prometheus")
+	summary.Unit = unit
 	message := "Demonstration / Fallback Data (Prometheus server query pending)"
 	if isConnected {
-		message = fmt.Sprintf("Simulated preview (Connected to Prometheus: %s)", promCfg.Name)
+		message = fmt.Sprintf("Live preview query: %s (Connected to: %s)", promQL, promCfg.Name)
+	}
+
+	tableRows := make([]map[string]any, 0, len(points))
+	for idx, pt := range points {
+		tableRows = append(tableRows, map[string]any{
+			"id":        idx + 1,
+			"timestamp": pt.Timestamp,
+			"source":    "PROMETHEUS",
+			"host":      targetHost,
+			"level":     "DATA",
+			"metric":    metricTitle,
+			"value":     fmt.Sprintf("%.2f %s", pt.Value, unit),
+			"message":   fmt.Sprintf("%s on %s: %.2f %s", metricTitle, targetHost, pt.Value, unit),
+		})
 	}
 
 	return &domain.ReportQueryDataResponse{
@@ -204,6 +280,7 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 		SourceType:  "prometheus",
 		Points:      points,
 		Summary:     summary,
+		TableRows:   tableRows,
 		IsConnected: isConnected,
 		Message:     message,
 	}, nil
@@ -545,12 +622,14 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 		interval = "1d"
 	}
 
-	// Custom Lucene / Query String support
-	queryString := ""
-	if q, ok := req.SourceConfig["query"].(string); ok && strings.TrimSpace(q) != "" {
-		queryString = strings.TrimSpace(q)
+	// Custom Query DSL or Lucene String support
+	rawQuery := ""
+	if qdsl, ok := req.SourceConfig["queryDsl"].(string); ok && strings.TrimSpace(qdsl) != "" {
+		rawQuery = strings.TrimSpace(qdsl)
+	} else if q, ok := req.SourceConfig["query"].(string); ok && strings.TrimSpace(q) != "" {
+		rawQuery = strings.TrimSpace(q)
 	} else if qk, ok := req.SourceConfig["queryKeyword"].(string); ok && strings.TrimSpace(qk) != "" {
-		queryString = strings.TrimSpace(qk)
+		rawQuery = strings.TrimSpace(qk)
 	}
 
 	rangeFilter := map[string]interface{}{
@@ -563,25 +642,67 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 	}
 
 	var rootQuery map[string]interface{}
-	if queryString != "" && queryString != "*" {
-		rootQuery = map[string]interface{}{
-			"bool": map[string]interface{}{
-				"must": []interface{}{
-					rangeFilter,
-					map[string]interface{}{
-						"query_string": map[string]interface{}{
-							"query": queryString,
+	userAggs := make(map[string]interface{})
+	querySize := 25
+
+	isDSL := false
+	trimmed := strings.TrimSpace(rawQuery)
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		var parsedDSL map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &parsedDSL); err == nil {
+			isDSL = true
+			if sz, ok := parsedDSL["size"].(float64); ok && sz > 0 {
+				querySize = int(sz)
+			}
+			if aggs, ok := parsedDSL["aggs"].(map[string]interface{}); ok {
+				userAggs = aggs
+			} else if aggs, ok := parsedDSL["aggregations"].(map[string]interface{}); ok {
+				userAggs = aggs
+			}
+
+			if userQ, ok := parsedDSL["query"].(map[string]interface{}); ok {
+				rootQuery = map[string]interface{}{
+					"bool": map[string]interface{}{
+						"must": []interface{}{
+							rangeFilter,
+							userQ,
+						},
+					},
+				}
+			} else {
+				rootQuery = map[string]interface{}{
+					"bool": map[string]interface{}{
+						"must": []interface{}{
+							rangeFilter,
+							parsedDSL,
+						},
+					},
+				}
+			}
+		}
+	}
+
+	if !isDSL {
+		if rawQuery != "" && rawQuery != "*" {
+			rootQuery = map[string]interface{}{
+				"bool": map[string]interface{}{
+					"must": []interface{}{
+						rangeFilter,
+						map[string]interface{}{
+							"query_string": map[string]interface{}{
+								"query": rawQuery,
+							},
 						},
 					},
 				},
-			},
+			}
+		} else {
+			rootQuery = rangeFilter
 		}
-	} else {
-		rootQuery = rangeFilter
 	}
 
 	aggsPayload := map[string]interface{}{
-		"size": 10,
+		"size":  querySize,
 		"query": rootQuery,
 		"aggs": map[string]interface{}{
 			"events_over_time": map[string]interface{}{
@@ -591,6 +712,13 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 				},
 			},
 		},
+	}
+
+	// Merge user custom aggs if any
+	for k, v := range userAggs {
+		if k != "events_over_time" {
+			aggsPayload["aggs"].(map[string]interface{})[k] = v
+		}
 	}
 
 	bodyBytes, _ := json.Marshal(aggsPayload)
@@ -659,8 +787,27 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 	for _, hit := range osResp.Hits.Hits {
 		row := make(map[string]any)
 		for k, v := range hit.Source {
-			if k == "@timestamp" || k == "message" || k == "level" || k == "status" || k == "host" {
-				row[k] = v
+			row[k] = v
+		}
+		if _, ok := row["timestamp"]; !ok {
+			if ts, ok := row["@timestamp"]; ok {
+				row["timestamp"] = ts
+			}
+		}
+		if _, ok := row["level"]; !ok {
+			if lvl, ok := row["log.level"]; ok {
+				row["level"] = lvl
+			} else if st, ok := row["status"]; ok {
+				row["level"] = fmt.Sprintf("HTTP %v", st)
+			} else {
+				row["level"] = "INFO"
+			}
+		}
+		if _, ok := row["message"]; !ok {
+			if msg, ok := row["log"]; ok {
+				row["message"] = msg
+			} else if body, ok := row["body"]; ok {
+				row["message"] = body
 			}
 		}
 		tableRows = append(tableRows, row)
