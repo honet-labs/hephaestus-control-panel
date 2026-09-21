@@ -1690,7 +1690,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Apache ECharts Container for Charts -->
-          <div v-else :ref="(el) => setChartRef(widget.id, el)" class="w-full h-56 relative"></div>
+          <div v-else :ref="(el) => setChartRef(widget.id, el)" class="w-full h-60 sm:h-64 relative"></div>
 
           <!-- Legend Indicator -->
           <div v-if="widget.series && widget.series.length > 1" class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 pt-1">
@@ -1846,7 +1846,7 @@ onBeforeUnmount(() => {
       v-if="showWidgetModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div @click="activeHostDropdown = null" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div @click="activeHostDropdown = null" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-3xl shadow-2xl p-6 space-y-4 max-h-[92vh] min-h-[660px] flex flex-col justify-between overflow-y-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">
@@ -1968,11 +1968,11 @@ onBeforeUnmount(() => {
                     </template>
                     <template v-else>
                       <span
-                        v-for="h in widgetForm.targetHosts.slice(0, 2)"
+                        v-for="h in widgetForm.targetHosts.slice(0, 3)"
                         :key="h"
                         class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium border border-blue-200 dark:border-blue-800/60"
                       >
-                        <span class="truncate max-w-[110px]">{{ getHostDisplayName(h) }}</span>
+                        <span class="truncate max-w-[150px]">{{ getHostDisplayName(h) }}</span>
                         <button
                           type="button"
                           @click.stop="toggleHostSelection(h)"
@@ -1982,10 +1982,10 @@ onBeforeUnmount(() => {
                         </button>
                       </span>
                       <span
-                        v-if="widgetForm.targetHosts.length > 2"
+                        v-if="widgetForm.targetHosts.length > 3"
                         class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium"
                       >
-                        +{{ widgetForm.targetHosts.length - 2 }} more
+                        +{{ widgetForm.targetHosts.length - 3 }} more
                       </span>
                     </template>
                   </div>
@@ -1995,10 +1995,10 @@ onBeforeUnmount(() => {
                   />
                 </div>
 
-                <!-- Multi-Host Popup Dropdown -->
+                <!-- Multi-Host Popup Dropdown (Tall & Spacious) -->
                 <div
                   v-if="activeHostDropdown === 'prom'"
-                  class="absolute z-50 left-0 right-0 top-full mt-1 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-2.5 space-y-2 text-xs animate-in fade-in"
+                  class="absolute z-50 left-0 w-full sm:w-[460px] top-full mt-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-3 space-y-2.5 text-xs animate-in fade-in"
                 >
                   <!-- Search Filter -->
                   <div class="relative">
@@ -2039,12 +2039,12 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
 
-                  <!-- Host List -->
-                  <div class="max-h-48 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234]">
+                  <!-- Host List (Increased Height to 288-320px) -->
+                  <div class="min-h-[160px] max-h-72 sm:max-h-80 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234] pr-1">
                     <!-- All Hosts Option -->
                     <div
                       @click="toggleHostSelection('all')"
-                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
                     >
                       <input
                         type="checkbox"
@@ -2063,7 +2063,7 @@ onBeforeUnmount(() => {
                       v-for="h in filteredDiscoveredHosts"
                       :key="h.id || h.host"
                       @click="toggleHostSelection(h.host)"
-                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
                     >
                       <input
                         type="checkbox"
@@ -2071,23 +2071,26 @@ onBeforeUnmount(() => {
                         class="rounded text-blue-600 focus:ring-0 cursor-pointer"
                         @click.stop="toggleHostSelection(h.host)"
                       />
-                      <div class="flex-1 min-w-0 flex items-center justify-between gap-1">
+                      <div class="flex-1 min-w-0 flex items-center justify-between gap-2">
                         <span class="text-slate-800 dark:text-slate-200 truncate font-medium">{{ h.name }}</span>
                         <span class="text-slate-400 font-mono text-[10px] shrink-0">({{ h.host }})</span>
                       </div>
                     </div>
 
-                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-3 text-center text-slate-400 text-xs">
+                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-4 text-center text-slate-400 text-xs">
                       No hosts found matching "{{ hostFilterText }}"
                     </div>
                   </div>
 
                   <!-- Done Button -->
-                  <div class="pt-1.5 border-t border-slate-100 dark:border-[#1b2234] flex justify-end">
+                  <div class="pt-2 border-t border-slate-100 dark:border-[#1b2234] flex items-center justify-between">
+                    <span class="text-[10px] text-slate-400">
+                      {{ widgetForm.targetHosts.includes('all') ? 'Aggregated across all' : widgetForm.targetHosts.length + ' host(s) selected' }}
+                    </span>
                     <button
                       type="button"
                       @click="activeHostDropdown = null"
-                      class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
+                      class="px-3.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
                     >
                       Done
                     </button>
@@ -2182,11 +2185,11 @@ onBeforeUnmount(() => {
                     </template>
                     <template v-else>
                       <span
-                        v-for="h in widgetForm.targetHosts.slice(0, 2)"
+                        v-for="h in widgetForm.targetHosts.slice(0, 3)"
                         :key="h"
                         class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium border border-blue-200 dark:border-blue-800/60"
                       >
-                        <span class="truncate max-w-[110px]">{{ getHostDisplayName(h) }}</span>
+                        <span class="truncate max-w-[150px]">{{ getHostDisplayName(h) }}</span>
                         <button
                           type="button"
                           @click.stop="toggleHostSelection(h)"
@@ -2196,10 +2199,10 @@ onBeforeUnmount(() => {
                         </button>
                       </span>
                       <span
-                        v-if="widgetForm.targetHosts.length > 2"
+                        v-if="widgetForm.targetHosts.length > 3"
                         class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium"
                       >
-                        +{{ widgetForm.targetHosts.length - 2 }} more
+                        +{{ widgetForm.targetHosts.length - 3 }} more
                       </span>
                     </template>
                   </div>
@@ -2209,10 +2212,10 @@ onBeforeUnmount(() => {
                   />
                 </div>
 
-                <!-- Multi-Host Popup Dropdown -->
+                <!-- Multi-Host Popup Dropdown (Tall & Spacious) -->
                 <div
                   v-if="activeHostDropdown === 'graf'"
-                  class="absolute z-50 left-0 right-0 top-full mt-1 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-2.5 space-y-2 text-xs animate-in fade-in"
+                  class="absolute z-50 left-0 w-full sm:w-[460px] top-full mt-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-2xl p-3 space-y-2.5 text-xs animate-in fade-in"
                 >
                   <!-- Search Filter -->
                   <div class="relative">
@@ -2253,12 +2256,12 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
 
-                  <!-- Host List -->
-                  <div class="max-h-48 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234]">
+                  <!-- Host List (Increased Height to 288-320px) -->
+                  <div class="min-h-[160px] max-h-72 sm:max-h-80 overflow-y-auto space-y-0.5 divide-y divide-slate-100 dark:divide-[#1b2234] pr-1">
                     <!-- All Hosts Option -->
                     <div
                       @click="toggleHostSelection('all')"
-                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
                     >
                       <input
                         type="checkbox"
@@ -2277,7 +2280,7 @@ onBeforeUnmount(() => {
                       v-for="h in filteredDiscoveredHosts"
                       :key="h.id || h.host"
                       @click="toggleHostSelection(h.host)"
-                      class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
+                      class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2e] cursor-pointer transition"
                     >
                       <input
                         type="checkbox"
@@ -2285,23 +2288,26 @@ onBeforeUnmount(() => {
                         class="rounded text-blue-600 focus:ring-0 cursor-pointer"
                         @click.stop="toggleHostSelection(h.host)"
                       />
-                      <div class="flex-1 min-w-0 flex items-center justify-between gap-1">
+                      <div class="flex-1 min-w-0 flex items-center justify-between gap-2">
                         <span class="text-slate-800 dark:text-slate-200 truncate font-medium">{{ h.name }}</span>
                         <span class="text-slate-400 font-mono text-[10px] shrink-0">({{ h.host }})</span>
                       </div>
                     </div>
 
-                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-3 text-center text-slate-400 text-xs">
+                    <div v-if="filteredDiscoveredHosts.length === 0" class="py-4 text-center text-slate-400 text-xs">
                       No hosts found matching "{{ hostFilterText }}"
                     </div>
                   </div>
 
                   <!-- Done Button -->
-                  <div class="pt-1.5 border-t border-slate-100 dark:border-[#1b2234] flex justify-end">
+                  <div class="pt-2 border-t border-slate-100 dark:border-[#1b2234] flex items-center justify-between">
+                    <span class="text-[10px] text-slate-400">
+                      {{ widgetForm.targetHosts.includes('all') ? 'Aggregated across all' : widgetForm.targetHosts.length + ' host(s) selected' }}
+                    </span>
                     <button
                       type="button"
                       @click="activeHostDropdown = null"
-                      class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
+                      class="px-3.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-medium transition cursor-pointer"
                     >
                       Done
                     </button>
