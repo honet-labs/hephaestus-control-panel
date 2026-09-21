@@ -61,10 +61,14 @@ interface ReportWidget {
     total: number;
     count: number;
     unit: string;
+    peakTime?: string;
   };
   showSummary?: boolean;
   statusMessage?: string;
   isLive?: boolean;
+  tableSortBy?: 'time' | 'value';
+  tableSortOrder?: 'desc' | 'asc';
+  tableSearch?: string;
 }
 
 interface RawReport {
@@ -575,6 +579,41 @@ const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
     minute: '2-digit',
     hour12: false,
   });
+};
+
+const getProcessedTablePoints = (widget: ReportWidget) => {
+  let list = (widget.points || []).slice();
+  if (widget.tableSearch && widget.tableSearch.trim()) {
+    const q = widget.tableSearch.trim().toLowerCase();
+    list = list.filter((p) => {
+      const timeStr = (formatPointLocalTooltip(p) || p.label || p.timestamp || '').toLowerCase();
+      const valStr = String(p.value).toLowerCase();
+      return timeStr.includes(q) || valStr.includes(q);
+    });
+  }
+
+  const sortBy = widget.tableSortBy || 'time';
+  const sortOrder = widget.tableSortOrder || 'desc';
+
+  list.sort((a, b) => {
+    if (sortBy === 'value') {
+      return sortOrder === 'asc' ? a.value - b.value : b.value - a.value;
+    }
+    const timeA = new Date(a.timestamp).getTime() || 0;
+    const timeB = new Date(b.timestamp).getTime() || 0;
+    return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+  });
+
+  return list;
+};
+
+const toggleTableSort = (widget: ReportWidget, column: 'time' | 'value') => {
+  if (widget.tableSortBy === column) {
+    widget.tableSortOrder = widget.tableSortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    widget.tableSortBy = column;
+    widget.tableSortOrder = 'desc'; // Default to desc so clicking Value immediately brings the peak spike to top!
+  }
 };
 
 const renderEChart = (widget: ReportWidget, echartsLib: any) => {
@@ -1134,51 +1173,98 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Table View when widget.chartType === 'table' -->
-          <div v-if="widget.chartType === 'table'" class="w-full h-56 overflow-y-auto border border-slate-200/80 dark:border-[#1f283d] rounded-xl bg-slate-50/40 dark:bg-[#0c101a]/60">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="sticky top-0 bg-slate-100/90 dark:bg-[#151c2e] border-b border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 z-10 backdrop-blur-xs">
-                <tr>
-                  <th class="py-2 px-3 font-semibold text-[11px]">Time</th>
-                  <th class="py-2 px-3 font-semibold text-[11px]">Host / Target</th>
-                  <th class="py-2 px-3 font-semibold text-[11px] text-right">Value</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
-                <tr
-                  v-for="(pt, pIdx) in (widget.points || []).slice().reverse()"
-                  :key="pIdx"
-                  class="hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors"
-                >
-                  <td class="py-2 px-3 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
-                    {{ formatPointLocalTooltip(pt) || formatPointLocalLabel(pt, widget.timeRange) }}
-                  </td>
-                  <td class="py-2 px-3 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[130px]">
-                    {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : (pt.label || widget.title) }}
-                  </td>
-                  <td class="py-2 px-3 text-right font-semibold text-slate-900 dark:text-white text-[11px]">
-                    <span
-                      :class="[
-                        widget.sourceConfig?.colorPalette === 'blue'
-                          ? 'text-blue-600 dark:text-blue-400'
-                          : widget.sourceConfig?.colorPalette === 'amber'
-                          ? 'text-amber-600 dark:text-amber-400'
-                          : widget.sourceConfig?.colorPalette === 'purple'
-                          ? 'text-purple-600 dark:text-purple-400'
-                          : 'text-emerald-600 dark:text-emerald-400'
-                      ]"
+          <div v-if="widget.chartType === 'table'" class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2 px-1 text-[11px]">
+              <span class="text-slate-500 dark:text-slate-400 text-[10px]">
+                Click <strong class="cursor-pointer hover:underline text-blue-600 dark:text-blue-400" @click="toggleTableSort(widget, 'value')">Value</strong> to sort peak to top
+              </span>
+              <input
+                v-model="widget.tableSearch"
+                type="text"
+                placeholder="Filter time (e.g. 10:30)..."
+                class="px-2 py-0.5 text-[11px] rounded border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#111624] text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 w-44"
+              />
+            </div>
+
+            <div class="w-full h-56 overflow-y-auto border border-slate-200/80 dark:border-[#1f283d] rounded-xl bg-slate-50/40 dark:bg-[#0c101a]/60">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="sticky top-0 bg-slate-100/90 dark:bg-[#151c2e] border-b border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 z-10 backdrop-blur-xs select-none">
+                  <tr>
+                    <th
+                      @click="toggleTableSort(widget, 'time')"
+                      class="py-2 px-3 font-semibold text-[11px] cursor-pointer hover:text-slate-900 dark:hover:text-white transition"
+                      title="Click to toggle time sort (newest/oldest)"
                     >
-                      {{ pt.value }}
-                    </span>
-                    <span class="text-[10px] text-slate-400 ml-1 font-normal">{{ widget.summary?.unit }}</span>
-                  </td>
-                </tr>
-                <tr v-if="!widget.points || widget.points.length === 0">
-                  <td colspan="3" class="py-8 text-center text-slate-400 text-xs">
-                    No telemetry records found for this time range.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                      <div class="flex items-center gap-1">
+                        <span>Time</span>
+                        <span v-if="(widget.tableSortBy || 'time') === 'time'" class="text-[10px] text-blue-500 font-mono">
+                          {{ (widget.tableSortOrder || 'desc') === 'asc' ? '▲' : '▼' }}
+                        </span>
+                      </div>
+                    </th>
+                    <th class="py-2 px-3 font-semibold text-[11px]">Host / Target</th>
+                    <th
+                      @click="toggleTableSort(widget, 'value')"
+                      class="py-2 px-3 font-semibold text-[11px] text-right cursor-pointer hover:text-slate-900 dark:hover:text-white transition"
+                      title="Click to sort by value (highest to lowest)"
+                    >
+                      <div class="flex items-center justify-end gap-1">
+                        <span>Value</span>
+                        <span v-if="widget.tableSortBy === 'value'" class="text-[10px] text-blue-500 font-mono">
+                          {{ (widget.tableSortOrder || 'desc') === 'asc' ? '▲' : '▼' }}
+                        </span>
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
+                  <tr
+                    v-for="(pt, pIdx) in getProcessedTablePoints(widget)"
+                    :key="pIdx"
+                    :class="[
+                      pt.value === widget.summary?.max && pt.value > (widget.summary?.avg || 0) * 1.5
+                        ? 'bg-amber-500/10 dark:bg-amber-500/15'
+                        : 'hover:bg-blue-50/30 dark:hover:bg-blue-950/20',
+                      'transition-colors'
+                    ]"
+                  >
+                    <td class="py-2 px-3 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                      {{ formatPointLocalTooltip(pt) || formatPointLocalLabel(pt, widget.timeRange) }}
+                    </td>
+                    <td class="py-2 px-3 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[130px]">
+                      {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : (pt.label || widget.title) }}
+                    </td>
+                    <td class="py-2 px-3 text-right font-semibold text-slate-900 dark:text-white text-[11px]">
+                      <span
+                        :class="[
+                          widget.sourceConfig?.colorPalette === 'blue'
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : widget.sourceConfig?.colorPalette === 'amber'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : widget.sourceConfig?.colorPalette === 'purple'
+                            ? 'text-purple-600 dark:text-purple-400'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        ]"
+                      >
+                        {{ pt.value }}
+                      </span>
+                      <span class="text-[10px] text-slate-400 ml-1 font-normal">{{ widget.summary?.unit }}</span>
+                      <span
+                        v-if="pt.value === widget.summary?.max && pt.value > (widget.summary?.avg || 0) * 1.5"
+                        class="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold ml-1.5 uppercase tracking-wider"
+                      >
+                        PEAK
+                      </span>
+                    </td>
+                  </tr>
+                  <tr v-if="!widget.points || widget.points.length === 0 || getProcessedTablePoints(widget).length === 0">
+                    <td colspan="3" class="py-8 text-center text-slate-400 text-xs">
+                      {{ widget.tableSearch ? 'No records match filter "' + widget.tableSearch + '"' : 'No telemetry records found for this time range.' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- Apache ECharts Container for Charts -->
@@ -1232,6 +1318,9 @@ onBeforeUnmount(() => {
               <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
                 <span class="text-[10px] text-slate-400 block font-medium">Peak / Maximum</span>
                 <strong class="text-slate-800 dark:text-slate-200 text-xs">{{ widget.summary?.max || 0 }} {{ widget.summary?.unit }}</strong>
+                <span v-if="widget.summary?.peakTime" class="text-[9px] text-slate-400 block font-normal mt-0.5 truncate" title="Time when peak was recorded">
+                  at {{ formatPointLocalTooltip({ timestamp: widget.summary.peakTime }) }}
+                </span>
               </div>
               <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
                 <span class="text-[10px] text-slate-400 block font-medium">Current</span>

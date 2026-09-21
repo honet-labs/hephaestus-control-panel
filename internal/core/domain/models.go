@@ -711,13 +711,14 @@ type ReportDataPoint struct {
 }
 
 type ReportWidgetSummary struct {
-	Min     float64 `json:"min"`
-	Max     float64 `json:"max"`
-	Avg     float64 `json:"avg"`
-	Current float64 `json:"current"`
-	Total   float64 `json:"total"`
-	Count   int     `json:"count"`
-	Unit    string  `json:"unit"`
+	Min      float64 `json:"min"`
+	Max      float64 `json:"max"`
+	Avg      float64 `json:"avg"`
+	Current  float64 `json:"current"`
+	Total    float64 `json:"total"`
+	Count    int     `json:"count"`
+	Unit     string  `json:"unit"`
+	PeakTime string  `json:"peakTime,omitempty"`
 }
 
 type ReportQueryDataRequest struct {

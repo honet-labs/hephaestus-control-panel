@@ -1218,6 +1218,7 @@ func (s *ReportService) calculateSummary(points []domain.ReportDataPoint, unit s
 
 	minVal := points[0].Value
 	maxVal := points[0].Value
+	peakTime := points[0].Timestamp
 	sum := 0.0
 
 	for _, p := range points {
@@ -1226,6 +1227,7 @@ func (s *ReportService) calculateSummary(points []domain.ReportDataPoint, unit s
 		}
 		if p.Value > maxVal {
 			maxVal = p.Value
+			peakTime = p.Timestamp
 		}
 		sum += p.Value
 	}
@@ -1234,13 +1236,14 @@ func (s *ReportService) calculateSummary(points []domain.ReportDataPoint, unit s
 	curVal := points[len(points)-1].Value
 
 	return domain.ReportWidgetSummary{
-		Min:     math.Round(minVal*100) / 100,
-		Max:     math.Round(maxVal*100) / 100,
-		Avg:     math.Round(avgVal*100) / 100,
-		Current: math.Round(curVal*100) / 100,
-		Total:   math.Round(sum*100) / 100,
-		Count:   len(points),
-		Unit:    unit,
+		Min:      math.Round(minVal*100) / 100,
+		Max:      math.Round(maxVal*100) / 100,
+		Avg:      math.Round(avgVal*100) / 100,
+		Current:  math.Round(curVal*100) / 100,
+		Total:    math.Round(sum*100) / 100,
+		Count:    len(points),
+		Unit:     unit,
+		PeakTime: peakTime,
 	}
 }
 
