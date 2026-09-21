@@ -669,10 +669,11 @@ type DockerSystemInfo struct {
 // ==================== VISUAL REPORTS DOMAIN ====================
 
 type VisualReportHeaderConfig struct {
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle"`
-	ShowDate bool   `json:"showDate"`
-	LogoText string `json:"logoText"`
+	Title      string `json:"title"`
+	Subtitle   string `json:"subtitle"`
+	ShowDate   bool   `json:"showDate"`
+	LogoText   string `json:"logoText"`
+	TotalPages int    `json:"totalPages,omitempty"`
 }
 
 type VisualReport struct {

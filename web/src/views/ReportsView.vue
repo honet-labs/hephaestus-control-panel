@@ -39,6 +39,7 @@ interface HeaderConfig {
   subtitle: string;
   showDate: boolean;
   logoText: string;
+  totalPages?: number;
 }
 
 interface ReportWidget {
@@ -90,6 +91,7 @@ const reports = ref<VisualReport[]>([]);
 const activeReport = ref<VisualReport | null>(null);
 const currentViewMode = ref<'list' | 'designer' | 'viewer'>('list');
 const activePage = ref<number>(1);
+const reportPageCount = ref<number>(1);
 const zoomLevel = ref<number>(100);
 const searchQuery = ref<string>('');
 const loading = ref<boolean>(false);
@@ -99,7 +101,7 @@ const notification = ref<{ text: string; type: 'success' | 'error' } | null>(nul
 const showCreateModal = ref<boolean>(false);
 const showWidgetModal = ref<boolean>(false);
 const showDeleteModal = ref<boolean>(false);
-const deletingItem = ref<{ type: 'report' | 'widget'; id: string; name: string } | null>(null);
+const deletingItem = ref<{ type: 'report' | 'widget' | 'page'; id: string; name: string } | null>(null);
 const isDeleting = ref<boolean>(false);
 const isSaving = ref<boolean>(false);
 
@@ -358,14 +360,25 @@ const fetchReports = async () => {
   }
 };
 
-const openReport = async (rep: VisualReport, mode: 'designer' | 'viewer' = 'viewer') => {
+const openReport = async (rep: VisualReport, mode: 'designer' | 'viewer' = 'viewer', targetPage?: number) => {
   loading.value = true;
   try {
     const res = await axios.get(`/api/v1/reports/${rep.id}`);
     if (res.data?.success && res.data.data) {
       activeReport.value = res.data.data;
       currentViewMode.value = mode;
-      activePage.value = 1;
+
+      const widgetPages = (activeReport.value?.widgets || []).map((w) => w.pageNumber || 1);
+      const savedPages = activeReport.value?.headerConfig?.totalPages || 1;
+      const computedMax = Math.max(1, savedPages, ...widgetPages);
+      reportPageCount.value = computedMax;
+
+      if (targetPage !== undefined) {
+        activePage.value = targetPage;
+      } else if (activePage.value > computedMax || activePage.value < 1) {
+        activePage.value = 1;
+      }
+
       // Load live/demonstration data for each widget
       await refreshAllWidgetData();
     }
@@ -540,7 +553,7 @@ const saveWidget = async () => {
     }
 
     showWidgetModal.value = false;
-    await openReport(activeReport.value, currentViewMode.value);
+    await openReport(activeReport.value, currentViewMode.value, widgetForm.value.pageNumber || activePage.value);
   } catch (err: any) {
     showNotice(err?.response?.data?.message || 'Failed to save widget', 'error');
   } finally {
@@ -561,6 +574,16 @@ const confirmDeleteWidget = (w: ReportWidget) => {
   showDeleteModal.value = true;
 };
 
+const confirmDeletePage = (p: number) => {
+  const widgetsOnPage = (activeReport.value?.widgets || []).filter((w) => (w.pageNumber || 1) === p);
+  deletingItem.value = {
+    type: 'page',
+    id: String(p),
+    name: `Page ${p}${widgetsOnPage.length > 0 ? ` (${widgetsOnPage.length} widget${widgetsOnPage.length > 1 ? 's' : ''})` : ''}`,
+  };
+  showDeleteModal.value = true;
+};
+
 const executeDelete = async () => {
   if (!deletingItem.value) return;
   isDeleting.value = true;
@@ -574,12 +597,58 @@ const executeDelete = async () => {
         currentViewMode.value = 'list';
       }
       await fetchReports();
+    } else if (deletingItem.value.type === 'page') {
+      const pageNum = parseInt(deletingItem.value.id, 10);
+      // Remove widgets on this page
+      const widgetsOnPage = (activeReport.value?.widgets || []).filter((w) => (w.pageNumber || 1) === pageNum);
+      for (const w of widgetsOnPage) {
+        try {
+          await axios.delete(`/api/v1/reports/widgets/${w.id}`);
+        } catch (e) {
+          console.warn('Failed to delete widget on page:', e);
+        }
+      }
+
+      // Re-number widgets on higher pages
+      const higherWidgets = (activeReport.value?.widgets || []).filter((w) => (w.pageNumber || 1) > pageNum);
+      for (const w of higherWidgets) {
+        try {
+          await axios.put(`/api/v1/reports/widgets/${w.id}`, {
+            ...w,
+            pageNumber: (w.pageNumber || 1) - 1,
+          });
+        } catch (e) {
+          console.warn('Failed to reindex widget page:', e);
+        }
+      }
+
+      reportPageCount.value = Math.max(1, reportPageCount.value - 1);
+      const targetPage = activePage.value >= pageNum ? Math.max(1, activePage.value - 1) : activePage.value;
+      activePage.value = targetPage;
+
+      if (activeReport.value) {
+        if (!activeReport.value.headerConfig) {
+          activeReport.value.headerConfig = {
+            title: activeReport.value.name,
+            subtitle: '',
+            showDate: true,
+            logoText: 'HEPHAESTUS',
+            totalPages: reportPageCount.value,
+          };
+        } else {
+          activeReport.value.headerConfig.totalPages = reportPageCount.value;
+        }
+        await axios.put(`/api/v1/reports/${activeReport.value.id}`, activeReport.value);
+        showDeleteModal.value = false;
+        showNotice(`Page ${pageNum} removed successfully`, 'success');
+        await openReport(activeReport.value, currentViewMode.value, targetPage);
+      }
     } else {
       await axios.delete(`/api/v1/reports/widgets/${deletingItem.value.id}`);
       showNotice('Widget removed successfully', 'success');
       showDeleteModal.value = false;
       if (activeReport.value) {
-        await openReport(activeReport.value, currentViewMode.value);
+        await openReport(activeReport.value, currentViewMode.value, activePage.value);
       }
     }
   } catch (err: any) {
@@ -593,16 +662,15 @@ const executeDelete = async () => {
 // Multi-Page Management in Document Mode
 // -----------------------------------------------------------------------------
 const maxPages = computed(() => {
-  if (!activeReport.value?.widgets || activeReport.value.widgets.length === 0) {
-    return 1;
-  }
-  const pages = activeReport.value.widgets.map((w) => w.pageNumber || 1);
-  return Math.max(1, ...pages);
+  const widgetPages = (activeReport.value?.widgets || []).map((w) => w.pageNumber || 1);
+  const savedPages = activeReport.value?.headerConfig?.totalPages || 1;
+  return Math.max(1, savedPages, reportPageCount.value, ...widgetPages);
 });
 
 const pagesList = computed(() => {
-  const list = [];
-  for (let i = 1; i <= Math.max(maxPages.value, activePage.value); i++) {
+  const list: number[] = [];
+  const count = Math.max(1, maxPages.value);
+  for (let i = 1; i <= count; i++) {
     list.push(i);
   }
   return list;
@@ -613,8 +681,31 @@ const currentPageWidgets = computed(() => {
   return activeReport.value.widgets.filter((w) => (w.pageNumber || 1) === activePage.value);
 });
 
-const addPage = () => {
-  activePage.value = maxPages.value + 1;
+const addPage = async () => {
+  const newPageNum = maxPages.value + 1;
+  reportPageCount.value = newPageNum;
+  activePage.value = newPageNum;
+
+  // Persist totalPages to activeReport
+  if (activeReport.value) {
+    if (!activeReport.value.headerConfig) {
+      activeReport.value.headerConfig = {
+        title: activeReport.value.name,
+        subtitle: '',
+        showDate: true,
+        logoText: 'HEPHAESTUS',
+        totalPages: newPageNum,
+      };
+    } else {
+      activeReport.value.headerConfig.totalPages = newPageNum;
+    }
+    try {
+      await axios.put(`/api/v1/reports/${activeReport.value.id}`, activeReport.value);
+      showNotice(`Page ${newPageNum} added`, 'success');
+    } catch (e) {
+      console.warn('Failed to persist page count:', e);
+    }
+  }
 };
 
 // -----------------------------------------------------------------------------
@@ -868,29 +959,43 @@ onMounted(async () => {
           </div>
 
           <div class="space-y-2">
-            <button
+            <div
               v-for="p in pagesList"
               :key="p"
-              @click="activePage = p"
-              :class="[
-                activePage === p
-                  ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/40 dark:bg-blue-950/20'
-                  : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300',
-                'w-full text-left p-2 rounded-lg border transition cursor-pointer relative group'
-              ]"
+              class="relative group"
             >
-              <!-- Mini Page Preview Box -->
-              <div class="aspect-3/4 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded flex flex-col justify-between p-1.5 shadow-xs">
-                <div class="h-1 bg-slate-200 dark:bg-[#1f283d] rounded w-2/3"></div>
-                <div class="space-y-0.5">
-                  <div class="h-0.5 bg-slate-200 dark:bg-[#1f283d] rounded w-full"></div>
-                  <div class="h-0.5 bg-slate-200 dark:bg-[#1f283d] rounded w-4/5"></div>
+              <button
+                @click="activePage = p"
+                :class="[
+                  activePage === p
+                    ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/40 dark:bg-blue-950/20'
+                    : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300',
+                  'w-full text-left p-2 rounded-lg border transition cursor-pointer relative'
+                ]"
+              >
+                <!-- Mini Page Preview Box -->
+                <div class="aspect-3/4 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded flex flex-col justify-between p-1.5 shadow-xs">
+                  <div class="h-1 bg-slate-200 dark:bg-[#1f283d] rounded w-2/3"></div>
+                  <div class="space-y-0.5">
+                    <div class="h-0.5 bg-slate-200 dark:bg-[#1f283d] rounded w-full"></div>
+                    <div class="h-0.5 bg-slate-200 dark:bg-[#1f283d] rounded w-4/5"></div>
+                  </div>
                 </div>
-              </div>
-              <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mt-1 block text-center">
-                Page {{ p }}
-              </span>
-            </button>
+                <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mt-1 block text-center">
+                  Page {{ p }}
+                </span>
+              </button>
+
+              <!-- Delete Page Button (if pagesList.length > 1) -->
+              <button
+                v-if="pagesList.length > 1"
+                @click.stop="confirmDeletePage(p)"
+                class="absolute top-1.5 right-1.5 p-1 bg-white dark:bg-[#111624] hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-500 rounded border border-slate-200 dark:border-[#1f283d] opacity-0 group-hover:opacity-100 transition shadow-xs cursor-pointer"
+                :title="'Delete Page ' + p"
+              >
+                <Trash2 class="w-3 h-3" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1714,7 +1819,7 @@ onMounted(async () => {
 
         <div class="space-y-1">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            Delete {{ deletingItem?.type === 'report' ? 'Report' : 'Widget' }}?
+            Delete {{ deletingItem?.type === 'report' ? 'Report' : deletingItem?.type === 'page' ? 'Page' : 'Widget' }}?
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ deletingItem?.name }}</strong>? This action cannot be undone.
