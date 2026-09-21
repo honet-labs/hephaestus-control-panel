@@ -40,7 +40,7 @@ const opensearchDsl = ref<string>(JSON.stringify({
   }
 }, null, 2));
 
-// Prometheus Metric Presets (like PandoraFMS in Gambar 2)
+// Prometheus Metric Presets
 const prometheusMetric = ref<'cpu' | 'memory' | 'disk' | 'network' | 'load' | 'custom'>('cpu');
 const prometheusCustomQuery = ref<string>('');
 const showWidgetSummary = ref<boolean>(false);
@@ -635,11 +635,11 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- PROMETHEUS METRIC PRESETS (Gambar 2 / PandoraFMS Style) -->
+      <!-- PROMETHEUS METRIC PRESETS -->
       <div v-if="sourceType === 'prometheus'" class="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
         <div class="flex items-center justify-between">
           <label class="font-semibold text-slate-700 dark:text-slate-300">
-            Select Metric Preset (Prometheus / PandoraFMS)
+            Select Metric Preset
           </label>
           <span class="text-[11px] text-slate-400">
             Target Host: <strong class="text-slate-700 dark:text-slate-300">{{ targetHost === 'all' ? 'All Monitored Hosts' : targetHost }}</strong>
@@ -968,7 +968,7 @@ onMounted(async () => {
         </svg>
       </div>
 
-      <!-- Chart Legend (Gambar 2 / PandoraFMS Style) -->
+      <!-- Chart Legend Indicator -->
       <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
         <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
         <span class="font-medium">
@@ -976,7 +976,7 @@ onMounted(async () => {
         </span>
       </div>
 
-      <!-- Pandora Style View Widget Summary Accordion -->
+      <!-- Collapsible View Widget Summary Accordion -->
       <div class="pt-3 border-t border-slate-100 dark:border-[#1b2234]">
         <button
           type="button"

@@ -793,7 +793,7 @@ const generateAreaPath = (points?: Array<{ value: number }>, width = 500, height
 };
 
 // -----------------------------------------------------------------------------
-// Download Individual Widget as PNG (Pandora Style)
+// Download Individual Widget as PNG
 // -----------------------------------------------------------------------------
 const downloadSingleWidgetPng = (widget: ReportWidget) => {
   const svgElement = document.getElementById(`widget-svg-${widget.id}`);
@@ -958,7 +958,7 @@ onMounted(async () => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 1: CATALOG LIST VIEW (PandoraFMS Image 4)                         -->
+    <!-- VIEW 1: CATALOG LIST VIEW                                             -->
     <!-- ===================================================================== -->
     <div v-if="currentViewMode === 'list'" class="space-y-4 print:hidden">
       <!-- Search and Filter Bar -->
@@ -982,7 +982,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Report Cards Grid (Pandora Card Style) -->
+      <!-- Report Cards Grid -->
       <div v-if="reports.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="rep in reports"
@@ -1055,7 +1055,7 @@ onMounted(async () => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 2: DOCUMENT CANVAS DESIGNER (PandoraFMS Image 1)                  -->
+    <!-- VIEW 2: DOCUMENT CANVAS DESIGNER                                      -->
     <!-- ===================================================================== -->
     <div v-else-if="currentViewMode === 'designer'" class="grid grid-cols-12 gap-4 items-start">
       <!-- Left Sidebar: Multi-Page Thumbnails -->
@@ -1110,7 +1110,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Center Canvas: Printable A4 Document Sheet with Pandora-Style Grid -->
+      <!-- Center Canvas: Printable A4 Document Sheet -->
       <div class="col-span-12 md:col-span-8 flex flex-col items-center">
         <!-- Canvas Toolbar -->
         <div class="w-full max-w-[820px] mb-3 flex items-center justify-between text-xs text-slate-500 print:hidden px-1">
@@ -1132,7 +1132,7 @@ onMounted(async () => {
             backgroundSize: '16px 16px',
           }"
         >
-          <!-- Pandora Style Report Header Bar -->
+          <!-- Report Header Bar -->
           <div class="border-b-2 border-slate-800 dark:border-slate-200 pb-3 flex items-end justify-between">
             <div class="flex items-center gap-2">
               <span class="text-xs font-black tracking-widest text-slate-900 dark:text-white uppercase">
@@ -1239,7 +1239,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Right Sidebar: Widget Library Palette (PandoraFMS Image 1) -->
+      <!-- Right Sidebar: Widget Library Palette -->
       <div class="col-span-12 md:col-span-2 space-y-3 print:hidden">
         <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-3 space-y-3">
           <div class="pb-2 border-b border-slate-100 dark:border-[#1b2234]">
@@ -1298,7 +1298,7 @@ onMounted(async () => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 3: INTERACTIVE METRICS GRID VIEWER (PandoraFMS Image 2)          -->
+    <!-- VIEW 3: INTERACTIVE METRICS GRID VIEWER                               -->
     <!-- ===================================================================== -->
     <div v-else-if="currentViewMode === 'viewer'" class="space-y-4">
       <!-- Viewer Header Bar -->
@@ -1325,14 +1325,14 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Grid Cards (Pandora Chart Style) -->
+      <!-- Grid Cards -->
       <div v-if="activeReport?.widgets && activeReport.widgets.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div
           v-for="widget in activeReport.widgets"
           :key="widget.id"
           class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 shadow-xs space-y-4"
         >
-          <!-- Card Header (Pandora Style) -->
+          <!-- Card Header -->
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ widget.title }}</h3>
             <div class="flex items-center gap-2 text-slate-400">
@@ -1374,7 +1374,7 @@ onMounted(async () => {
               />
             </svg>
 
-            <!-- Legend Indicator (Pandora Style) -->
+            <!-- Legend Indicator -->
             <div class="flex items-center justify-center gap-2 text-[11px] text-slate-500 mt-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
               <span>{{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : '' }}{{ widget.title }}</span>
@@ -1401,7 +1401,7 @@ onMounted(async () => {
             </table>
           </div>
 
-          <!-- Pandora Style "View Widget Summary" Accordion Toggle -->
+          <!-- "View Widget Summary" Accordion Toggle -->
           <div class="pt-2 border-t border-slate-100 dark:border-[#1b2234]">
             <button
               @click="widget.showSummary = !widget.showSummary"
