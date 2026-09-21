@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
 
@@ -257,15 +258,28 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 				Message:     fmt.Sprintf("Live data from Prometheus (%s) [%s]", promCfg.Name, promQL),
 			}, nil
 		}
-		logger.Warn("ReportService", fmt.Sprintf("Prometheus live query fallback (promql: %s): %v", promQL, err))
+		logger.Warn("ReportService", fmt.Sprintf("Prometheus live query failed (promql: %s): %v", promQL, err))
+
+		// If connected, never show fake baseline numbers that mislead the user
+		errMsg := "No data points returned for this time range and target host"
+		if err != nil {
+			errMsg = fmt.Sprintf("Query error: %v", err)
+		}
+		return &domain.ReportQueryDataResponse{
+			Title:       metricTitle,
+			SourceType:  "prometheus",
+			Points:      []domain.ReportDataPoint{},
+			Summary:     domain.ReportWidgetSummary{Unit: unit},
+			TableRows:   []map[string]any{},
+			IsConnected: true,
+			Message:     fmt.Sprintf("Prometheus: %s", errMsg),
+		}, nil
 	}
 
+	// Demonstration data only when Prometheus is not configured at all
 	points, summary := s.generateTimeSeriesData(metricTitle, timeRange, "prometheus", targetHost)
 	summary.Unit = unit
-	message := "Baseline Historical Telemetry (Prometheus server query pending)"
-	if isConnected {
-		message = fmt.Sprintf("Baseline Telemetry: %s (Prometheus host unreachable from engine container)", promQL)
-	}
+	message := "Simulated Demonstration Data (Prometheus not configured)"
 
 	tableRows := make([]map[string]any, 0, len(points))
 	for idx, pt := range points {
@@ -331,31 +345,57 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 	if isConnected {
 		livePoints, liveSummary, err := s.fetchGrafanaLive(ctx, grafanaCfg, req)
 		if err == nil && len(livePoints) > 0 {
+			tableRows := make([]map[string]any, 0, len(livePoints))
+			for idx, pt := range livePoints {
+				tableRows = append(tableRows, map[string]any{
+					"id":        idx + 1,
+					"timestamp": pt.Timestamp,
+					"source":    "GRAFANA",
+					"host":      targetHost,
+					"level":     "DATA",
+					"metric":    metricKey,
+					"value":     fmt.Sprintf("%.2f %%", pt.Value),
+					"message":   fmt.Sprintf("%s on %s: %.2f %%", metricKey, targetHost, pt.Value),
+				})
+			}
 			return &domain.ReportQueryDataResponse{
 				Title:       metricKey,
 				SourceType:  "grafana",
 				Points:      livePoints,
 				Summary:     liveSummary,
+				TableRows:   tableRows,
 				IsConnected: true,
 				Message:     fmt.Sprintf("Live data from Grafana (%s)", grafanaCfg.Name),
 			}, nil
 		}
-		logger.Warn("ReportService", fmt.Sprintf("Grafana live query fallback triggered: %v", err))
+		logger.Warn("ReportService", fmt.Sprintf("Grafana live query failed: %v", err))
+
+		// If connected, never show fake baseline numbers that mislead the user
+		errMsg := "No data points returned for this time range and target host"
+		if err != nil {
+			errMsg = fmt.Sprintf("Query error: %v", err)
+		}
+		return &domain.ReportQueryDataResponse{
+			Title:       metricKey,
+			SourceType:  "grafana",
+			Points:      []domain.ReportDataPoint{},
+			Summary:     domain.ReportWidgetSummary{Unit: "%"},
+			TableRows:   []map[string]any{},
+			IsConnected: true,
+			Message:     fmt.Sprintf("Grafana: %s", errMsg),
+		}, nil
 	}
 
-	// High-fidelity fallback generator if Grafana is unreachable or target metric is pending
+	// Demonstration data only when Grafana is not configured at all
 	points, summary := s.generateTimeSeriesData(metricKey, timeRange, "grafana", targetHost)
-	message := "Demonstration / Fallback Data (Configure Grafana Connection in Add Connections)"
-	if isConnected {
-		message = fmt.Sprintf("Simulated preview (Connected to Grafana: %s)", grafanaCfg.Name)
-	}
+	message := "Simulated Demonstration Data (Grafana not configured)"
 
 	return &domain.ReportQueryDataResponse{
 		Title:       metricKey,
 		SourceType:  "grafana",
 		Points:      points,
 		Summary:     summary,
-		IsConnected: isConnected,
+		IsConnected: false,
 		Message:     message,
 	}, nil
 }
@@ -450,11 +490,19 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 	}
 
 	if strings.Contains(aggregation, "daily") || aggregation == "day" {
-		step = "24h"
+		if timeRange == "7d" || timeRange == "30d" {
+			step = "24h"
+		} else {
+			step = "1h"
+		}
 	} else if strings.Contains(aggregation, "weekly") || aggregation == "week" {
-		step = "168h"
+		if timeRange == "30d" {
+			step = "168h"
+		} else {
+			step = "6h"
+		}
 	} else if strings.Contains(aggregation, "monthly") || aggregation == "month" {
-		step = "720h"
+		step = "24h"
 	}
 
 	labelFmt := "15:04"
@@ -486,11 +534,32 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 			if targetHost != "" && targetHost != "all" && targetHost != "localhost" && targetHost != "127.0.0.1" {
 				candidates = append(candidates, fmt.Sprintf("http://%s:%s", targetHost, port))
 			}
+			if pool, dbErr := database.GetPool(); dbErr == nil && pool != nil {
+				rows, qErr := pool.Query(ctx, "SELECT DISTINCT host FROM remote_host_configs WHERE host IS NOT NULL AND host != '' AND host != 'localhost' AND host != '127.0.0.1'")
+				if qErr == nil {
+					for rows.Next() {
+						var rHost string
+						if err := rows.Scan(&rHost); err == nil && rHost != "" {
+							candidates = append(candidates, fmt.Sprintf("http://%s:%s", rHost, port))
+						}
+					}
+					rows.Close()
+				}
+			}
+		}
+	}
+
+	var uniqueCandidates []string
+	seen := make(map[string]bool)
+	for _, c := range candidates {
+		if !seen[c] && c != "" {
+			seen[c] = true
+			uniqueCandidates = append(uniqueCandidates, c)
 		}
 	}
 
 	var lastErr error
-	for _, cand := range candidates {
+	for _, cand := range uniqueCandidates {
 		queryURL := fmt.Sprintf(
 			"%s/api/v1/query_range?query=%s&start=%d&end=%d&step=%s",
 			cand,
@@ -546,6 +615,9 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 						tsFloat, _ := valPair[0].(float64)
 						valStr, _ := valPair[1].(string)
 						valFloat, _ := strconv.ParseFloat(valStr, 64)
+						if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
+							continue
+						}
 
 						t := time.Unix(int64(tsFloat), 0)
 						points = append(points, domain.ReportDataPoint{
@@ -559,6 +631,9 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 				tsFloat, _ := firstSeries.Value[0].(float64)
 				valStr, _ := firstSeries.Value[1].(string)
 				valFloat, _ := strconv.ParseFloat(valStr, 64)
+				if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
+					continue
+				}
 				t := time.Unix(int64(tsFloat), 0)
 				points = append(points, domain.ReportDataPoint{
 					Timestamp: t.UTC().Format(time.RFC3339),
@@ -583,8 +658,6 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 
 // fetchGrafanaLive attempts to execute query against Grafana API
 func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.GrafanaConfig, req domain.ReportQueryDataRequest) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
-	endpoint := strings.TrimRight(cfg.Host, "/") + "/api/ds/query"
-
 	dsUID := cfg.DatasourceUID
 	if customUID, ok := req.SourceConfig["datasourceUid"].(string); ok && strings.TrimSpace(customUID) != "" {
 		dsUID = strings.TrimSpace(customUID)
@@ -608,25 +681,41 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 
 		hostFilter := ""
 		if targetHost != "" && targetHost != "all" {
-			hostFilter = fmt.Sprintf(`{instance=~".*%s.*"}`, targetHost)
+			hostFilter = fmt.Sprintf(`, instance=~".*%s.*"`, targetHost)
 		}
 
 		switch strings.ToLower(metric) {
 		case "cpu", "cpu load", "cpu usage":
-			expr = fmt.Sprintf("100 - (avg(rate(node_cpu_seconds_total{mode='idle'}%s[5m])) * 100)", hostFilter)
+			expr = fmt.Sprintf(`100 - (avg(rate(node_cpu_seconds_total{mode="idle"%s}[5m])) * 100)`, hostFilter)
 		case "memory", "memory used":
-			expr = fmt.Sprintf("(1 - (node_memory_MemAvailable_bytes%s / node_memory_MemTotal_bytes%s)) * 100", hostFilter, hostFilter)
+			if hostFilter != "" {
+				expr = fmt.Sprintf(`(1 - (node_memory_MemAvailable_bytes{instance=~".*%s.*"} / node_memory_MemTotal_bytes{instance=~".*%s.*"})) * 100`, targetHost, targetHost)
+			} else {
+				expr = `(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100`
+			}
 		case "disk", "disk storage":
-			expr = fmt.Sprintf("(1 - (node_filesystem_avail_bytes{mountpoint='/'}%s / node_filesystem_size_bytes{mountpoint='/'}%s)) * 100", hostFilter, hostFilter)
+			if hostFilter != "" {
+				expr = fmt.Sprintf(`(1 - (node_filesystem_free_bytes{mountpoint="/"%s} / node_filesystem_size_bytes{mountpoint="/"%s})) * 100`, hostFilter, hostFilter)
+			} else {
+				expr = `(1 - (node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100`
+			}
 		case "network", "network throughput", "network traffic":
-			expr = fmt.Sprintf("sum(rate(node_network_receive_bytes_total%s[5m])) * 8", hostFilter)
+			if hostFilter != "" {
+				expr = fmt.Sprintf(`sum(rate(node_network_receive_bytes_total{instance=~".*%s.*"}[5m])) * 8`, targetHost)
+			} else {
+				expr = `sum(rate(node_network_receive_bytes_total[5m])) * 8`
+			}
 		case "load", "system load":
-			expr = fmt.Sprintf("node_load1%s", hostFilter)
+			if hostFilter != "" {
+				expr = fmt.Sprintf(`node_load1{instance=~".*%s.*"}`, targetHost)
+			} else {
+				expr = `node_load1`
+			}
 		default:
 			if req.MetricKey != "" {
 				expr = req.MetricKey
 			} else {
-				expr = fmt.Sprintf("100 - (avg(rate(node_cpu_seconds_total{mode='idle'}%s[5m])) * 100)", hostFilter)
+				expr = fmt.Sprintf(`100 - (avg(rate(node_cpu_seconds_total{mode="idle"%s}[5m])) * 100)`, hostFilter)
 			}
 		}
 	}
@@ -638,8 +727,10 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 				"datasource": map[string]string{
 					"uid": dsUID,
 				},
-				"expr":   expr,
-				"format": "time_series",
+				"expr":    expr,
+				"format":  "time_series",
+				"instant": false,
+				"range":   true,
 			},
 		},
 		"from": s.parseTimeRangeStart(req.TimeRange),
@@ -647,79 +738,135 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 	}
 
 	bodyBytes, _ := json.Marshal(queryPayload)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return nil, domain.ReportWidgetSummary{}, err
-	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	if cfg.Token != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.Token))
-	}
-
-	resp, err := s.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, domain.ReportWidgetSummary{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, domain.ReportWidgetSummary{}, fmt.Errorf("grafana status %d", resp.StatusCode)
-	}
-
-	var parsed struct {
-		Results map[string]struct {
-			Frames []struct {
-				Schema struct {
-					Fields []struct {
-						Name string `json:"name"`
-						Type string `json:"type"`
-					} `json:"fields"`
-				} `json:"schema"`
-				Data struct {
-					Values [][]interface{} `json:"values"`
-				} `json:"data"`
-			} `json:"frames"`
-		} `json:"results"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, domain.ReportWidgetSummary{}, err
-	}
-
-	var points []domain.ReportDataPoint
-	for _, res := range parsed.Results {
-		for _, frame := range res.Frames {
-			if len(frame.Data.Values) >= 2 {
-				timeVals := frame.Data.Values[0]
-				numVals := frame.Data.Values[1]
-
-				for i := 0; i < len(timeVals) && i < len(numVals); i++ {
-					tFloat, _ := timeVals[i].(float64)
-					vFloat, _ := numVals[i].(float64)
-
-					tSec := int64(tFloat / 1000)
-					if tFloat < 1e11 {
-						tSec = int64(tFloat)
+	grafanaHosts := []string{strings.TrimRight(cfg.Host, "/")}
+	if u, parseErr := url.Parse(cfg.Host); parseErr == nil {
+		h := u.Hostname()
+		port := u.Port()
+		if port == "" {
+			port = "3000"
+		}
+		if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "" {
+			grafanaHosts = append(grafanaHosts,
+				fmt.Sprintf("http://host.docker.internal:%s", port),
+				fmt.Sprintf("http://172.17.0.1:%s", port),
+			)
+			if targetHost != "" && targetHost != "all" && targetHost != "localhost" && targetHost != "127.0.0.1" {
+				grafanaHosts = append(grafanaHosts, fmt.Sprintf("http://%s:%s", targetHost, port))
+			}
+			if pool, dbErr := database.GetPool(); dbErr == nil && pool != nil {
+				rows, qErr := pool.Query(ctx, "SELECT DISTINCT host FROM remote_host_configs WHERE host IS NOT NULL AND host != '' AND host != 'localhost' AND host != '127.0.0.1'")
+				if qErr == nil {
+					for rows.Next() {
+						var rHost string
+						if err := rows.Scan(&rHost); err == nil && rHost != "" {
+							grafanaHosts = append(grafanaHosts, fmt.Sprintf("http://%s:%s", rHost, port))
+						}
 					}
-					tm := time.Unix(tSec, 0)
-
-					points = append(points, domain.ReportDataPoint{
-						Timestamp: tm.UTC().Format(time.RFC3339),
-						Label:     tm.UTC().Format("15:04"),
-						Value:     math.Round(vFloat*100) / 100,
-					})
+					rows.Close()
 				}
 			}
 		}
 	}
 
-	if len(points) == 0 {
-		return nil, domain.ReportWidgetSummary{}, fmt.Errorf("no time-series points returned from Grafana")
+	var uniqueHosts []string
+	seen := make(map[string]bool)
+	for _, h := range grafanaHosts {
+		if !seen[h] && h != "" {
+			seen[h] = true
+			uniqueHosts = append(uniqueHosts, h)
+		}
 	}
 
-	summary := s.calculateSummary(points, "%")
-	return points, summary, nil
+	var lastErr error
+	for _, baseHost := range uniqueHosts {
+		endpoint := baseHost + "/api/ds/query"
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+		if cfg.Token != "" {
+			httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.Token))
+		}
+
+		resp, err := s.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("grafana returned status %d from %s", resp.StatusCode, endpoint)
+			continue
+		}
+
+		var parsed struct {
+			Results map[string]struct {
+				Frames []struct {
+					Schema struct {
+						Fields []struct {
+							Name string `json:"name"`
+							Type string `json:"type"`
+						} `json:"fields"`
+					} `json:"schema"`
+					Data struct {
+						Values [][]interface{} `json:"values"`
+					} `json:"data"`
+				} `json:"frames"`
+			} `json:"results"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+			resp.Body.Close()
+			lastErr = err
+			continue
+		}
+		resp.Body.Close()
+
+		var points []domain.ReportDataPoint
+		for _, res := range parsed.Results {
+			for _, frame := range res.Frames {
+				if len(frame.Data.Values) >= 2 {
+					timeVals := frame.Data.Values[0]
+					numVals := frame.Data.Values[1]
+
+					for i := 0; i < len(timeVals) && i < len(numVals); i++ {
+						tFloat, _ := timeVals[i].(float64)
+						vFloat, _ := numVals[i].(float64)
+						if math.IsNaN(vFloat) || math.IsInf(vFloat, 0) {
+							continue
+						}
+
+						tSec := int64(tFloat / 1000)
+						if tFloat < 1e11 {
+							tSec = int64(tFloat)
+						}
+						tm := time.Unix(tSec, 0)
+
+						points = append(points, domain.ReportDataPoint{
+							Timestamp: tm.UTC().Format(time.RFC3339),
+							Label:     tm.UTC().Format("15:04"),
+							Value:     math.Round(vFloat*100) / 100,
+						})
+					}
+				}
+			}
+		}
+
+		if len(points) > 0 {
+			summary := s.calculateSummary(points, "%")
+			return points, summary, nil
+		}
+	}
+
+	if lastErr != nil {
+		return nil, domain.ReportWidgetSummary{}, lastErr
+	}
+	return nil, domain.ReportWidgetSummary{}, fmt.Errorf("no time-series points returned from Grafana")
 }
 
 // fetchOpenSearchLive attempts to query OpenSearch index aggregation

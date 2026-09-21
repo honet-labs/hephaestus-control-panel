@@ -136,7 +136,7 @@ const widgetForm = ref<{
   module: 'CPU Load',
   chartType: 'line',
   timeRange: '24h',
-  aggregation: 'daily',
+  aggregation: 'actual',
   widthPercent: 50,
   colorPalette: 'emerald',
 });
@@ -344,7 +344,7 @@ const openAddPanelModal = (presetMetric: string = 'cpu') => {
     module: 'CPU Load',
     chartType: 'line',
     timeRange: '24h',
-    aggregation: 'daily',
+    aggregation: 'actual',
     widthPercent: 50,
     colorPalette: 'emerald',
   };
@@ -368,7 +368,7 @@ const openEditPanelModal = (widget: ReportWidget) => {
     module: widget.sourceConfig?.module || 'CPU Load',
     chartType: widget.chartType || 'line',
     timeRange: widget.timeRange || '24h',
-    aggregation: widget.sourceConfig?.aggregation || 'daily',
+    aggregation: widget.sourceConfig?.aggregation || 'actual',
     widthPercent: widget.widthPercent || 50,
     colorPalette: widget.sourceConfig?.colorPalette || 'emerald',
   };
@@ -398,7 +398,7 @@ const savePanel = async () => {
         query: widgetForm.value.query,
         indexPattern: widgetForm.value.indexPattern,
         module: widgetForm.value.module,
-        aggregation: widgetForm.value.aggregation,
+        aggregation: widgetForm.value.aggregation || 'actual',
         colorPalette: widgetForm.value.colorPalette,
       },
       timeRange: widgetForm.value.timeRange,
@@ -448,18 +448,17 @@ const confirmDeleteWidget = (widget: ReportWidget) => {
 const executeDelete = async () => {
   if (!itemToDelete.value) return;
   isDeleting.value = true;
+  const item = itemToDelete.value;
   try {
-    if (itemToDelete.value.type === 'report') {
-      await axios.delete(`/api/v1/reports/${itemToDelete.value.id}`);
+    if (item.type === 'report') {
+      await axios.delete(`/api/v1/reports/${item.id}`);
       showNotice('Report deleted successfully', 'success');
       showDeleteModal.value = false;
-      if (activeReport.value?.id === itemToDelete.value.id) {
-        currentView.value = 'list';
-        activeReport.value = null;
-      }
+      activeReport.value = null;
+      currentView.value = 'list';
       await fetchReports();
     } else {
-      await axios.delete(`/api/v1/reports/widgets/${itemToDelete.value.id}`);
+      await axios.delete(`/api/v1/reports/widgets/${item.id}`);
       showNotice('Panel deleted successfully', 'success');
       showDeleteModal.value = false;
       if (activeReport.value) {
@@ -494,7 +493,7 @@ const refreshAllPanels = async () => {
           targetHost: widget.sourceConfig?.targetHost || 'all',
           indexPattern: widget.sourceConfig?.indexPattern || '*',
           module: widget.sourceConfig?.module || 'CPU Load',
-          aggregation: widget.sourceConfig?.aggregation || 'daily',
+          aggregation: widget.sourceConfig?.aggregation || 'actual',
         },
         timeRange: widget.timeRange || '24h',
         metricKey: widget.title,
@@ -610,6 +609,24 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   const splitLineColor = isDark ? '#1e293b' : '#f1f5f9';
 
   const points = widget.points || [];
+  if (points.length === 0) {
+    const emptyOption = {
+      title: {
+        text: widget.statusMessage || 'No Telemetry Records Found',
+        left: 'center',
+        top: 'middle',
+        textStyle: {
+          color: isDark ? '#64748b' : '#94a3b8',
+          fontSize: 12,
+          fontWeight: 'normal',
+        },
+      },
+      series: [],
+    };
+    chart.setOption(emptyOption, true);
+    return;
+  }
+
   const labels = points.map((p) => formatPointLocalLabel(p, widget.timeRange));
   const values = points.map((p) => p.value);
 
@@ -738,7 +755,7 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
         type: 'category',
         data: labels,
         axisLine: { lineStyle: { color: splitLineColor } },
-        axisLabel: { color: textColor, fontSize: 10 },
+        axisLabel: { color: textColor, fontSize: 10, interval: 'auto' },
       },
       yAxis: {
         type: 'value',
@@ -750,7 +767,7 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
           name: widget.title,
           type: 'line',
           smooth: true,
-          showSymbol: true,
+          showSymbol: points.length <= 25,
           symbolSize: 6,
           lineStyle: {
             color: primaryColor,
@@ -1606,7 +1623,7 @@ onBeforeUnmount(() => {
                 class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
               >
                 <option value="actual">Actual (Raw Data)</option>
-                <option value="daily">Average (Daily)</option>
+                <option value="daily">Hourly Average (24h) / Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
               </select>
