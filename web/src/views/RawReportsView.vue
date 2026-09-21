@@ -63,6 +63,8 @@ interface ReportWidget {
     unit: string;
   };
   showSummary?: boolean;
+  statusMessage?: string;
+  isLive?: boolean;
 }
 
 interface RawReport {
@@ -502,6 +504,13 @@ const refreshAllPanels = async () => {
       if (res.data?.success && res.data.data) {
         widget.points = res.data.data.points || [];
         widget.summary = res.data.data.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' };
+        widget.statusMessage = res.data.data.message || '';
+        widget.isLive = Boolean(
+          res.data.data.isConnected &&
+            !res.data.data.message?.includes('Simulated') &&
+            !res.data.data.message?.includes('Fallback') &&
+            !res.data.data.message?.includes('Demonstration')
+        );
       }
     } catch (err) {
       console.warn(`Query failed for widget ${widget.id}:`, err);
@@ -1090,6 +1099,20 @@ onBeforeUnmount(() => {
             <p class="text-[10px] text-slate-400">
               Time Range: Last {{ widget.timeRange }} &bull; {{ widget.sourceConfig?.aggregation || 'Daily' }} &bull; {{ widget.sourceType.toUpperCase() }}
               <span v-if="widget.chartType === 'table'" class="ml-1 text-slate-500">&bull; Table View</span>
+              <span
+                v-if="widget.statusMessage?.includes('Simulated') || widget.statusMessage?.includes('Fallback') || widget.statusMessage?.includes('Demonstration')"
+                class="ml-1 text-amber-500 font-medium"
+                :title="widget.statusMessage"
+              >
+                &bull; Simulated Preview
+              </span>
+              <span
+                v-else-if="widget.isLive"
+                class="ml-1 text-emerald-500 font-medium"
+                :title="widget.statusMessage"
+              >
+                &bull; Live Connected
+              </span>
             </p>
           </div>
 
