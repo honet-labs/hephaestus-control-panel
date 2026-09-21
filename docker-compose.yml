@@ -30,6 +30,8 @@ services:
         REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
     container_name: hephaestus-engine
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "5000"
     environment:
