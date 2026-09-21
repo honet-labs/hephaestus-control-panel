@@ -224,8 +224,15 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 		timeRange = "24h"
 	}
 
+	aggregation := ""
+	if agg, ok := req.SourceConfig["aggregation"].(string); ok {
+		aggregation = strings.ToLower(agg)
+	} else if intv, ok := req.SourceConfig["interval"].(string); ok {
+		aggregation = strings.ToLower(intv)
+	}
+
 	if isConnected && s.promService != nil {
-		livePoints, liveSummary, err := s.fetchPrometheusLive(ctx, promCfg, promQL, timeRange)
+		livePoints, liveSummary, err := s.fetchPrometheusLive(ctx, promCfg, promQL, timeRange, aggregation)
 		if err == nil && len(livePoints) > 0 {
 			liveSummary.Unit = unit
 			tableRows := make([]map[string]any, 0, len(livePoints))
@@ -401,7 +408,7 @@ func (s *ReportService) queryOpenSearchData(ctx context.Context, req domain.Repo
 }
 
 // fetchPrometheusLive executes range query against Prometheus server
-func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.PrometheusConfig, promQL, timeRange string) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
+func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.PrometheusConfig, promQL, timeRange, aggregation string) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
 	baseURL := strings.TrimSuffix(cfg.ReloadURL, "/-/reload")
 
 	now := time.Now()
@@ -427,6 +434,14 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 	default:
 		startTime = now.Add(-24 * time.Hour)
 		step = "15m"
+	}
+
+	if strings.Contains(aggregation, "daily") || aggregation == "day" {
+		step = "24h"
+	} else if strings.Contains(aggregation, "weekly") || aggregation == "week" {
+		step = "168h"
+	} else if strings.Contains(aggregation, "monthly") || aggregation == "month" {
+		step = "720h"
 	}
 
 	queryURL := fmt.Sprintf(
@@ -469,6 +484,15 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 		return nil, domain.ReportWidgetSummary{}, err
 	}
 
+	labelFmt := "15:04"
+	if timeRange == "7d" || timeRange == "30d" || step == "24h" || step == "168h" || step == "720h" {
+		if step == "24h" || step == "168h" || step == "720h" {
+			labelFmt = "01/02"
+		} else {
+			labelFmt = "01/02 15:04"
+		}
+	}
+
 	var points []domain.ReportDataPoint
 	if len(pResp.Data.Result) > 0 {
 		firstSeries := pResp.Data.Result[0]
@@ -482,7 +506,7 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 					t := time.Unix(int64(tsFloat), 0)
 					points = append(points, domain.ReportDataPoint{
 						Timestamp: t.Format(time.RFC3339),
-						Label:     t.Format("15:04"),
+						Label:     t.Format(labelFmt),
 						Value:     math.Round(valFloat*100) / 100,
 					})
 				}
@@ -494,7 +518,7 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 			t := time.Unix(int64(tsFloat), 0)
 			points = append(points, domain.ReportDataPoint{
 				Timestamp: t.Format(time.RFC3339),
-				Label:     t.Format("15:04"),
+				Label:     t.Format(labelFmt),
 				Value:     math.Round(valFloat*100) / 100,
 			})
 		}

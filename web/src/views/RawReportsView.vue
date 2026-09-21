@@ -1,131 +1,173 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import axios from 'axios';
 import {
-  RefreshCw,
+  Plus,
+  Trash2,
+  Edit3,
   Download,
-  FileText,
-  Database,
-  Activity,
+  RefreshCw,
   Search,
-  ChevronLeft,
-  ChevronRight,
+  X,
+  TrendingUp,
+  Activity,
+  Database,
   ChevronDown,
   ChevronUp,
-  Layers,
-  Image as ImageIcon,
-  Cpu,
+  LineChart,
+  PieChart,
+  BarChart2,
   Server,
   HardDrive,
-  Gauge,
-  Terminal,
-  Code2,
+  Cpu,
+  ArrowLeft,
+  Calendar,
 } from 'lucide-vue-next';
 
 // -----------------------------------------------------------------------------
-// State & Filters
+// Interfaces
 // -----------------------------------------------------------------------------
-const sourceType = ref<'opensearch' | 'prometheus'>('opensearch');
-const indexPattern = ref('*');
-const targetHost = ref('all');
-const queryString = ref('*');
-const timeRange = ref('24h');
-const chartType = ref<'line' | 'area' | 'bar'>('line');
+interface ReportWidget {
+  id: string;
+  reportId: string;
+  title: string;
+  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut';
+  sourceType: 'prometheus' | 'grafana' | 'opensearch';
+  sourceConfig: {
+    targetHost?: string;
+    metricPreset?: string;
+    query?: string;
+    indexPattern?: string;
+    module?: string;
+    aggregation?: string;
+    colorPalette?: string;
+  };
+  timeRange: string;
+  theme: string;
+  widthPercent: number; // 50 or 100
+  sortOrder: number;
+  createdAt: string;
 
-// OpenSearch Query Mode & Query DSL
-const opensearchQueryMode = ref<'dsl' | 'lucene'>('dsl');
-const opensearchDsl = ref<string>(JSON.stringify({
-  query: {
-    match_all: {}
-  }
-}, null, 2));
+  // Runtime telemetry cache
+  loading?: boolean;
+  points?: Array<{ timestamp: string; label: string; value: number }>;
+  summary?: {
+    min: number;
+    max: number;
+    avg: number;
+    current: number;
+    total: number;
+    count: number;
+    unit: string;
+  };
+  showSummary?: boolean;
+}
 
-// Prometheus Metric Presets
-const prometheusMetric = ref<'cpu' | 'memory' | 'disk' | 'network' | 'load' | 'custom'>('cpu');
-const prometheusCustomQuery = ref<string>('');
-const showWidgetSummary = ref<boolean>(false);
+interface RawReport {
+  id: string;
+  name: string;
+  description: string;
+  mode: string;
+  widgets?: ReportWidget[];
+  createdAt: string;
+  updatedAt: string;
+}
 
-const prometheusMetricOptions = [
-  { key: 'cpu', label: 'CPU Usage (%)', icon: Cpu, desc: 'Average CPU utilization across cores' },
-  { key: 'memory', label: 'Memory Used (%)', icon: Server, desc: 'RAM usage percentage' },
-  { key: 'disk', label: 'Disk Storage (%)', icon: HardDrive, desc: 'Root filesystem usage' },
-  { key: 'network', label: 'Network Traffic', icon: Activity, desc: 'Incoming network throughput (bps)' },
-  { key: 'load', label: 'System Load (1m)', icon: Gauge, desc: '1-minute system load average' },
-  { key: 'custom', label: 'Custom PromQL', icon: Terminal, desc: 'Raw Prometheus expression' },
-];
-
-const openSearchDslTemplates = [
-  {
-    name: 'Match All',
-    code: JSON.stringify({
-      query: { match_all: {} }
-    }, null, 2),
-  },
-  {
-    name: 'Status >= 500',
-    code: JSON.stringify({
-      query: {
-        range: {
-          status: { gte: 500 }
-        }
-      }
-    }, null, 2),
-  },
-  {
-    name: 'Error Logs',
-    code: JSON.stringify({
-      query: {
-        match: {
-          level: 'ERROR'
-        }
-      }
-    }, null, 2),
-  },
-  {
-    name: 'Search Message',
-    code: JSON.stringify({
-      query: {
-        match_phrase: {
-          message: 'error'
-        }
-      }
-    }, null, 2),
-  },
-  {
-    name: 'Term Filter',
-    code: JSON.stringify({
-      query: {
-        term: {
-          "host.keyword": "server-horus"
-        }
-      }
-    }, null, 2),
-  },
-];
-
+// -----------------------------------------------------------------------------
+// State Management
+// -----------------------------------------------------------------------------
+const reports = ref<RawReport[]>([]);
+const activeReport = ref<RawReport | null>(null);
+const currentView = ref<'list' | 'detail'>('list');
+const searchQuery = ref('');
 const loading = ref(false);
 const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
 
-// Data Results
-const reportData = ref<{
+// Discovered Metadata
+const discoveredHosts = ref<Array<{ id: string; name: string; host: string }>>([]);
+const discoveredIndices = ref<string[]>([]);
+
+// Modals
+const showCreateModal = ref(false);
+const showWidgetModal = ref(false);
+const showDeleteModal = ref(false);
+const isSaving = ref(false);
+const isDeleting = ref(false);
+
+// Forms
+const reportForm = ref({
+  id: '',
+  name: '',
+  description: '',
+});
+
+const editingWidgetId = ref<string | null>(null);
+const widgetForm = ref<{
   title: string;
-  points: Array<{ timestamp: string; label: string; value: number }>;
-  summary: { min: number; max: number; avg: number; current: number; unit: string };
-  tableRows: Array<Record<string, any>>;
-  message: string;
+  sourceType: 'prometheus' | 'grafana' | 'opensearch';
+  targetHost: string;
+  metricPreset: string;
+  query: string;
+  indexPattern: string;
+  module: string;
+  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut';
+  timeRange: string;
+  aggregation: string;
+  widthPercent: number;
+  colorPalette: string;
+}>({
+  title: 'CPU Usage',
+  sourceType: 'prometheus',
+  targetHost: 'all',
+  metricPreset: 'cpu',
+  query: '',
+  indexPattern: '*',
+  module: 'CPU Load',
+  chartType: 'line',
+  timeRange: '24h',
+  aggregation: 'daily',
+  widthPercent: 50,
+  colorPalette: 'emerald',
+});
+
+// Delete target
+const itemToDelete = ref<{
+  type: 'report' | 'widget';
+  id: string;
+  name: string;
 } | null>(null);
 
-// Discovered Metadata
-const discoveredIndices = ref<string[]>([]);
-const discoveredHosts = ref<Array<{ id: string; name: string; host: string }>>([]);
+// -----------------------------------------------------------------------------
+// ECharts Instance Management
+// -----------------------------------------------------------------------------
+const chartRefs = new Map<string, HTMLElement>();
+const chartInstances = new Map<string, any>();
 
-// Table Search & Pagination
-const tableSearch = ref('');
-const currentPage = ref(1);
-const itemsPerPage = ref(10);
+const setChartRef = (id: string, el: any) => {
+  if (el) {
+    chartRefs.set(id, el as HTMLElement);
+  } else {
+    chartRefs.delete(id);
+    const existing = chartInstances.get(id);
+    if (existing) {
+      existing.dispose();
+      chartInstances.delete(id);
+    }
+  }
+};
+
+const getECharts = async () => {
+  if ((window as any).echarts) return (window as any).echarts;
+  try {
+    const mod = await import('echarts');
+    return mod.default || mod;
+  } catch (e) {
+    return (window as any).echarts || null;
+  }
+};
 
 // -----------------------------------------------------------------------------
-// Auto-Dismiss Notification
+// Notification Auto-Dismiss (3s)
 // -----------------------------------------------------------------------------
 const showNotice = (text: string, type: 'success' | 'error' = 'success') => {
   notification.value = { text, type };
@@ -135,18 +177,15 @@ const showNotice = (text: string, type: 'success' | 'error' = 'success') => {
 };
 
 // -----------------------------------------------------------------------------
-// Fetch Cluster & Server Metadata
+// Load Metadata (Remote Hosts & OpenSearch Indices)
 // -----------------------------------------------------------------------------
 const loadMetadata = async () => {
   try {
-    const [indicesRes, hostsRes] = await Promise.allSettled([
-      axios.get('/api/v1/opensearch/indices'),
+    const [hostsRes, indicesRes] = await Promise.allSettled([
       axios.get('/api/v1/remote-host'),
+      axios.get('/api/v1/opensearch/indices'),
     ]);
 
-    if (indicesRes.status === 'fulfilled' && indicesRes.value.data?.success && Array.isArray(indicesRes.value.data.data)) {
-      discoveredIndices.value = indicesRes.value.data.data.map((idx: any) => idx.index || idx.name).filter(Boolean);
-    }
     if (hostsRes.status === 'fulfilled' && hostsRes.value.data?.success && Array.isArray(hostsRes.value.data.data)) {
       discoveredHosts.value = hostsRes.value.data.data.map((h: any) => ({
         id: h.id || h.host,
@@ -154,306 +193,504 @@ const loadMetadata = async () => {
         host: h.host || h.ip,
       }));
     }
-  } catch (err) {
-    console.warn('Failed to load discovery metadata:', err);
+
+    if (indicesRes.status === 'fulfilled' && indicesRes.value.data?.success && Array.isArray(indicesRes.value.data.data)) {
+      discoveredIndices.value = indicesRes.value.data.data.map((idx: any) => idx.index || idx.name).filter(Boolean);
+    }
+  } catch (e) {
+    console.warn('Metadata discovery error:', e);
   }
 };
 
 // -----------------------------------------------------------------------------
-// Generate & Query Report Data
+// Fetch & Manage Reports
 // -----------------------------------------------------------------------------
-const generateReport = async (isManual = false) => {
+const fetchReports = async () => {
   loading.value = true;
-  currentPage.value = 1;
   try {
-    let finalQuery = '';
-    let metricTitle = '';
-
-    if (sourceType.value === 'opensearch') {
-      if (opensearchQueryMode.value === 'dsl') {
-        finalQuery = opensearchDsl.value;
-      } else {
-        finalQuery = queryString.value;
-      }
-      metricTitle = `OpenSearch Logs (${indexPattern.value})`;
-    } else {
-      const opt = prometheusMetricOptions.find((m) => m.key === prometheusMetric.value);
-      metricTitle = opt ? opt.label : 'Prometheus Metric';
-      if (prometheusMetric.value === 'custom') {
-        finalQuery = prometheusCustomQuery.value;
-      } else {
-        finalQuery = ''; // Backend builds exact PromQL for preset + targetHost
-      }
-    }
-
-    const payload = {
-      sourceType: sourceType.value,
-      sourceConfig: {
-        query: finalQuery,
-        queryDsl: sourceType.value === 'opensearch' && opensearchQueryMode.value === 'dsl' ? opensearchDsl.value : undefined,
-        metric: prometheusMetric.value,
-        indexPattern: indexPattern.value,
-        targetHost: targetHost.value,
-      },
-      timeRange: timeRange.value,
-      metricKey: metricTitle,
-    };
-
-    const res = await axios.post('/api/v1/reports/query-data', payload);
-    if (res.data?.success && res.data.data) {
-      reportData.value = {
-        title: res.data.data.title || 'Raw Telemetry',
-        points: res.data.data.points || [],
-        summary: res.data.data.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' },
-        tableRows: res.data.data.tableRows || [],
-        message: res.data.data.message || '',
-      };
-      if (isManual) {
-        showNotice('Report data updated', 'success');
-      }
-    } else {
-      showNotice(res.data?.error || 'Failed to fetch report data', 'error');
+    const res = await axios.get('/api/v1/reports');
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      reports.value = res.data.data;
     }
   } catch (err: any) {
-    showNotice(err?.response?.data?.error || err?.message || 'Failed to fetch report data', 'error');
+    showNotice(err?.response?.data?.message || 'Failed to fetch reports', 'error');
   } finally {
     loading.value = false;
   }
 };
 
-// -----------------------------------------------------------------------------
-// Filter Chips
-// -----------------------------------------------------------------------------
-const setQueryChip = (snippet: string) => {
-  if (snippet === '*' || snippet === 'clear') {
-    queryString.value = snippet === 'clear' ? '' : '*';
-  } else {
-    if (!queryString.value || queryString.value === '*') {
-      queryString.value = snippet;
-    } else {
-      queryString.value += ` AND (${snippet})`;
+const openReport = async (report: RawReport) => {
+  loading.value = true;
+  try {
+    const res = await axios.get(`/api/v1/reports/${report.id}`);
+    if (res.data?.success && res.data.data) {
+      activeReport.value = res.data.data;
+      currentView.value = 'detail';
+      await nextTick();
+      await refreshAllPanels();
     }
+  } catch (err: any) {
+    showNotice(err?.response?.data?.message || 'Failed to open report', 'error');
+  } finally {
+    loading.value = false;
+  }
+};
+
+const openCreateReportModal = () => {
+  reportForm.value = {
+    id: '',
+    name: '',
+    description: '',
+  };
+  showCreateModal.value = true;
+};
+
+const saveReport = async () => {
+  if (!reportForm.value.name.trim()) {
+    showNotice('Report name is required', 'error');
+    return;
+  }
+
+  isSaving.value = true;
+  try {
+    const payload = {
+      name: reportForm.value.name.trim(),
+      description: reportForm.value.description.trim(),
+      mode: 'grid',
+      headerConfig: {
+        title: reportForm.value.name.trim(),
+        subtitle: reportForm.value.description.trim(),
+        showDate: true,
+        logoText: 'HEPHAESTUS',
+      },
+    };
+
+    const res = await axios.post('/api/v1/reports', payload);
+    if (res.data?.success && res.data.data) {
+      showNotice('Report created successfully', 'success');
+      showCreateModal.value = false;
+      await fetchReports();
+      await openReport(res.data.data);
+    }
+  } catch (err: any) {
+    showNotice(err?.response?.data?.message || 'Failed to create report', 'error');
+  } finally {
+    isSaving.value = false;
   }
 };
 
 // -----------------------------------------------------------------------------
-// Filtered Table Rows
+// Add / Edit Panel Widget
 // -----------------------------------------------------------------------------
-const displayRows = computed(() => {
-  if (!reportData.value) return [];
-  // If tableRows exist (e.g. from OpenSearch)
-  if (reportData.value.tableRows && reportData.value.tableRows.length > 0) {
-    return reportData.value.tableRows;
-  }
-  // Otherwise map data points to rows
-  return reportData.value.points.map((pt, idx) => ({
-    id: idx + 1,
-    timestamp: pt.timestamp || pt.label,
-    metric: reportData.value?.title || 'Value',
-    value: `${pt.value} ${reportData.value?.summary?.unit || ''}`.trim(),
-    source: sourceType.value.toUpperCase(),
-  }));
-});
+const openAddPanelModal = (presetMetric: string = 'cpu') => {
+  editingWidgetId.value = null;
+  widgetForm.value = {
+    title: presetMetric === 'cpu' ? 'CPU Usage' : presetMetric === 'memory' ? 'Memory Used' : 'System Metrics',
+    sourceType: 'prometheus',
+    targetHost: discoveredHosts.value[0]?.host || 'all',
+    metricPreset: presetMetric,
+    query: '',
+    indexPattern: discoveredIndices.value[0] || '*',
+    module: 'CPU Load',
+    chartType: 'line',
+    timeRange: '24h',
+    aggregation: 'daily',
+    widthPercent: 50,
+    colorPalette: 'emerald',
+  };
+  showWidgetModal.value = true;
+};
 
-const filteredRows = computed(() => {
-  if (!tableSearch.value.trim()) return displayRows.value;
-  const q = tableSearch.value.toLowerCase();
-  return displayRows.value.filter((row) =>
-    Object.values(row).some((val) => String(val).toLowerCase().includes(q))
+const openEditPanelModal = (widget: ReportWidget) => {
+  editingWidgetId.value = widget.id;
+  widgetForm.value = {
+    title: widget.title,
+    sourceType: widget.sourceType || 'prometheus',
+    targetHost: widget.sourceConfig?.targetHost || 'all',
+    metricPreset: widget.sourceConfig?.metricPreset || 'cpu',
+    query: widget.sourceConfig?.query || '',
+    indexPattern: widget.sourceConfig?.indexPattern || '*',
+    module: widget.sourceConfig?.module || 'CPU Load',
+    chartType: widget.chartType || 'line',
+    timeRange: widget.timeRange || '24h',
+    aggregation: widget.sourceConfig?.aggregation || 'daily',
+    widthPercent: widget.widthPercent || 50,
+    colorPalette: widget.sourceConfig?.colorPalette || 'emerald',
+  };
+  showWidgetModal.value = true;
+};
+
+const savePanel = async () => {
+  if (!activeReport.value) return;
+  if (!widgetForm.value.title.trim()) {
+    showNotice('Panel title is required', 'error');
+    return;
+  }
+
+  isSaving.value = true;
+  try {
+    const payload = {
+      reportId: activeReport.value.id,
+      pageNumber: 1,
+      title: widgetForm.value.title.trim(),
+      chartType: widgetForm.value.chartType,
+      sourceType: widgetForm.value.sourceType,
+      sourceConfig: {
+        targetHost: widgetForm.value.targetHost,
+        metricPreset: widgetForm.value.metricPreset,
+        query: widgetForm.value.query,
+        indexPattern: widgetForm.value.indexPattern,
+        module: widgetForm.value.module,
+        aggregation: widgetForm.value.aggregation,
+        colorPalette: widgetForm.value.colorPalette,
+      },
+      timeRange: widgetForm.value.timeRange,
+      theme: 'default',
+      widthPercent: widgetForm.value.widthPercent,
+      sortOrder: (activeReport.value.widgets?.length || 0) + 1,
+    };
+
+    if (editingWidgetId.value) {
+      await axios.put(`/api/v1/reports/widgets/${editingWidgetId.value}`, payload);
+      showNotice('Panel updated successfully', 'success');
+    } else {
+      await axios.post('/api/v1/reports/widgets', payload);
+      showNotice('Panel added successfully', 'success');
+    }
+
+    showWidgetModal.value = false;
+    await openReport(activeReport.value);
+  } catch (err: any) {
+    showNotice(err?.response?.data?.message || 'Failed to save panel', 'error');
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+// -----------------------------------------------------------------------------
+// Delete Handlers (HCP Standard Confirmation Modal)
+// -----------------------------------------------------------------------------
+const confirmDeleteReport = (report: RawReport) => {
+  itemToDelete.value = {
+    type: 'report',
+    id: report.id,
+    name: report.name,
+  };
+  showDeleteModal.value = true;
+};
+
+const confirmDeleteWidget = (widget: ReportWidget) => {
+  itemToDelete.value = {
+    type: 'widget',
+    id: widget.id,
+    name: widget.title,
+  };
+  showDeleteModal.value = true;
+};
+
+const executeDelete = async () => {
+  if (!itemToDelete.value) return;
+  isDeleting.value = true;
+  try {
+    if (itemToDelete.value.type === 'report') {
+      await axios.delete(`/api/v1/reports/${itemToDelete.value.id}`);
+      showNotice('Report deleted successfully', 'success');
+      showDeleteModal.value = false;
+      if (activeReport.value?.id === itemToDelete.value.id) {
+        currentView.value = 'list';
+        activeReport.value = null;
+      }
+      await fetchReports();
+    } else {
+      await axios.delete(`/api/v1/reports/widgets/${itemToDelete.value.id}`);
+      showNotice('Panel deleted successfully', 'success');
+      showDeleteModal.value = false;
+      if (activeReport.value) {
+        await openReport(activeReport.value);
+      }
+    }
+  } catch (err: any) {
+    showNotice(err?.response?.data?.message || 'Failed to delete item', 'error');
+  } finally {
+    isDeleting.value = false;
+  }
+};
+
+// -----------------------------------------------------------------------------
+// Query Panel Data & Render with Apache ECharts
+// -----------------------------------------------------------------------------
+const refreshAllPanels = async () => {
+  if (!activeReport.value?.widgets || activeReport.value.widgets.length === 0) return;
+
+  const echartsLib = await getECharts();
+
+  const promises = activeReport.value.widgets.map(async (widget) => {
+    widget.loading = true;
+    try {
+      const payload = {
+        sourceType: widget.sourceType,
+        sourceConfig: {
+          query: widget.sourceConfig?.query || '',
+          metric: widget.sourceConfig?.metricPreset || 'cpu',
+          targetHost: widget.sourceConfig?.targetHost || 'all',
+          indexPattern: widget.sourceConfig?.indexPattern || '*',
+          module: widget.sourceConfig?.module || 'CPU Load',
+          aggregation: widget.sourceConfig?.aggregation || 'daily',
+        },
+        timeRange: widget.timeRange || '24h',
+        metricKey: widget.title,
+      };
+
+      const res = await axios.post('/api/v1/reports/query-data', payload);
+      if (res.data?.success && res.data.data) {
+        widget.points = res.data.data.points || [];
+        widget.summary = res.data.data.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' };
+      }
+    } catch (err) {
+      console.warn(`Query failed for widget ${widget.id}:`, err);
+    } finally {
+      widget.loading = false;
+    }
+  });
+
+  await Promise.all(promises);
+  await nextTick();
+
+  // Render ECharts on each card
+  if (echartsLib && activeReport.value?.widgets) {
+    for (const widget of activeReport.value.widgets) {
+      renderEChart(widget, echartsLib);
+    }
+  }
+};
+
+const renderEChart = (widget: ReportWidget, echartsLib: any) => {
+  const dom = chartRefs.get(widget.id);
+  if (!dom || !echartsLib) return;
+
+  let chart = chartInstances.get(widget.id);
+  if (!chart) {
+    chart = echartsLib.init(dom);
+    chartInstances.set(widget.id, chart);
+  }
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const palette = widget.sourceConfig?.colorPalette || 'emerald';
+
+  let primaryColor = '#10b981'; // emerald
+  let gradientStop = 'rgba(16, 185, 129, 0.25)';
+
+  if (palette === 'blue') {
+    primaryColor = '#3b82f6';
+    gradientStop = 'rgba(59, 130, 246, 0.25)';
+  } else if (palette === 'amber') {
+    primaryColor = '#f59e0b';
+    gradientStop = 'rgba(245, 158, 11, 0.25)';
+  } else if (palette === 'purple') {
+    primaryColor = '#8b5cf6';
+    gradientStop = 'rgba(139, 92, 246, 0.25)';
+  }
+
+  const textColor = isDark ? '#94a3b8' : '#64748b';
+  const splitLineColor = isDark ? '#1e293b' : '#f1f5f9';
+
+  const points = widget.points || [];
+  const labels = points.map((p) => p.label || p.timestamp);
+  const values = points.map((p) => p.value);
+
+  let option: any = {};
+
+  if (widget.chartType === 'pie' || widget.chartType === 'donut') {
+    const pieData = points.slice(0, 6).map((p, idx) => ({
+      name: p.label || `Point ${idx + 1}`,
+      value: p.value,
+    }));
+
+    option = {
+      tooltip: {
+        trigger: 'item',
+        formatter: `{b}: {c} ${widget.summary?.unit || ''} ({d}%)`,
+      },
+      legend: {
+        bottom: '0%',
+        left: 'center',
+        textStyle: { color: textColor, fontSize: 11 },
+      },
+      series: [
+        {
+          name: widget.title,
+          type: 'pie',
+          radius: widget.chartType === 'donut' ? ['45%', '70%'] : '70%',
+          avoidLabelOverlap: false,
+          itemStyle: {
+            borderRadius: 6,
+            borderColor: isDark ? '#111624' : '#ffffff',
+            borderWidth: 2,
+          },
+          label: {
+            show: false,
+            position: 'center',
+          },
+          emphasis: {
+            label: {
+              show: true,
+              fontSize: 14,
+              fontWeight: 'bold',
+              color: isDark ? '#ffffff' : '#0f172a',
+            },
+          },
+          data: pieData.length ? pieData : [{ name: 'No Data', value: 0 }],
+        },
+      ],
+    };
+  } else if (widget.chartType === 'bar') {
+    option = {
+      tooltip: {
+        trigger: 'axis',
+        formatter: `{b}<br/><b>{c} ${widget.summary?.unit || ''}</b>`,
+      },
+      grid: {
+        left: 45,
+        right: 15,
+        top: 25,
+        bottom: 30,
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLine: { lineStyle: { color: splitLineColor } },
+        axisLabel: { color: textColor, fontSize: 10 },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: textColor, fontSize: 10 },
+        splitLine: { lineStyle: { color: splitLineColor } },
+      },
+      series: [
+        {
+          name: widget.title,
+          type: 'bar',
+          barMaxWidth: 24,
+          itemStyle: {
+            color: primaryColor,
+            borderRadius: [4, 4, 0, 0],
+          },
+          data: values,
+        },
+      ],
+    };
+  } else {
+    // line or area
+    const isArea = widget.chartType === 'area';
+    option = {
+      tooltip: {
+        trigger: 'axis',
+        formatter: `{b}<br/><b>{c} ${widget.summary?.unit || ''}</b>`,
+      },
+      grid: {
+        left: 45,
+        right: 15,
+        top: 25,
+        bottom: 30,
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLine: { lineStyle: { color: splitLineColor } },
+        axisLabel: { color: textColor, fontSize: 10 },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: textColor, fontSize: 10 },
+        splitLine: { lineStyle: { color: splitLineColor } },
+      },
+      series: [
+        {
+          name: widget.title,
+          type: 'line',
+          smooth: true,
+          showSymbol: true,
+          symbolSize: 6,
+          lineStyle: {
+            color: primaryColor,
+            width: 2.5,
+          },
+          itemStyle: {
+            color: primaryColor,
+          },
+          areaStyle: isArea
+            ? {
+                color: new echartsLib.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: gradientStop },
+                  { offset: 1, color: 'rgba(0, 0, 0, 0)' },
+                ]),
+              }
+            : undefined,
+          data: values,
+        },
+      ],
+    };
+  }
+
+  chart.setOption(option, true);
+};
+
+// -----------------------------------------------------------------------------
+// Download Panel Chart as PNG
+// -----------------------------------------------------------------------------
+const downloadPanelPng = (widget: ReportWidget) => {
+  const chart = chartInstances.get(widget.id);
+  if (!chart) {
+    showNotice('Chart instance not ready for export', 'error');
+    return;
+  }
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const dataUrl = chart.getDataURL({
+    type: 'png',
+    pixelRatio: 2,
+    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+  });
+
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = `${widget.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}.png`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showNotice('Chart PNG downloaded successfully', 'success');
+};
+
+// -----------------------------------------------------------------------------
+// Filtered Reports Search
+// -----------------------------------------------------------------------------
+const filteredReports = computed(() => {
+  if (!searchQuery.value.trim()) return reports.value;
+  const q = searchQuery.value.toLowerCase();
+  return reports.value.filter(
+    (r) => r.name.toLowerCase().includes(q) || (r.description && r.description.toLowerCase().includes(q))
   );
 });
 
-const paginatedRows = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage.value;
-  return filteredRows.value.slice(start, start + itemsPerPage.value);
-});
-
-const totalPages = computed(() => {
-  return Math.ceil(filteredRows.value.length / itemsPerPage.value) || 1;
-});
-
-// -----------------------------------------------------------------------------
-// EXPORT FORMATS: CSV, TXT, JSON, PNG
-// -----------------------------------------------------------------------------
-
-// 1. Download CSV
-const exportCsv = () => {
-  const data = filteredRows.value;
-  if (!data || data.length === 0) {
-    showNotice('No data available to export', 'error');
-    return;
-  }
-
-  const headers = Object.keys(data[0]);
-  const rows = [headers.join(',')];
-
-  data.forEach((row) => {
-    const values = headers.map((h) => {
-      const val = row[h] !== undefined && row[h] !== null ? String(row[h]) : '';
-      return `"${val.replace(/"/g, '""')}"`;
-    });
-    rows.push(values.join(','));
+// Resize handler
+const onWindowResize = () => {
+  chartInstances.forEach((chart) => {
+    chart.resize();
   });
-
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `raw-report-${sourceType.value}-${Date.now()}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  showNotice('CSV report downloaded', 'success');
-};
-
-// 2. Download TXT (Log / Metrics Dump)
-const exportTxt = () => {
-  const data = filteredRows.value;
-  if (!data || data.length === 0) {
-    showNotice('No data available to export', 'error');
-    return;
-  }
-
-  const lines = [
-    `HEPHAESTUS CONTROL PANEL - RAW DATA REPORT`,
-    `Generated At: ${new Date().toISOString()}`,
-    `Data Source: ${sourceType.value.toUpperCase()}`,
-    `Query / Target: ${queryString.value}`,
-    `Total Records: ${data.length}`,
-    `------------------------------------------------------------------------------`,
-  ];
-
-  data.forEach((row, i) => {
-    if (row.timestamp && row.message) {
-      lines.push(`[${row.timestamp}] [${row.level || 'INFO'}] ${row.message}`);
-    } else {
-      lines.push(`[#${i + 1}] ${JSON.stringify(row)}`);
-    }
-  });
-
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `raw-report-${sourceType.value}-${Date.now()}.txt`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  showNotice('TXT report downloaded', 'success');
-};
-
-// 3. Download JSON
-const exportJson = () => {
-  const payload = {
-    metadata: {
-      generatedAt: new Date().toISOString(),
-      sourceType: sourceType.value,
-      timeRange: timeRange.value,
-      query: queryString.value,
-      summary: reportData.value?.summary,
-      totalCount: filteredRows.value.length,
-    },
-    data: filteredRows.value,
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `raw-report-${sourceType.value}-${Date.now()}.json`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  showNotice('JSON report downloaded', 'success');
-};
-
-// 4. Download Chart as PNG
-const downloadChartPng = () => {
-  const svgElement = document.getElementById('raw-report-chart-svg');
-  if (!svgElement) {
-    showNotice('Chart SVG not found', 'error');
-    return;
-  }
-
-  const svgData = new XMLSerializer().serializeToString(svgElement);
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  const img = new Image();
-
-  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(svgBlob);
-
-  img.onload = () => {
-    const width = 1000;
-    const height = 400;
-    canvas.width = width;
-    canvas.height = height;
-
-    if (ctx) {
-      // Dark/light background fill
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw title
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.fillText(
-        `Hephaestus Control Panel - ${reportData.value?.title || 'Telemetry Chart'} (${sourceType.value.toUpperCase()})`,
-        30,
-        30
-      );
-
-      ctx.drawImage(img, 20, 40, width - 40, height - 60);
-
-      const pngUrl = canvas.toDataURL('image/png');
-      const downloadLink = document.createElement('a');
-      downloadLink.href = pngUrl;
-      downloadLink.download = `chart-${sourceType.value}-${Date.now()}.png`;
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
-      showNotice('Chart PNG downloaded', 'success');
-    }
-    URL.revokeObjectURL(url);
-  };
-
-  img.src = url;
-};
-
-// -----------------------------------------------------------------------------
-// SVG Path Helpers
-// -----------------------------------------------------------------------------
-const generateSvgPath = (points?: Array<{ value: number }>, width = 800, height = 220): string => {
-  if (!points || points.length === 0) return '';
-  const min = Math.min(...points.map((p) => p.value));
-  const max = Math.max(...points.map((p) => p.value));
-  const range = max - min || 1;
-  const paddingY = 30;
-  const usableH = height - paddingY * 2;
-
-  return points
-    .map((p, i) => {
-      const x = (i / (points.length - 1 || 1)) * (width - 60) + 30;
-      const normalized = (p.value - min) / range;
-      const y = height - paddingY - normalized * usableH;
-      return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
-};
-
-const generateAreaPath = (points?: Array<{ value: number }>, width = 800, height = 220): string => {
-  const line = generateSvgPath(points, width, height);
-  if (!line) return '';
-  const paddingY = 30;
-  return `${line} L ${width - 30},${height - paddingY} L 30,${height - paddingY} Z`;
 };
 
 onMounted(async () => {
+  window.addEventListener('resize', onWindowResize);
   await loadMetadata();
-  await generateReport(false);
+  await fetchReports();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize);
+  chartInstances.forEach((chart) => {
+    chart.dispose();
+  });
+  chartInstances.clear();
 });
 </script>
 
@@ -466,667 +703,670 @@ onMounted(async () => {
         notification.type === 'success'
           ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
           : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300',
-        'p-3 rounded-xl border text-xs font-medium flex items-center justify-between shadow-sm animate-in fade-in'
+        'p-3 rounded-xl border text-xs font-medium flex items-center justify-between shadow-xs animate-in fade-in'
       ]"
     >
       <span>{{ notification.text }}</span>
       <button @click="notification = null" class="cursor-pointer hover:opacity-75">
-        &times;
+        <X class="w-3.5 h-3.5" />
       </button>
     </div>
 
-    <!-- Header (Strictly complies with AGENTS.md: No icon in H1) -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-          Raw Data Report
-        </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Generate, filter, and export raw logs and telemetry to CSV, TXT, JSON, and PNG charts.
-        </p>
-      </div>
-
-      <div class="flex items-center gap-2 shrink-0 flex-wrap">
-        <button
-          @click="generateReport(true)"
-          :disabled="loading"
-          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#151c2e] dark:hover:bg-[#1d273e] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-        >
-          <RefreshCw :class="['w-3.5 h-3.5 text-slate-500', loading ? 'animate-spin' : '']" />
-          <span>{{ loading ? 'Generating...' : 'Refresh' }}</span>
-        </button>
-
-        <button
-          @click="exportCsv"
-          :disabled="!displayRows.length"
-          class="px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:border-slate-400 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-          title="Export CSV spreadsheet"
-        >
-          <Download class="w-3.5 h-3.5 text-slate-400" />
-          <span>CSV</span>
-        </button>
-
-        <button
-          @click="exportTxt"
-          :disabled="!displayRows.length"
-          class="px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:border-slate-400 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-          title="Export plain text logs"
-        >
-          <FileText class="w-3.5 h-3.5 text-slate-400" />
-          <span>TXT</span>
-        </button>
-
-        <button
-          @click="exportJson"
-          :disabled="!displayRows.length"
-          class="px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:border-slate-400 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-          title="Export structured JSON"
-        >
-          <Layers class="w-3.5 h-3.5 text-slate-400" />
-          <span>JSON</span>
-        </button>
-
-        <button
-          @click="downloadChartPng"
-          :disabled="!reportData?.points?.length"
-          class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-          title="Download rendered chart as PNG image"
-        >
-          <ImageIcon class="w-3.5 h-3.5" />
-          <span>Download PNG</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Query Configuration Card -->
-    <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 space-y-4 shadow-sm">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-        <!-- Data Source -->
-        <div class="space-y-1.5">
-          <label class="font-semibold text-slate-700 dark:text-slate-300">Data Source</label>
-          <div class="grid grid-cols-2 gap-2">
-            <label
-              :class="[
-                sourceType === 'opensearch'
-                  ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
-                  : 'border-slate-200 dark:border-[#1f283d]',
-                'flex items-center gap-2 p-2 rounded-xl border cursor-pointer font-medium transition'
-              ]"
-            >
-              <input type="radio" value="opensearch" v-model="sourceType" class="hidden" />
-              <Database class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              <span>OpenSearch</span>
-            </label>
-
-            <label
-              :class="[
-                sourceType === 'prometheus'
-                  ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
-                  : 'border-slate-200 dark:border-[#1f283d]',
-                'flex items-center gap-2 p-2 rounded-xl border cursor-pointer font-medium transition'
-              ]"
-            >
-              <input type="radio" value="prometheus" v-model="sourceType" class="hidden" />
-              <Activity class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              <span>Prometheus</span>
-            </label>
-          </div>
+    <!-- ===================================================================== -->
+    <!-- VIEW 1: CATALOG LIST VIEW                                             -->
+    <!-- ===================================================================== -->
+    <template v-if="currentView === 'list'">
+      <!-- Standard HCP Header (Strictly complies with AGENTS.md: No icon in H1) -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
+        <div>
+          <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Raw Data Report
+          </h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Create, manage, and monitor operational telemetry reports with Prometheus, Grafana, and OpenSearch.
+          </p>
         </div>
-
-        <!-- Target (Index or Host) -->
-        <div class="space-y-1.5">
-          <label class="font-semibold text-slate-700 dark:text-slate-300">
-            {{ sourceType === 'opensearch' ? 'Index Pattern' : 'Target Host' }}
-          </label>
-          <template v-if="sourceType === 'opensearch'">
-            <select
-              v-if="discoveredIndices.length > 0"
-              v-model="indexPattern"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            >
-              <option value="*">* (All Indices)</option>
-              <option v-for="idx in discoveredIndices" :key="idx" :value="idx">{{ idx }}</option>
-            </select>
-            <input
-              v-else
-              v-model="indexPattern"
-              type="text"
-              placeholder="e.g. * or logs-*"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            />
-          </template>
-          <template v-else>
-            <select
-              v-model="targetHost"
-              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-            >
-              <option value="all">All Monitored Hosts</option>
-              <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
-                {{ h.name }} ({{ h.host }})
-              </option>
-            </select>
-          </template>
-        </div>
-
-        <!-- Time Range -->
-        <div class="space-y-1.5">
-          <label class="font-semibold text-slate-700 dark:text-slate-300">Time Range</label>
-          <select
-            v-model="timeRange"
-            class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-          >
-            <option value="1h">Last 1 Hour</option>
-            <option value="6h">Last 6 Hours</option>
-            <option value="24h">Last 24 Hours</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-          </select>
-        </div>
-
-        <!-- Chart Type -->
-        <div class="space-y-1.5">
-          <label class="font-semibold text-slate-700 dark:text-slate-300">Visualization Type</label>
-          <select
-            v-model="chartType"
-            class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-          >
-            <option value="line">Line Trend Chart</option>
-            <option value="area">Filled Area Chart</option>
-            <option value="bar">Bar / Histogram</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- PROMETHEUS METRIC PRESETS -->
-      <div v-if="sourceType === 'prometheus'" class="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
-        <div class="flex items-center justify-between">
-          <label class="font-semibold text-slate-700 dark:text-slate-300">
-            Select Metric Preset
-          </label>
-          <span class="text-[11px] text-slate-400">
-            Target Host: <strong class="text-slate-700 dark:text-slate-300">{{ targetHost === 'all' ? 'All Monitored Hosts' : targetHost }}</strong>
-          </span>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+        <div class="flex items-center gap-2 shrink-0">
           <button
-            v-for="opt in prometheusMetricOptions"
-            :key="opt.key"
-            type="button"
-            @click="prometheusMetric = opt.key; generateReport(true);"
-            :class="[
-              prometheusMetric === opt.key
-                ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-[#95CCDD] font-semibold ring-1 ring-blue-500/30'
-                : 'border-slate-200 dark:border-[#1f283d] hover:border-slate-300 dark:hover:border-[#2b3752] text-slate-700 dark:text-slate-300',
-              'p-2.5 rounded-xl border transition text-left flex flex-col justify-between cursor-pointer shadow-xs'
-            ]"
+            @click="openCreateReportModal"
+            class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
           >
-            <div class="flex items-center gap-1.5">
-              <component :is="opt.icon" class="w-3.5 h-3.5 text-slate-400" />
-              <span class="text-xs font-bold leading-tight">{{ opt.label }}</span>
-            </div>
-            <p class="text-[10px] text-slate-400 mt-1 line-clamp-1">{{ opt.desc }}</p>
+            <Plus class="w-3.5 h-3.5" />
+            <span>Create Report</span>
           </button>
         </div>
-
-        <!-- If Custom PromQL is chosen -->
-        <div v-if="prometheusMetric === 'custom'" class="pt-2 space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Custom PromQL Expression</label>
-            <div class="flex items-center gap-1.5">
-              <button
-                type="button"
-                @click="prometheusCustomQuery = '100 - (avg(rate(node_cpu_seconds_total{mode=\'idle\'}[5m])) * 100)'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                CPU %
-              </button>
-              <button
-                type="button"
-                @click="prometheusCustomQuery = '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                RAM %
-              </button>
-              <button
-                type="button"
-                @click="prometheusCustomQuery = 'node_load1'"
-                class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-              >
-                Load
-              </button>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <input
-              v-model="prometheusCustomQuery"
-              type="text"
-              placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
-              class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
-              @keyup.enter="generateReport(true)"
-            />
-            <button
-              @click="generateReport(true)"
-              :disabled="loading"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs shrink-0 disabled:opacity-50"
-            >
-              Run PromQL
-            </button>
-          </div>
-        </div>
       </div>
 
-      <!-- OPENSEARCH QUERY DSL & LUCENE -->
-      <div v-else class="space-y-3 pt-2 border-t border-slate-100 dark:border-[#1b2234] text-xs">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-3">
-            <label class="font-semibold text-slate-700 dark:text-slate-300">
-              OpenSearch Query Method
-            </label>
-            <!-- Mode Toggle -->
-            <div class="flex items-center p-0.5 bg-slate-100 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-[11px]">
-              <button
-                type="button"
-                @click="opensearchQueryMode = 'dsl'"
-                :class="[
-                  opensearchQueryMode === 'dsl'
-                    ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] shadow-xs font-semibold'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
-                  'px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1.5'
-                ]"
-              >
-                <Code2 class="w-3.5 h-3.5" />
-                <span>Query DSL (JSON)</span>
-              </button>
-              <button
-                type="button"
-                @click="opensearchQueryMode = 'lucene'"
-                :class="[
-                  opensearchQueryMode === 'lucene'
-                    ? 'bg-white dark:bg-[#1a2336] text-blue-600 dark:text-[#95CCDD] shadow-xs font-semibold'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300',
-                  'px-2.5 py-1 rounded-md transition cursor-pointer'
-                ]"
-              >
-                <span>Lucene String</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- DSL Quick Templates -->
-          <div v-if="opensearchQueryMode === 'dsl'" class="flex items-center gap-1.5 flex-wrap">
-            <span class="text-[10px] text-slate-400">DSL Templates:</span>
-            <button
-              v-for="t in openSearchDslTemplates"
-              :key="t.name"
-              type="button"
-              @click="opensearchDsl = t.code; generateReport(true);"
-              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] text-slate-600 dark:text-slate-300 font-medium transition cursor-pointer"
-            >
-              {{ t.name }}
-            </button>
-          </div>
-
-          <!-- Lucene Quick Chips -->
-          <div v-else class="flex items-center gap-1.5 flex-wrap">
-            <button
-              type="button"
-              @click="setQueryChip('*')"
-              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-            >
-              All (*)
-            </button>
-            <button
-              type="button"
-              @click="setQueryChip('status:>=500')"
-              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-            >
-              status:>=500
-            </button>
-            <button
-              type="button"
-              @click="setQueryChip('level:ERROR')"
-              class="px-2 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
-            >
-              level:ERROR
-            </button>
-          </div>
-        </div>
-
-        <!-- Query DSL JSON Editor -->
-        <div v-if="opensearchQueryMode === 'dsl'" class="space-y-2">
-          <textarea
-            v-model="opensearchDsl"
-            rows="6"
-            placeholder='{ "query": { "match_all": {} } }'
-            class="w-full p-3 font-mono text-xs bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 leading-relaxed"
-          ></textarea>
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] text-slate-400">
-              Native OpenSearch Query DSL with support for bool, match, term, range filters and aggregations.
-            </span>
-            <button
-              @click="generateReport(true)"
-              :disabled="loading"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs disabled:opacity-50"
-            >
-              Run Query DSL
-            </button>
-          </div>
-        </div>
-
-        <!-- Lucene String Input -->
-        <div v-else class="flex items-center gap-2">
+      <!-- Search and Filter Bar -->
+      <div class="flex items-center justify-between gap-4 bg-white dark:bg-[#111624] p-3 rounded-xl border border-slate-200 dark:border-[#1f283d]">
+        <div class="relative flex-1 max-w-sm">
+          <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            v-model="queryString"
+            v-model="searchQuery"
             type="text"
-            placeholder="e.g. status:>=500 OR level:ERROR, service:nginx"
-            class="flex-1 px-3 py-2 font-mono text-[11px] bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
-            @keyup.enter="generateReport(true)"
+            placeholder="Search report titles..."
+            class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-800 dark:text-slate-200"
           />
-          <button
-            @click="generateReport(true)"
-            :disabled="loading"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition cursor-pointer text-xs shrink-0 disabled:opacity-50"
-          >
-            Run Query
-          </button>
         </div>
-      </div>
-    </div>
-
-    <!-- Telemetry Summary Cards -->
-    <div v-if="reportData" class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-4 space-y-1 shadow-xs">
-        <span class="text-[11px] text-slate-400 font-medium">Total Data Points</span>
-        <div class="text-xl font-bold text-slate-900 dark:text-white">
-          {{ reportData.points?.length || 0 }}
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-4 space-y-1 shadow-xs">
-        <span class="text-[11px] text-slate-400 font-medium">Average Value</span>
-        <div class="text-xl font-bold text-slate-900 dark:text-white">
-          {{ reportData.summary?.avg || 0 }} <span class="text-xs font-normal text-slate-400">{{ reportData.summary?.unit }}</span>
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-4 space-y-1 shadow-xs">
-        <span class="text-[11px] text-slate-400 font-medium">Peak / Max</span>
-        <div class="text-xl font-bold text-slate-900 dark:text-white">
-          {{ reportData.summary?.max || 0 }} <span class="text-xs font-normal text-slate-400">{{ reportData.summary?.unit }}</span>
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-4 space-y-1 shadow-xs">
-        <span class="text-[11px] text-slate-400 font-medium">Minimum Value</span>
-        <div class="text-xl font-bold text-slate-900 dark:text-white">
-          {{ reportData.summary?.min || 0 }} <span class="text-xs font-normal text-slate-400">{{ reportData.summary?.unit }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Chart Visualization & Download PNG -->
-    <div v-if="reportData && reportData.points?.length" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 space-y-4 shadow-sm">
-      <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-        <div>
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            {{ reportData.title }}
-          </h3>
-          <p class="text-[11px] text-slate-400 font-mono">
-            {{ reportData.message }}
-          </p>
-        </div>
-
         <button
-          @click="downloadChartPng"
-          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222e47] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 transition flex items-center gap-1.5 cursor-pointer"
+          @click="fetchReports"
+          :disabled="loading"
+          class="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-200 dark:border-[#1f283d] rounded-lg hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer"
+          title="Refresh"
         >
-          <ImageIcon class="w-3.5 h-3.5 text-slate-400" />
-          <span>Download PNG</span>
+          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
         </button>
       </div>
 
-      <!-- Rendered SVG Chart -->
-      <div class="w-full bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-xl p-4 overflow-hidden">
-        <svg
-          id="raw-report-chart-svg"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 800 220"
-          class="w-full h-56"
-        >
-          <defs>
-            <linearGradient id="rawGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.45" />
-              <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
-            </linearGradient>
-          </defs>
-
-          <!-- Grid Lines -->
-          <line x1="30" y1="30" x2="770" y2="30" stroke="#334155" stroke-dasharray="3,3" stroke-width="0.5" />
-          <line x1="30" y1="95" x2="770" y2="95" stroke="#334155" stroke-dasharray="3,3" stroke-width="0.5" />
-          <line x1="30" y1="160" x2="770" y2="160" stroke="#334155" stroke-dasharray="3,3" stroke-width="0.5" />
-          <line x1="30" y1="190" x2="770" y2="190" stroke="#475569" stroke-width="1" />
-
-          <!-- Filled Area -->
-          <path
-            v-if="chartType === 'area' || chartType === 'line'"
-            :d="generateAreaPath(reportData.points, 800, 220)"
-            fill="url(#rawGradient)"
-          />
-
-          <!-- Line Path -->
-          <path
-            v-if="chartType === 'line' || chartType === 'area'"
-            :d="generateSvgPath(reportData.points, 800, 220)"
-            fill="none"
-            stroke="#3b82f6"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-
-          <!-- Bar Columns (if Bar chart chosen) -->
-          <template v-if="chartType === 'bar'">
-            <rect
-              v-for="(p, i) in reportData.points"
-              :key="i"
-              :x="(i / (reportData.points.length || 1)) * 740 + 35"
-              :y="190 - ((p.value - (reportData.summary?.min || 0)) / ((reportData.summary?.max - reportData.summary?.min) || 1)) * 140"
-              :width="Math.max(6, 700 / (reportData.points.length * 1.8))"
-              :height="Math.max(4, ((p.value - (reportData.summary?.min || 0)) / ((reportData.summary?.max - reportData.summary?.min) || 1)) * 140)"
-              rx="2"
-              fill="#3b82f6"
-              opacity="0.85"
-            />
-          </template>
-
-          <!-- Data Points & Labels -->
-          <template v-if="chartType !== 'bar'">
-            <circle
-              v-for="(p, i) in reportData.points"
-              :key="i"
-              :cx="(i / (reportData.points.length - 1 || 1)) * 740 + 30"
-              :cy="190 - ((p.value - (reportData.summary?.min || 0)) / ((reportData.summary?.max - reportData.summary?.min) || 1)) * 140"
-              r="3.5"
-              fill="#ffffff"
-              stroke="#2563eb"
-              stroke-width="2"
-            />
-          </template>
-
-          <!-- X-Axis Labels -->
-          <text
-            v-for="(p, i) in reportData.points.filter((_, idx) => idx % Math.max(1, Math.floor(reportData.points.length / 8)) === 0)"
-            :key="'lbl-' + i"
-            :x="(reportData.points.indexOf(p) / (reportData.points.length - 1 || 1)) * 740 + 30"
-            y="208"
-            font-size="9"
-            fill="#94a3b8"
-            text-anchor="middle"
-          >
-            {{ p.label }}
-          </text>
-        </svg>
-      </div>
-
-      <!-- Chart Legend Indicator -->
-      <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
-        <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
-        <span class="font-medium">
-          {{ (discoveredHosts.find(h => h.host === targetHost)?.name || targetHost) }} &bull; {{ reportData.title }}
-        </span>
-      </div>
-
-      <!-- Collapsible View Widget Summary Accordion -->
-      <div class="pt-3 border-t border-slate-100 dark:border-[#1b2234]">
-        <button
-          type="button"
-          @click="showWidgetSummary = !showWidgetSummary"
-          class="text-xs font-semibold text-blue-600 dark:text-[#95CCDD] hover:text-blue-500 flex items-center gap-1 cursor-pointer"
-        >
-          <component :is="showWidgetSummary ? ChevronUp : ChevronDown" class="w-3.5 h-3.5" />
-          <span>View Widget Summary</span>
-        </button>
-
+      <!-- Report Cards Grid -->
+      <div v-if="filteredReports.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
-          v-if="showWidgetSummary"
-          class="mt-3 p-3 bg-slate-50 dark:bg-[#0c101a] rounded-xl border border-slate-200 dark:border-[#1f283d] grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs"
+          v-for="rep in filteredReports"
+          :key="rep.id"
+          class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 hover:border-blue-300 dark:hover:border-blue-900/60 transition shadow-xs hover:shadow-sm flex flex-col justify-between group"
         >
-          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
-            <span class="text-[10px] text-slate-400 block font-medium">Minimum</span>
-            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.min || 0 }} {{ reportData.summary?.unit }}</strong>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-[#95CCDD] flex items-center justify-center">
+                <TrendingUp class="w-4 h-4 text-slate-600 dark:text-slate-300" />
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                {{ rep.widgets?.length || 0 }} Panel(s)
+              </span>
+            </div>
+
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-[#95CCDD] transition">
+                {{ rep.name }}
+              </h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                {{ rep.description || 'Operational telemetry report monitoring.' }}
+              </p>
+            </div>
           </div>
-          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
-            <span class="text-[10px] text-slate-400 block font-medium">Average</span>
-            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.avg || 0 }} {{ reportData.summary?.unit }}</strong>
+
+          <div class="pt-4 border-t border-slate-100 dark:border-[#1b2234] mt-4 flex items-center justify-between text-xs text-slate-400">
+            <span class="text-[11px]">
+              Created: {{ new Date(rep.createdAt).toLocaleDateString() }}
+            </span>
+            <div class="flex items-center gap-2">
+              <button
+                @click="openReport(rep)"
+                class="px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-[#95CCDD] hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition cursor-pointer"
+              >
+                Open Report &rarr;
+              </button>
+              <button
+                @click="confirmDeleteReport(rep)"
+                class="p-1 text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                title="Delete Report"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
-            <span class="text-[10px] text-slate-400 block font-medium">Peak / Maximum</span>
-            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.max || 0 }} {{ reportData.summary?.unit }}</strong>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-else class="text-center py-16 bg-white dark:bg-[#111624] border border-dashed border-slate-300 dark:border-[#1f283d] rounded-2xl space-y-3">
+        <Activity class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">No Reports Created Yet</h3>
+        <p class="text-xs text-slate-500 max-w-sm mx-auto">
+          Get started by creating your first report, then add Prometheus or Grafana telemetry panels.
+        </p>
+        <button
+          @click="openCreateReportModal"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Create First Report</span>
+        </button>
+      </div>
+    </template>
+
+    <!-- ===================================================================== -->
+    <!-- VIEW 2: REPORT DETAIL & PANELS GRID (Interactive Apache ECharts)       -->
+    <!-- ===================================================================== -->
+    <template v-else-if="currentView === 'detail' && activeReport">
+      <!-- Report Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <button
+              @click="currentView = 'list'"
+              class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-[#151c2e] transition cursor-pointer"
+              title="Back to All Reports"
+            >
+              <ArrowLeft class="w-4 h-4" />
+            </button>
+            <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+              {{ activeReport.name }}
+            </h1>
           </div>
-          <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
-            <span class="text-[10px] text-slate-400 block font-medium">Current Reading</span>
-            <strong class="text-slate-800 dark:text-slate-200 text-sm">{{ reportData.summary?.current || reportData.points?.[reportData.points.length - 1]?.value || 0 }} {{ reportData.summary?.unit }}</strong>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 pl-6">
+            Created: {{ new Date(activeReport.createdAt).toLocaleDateString() }} &bull; {{ activeReport.widgets?.length || 0 }} Metrics Panels Active
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            @click="currentView = 'list'"
+            class="px-3 py-1.5 border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer"
+          >
+            All Reports
+          </button>
+          <button
+            @click="openAddPanelModal('cpu')"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Add Panel</span>
+          </button>
+          <button
+            @click="refreshAllPanels"
+            :disabled="loading"
+            class="px-3 py-1.5 border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
+            <span>Refresh Data</span>
+          </button>
+          <button
+            @click="confirmDeleteReport(activeReport)"
+            class="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900/50 transition cursor-pointer"
+            title="Delete Report"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Panels Grid (50% Half Width / 100% Full Width) -->
+      <div v-if="activeReport.widgets && activeReport.widgets.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div
+          v-for="widget in activeReport.widgets"
+          :key="widget.id"
+          :class="[
+            widget.widthPercent === 100 ? 'col-span-1 md:col-span-2' : 'col-span-1',
+            'bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 shadow-xs space-y-4'
+          ]"
+        >
+          <!-- Card Header (Reference Image Style) -->
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ widget.title }}</h3>
+            <div class="flex items-center gap-2 text-slate-400">
+              <button
+                @click="downloadPanelPng(widget)"
+                class="hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                title="Download Chart PNG"
+              >
+                <Download class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click="openEditPanelModal(widget)"
+                class="hover:text-blue-500 cursor-pointer"
+                title="Edit Panel"
+              >
+                <Edit3 class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click="confirmDeleteWidget(widget)"
+                class="hover:text-rose-500 cursor-pointer"
+                title="Delete Panel"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
+
+          <!-- Chart Subtitle & Time Range -->
+          <div class="text-center space-y-0.5">
+            <h4 class="text-xs font-semibold text-slate-800 dark:text-slate-200">{{ widget.title }}</h4>
+            <p class="text-[10px] text-slate-400">
+              Time Range: Last {{ widget.timeRange }} &bull; {{ widget.sourceConfig?.aggregation || 'Daily' }} &bull; {{ widget.sourceType.toUpperCase() }}
+            </p>
+          </div>
+
+          <!-- Apache ECharts Container -->
+          <div :ref="(el) => setChartRef(widget.id, el)" class="w-full h-56 relative"></div>
+
+          <!-- Legend Indicator -->
+          <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
+            <span
+              :class="[
+                widget.sourceConfig?.colorPalette === 'blue'
+                  ? 'bg-blue-500'
+                  : widget.sourceConfig?.colorPalette === 'amber'
+                  ? 'bg-amber-500'
+                  : widget.sourceConfig?.colorPalette === 'purple'
+                  ? 'bg-purple-500'
+                  : 'bg-emerald-500',
+                'w-2.5 h-2.5 rounded-full shrink-0'
+              ]"
+            ></span>
+            <span class="font-medium text-[11px]">
+              {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : '' }}{{ widget.title }}
+            </span>
+          </div>
+
+          <!-- Collapsible "View Widget Summary" Accordion -->
+          <div class="pt-3 border-t border-slate-100 dark:border-[#1b2234]">
+            <button
+              type="button"
+              @click="widget.showSummary = !widget.showSummary"
+              class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 flex items-center gap-1 cursor-pointer"
+            >
+              <component :is="widget.showSummary ? ChevronUp : ChevronDown" class="w-3.5 h-3.5" />
+              <span>View Widget Summary</span>
+            </button>
+
+            <div
+              v-if="widget.showSummary"
+              class="mt-3 p-3 bg-slate-50 dark:bg-[#0c101a] rounded-xl border border-slate-200 dark:border-[#1f283d] grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs"
+            >
+              <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+                <span class="text-[10px] text-slate-400 block font-medium">Minimum</span>
+                <strong class="text-slate-800 dark:text-slate-200 text-xs">{{ widget.summary?.min || 0 }} {{ widget.summary?.unit }}</strong>
+              </div>
+              <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+                <span class="text-[10px] text-slate-400 block font-medium">Average</span>
+                <strong class="text-slate-800 dark:text-slate-200 text-xs">{{ widget.summary?.avg || 0 }} {{ widget.summary?.unit }}</strong>
+              </div>
+              <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+                <span class="text-[10px] text-slate-400 block font-medium">Peak / Maximum</span>
+                <strong class="text-slate-800 dark:text-slate-200 text-xs">{{ widget.summary?.max || 0 }} {{ widget.summary?.unit }}</strong>
+              </div>
+              <div class="p-2 bg-white dark:bg-[#111624] rounded-lg border border-slate-200 dark:border-[#1f283d]">
+                <span class="text-[10px] text-slate-400 block font-medium">Current</span>
+                <strong class="text-slate-800 dark:text-slate-200 text-xs">{{ widget.summary?.current || 0 }} {{ widget.summary?.unit }}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State (No Panels inside Report) -->
+      <div v-else class="text-center py-16 bg-white dark:bg-[#111624] border border-dashed border-slate-300 dark:border-[#1f283d] rounded-2xl space-y-3">
+        <BarChart2 class="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">No Panels Added to this Report</h3>
+        <p class="text-xs text-slate-500 max-w-sm mx-auto">
+          Add metric panels for CPU, Memory, Storage, or Logs to start visualizing data with Apache ECharts.
+        </p>
+        <button
+          @click="openAddPanelModal('cpu')"
+          class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1.5"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>Add Panel</span>
+        </button>
+      </div>
+    </template>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 1: CREATE REPORT                                                -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showCreateModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Create New Report</h3>
+          <button @click="showCreateModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div class="space-y-1">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">Report Name</label>
+            <input
+              v-model="reportForm.name"
+              type="text"
+              placeholder="e.g. Production Server Health, Horus-Master"
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+              @keyup.enter="saveReport"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">Description (Optional)</label>
+            <textarea
+              v-model="reportForm.description"
+              rows="3"
+              placeholder="Brief description of the monitored cluster or host telemetry..."
+              class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 leading-relaxed"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#1b2234]">
+          <button
+            @click="showCreateModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="saveReport"
+            :disabled="isSaving"
+            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ isSaving ? 'Creating...' : 'Create Report' }}
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Raw Data Stream / Table -->
-    <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 space-y-4 shadow-sm">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#1b2234] pb-3">
-        <div>
+    <!-- ===================================================================== -->
+    <!-- MODAL 2: ADD / EDIT PANEL WIDGET                                      -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showWidgetModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              {{ editingWidgetId ? 'Edit Widget Panel' : 'Add Widget Panel' }}
+            </h3>
+            <p class="text-[11px] text-slate-500 mt-0.5">
+              Configure telemetry provider, query target, and Apache ECharts visualization.
+            </p>
+          </div>
+          <button @click="showWidgetModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-4 text-xs">
+          <!-- Row 1: Widget Title & Chart Type -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Widget Title</label>
+              <input
+                v-model="widgetForm.title"
+                type="text"
+                placeholder="e.g. CPU Usage, Memory Used"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Chart Type (Apache ECharts)</label>
+              <select
+                v-model="widgetForm.chartType"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="line">Line Chart</option>
+                <option value="area">Area Chart</option>
+                <option value="bar">Bar Chart</option>
+                <option value="pie">Pie Chart</option>
+                <option value="donut">Donut Chart</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 2: Datasource Selection (Prometheus vs Grafana vs OpenSearch) -->
+          <div class="space-y-1.5">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">Datasource Provider</label>
+            <div class="grid grid-cols-3 gap-2">
+              <label
+                :class="[
+                  widgetForm.sourceType === 'prometheus'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
+                    : 'border-slate-200 dark:border-[#1f283d]',
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
+                ]"
+              >
+                <input type="radio" value="prometheus" v-model="widgetForm.sourceType" class="hidden" />
+                <Activity class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">Prometheus</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Host Telemetry</div>
+                </div>
+              </label>
+
+              <label
+                :class="[
+                  widgetForm.sourceType === 'grafana'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
+                    : 'border-slate-200 dark:border-[#1f283d]',
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
+                ]"
+              >
+                <input type="radio" value="grafana" v-model="widgetForm.sourceType" class="hidden" />
+                <TrendingUp class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">Grafana API</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Modules & Dashboards</div>
+                </div>
+              </label>
+
+              <label
+                :class="[
+                  widgetForm.sourceType === 'opensearch'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 dark:text-[#95CCDD]'
+                    : 'border-slate-200 dark:border-[#1f283d]',
+                  'flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer font-medium transition'
+                ]"
+              >
+                <input type="radio" value="opensearch" v-model="widgetForm.sourceType" class="hidden" />
+                <Database class="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                <div class="truncate">
+                  <div class="text-xs font-semibold leading-tight">OpenSearch</div>
+                  <div class="text-[10px] text-slate-400 font-normal">Log Aggregation</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Row 3: Provider Specific Target Configuration -->
+          <!-- Prometheus Config -->
+          <div v-if="widgetForm.sourceType === 'prometheus'" class="p-3 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Target Server / Host</label>
+                <select
+                  v-model="widgetForm.targetHost"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option value="all">All Monitored Hosts</option>
+                  <option v-for="h in discoveredHosts" :key="h.id" :value="h.host">
+                    {{ h.name }} ({{ h.host }})
+                  </option>
+                </select>
+              </div>
+
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Metric Telemetry</label>
+                <select
+                  v-model="widgetForm.metricPreset"
+                  @change="if (widgetForm.metricPreset === 'cpu') widgetForm.title = 'CPU Usage'; else if (widgetForm.metricPreset === 'memory') widgetForm.title = 'Memory Used'; else if (widgetForm.metricPreset === 'disk') widgetForm.title = 'Disk Storage'; else if (widgetForm.metricPreset === 'network') widgetForm.title = 'Network Traffic';"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option value="cpu">CPU Usage (%)</option>
+                  <option value="memory">Memory Used (%)</option>
+                  <option value="disk">Disk Storage (%)</option>
+                  <option value="network">Network Traffic (bps)</option>
+                  <option value="load">System Load (1m avg)</option>
+                  <option value="custom">Custom PromQL Expression</option>
+                </select>
+              </div>
+            </div>
+
+            <div v-if="widgetForm.metricPreset === 'custom'" class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Custom PromQL</label>
+              <input
+                v-model="widgetForm.query"
+                type="text"
+                placeholder="e.g. 100 - (avg(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)"
+                class="w-full px-3 py-2 font-mono text-[11px] bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              />
+            </div>
+          </div>
+
+          <!-- Grafana Config -->
+          <div v-else-if="widgetForm.sourceType === 'grafana'" class="p-3 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl space-y-3">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Target Module / Metric</label>
+              <select
+                v-model="widgetForm.module"
+                @change="widgetForm.title = widgetForm.module"
+                class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="CPU Load">CPU Load</option>
+                <option value="Memory Used">Memory Used</option>
+                <option value="Disk Storage">Disk Storage</option>
+                <option value="Network Throughput">Network Throughput</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- OpenSearch Config -->
+          <div v-else class="p-3 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-xl space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Index Pattern</label>
+                <select
+                  v-if="discoveredIndices.length > 0"
+                  v-model="widgetForm.indexPattern"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                >
+                  <option value="*">* (All Indices)</option>
+                  <option v-for="idx in discoveredIndices" :key="idx" :value="idx">{{ idx }}</option>
+                </select>
+                <input
+                  v-else
+                  v-model="widgetForm.indexPattern"
+                  type="text"
+                  placeholder="*"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                />
+              </div>
+
+              <div class="space-y-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-300">Filter Query</label>
+                <input
+                  v-model="widgetForm.query"
+                  type="text"
+                  placeholder="e.g. status:>=500 OR level:ERROR"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 4: Time Range, Interval / Aggregation, Panel Size & Color Palette -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Time Range</label>
+              <select
+                v-model="widgetForm.timeRange"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="1h">Last 1 Hour</option>
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Data Interval</label>
+              <select
+                v-model="widgetForm.aggregation"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="actual">Actual (Raw Data)</option>
+                <option value="daily">Average (Daily)</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Panel Width</label>
+              <select
+                v-model="widgetForm.widthPercent"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option :value="50">Half Width (50%)</option>
+                <option :value="100">Full Width (100%)</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Color Palette</label>
+              <select
+                v-model="widgetForm.colorPalette"
+                class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
+              >
+                <option value="emerald">Emerald Green</option>
+                <option value="blue">Ocean Blue</option>
+                <option value="amber">Sunset Amber</option>
+                <option value="purple">Purple Violet</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-[#1b2234]">
+          <button
+            @click="showWidgetModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="savePanel"
+            :disabled="isSaving"
+            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ isSaving ? 'Saving...' : 'Save Panel' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 3: STANDARD DELETE CONFIRMATION MODAL (Strictly AGENTS.md)     -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showDeleteModal && itemToDelete"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <!-- Icon Lingkaran Merah di Tengah Atas -->
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+
+        <!-- Judul & Teks Penjelasan -->
+        <div class="space-y-1">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            Tabular Records & Events ({{ filteredRows.length }})
+            Delete {{ itemToDelete.type === 'report' ? 'Report' : 'Panel' }}?
           </h3>
-          <p class="text-[11px] text-slate-400">
-            Raw payload records available for export to CSV or text log files
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ itemToDelete.name }}</strong>? This action cannot be undone.
           </p>
         </div>
 
-        <div class="flex items-center gap-2">
-          <!-- Search in Table -->
-          <div class="relative">
-            <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              v-model="tableSearch"
-              type="text"
-              placeholder="Search table rows..."
-              class="pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 w-48 focus:w-60 transition-all"
-            />
-          </div>
-
-          <!-- Items Per Page -->
-          <select
-            v-model="itemsPerPage"
-            class="px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
-          >
-            <option :value="10">10 / page</option>
-            <option :value="25">25 / page</option>
-            <option :value="50">50 / page</option>
-            <option :value="100">100 / page</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Table Content -->
-      <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-[#1b2234]">
-        <table class="w-full text-left text-xs border-collapse font-mono">
-          <thead class="bg-slate-50 dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400 text-[11px] uppercase tracking-wider">
-            <tr>
-              <th class="px-4 py-2.5 font-semibold">#</th>
-              <th class="px-4 py-2.5 font-semibold">Timestamp</th>
-              <th class="px-4 py-2.5 font-semibold">Source / Host</th>
-              <th class="px-4 py-2.5 font-semibold">Level / Status</th>
-              <th class="px-4 py-2.5 font-semibold">Details / Value / Payload</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
-            <tr
-              v-for="(row, idx) in paginatedRows"
-              :key="idx"
-              class="hover:bg-slate-50/60 dark:hover:bg-[#151c2e]/60 transition"
-            >
-              <td class="px-4 py-2.5 text-slate-400 text-[11px]">
-                {{ (currentPage - 1) * itemsPerPage + idx + 1 }}
-              </td>
-              <td class="px-4 py-2.5 text-slate-700 dark:text-slate-300 whitespace-nowrap text-[11px]">
-                {{ row.timestamp || row['@timestamp'] || '-' }}
-              </td>
-              <td class="px-4 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap text-[11px]">
-                {{ row.host || row.source || sourceType.toUpperCase() }}
-              </td>
-              <td class="px-4 py-2.5 whitespace-nowrap">
-                <span
-                  :class="[
-                    (row.level === 'ERROR' || row.level === 'FATAL' || String(row.status).startsWith('5'))
-                      ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60'
-                      : (row.level === 'WARN' || row.level === 'WARNING')
-                      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60'
-                      : 'bg-slate-100 dark:bg-[#1a2336] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#222e47]',
-                    'px-2 py-0.5 rounded text-[10px] font-bold inline-block'
-                  ]"
-                >
-                  {{ row.level || row.status || 'DATA' }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5 text-slate-800 dark:text-slate-200 text-[11px] max-w-md truncate">
-                {{ row.message || row.value || JSON.stringify(row) }}
-              </td>
-            </tr>
-            <tr v-if="!paginatedRows.length">
-              <td colspan="5" class="px-4 py-8 text-center text-slate-400 text-xs font-sans">
-                No matching records found for this query.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Pagination Footer -->
-      <div class="flex items-center justify-between text-xs text-slate-500 pt-2">
-        <span>
-          Showing {{ ((currentPage - 1) * itemsPerPage) + 1 }} to {{ Math.min(currentPage * itemsPerPage, filteredRows.length) }} of {{ filteredRows.length }} rows
-        </span>
-
-        <div class="flex items-center gap-1">
+        <!-- Tombol Aksi -->
+        <div class="flex items-center justify-center gap-2 pt-2">
           <button
-            @click="currentPage = Math.max(1, currentPage - 1)"
-            :disabled="currentPage <= 1"
-            class="p-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#151c2e] disabled:opacity-40 cursor-pointer"
+            @click="showDeleteModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
-            <ChevronLeft class="w-3.5 h-3.5" />
+            Cancel
           </button>
-          <span class="px-2.5 py-1 text-slate-700 dark:text-slate-300 font-semibold">
-            {{ currentPage }} / {{ totalPages }}
-          </span>
           <button
-            @click="currentPage = Math.min(totalPages, currentPage + 1)"
-            :disabled="currentPage >= totalPages"
-            class="p-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#151c2e] disabled:opacity-40 cursor-pointer"
+            @click="executeDelete"
+            :disabled="isDeleting"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
           >
-            <ChevronRight class="w-3.5 h-3.5" />
+            {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
           </button>
         </div>
       </div>

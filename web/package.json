@@ -16,6 +16,7 @@
     "@xterm/xterm": "^5.5.0",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
+    "echarts": "^5.5.1",
     "lucide-vue-next": "^0.414.0",
     "pinia": "^2.2.1",
     "tailwind-merge": "^2.4.0",
