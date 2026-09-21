@@ -147,6 +147,15 @@ const router = createRouter({
           component: () => import('../views/ReportsView.vue'),
         },
         {
+          path: 'reports/visual',
+          redirect: '/reports',
+        },
+        {
+          path: 'reports/raw',
+          name: 'raw-reports',
+          component: () => import('../views/RawReportsView.vue'),
+        },
+        {
           path: 'report',
           redirect: '/reports',
         },
