@@ -835,11 +835,17 @@ const formatPointLocalLabel = (p: { timestamp: string; label?: string }, timeRan
     return p.label || p.timestamp;
   }
 
+  const day = String(d.getDate()).padStart(2, '0');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const month = monthNames[d.getMonth()];
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+
   if (timeRange === '7d' || timeRange === '30d') {
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `${day} ${month}`;
   }
 
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${hours}:${mins}`;
 };
 
 const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
@@ -858,13 +864,14 @@ const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
     return p.label || p.timestamp;
   }
 
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  const day = String(d.getDate()).padStart(2, '0');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const month = monthNames[d.getMonth()];
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+
+  return `${day} ${month} ${year}, ${hours}:${mins}`;
 };
 
 const getProcessedTablePoints = (widget: ReportWidget) => {
@@ -996,6 +1003,20 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   const labels = referencePoints.map((p) => formatPointLocalLabel(p, widget.timeRange));
   const values = referencePoints.map((p) => p.value);
 
+  const totalLabels = labels.length;
+  const targetTicks = Math.min(totalLabels <= 12 ? totalLabels : (totalLabels > 50 ? 7 : 6), totalLabels);
+  const tickIndices = new Set<number>();
+  if (totalLabels <= 10) {
+    for (let i = 0; i < totalLabels; i++) tickIndices.add(i);
+  } else {
+    tickIndices.add(0);
+    for (let k = 1; k < targetTicks; k++) {
+      const idx = Math.round((k * (totalLabels - 1)) / targetTicks);
+      tickIndices.add(idx);
+    }
+    tickIndices.add(totalLabels - 1);
+  }
+
   let option: any = {};
 
   if (widget.chartType === 'pie' || widget.chartType === 'donut') {
@@ -1111,15 +1132,24 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
       },
       grid: {
         left: 45,
-        right: 15,
+        right: 20,
         top: 25,
-        bottom: 30,
+        bottom: 38,
       },
       xAxis: {
         type: 'category',
         data: labels,
         axisLine: { lineStyle: { color: splitLineColor } },
-        axisLabel: { color: textColor, fontSize: 10 },
+        axisTick: { show: true, lineStyle: { color: splitLineColor } },
+        axisLabel: {
+          color: textColor,
+          fontSize: 10,
+          margin: 10,
+          showMinLabel: true,
+          showMaxLabel: true,
+          hideOverlap: true,
+          interval: (index: number) => tickIndices.has(index),
+        },
       },
       yAxis: {
         type: 'value',
@@ -1227,15 +1257,24 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
       },
       grid: {
         left: 45,
-        right: 15,
+        right: 20,
         top: 25,
-        bottom: 30,
+        bottom: 38,
       },
       xAxis: {
         type: 'category',
         data: labels,
         axisLine: { lineStyle: { color: splitLineColor } },
-        axisLabel: { color: textColor, fontSize: 10, interval: 'auto' },
+        axisTick: { show: true, lineStyle: { color: splitLineColor } },
+        axisLabel: {
+          color: textColor,
+          fontSize: 10,
+          margin: 10,
+          showMinLabel: true,
+          showMaxLabel: true,
+          hideOverlap: true,
+          interval: (index: number) => tickIndices.has(index),
+        },
       },
       yAxis: {
         type: 'value',
@@ -1343,9 +1382,9 @@ const downloadPanelPng = async (widget: ReportWidget) => {
       legendLines.push(curLine);
     }
 
-    const headerHeight = 120; // Room for Title + Subtitle
+    const headerHeight = 75; // Clean top margin for Title only
     const lineHeight = 38;
-    const footerHeight = Math.max(90, 30 + legendLines.length * lineHeight + 20);
+    const footerHeight = Math.max(80, 25 + legendLines.length * lineHeight + 20);
     const totalHeight = headerHeight + img.height + footerHeight;
 
     const exportCanvas = document.createElement('canvas');
@@ -1361,45 +1400,21 @@ const downloadPanelPng = async (widget: ReportWidget) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-    // 4. Draw Header Title (e.g. "CPU Usage")
+    // 4. Draw Header Title only (e.g. "CPU Usage")
     ctx.font = 'bold 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#0f172a';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(widget.title, totalWidth / 2, 45);
+    ctx.fillText(widget.title, totalWidth / 2, 42);
 
-    // 5. Draw Subtitle ("Time Range: Last 30d • daily • GRAFANA • Live Connected")
-    const agg = widget.sourceConfig?.aggregation || 'daily';
-    const sType = widget.sourceType.toUpperCase();
-    const prefixText = `Time Range: Last ${widget.timeRange} • ${agg} • ${sType} `;
-    const rawStatus = widget.isLive
-      ? 'Live Connected'
-      : (widget.statusMessage?.includes('Simulated') || widget.statusMessage?.includes('Fallback')
-        ? 'Simulated Preview'
-        : 'Connected');
-    const statusText = `• ${rawStatus}`;
-
-    ctx.font = '500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const prefixW = ctx.measureText(prefixText).width;
-    const statusW = ctx.measureText(statusText).width;
-    const fullSubtitleW = prefixW + statusW;
-    const subtitleStartX = (totalWidth - fullSubtitleW) / 2;
-
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(prefixText, subtitleStartX, 85);
-
-    ctx.fillStyle = widget.isLive ? '#10b981' : '#f59e0b';
-    ctx.fillText(statusText, subtitleStartX + prefixW, 85);
-
-    // 6. Draw the Chart in the middle
+    // 5. Draw the Chart in the middle
     ctx.drawImage(img, 0, headerHeight, img.width, img.height);
 
-    // 7. Draw Wrapped Legend lines at the bottom
+    // 6. Draw Wrapped Legend lines at the bottom
     ctx.font = legendFont;
     ctx.textBaseline = 'middle';
 
-    const startLegendY = headerHeight + img.height + 35;
+    const startLegendY = headerHeight + img.height + 30;
     legendLines.forEach((line, lineIdx) => {
       const lineTotalWidth = line.reduce((sum, it) => sum + it.width, 0) + (line.length - 1) * itemGap;
       let curX = (totalWidth - lineTotalWidth) / 2;
