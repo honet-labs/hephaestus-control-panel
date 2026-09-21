@@ -181,6 +181,22 @@ func (h *SettingsHandler) SaveGrafana(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
 		return
 	}
+
+	cfg.Name = strings.TrimSpace(cfg.Name)
+	cfg.Host = strings.TrimRight(strings.TrimSpace(cfg.Host), "/")
+
+	if cfg.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Connection Name is required"})
+		return
+	}
+	if cfg.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "API Endpoint URL is required"})
+		return
+	}
+	if !strings.HasPrefix(cfg.Host, "http://") && !strings.HasPrefix(cfg.Host, "https://") {
+		cfg.Host = "http://" + cfg.Host
+	}
+
 	if cfg.ID == "" {
 		cfg.ID = fmt.Sprintf("graf-%s", uuid.New().String()[:8])
 	}
@@ -359,6 +375,24 @@ func (h *SettingsHandler) SavePrometheus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
 		return
 	}
+
+	cfg.Name = strings.TrimSpace(cfg.Name)
+	cfg.Path = strings.TrimSpace(cfg.Path)
+
+	if cfg.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Connection Name is required"})
+		return
+	}
+	if cfg.Mode == "ssh" {
+		if cfg.SSHHost == nil || strings.TrimSpace(*cfg.SSHHost) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "SSH Host IP is required for SSH mode"})
+			return
+		}
+	}
+	if cfg.Path == "" {
+		cfg.Path = "/etc/prometheus/prometheus.yml"
+	}
+
 	if cfg.ID == "" {
 		cfg.ID = fmt.Sprintf("prom-%s", uuid.New().String()[:8])
 	}

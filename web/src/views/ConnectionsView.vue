@@ -286,8 +286,16 @@ const handleTestConnection = async () => {
 
   try {
     if (form.value.type === 'OpenSearch Cluster') {
+      const host = (form.value.osHost || '').trim();
+      if (!host) {
+        testStatus.value = {
+          success: false,
+          message: 'Cluster Host / IP is required.',
+        };
+        return;
+      }
       const payload: any = {
-        host: form.value.osHost,
+        host: host,
         port: Number(form.value.osPort) || 9200,
         username: form.value.osUser,
         password: form.value.osPassword,
@@ -299,11 +307,31 @@ const handleTestConnection = async () => {
       const res = await axios.post('/api/v1/opensearch/test', payload);
       testStatus.value = {
         success: res.data?.success || false,
-        message: res.data?.success ? 'Connection verified successfully!' : (res.data?.error || 'Test failed'),
+        message: res.data?.success ? (res.data?.message || 'Connection verified successfully!') : (res.data?.error || 'Test failed'),
       };
     } else if (form.value.type === 'Prometheus Server (SSH / Local File)') {
+      if (form.value.accessMode === 'ssh') {
+        const sshHost = (form.value.sshHost || '').trim();
+        if (!sshHost) {
+          testStatus.value = {
+            success: false,
+            message: 'SSH Host IP is required for SSH mode.',
+          };
+          return;
+        }
+      } else {
+        const filePath = (form.value.filePath || '').trim();
+        if (!filePath) {
+          testStatus.value = {
+            success: false,
+            message: 'Configuration file path is required.',
+          };
+          return;
+        }
+      }
+
       const payload: any = {
-        name: form.value.name,
+        name: form.value.name || 'Prometheus',
         mode: form.value.accessMode,
         path: form.value.filePath || '/etc/prometheus/prometheus.yml',
         reloadUrl: form.value.reloadUrl || 'http://localhost:9090/-/reload',
@@ -325,6 +353,14 @@ const handleTestConnection = async () => {
       };
     } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
       if (form.value.accessMode === 'ssh') {
+        const sshHost = (form.value.sshHost || '').trim();
+        if (!sshHost) {
+          testStatus.value = {
+            success: false,
+            message: 'SSH Host IP is required for SSH mode.',
+          };
+          return;
+        }
         const payload: any = {
           name: `${form.value.name || 'DataPrepper'} (Data Prepper)`,
           mode: 'ssh',
@@ -346,12 +382,49 @@ const handleTestConnection = async () => {
             : (res.data?.error || res.data?.message || 'Failed to connect to Data Prepper host.'),
         };
       } else {
+        const pipelinesDir = (form.value.pipelinesDir || '').trim();
+        if (!pipelinesDir) {
+          testStatus.value = {
+            success: false,
+            message: 'Pipelines directory path is required.',
+          };
+          return;
+        }
+        const payload: any = {
+          name: `${form.value.name || 'DataPrepper'} (Data Prepper)`,
+          mode: 'local',
+          path: pipelinesDir,
+        };
+        if (editingId.value) payload.id = editingId.value;
+
+        const res = await axios.post('/api/v1/settings/prometheus/test', payload);
         testStatus.value = {
-          success: true,
-          message: 'Local directory mode configured.',
+          success: res.data?.success || false,
+          message: res.data?.success
+            ? (res.data?.message || 'Local pipelines directory verified!')
+            : (res.data?.error || res.data?.message || 'Local pipelines directory not found or inaccessible.'),
         };
       }
     } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
+      if (form.value.dockerDriver === 'ssh') {
+        const sshHost = (form.value.dockerSshHost || '').trim();
+        if (!sshHost) {
+          testStatus.value = {
+            success: false,
+            message: 'SSH Host IP is required for Docker SSH mode.',
+          };
+          return;
+        }
+      } else if (form.value.dockerDriver === 'tcp') {
+        const tcpHost = (form.value.dockerTcpHost || '').trim();
+        if (!tcpHost) {
+          testStatus.value = {
+            success: false,
+            message: 'TCP Host is required for Docker TCP mode.',
+          };
+          return;
+        }
+      }
       const payload: any = {
         driver: form.value.dockerDriver,
         socketPath: form.value.dockerSocketPath || '/var/run/docker.sock',
@@ -375,9 +448,17 @@ const handleTestConnection = async () => {
           : (res.data?.error || 'Failed to connect to Docker Engine.'),
       };
     } else if (form.value.type === 'Grafana Core API') {
+      const url = (form.value.url || '').trim();
+      if (!url) {
+        testStatus.value = {
+          success: false,
+          message: 'API Endpoint URL is required.',
+        };
+        return;
+      }
       const payload: any = {
         name: form.value.name,
-        host: form.value.url,
+        host: url,
         token: form.value.token,
         datasourceUid: form.value.datasourceUid,
       };
@@ -392,8 +473,8 @@ const handleTestConnection = async () => {
       };
     } else {
       testStatus.value = {
-        success: true,
-        message: 'Endpoint configuration verified.',
+        success: false,
+        message: 'Unsupported connection type.',
       };
     }
   } catch (err: any) {
@@ -540,34 +621,73 @@ const executeDelete = async () => {
   } finally {
     deleting.value = false;
   }
-};
-
 const handleRegisterEndpoint = async () => {
-  if (!form.value.name) {
-    showToast('Please provide a Connection Name.', 'error');
+  // 1. Validate Connection Name
+  if (!form.value.name || !form.value.name.trim()) {
+    showToast('Connection Name is required.', 'error');
     return;
+  }
+
+  // 2. Type-specific field validations
+  if (form.value.type === 'Grafana Core API') {
+    if (!form.value.url || !form.value.url.trim()) {
+      showToast('API Endpoint URL is required for Grafana.', 'error');
+      return;
+    }
+  } else if (form.value.type === 'Prometheus Server (SSH / Local File)') {
+    if (form.value.accessMode === 'ssh' && (!form.value.sshHost || !form.value.sshHost.trim())) {
+      showToast('SSH Host IP is required for Prometheus SSH mode.', 'error');
+      return;
+    }
+    if (form.value.accessMode === 'local' && (!form.value.filePath || !form.value.filePath.trim())) {
+      showToast('Configuration file path is required.', 'error');
+      return;
+    }
+  } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
+    if (form.value.accessMode === 'ssh' && (!form.value.sshHost || !form.value.sshHost.trim())) {
+      showToast('SSH Host IP is required for Data Prepper SSH mode.', 'error');
+      return;
+    }
+    if (!form.value.pipelinesDir || !form.value.pipelinesDir.trim()) {
+      showToast('Pipelines directory path is required.', 'error');
+      return;
+    }
+  } else if (form.value.type === 'OpenSearch Cluster') {
+    if (!form.value.osHost || !form.value.osHost.trim()) {
+      showToast('Cluster Host / IP is required for OpenSearch.', 'error');
+      return;
+    }
+  } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
+    if (form.value.dockerDriver === 'ssh' && (!form.value.dockerSshHost || !form.value.dockerSshHost.trim())) {
+      showToast('SSH Host IP is required for Docker SSH mode.', 'error');
+      return;
+    }
+    if (form.value.dockerDriver === 'tcp' && (!form.value.dockerTcpHost || !form.value.dockerTcpHost.trim())) {
+      showToast('TCP Host is required for Docker TCP mode.', 'error');
+      return;
+    }
   }
 
   try {
     if (form.value.type === 'Grafana Core API') {
       const payload: any = {
-        name: form.value.name,
-        host: form.value.url,
-        token: form.value.token,
-        datasourceUid: form.value.datasourceUid,
+        name: form.value.name.trim(),
+        host: form.value.url.trim(),
+        token: form.value.token?.trim(),
+        datasourceUid: form.value.datasourceUid?.trim(),
         isActive: true,
       };
       if (editingId.value) payload.id = editingId.value;
       await axios.post('/api/v1/settings/grafana', payload);
     } else if (form.value.type === 'Prometheus Server (SSH / Local File)') {
       const payload: any = {
-        name: form.value.name,
+        name: form.value.name.trim(),
         mode: form.value.accessMode,
-        path: form.value.filePath || '/etc/prometheus/prometheus.yml',
-        reloadUrl: form.value.reloadUrl || 'http://localhost:9090/-/reload',
-        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
+        path: (form.value.filePath || '/etc/prometheus/prometheus.yml').trim(),
+        reloadUrl: (form.value.reloadUrl || 'http://localhost:9090/-/reload').trim(),
+        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost?.trim() : null,
         sshPort: form.value.accessMode === 'ssh' ? Number(form.value.sshPort) : null,
-        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
+        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser?.trim() : null,
         sshPassword: form.value.accessMode === 'ssh' ? form.value.sshPassword : null,
         sshKey: form.value.accessMode === 'ssh' ? form.value.sshKey : null,
         isActive: true,
@@ -576,13 +696,13 @@ const handleRegisterEndpoint = async () => {
       await axios.post('/api/v1/settings/prometheus', payload);
     } else if (form.value.type === 'Data Prepper (SSH / Local Directory)') {
       const payload: any = {
-        name: `${form.value.name} (Data Prepper)`,
+        name: `${form.value.name.trim()} (Data Prepper)`,
         mode: form.value.accessMode,
-        path: form.value.pipelinesDir || '/opt/data-prepper/pipelines',
+        path: (form.value.pipelinesDir || '/opt/data-prepper/pipelines').trim(),
         reloadUrl: '',
-        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost : null,
+        sshHost: form.value.accessMode === 'ssh' ? form.value.sshHost?.trim() : null,
         sshPort: form.value.accessMode === 'ssh' ? Number(form.value.sshPort) : null,
-        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser : null,
+        sshUser: form.value.accessMode === 'ssh' ? form.value.sshUser?.trim() : null,
         sshPassword: form.value.accessMode === 'ssh' ? form.value.sshPassword : null,
         sshKey: form.value.accessMode === 'ssh' ? form.value.sshKey : null,
         isActive: true,
@@ -591,10 +711,10 @@ const handleRegisterEndpoint = async () => {
       await axios.post('/api/v1/settings/prometheus', payload);
     } else if (form.value.type === 'OpenSearch Cluster') {
       const payload: any = {
-        name: form.value.name,
-        host: form.value.osHost,
+        name: form.value.name.trim(),
+        host: form.value.osHost.trim(),
         port: Number(form.value.osPort) || 9200,
-        username: form.value.osUser,
+        username: form.value.osUser?.trim(),
         password: form.value.osPassword,
         useSsl: form.value.osUseSsl,
         verifySsl: form.value.osVerifySsl,
@@ -604,16 +724,16 @@ const handleRegisterEndpoint = async () => {
       await axios.post('/api/v1/opensearch/config', payload);
     } else if (form.value.type === 'Docker Engine (Socket / SSH / TCP)') {
       const payload: any = {
-        name: form.value.name,
+        name: form.value.name.trim(),
         driver: form.value.dockerDriver || 'socket',
         hostType: form.value.dockerDriver === 'socket' ? 'local' : (form.value.dockerDriver || 'local'),
-        socketPath: form.value.dockerSocketPath || '/var/run/docker.sock',
-        tcpHost: form.value.dockerTcpHost || '',
+        socketPath: (form.value.dockerSocketPath || '/var/run/docker.sock').trim(),
+        tcpHost: (form.value.dockerTcpHost || '').trim(),
         tcpPort: Number(form.value.dockerTcpPort) || 2375,
         tcpTls: form.value.dockerTcpTls || false,
-        sshHost: form.value.dockerSshHost || '',
+        sshHost: (form.value.dockerSshHost || '').trim(),
         sshPort: Number(form.value.dockerSshPort) || 22,
-        sshUser: form.value.dockerSshUser || 'root',
+        sshUser: (form.value.dockerSshUser || 'root').trim(),
         sshAuth: form.value.dockerSshAuth || 'password',
         sshPassword: form.value.dockerSshPassword || '',
         sshKey: form.value.dockerSshKey || '',

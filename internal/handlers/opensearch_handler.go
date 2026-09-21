@@ -91,6 +91,18 @@ func (h *OpenSearchHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 
+	req.Host = strings.TrimSpace(req.Host)
+	if req.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Cluster Host / IP is required"})
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		req.Name = "OpenSearch Cluster"
+	}
+	if req.Port <= 0 {
+		req.Port = 9200
+	}
+
 	saved, err := h.openSearchService.SaveConfig(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -130,29 +142,28 @@ func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	// Resolve saved credentials if password is empty or masked
-	if services.IsMaskedOrEmptyPassword(req.Password) {
+	req.Host = strings.TrimSpace(req.Host)
+
+	// Resolve saved credentials ONLY if editing or testing an existing connection by ID
+	if req.ID != "" && services.IsMaskedOrEmptyPassword(req.Password) {
 		var saved *domain.OpenSearchConfig
-		if req.ID != "" && req.ID != "opensearch-active" {
+		if req.ID != "opensearch-active" {
 			saved, _ = h.openSearchService.GetConfigByID(c.Request.Context(), req.ID)
 		}
 		if saved == nil {
 			saved, _ = h.openSearchService.GetActiveConfig(c.Request.Context())
 		}
 		if saved != nil {
-			// If testing existing ID, or if host was omitted, or if host matches the saved configuration
-			if req.ID != "" || req.Host == "" || req.Host == saved.Host {
-				if req.Host == "" {
-					req.Host = saved.Host
-				}
-				if req.Port <= 0 {
-					req.Port = saved.Port
-				}
-				if req.Username == "" {
-					req.Username = saved.Username
-				}
-				req.Password = saved.Password
+			if req.Host == "" {
+				req.Host = saved.Host
 			}
+			if req.Port <= 0 {
+				req.Port = saved.Port
+			}
+			if req.Username == "" {
+				req.Username = saved.Username
+			}
+			req.Password = saved.Password
 		}
 	}
 
