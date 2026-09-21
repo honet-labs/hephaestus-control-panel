@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
 import {
   Database,
@@ -23,6 +23,8 @@ import {
   RotateCcw,
   Terminal,
   Download,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-vue-next';
 
 const activeTab = ref<'databases' | 'destinations' | 'schedules' | 'history'>('databases');
@@ -32,6 +34,50 @@ const destinations = ref<any[]>([]);
 const schedules = ref<any[]>([]);
 const history = ref<any[]>([]);
 const loading = ref(false);
+
+// History Pagination (30 rows per page)
+const historyPage = ref(1);
+const historyPageSize = ref(30);
+
+const totalHistoryPages = computed(() => {
+  return Math.ceil(history.value.length / historyPageSize.value) || 1;
+});
+
+const paginatedHistory = computed(() => {
+  const start = (historyPage.value - 1) * historyPageSize.value;
+  return history.value.slice(start, start + historyPageSize.value);
+});
+
+const visibleHistoryPages = computed(() => {
+  const total = totalHistoryPages.value;
+  const current = historyPage.value;
+  const delta = 2;
+  const range: number[] = [];
+
+  for (let i = Math.max(2, current - delta); i <= Math.min(total - 1, current + delta); i++) {
+    range.push(i);
+  }
+
+  if (current - delta > 2) {
+    range.unshift(-1); // ellipsis indicator
+  }
+  if (current + delta < total - 1) {
+    range.push(-2); // ellipsis indicator
+  }
+
+  range.unshift(1);
+  if (total > 1 && !range.includes(total)) {
+    range.push(total);
+  }
+
+  return range;
+});
+
+watch(totalHistoryPages, (newTotal) => {
+  if (historyPage.value > newTotal) {
+    historyPage.value = Math.max(1, newTotal);
+  }
+});
 
 // Run Backup Modal
 const isRunBackupModalOpen = ref(false);
@@ -297,7 +343,7 @@ const fetchAll = async () => {
       axios.get('/api/v1/backup/databases').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/backup/destinations').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/backup/schedules').catch(() => ({ data: { success: false } })),
-      axios.get('/api/v1/backup/history').catch(() => ({ data: { success: false } })),
+      axios.get('/api/v1/backup/history?limit=1000').catch(() => ({ data: { success: false } })),
     ]);
 
     if (dbRes.data?.success) databases.value = dbRes.data.data || [];
@@ -458,14 +504,8 @@ const testExistingDB = async (db: any) => {
   }
 };
 
-const deleteDBConfig = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this database configuration?')) return;
-  try {
-    await axios.delete(`/api/v1/backup/databases/${id}`);
-    fetchAll();
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete');
-  }
+const deleteDBConfig = (db: any) => {
+  confirmDeleteDB(db);
 };
 
 const testExistingDest = async (dest: any) => {
@@ -581,14 +621,77 @@ const saveDestination = async () => {
   }
 };
 
-const deleteDestination = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this storage destination?')) return;
+// HCP Standard Delete Confirmation Modal
+const showDeleteModal = ref(false);
+const isDeleting = ref(false);
+const itemToDelete = ref<{
+  type: 'database' | 'destination' | 'schedule' | 'history';
+  id: string;
+  name: string;
+} | null>(null);
+
+const confirmDeleteDB = (db: any) => {
+  itemToDelete.value = {
+    type: 'database',
+    id: db.id,
+    name: db.name || 'Database Config',
+  };
+  showDeleteModal.value = true;
+};
+
+const confirmDeleteDest = (dest: any) => {
+  itemToDelete.value = {
+    type: 'destination',
+    id: dest.id,
+    name: dest.name || 'Storage Destination',
+  };
+  showDeleteModal.value = true;
+};
+
+const confirmDeleteSchedule = (sched: any) => {
+  itemToDelete.value = {
+    type: 'schedule',
+    id: sched.id,
+    name: sched.name || 'Cron Schedule',
+  };
+  showDeleteModal.value = true;
+};
+
+const confirmDeleteHistory = (h: any) => {
+  itemToDelete.value = {
+    type: 'history',
+    id: h.id,
+    name: h.filename || `Execution #${h.id}`,
+  };
+  showDeleteModal.value = true;
+};
+
+const executeDelete = async () => {
+  if (!itemToDelete.value) return;
+  isDeleting.value = true;
+  const { type, id } = itemToDelete.value;
   try {
-    await axios.delete(`/api/v1/backup/destinations/${id}`);
+    if (type === 'history') {
+      await axios.delete(`/api/v1/backup/history/${id}`);
+    } else if (type === 'database') {
+      await axios.delete(`/api/v1/backup/databases/${id}`);
+    } else if (type === 'destination') {
+      await axios.delete(`/api/v1/backup/destinations/${id}`);
+    } else if (type === 'schedule') {
+      await axios.delete(`/api/v1/backup/schedules/${id}`);
+    }
+    showDeleteModal.value = false;
+    itemToDelete.value = null;
     fetchAll();
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete destination');
+    alert(err.response?.data?.error || 'Failed to delete');
+  } finally {
+    isDeleting.value = false;
   }
+};
+
+const deleteDestination = (dest: any) => {
+  confirmDeleteDest(dest);
 };
 
 const saveSchedule = async () => {
@@ -624,24 +727,12 @@ const saveSchedule = async () => {
   }
 };
 
-const deleteSchedule = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this cron schedule?')) return;
-  try {
-    await axios.delete(`/api/v1/backup/schedules/${id}`);
-    fetchAll();
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete schedule');
-  }
+const deleteSchedule = (sched: any) => {
+  confirmDeleteSchedule(sched);
 };
 
-const deleteHistoryItem = async (id: string) => {
-  if (!confirm('Delete this history record?')) return;
-  try {
-    await axios.delete(`/api/v1/backup/history/${id}`);
-    fetchAll();
-  } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete history');
-  }
+const deleteHistoryItem = (h: any) => {
+  confirmDeleteHistory(h);
 };
 
 const downloadBackupFile = (h: any) => {
@@ -901,7 +992,7 @@ onMounted(() => {
                 <Edit2 class="w-3.5 h-3.5" />
               </button>
               <button
-                @click="deleteDBConfig(db.id)"
+                @click="deleteDBConfig(db)"
                 class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
                 title="Delete Database Config"
               >
@@ -985,7 +1076,7 @@ onMounted(() => {
                 <Edit2 class="w-3.5 h-3.5" />
               </button>
               <button
-                @click="deleteDestination(dest.id)"
+                @click="deleteDestination(dest)"
                 class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
                 title="Delete Storage Destination"
               >
@@ -1083,7 +1174,7 @@ onMounted(() => {
               <Edit2 class="w-3.5 h-3.5" />
             </button>
             <button
-              @click="deleteSchedule(sched.id)"
+              @click="deleteSchedule(sched)"
               class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
               title="Delete Schedule"
             >
@@ -1119,7 +1210,7 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
-          <tr v-for="h in history" :key="h.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+          <tr v-for="h in paginatedHistory" :key="h.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
             <td class="p-3">
               <div class="font-semibold text-slate-900 dark:text-white">{{ h.filename }}</div>
               <div
@@ -1178,7 +1269,7 @@ onMounted(() => {
                   <FileText class="w-3.5 h-3.5" />
                 </button>
                 <button
-                  @click="deleteHistoryItem(h.id)"
+                  @click="deleteHistoryItem(h)"
                   class="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-rose-400 dark:hover:bg-slate-800 transition cursor-pointer"
                   title="Delete Record"
                 >
@@ -1194,6 +1285,63 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+
+      <!-- Pagination Bar (Active if records > historyPageSize (30 rows)) -->
+      <div
+        v-if="history.length > historyPageSize"
+        class="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400 bg-slate-50/60 dark:bg-[#1c202b]/60 font-sans"
+      >
+        <div>
+          Showing
+          <span class="font-semibold text-slate-900 dark:text-white">{{ (historyPage - 1) * historyPageSize + 1 }}</span>
+          to
+          <span class="font-semibold text-slate-900 dark:text-white">{{ Math.min(historyPage * historyPageSize, history.length) }}</span>
+          of
+          <span class="font-semibold text-slate-900 dark:text-white">{{ history.length }}</span>
+          records
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            @click="historyPage--"
+            :disabled="historyPage <= 1"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171a23] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 text-xs"
+          >
+            <ChevronLeft class="w-3.5 h-3.5 text-slate-500" />
+            <span>Previous</span>
+          </button>
+
+          <div class="flex items-center gap-1">
+            <template v-for="(p, idx) in visibleHistoryPages" :key="idx">
+              <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+              <button
+                v-else
+                type="button"
+                @click="historyPage = p"
+                :class="[
+                  historyPage === p
+                    ? 'bg-blue-600 text-white font-bold border-blue-600'
+                    : 'bg-white dark:bg-[#171a23] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800',
+                  'w-7 h-7 rounded-lg text-xs flex items-center justify-center transition cursor-pointer'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </template>
+          </div>
+
+          <button
+            type="button"
+            @click="historyPage++"
+            :disabled="historyPage >= totalHistoryPages"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171a23] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 text-xs"
+          >
+            <span>Next</span>
+            <ChevronRight class="w-3.5 h-3.5 text-slate-500" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- ============================================================= -->
@@ -1856,6 +2004,48 @@ onMounted(() => {
               Close
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL 3: STANDARD DELETE CONFIRMATION MODAL (Strictly AGENTS.md) -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showDeleteModal && itemToDelete"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <!-- Icon Lingkaran Merah di Tengah Atas -->
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+
+        <!-- Judul & Teks Penjelasan -->
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+            Delete {{ itemToDelete.type === 'database' ? 'Database Config' : itemToDelete.type === 'destination' ? 'Storage Destination' : itemToDelete.type === 'schedule' ? 'Cron Schedule' : 'Backup History' }}?
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ itemToDelete.name }}</strong>? This action cannot be undone.
+          </p>
+        </div>
+
+        <!-- Tombol Aksi -->
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showDeleteModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeDelete"
+            :disabled="isDeleting"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
         </div>
       </div>
     </div>
