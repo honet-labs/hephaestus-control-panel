@@ -294,6 +294,15 @@ const openCreateReportModal = () => {
   showCreateModal.value = true;
 };
 
+const openEditReportModal = (report: RawReport) => {
+  reportForm.value = {
+    id: report.id,
+    name: report.name,
+    description: report.description || '',
+  };
+  showCreateModal.value = true;
+};
+
 const saveReport = async () => {
   if (!reportForm.value.name.trim()) {
     showNotice('Report name is required', 'error');
@@ -314,15 +323,28 @@ const saveReport = async () => {
       },
     };
 
-    const res = await axios.post('/api/v1/reports', payload);
-    if (res.data?.success && res.data.data) {
-      showNotice('Report created successfully', 'success');
-      showCreateModal.value = false;
-      await fetchReports();
-      await openReport(res.data.data);
+    if (reportForm.value.id) {
+      const res = await axios.put(`/api/v1/reports/${reportForm.value.id}`, payload);
+      if (res.data?.success) {
+        showNotice('Report updated successfully', 'success');
+        showCreateModal.value = false;
+        await fetchReports();
+        if (activeReport.value && activeReport.value.id === reportForm.value.id) {
+          activeReport.value.name = reportForm.value.name.trim();
+          activeReport.value.description = reportForm.value.description.trim();
+        }
+      }
+    } else {
+      const res = await axios.post('/api/v1/reports', payload);
+      if (res.data?.success && res.data.data) {
+        showNotice('Report created successfully', 'success');
+        showCreateModal.value = false;
+        await fetchReports();
+        await openReport(res.data.data);
+      }
     }
   } catch (err: any) {
-    showNotice(err?.response?.data?.message || 'Failed to create report', 'error');
+    showNotice(err?.response?.data?.message || (reportForm.value.id ? 'Failed to update report' : 'Failed to create report'), 'error');
   } finally {
     isSaving.value = false;
   }
@@ -1027,6 +1049,13 @@ onBeforeUnmount(() => {
                 Open Report &rarr;
               </button>
               <button
+                @click="openEditReportModal(rep)"
+                class="p-1 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition cursor-pointer"
+                title="Edit Report"
+              >
+                <Edit3 class="w-3.5 h-3.5" />
+              </button>
+              <button
                 @click="confirmDeleteReport(rep)"
                 class="p-1 text-slate-400 hover:text-rose-500 transition cursor-pointer"
                 title="Delete Report"
@@ -1085,6 +1114,14 @@ onBeforeUnmount(() => {
             class="px-3 py-1.5 border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer"
           >
             All Reports
+          </button>
+          <button
+            @click="openEditReportModal(activeReport)"
+            class="px-3 py-1.5 border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151c2e] transition cursor-pointer flex items-center gap-1.5"
+            title="Edit Report Details"
+          >
+            <Edit3 class="w-3.5 h-3.5 text-slate-400" />
+            <span>Edit Report</span>
           </button>
           <button
             @click="openAddPanelModal('cpu')"
@@ -1357,7 +1394,9 @@ onBeforeUnmount(() => {
     >
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Create New Report</h3>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+            {{ reportForm.id ? 'Edit Report' : 'Create New Report' }}
+          </h3>
           <button @click="showCreateModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
             <X class="w-4 h-4" />
           </button>
@@ -1398,7 +1437,7 @@ onBeforeUnmount(() => {
             :disabled="isSaving"
             class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
           >
-            {{ isSaving ? 'Creating...' : 'Create Report' }}
+            {{ isSaving ? (reportForm.id ? 'Saving...' : 'Creating...') : (reportForm.id ? 'Save Changes' : 'Create Report') }}
           </button>
         </div>
       </div>
