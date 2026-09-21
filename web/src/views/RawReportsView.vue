@@ -31,7 +31,7 @@ interface ReportWidget {
   id: string;
   reportId: string;
   title: string;
-  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut';
+  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut' | 'table';
   sourceType: 'prometheus' | 'grafana' | 'opensearch';
   sourceConfig: {
     targetHost?: string;
@@ -110,7 +110,7 @@ const widgetForm = ref<{
   query: string;
   indexPattern: string;
   module: string;
-  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut';
+  chartType: 'line' | 'area' | 'bar' | 'pie' | 'donut' | 'table';
   timeRange: string;
   aggregation: string;
   widthPercent: number;
@@ -513,6 +513,7 @@ const formatPointLocalTooltip = (p: { timestamp: string; label?: string }) => {
 };
 
 const renderEChart = (widget: ReportWidget, echartsLib: any) => {
+  if (widget.chartType === 'table') return;
   const dom = chartRefs.get(widget.id);
   if (!dom || !echartsLib) return;
 
@@ -710,8 +711,41 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
 };
 
 // -----------------------------------------------------------------------------
-// Download Panel Chart as PNG
+// Download Panel Chart as PNG / Table as CSV
 // -----------------------------------------------------------------------------
+const downloadPanelData = (widget: ReportWidget) => {
+  if (widget.chartType === 'table') {
+    downloadTableCsv(widget);
+  } else {
+    downloadPanelPng(widget);
+  }
+};
+
+const downloadTableCsv = (widget: ReportWidget) => {
+  const points = widget.points || [];
+  if (points.length === 0) {
+    showNotice('No data points to export', 'error');
+    return;
+  }
+  const headers = ['Timestamp', 'Host', 'Metric', 'Value', 'Unit'];
+  const rows = points.map((p) => [
+    `"${(formatPointLocalTooltip(p) || p.timestamp || '').replace(/"/g, '""')}"`,
+    `"${(widget.sourceConfig?.targetHost || 'all').replace(/"/g, '""')}"`,
+    `"${(widget.title || '').replace(/"/g, '""')}"`,
+    p.value,
+    `"${(widget.summary?.unit || '').replace(/"/g, '""')}"`,
+  ]);
+  const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${widget.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-table-${Date.now()}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showNotice('Table exported as CSV successfully', 'success');
+};
+
 const downloadPanelPng = (widget: ReportWidget) => {
   const chart = chartInstances.get(widget.id);
   if (!chart) {
@@ -970,9 +1004,9 @@ onBeforeUnmount(() => {
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ widget.title }}</h3>
             <div class="flex items-center gap-2 text-slate-400">
               <button
-                @click="downloadPanelPng(widget)"
+                @click="downloadPanelData(widget)"
                 class="hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                title="Download Chart PNG"
+                :title="widget.chartType === 'table' ? 'Download Table CSV' : 'Download Chart PNG'"
               >
                 <Download class="w-3.5 h-3.5" />
               </button>
@@ -998,11 +1032,60 @@ onBeforeUnmount(() => {
             <h4 class="text-xs font-semibold text-slate-800 dark:text-slate-200">{{ widget.title }}</h4>
             <p class="text-[10px] text-slate-400">
               Time Range: Last {{ widget.timeRange }} &bull; {{ widget.sourceConfig?.aggregation || 'Daily' }} &bull; {{ widget.sourceType.toUpperCase() }}
+              <span v-if="widget.chartType === 'table'" class="ml-1 text-slate-500">&bull; Table View</span>
             </p>
           </div>
 
-          <!-- Apache ECharts Container -->
-          <div :ref="(el) => setChartRef(widget.id, el)" class="w-full h-56 relative"></div>
+          <!-- Table View when widget.chartType === 'table' -->
+          <div v-if="widget.chartType === 'table'" class="w-full h-56 overflow-y-auto border border-slate-200/80 dark:border-[#1f283d] rounded-xl bg-slate-50/40 dark:bg-[#0c101a]/60">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="sticky top-0 bg-slate-100/90 dark:bg-[#151c2e] border-b border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 z-10 backdrop-blur-xs">
+                <tr>
+                  <th class="py-2 px-3 font-semibold text-[11px]">Time</th>
+                  <th class="py-2 px-3 font-semibold text-[11px]">Host / Target</th>
+                  <th class="py-2 px-3 font-semibold text-[11px] text-right">Value</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
+                <tr
+                  v-for="(pt, pIdx) in (widget.points || []).slice().reverse()"
+                  :key="pIdx"
+                  class="hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors"
+                >
+                  <td class="py-2 px-3 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                    {{ formatPointLocalTooltip(pt) || formatPointLocalLabel(pt, widget.timeRange) }}
+                  </td>
+                  <td class="py-2 px-3 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[130px]">
+                    {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost : (pt.label || widget.title) }}
+                  </td>
+                  <td class="py-2 px-3 text-right font-semibold text-slate-900 dark:text-white text-[11px]">
+                    <span
+                      :class="[
+                        widget.sourceConfig?.colorPalette === 'blue'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : widget.sourceConfig?.colorPalette === 'amber'
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : widget.sourceConfig?.colorPalette === 'purple'
+                          ? 'text-purple-600 dark:text-purple-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      ]"
+                    >
+                      {{ pt.value }}
+                    </span>
+                    <span class="text-[10px] text-slate-400 ml-1 font-normal">{{ widget.summary?.unit }}</span>
+                  </td>
+                </tr>
+                <tr v-if="!widget.points || widget.points.length === 0">
+                  <td colspan="3" class="py-8 text-center text-slate-400 text-xs">
+                    No telemetry records found for this time range.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Apache ECharts Container for Charts -->
+          <div v-else :ref="(el) => setChartRef(widget.id, el)" class="w-full h-56 relative"></div>
 
           <!-- Legend Indicator -->
           <div class="flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400 pt-1">
@@ -1020,6 +1103,9 @@ onBeforeUnmount(() => {
             ></span>
             <span class="font-medium text-[11px]">
               {{ widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : '' }}{{ widget.title }}
+              <span v-if="widget.chartType === 'table'" class="text-slate-400 font-normal">
+                ({{ (widget.points || []).length }} rows)
+              </span>
             </span>
           </div>
 
@@ -1168,7 +1254,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="space-y-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-300">Chart Type (Apache ECharts)</label>
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Chart Type / Visualization</label>
               <select
                 v-model="widgetForm.chartType"
                 class="w-full px-3 py-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200"
@@ -1178,6 +1264,7 @@ onBeforeUnmount(() => {
                 <option value="bar">Bar Chart</option>
                 <option value="pie">Pie Chart</option>
                 <option value="donut">Donut Chart</option>
+                <option value="table">Data Table</option>
               </select>
             </div>
           </div>
