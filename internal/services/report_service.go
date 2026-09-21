@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -28,6 +29,8 @@ type ReportService struct {
 	openSearchService *OpenSearchService
 	promService       *PrometheusService
 	httpClient        *http.Client
+	activePromURL     string
+	promMu            sync.RWMutex
 }
 
 func NewReportService(
@@ -169,50 +172,77 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 
 	// Multi-host query resolution
 	if len(targetHosts) > 1 && !(len(targetHosts) == 1 && targetHosts[0] == "all") {
-		var seriesList []domain.ReportSeries
-		var allTableRows []map[string]any
-		rowID := 1
+		type hostResult struct {
+			idx    int
+			series domain.ReportSeries
+			rows   []map[string]any
+		}
+		results := make([]hostResult, len(targetHosts))
+		var wg sync.WaitGroup
+
 		for hIdx, h := range targetHosts {
-			promQLForH, u, mTitle := s.buildPromQL(metricPreset, customQ, h)
-			if req.MetricKey != "" {
-				mTitle = req.MetricKey
-			}
-			var hPoints []domain.ReportDataPoint
-			var hSummary domain.ReportWidgetSummary
-			if isConnected && s.promService != nil {
-				pts, sum, qErr := s.fetchPrometheusLive(ctx, promCfg, promQLForH, timeRange, aggregation, h)
-				if qErr == nil && len(pts) > 0 {
-					hPoints = pts
-					hSummary = sum
+			wg.Add(1)
+			go func(idx int, host string) {
+				defer wg.Done()
+				promQLForH, u, mTitle := s.buildPromQL(metricPreset, customQ, host)
+				if req.MetricKey != "" {
+					mTitle = req.MetricKey
 				}
-			}
-			if len(hPoints) == 0 {
-				hPoints, hSummary = s.generateTimeSeriesData(mTitle, timeRange, "prometheus", h)
-				varianceFactor := 0.85 + float64((hIdx*13)%9)*0.04
-				for pIdx := range hPoints {
-					hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
+				var hPoints []domain.ReportDataPoint
+				var hSummary domain.ReportWidgetSummary
+				if isConnected && s.promService != nil {
+					pts, sum, qErr := s.fetchPrometheusLive(ctx, promCfg, promQLForH, timeRange, aggregation, host)
+					if qErr == nil && len(pts) > 0 {
+						hPoints = pts
+						hSummary = sum
+					}
 				}
-				hSummary = s.calculateSummary(hPoints, u)
-			}
-			if len(hPoints) > 0 {
+				if len(hPoints) == 0 {
+					hPoints, hSummary = s.generateTimeSeriesData(mTitle, timeRange, "prometheus", host)
+					varianceFactor := 0.85 + float64((idx*13)%9)*0.04
+					for pIdx := range hPoints {
+						hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
+					}
+					hSummary = s.calculateSummary(hPoints, u)
+				}
 				hSummary.Unit = u
-				seriesList = append(seriesList, domain.ReportSeries{
-					Name:    fmt.Sprintf("%s - %s", h, mTitle),
-					Host:    h,
-					Points:  hPoints,
-					Summary: hSummary,
-				})
+
+				var hRows []map[string]any
 				for _, pt := range hPoints {
-					allTableRows = append(allTableRows, map[string]any{
-						"id":        rowID,
+					hRows = append(hRows, map[string]any{
 						"timestamp": pt.Timestamp,
 						"source":    "PROMETHEUS",
-						"host":      h,
+						"host":      host,
 						"level":     "DATA",
 						"metric":    mTitle,
 						"value":     fmt.Sprintf("%.2f %s", pt.Value, u),
-						"message":   fmt.Sprintf("%s on %s: %.2f %s", mTitle, h, pt.Value, u),
+						"message":   fmt.Sprintf("%s on %s: %.2f %s", mTitle, host, pt.Value, u),
 					})
+				}
+
+				results[idx] = hostResult{
+					idx: idx,
+					series: domain.ReportSeries{
+						Name:    fmt.Sprintf("%s - %s", host, mTitle),
+						Host:    host,
+						Points:  hPoints,
+						Summary: hSummary,
+					},
+					rows: hRows,
+				}
+			}(hIdx, h)
+		}
+		wg.Wait()
+
+		var seriesList []domain.ReportSeries
+		var allTableRows []map[string]any
+		rowID := 1
+		for _, res := range results {
+			if len(res.series.Points) > 0 {
+				seriesList = append(seriesList, res.series)
+				for _, r := range res.rows {
+					r["id"] = rowID
+					allTableRows = append(allTableRows, r)
 					rowID++
 				}
 			}
@@ -361,52 +391,79 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 
 	// Multi-host support for Grafana
 	if len(targetHosts) > 1 && !(len(targetHosts) == 1 && targetHosts[0] == "all") {
-		var seriesList []domain.ReportSeries
-		var allTableRows []map[string]any
-		rowID := 1
+		type hostResult struct {
+			idx    int
+			series domain.ReportSeries
+			rows   []map[string]any
+		}
+		results := make([]hostResult, len(targetHosts))
+		var wg sync.WaitGroup
+
 		for hIdx, h := range targetHosts {
-			var hPoints []domain.ReportDataPoint
-			var hSummary domain.ReportWidgetSummary
-			if isConnected {
-				reqCopy := req
-				reqCopy.SourceConfig = make(map[string]interface{})
-				for k, v := range req.SourceConfig {
-					reqCopy.SourceConfig[k] = v
+			wg.Add(1)
+			go func(idx int, host string) {
+				defer wg.Done()
+				var hPoints []domain.ReportDataPoint
+				var hSummary domain.ReportWidgetSummary
+				if isConnected {
+					reqCopy := req
+					reqCopy.SourceConfig = make(map[string]interface{})
+					for k, v := range req.SourceConfig {
+						reqCopy.SourceConfig[k] = v
+					}
+					reqCopy.SourceConfig["targetHost"] = host
+					pts, sum, gErr := s.fetchGrafanaLive(ctx, grafanaCfg, reqCopy)
+					if gErr == nil && len(pts) > 0 {
+						hPoints = pts
+						hSummary = sum
+					}
 				}
-				reqCopy.SourceConfig["targetHost"] = h
-				pts, sum, gErr := s.fetchGrafanaLive(ctx, grafanaCfg, reqCopy)
-				if gErr == nil && len(pts) > 0 {
-					hPoints = pts
-					hSummary = sum
+				if len(hPoints) == 0 {
+					hPoints, hSummary = s.generateTimeSeriesData(metricKey, timeRange, "grafana", host)
+					varianceFactor := 0.85 + float64((idx*13)%9)*0.04
+					for pIdx := range hPoints {
+						hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
+					}
+					hSummary = s.calculateSummary(hPoints, "%")
 				}
-			}
-			if len(hPoints) == 0 {
-				hPoints, hSummary = s.generateTimeSeriesData(metricKey, timeRange, "grafana", h)
-				varianceFactor := 0.85 + float64((hIdx*13)%9)*0.04
-				for pIdx := range hPoints {
-					hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
-				}
-				hSummary = s.calculateSummary(hPoints, "%")
-			}
-			if len(hPoints) > 0 {
 				hSummary.Unit = "%"
-				seriesList = append(seriesList, domain.ReportSeries{
-					Name:    fmt.Sprintf("%s - %s", h, metricKey),
-					Host:    h,
-					Points:  hPoints,
-					Summary: hSummary,
-				})
+
+				var hRows []map[string]any
 				for _, pt := range hPoints {
-					allTableRows = append(allTableRows, map[string]any{
-						"id":        rowID,
+					hRows = append(hRows, map[string]any{
 						"timestamp": pt.Timestamp,
 						"source":    "GRAFANA",
-						"host":      h,
+						"host":      host,
 						"level":     "DATA",
 						"metric":    metricKey,
 						"value":     fmt.Sprintf("%.2f %%", pt.Value),
-						"message":   fmt.Sprintf("%s on %s: %.2f %%", metricKey, h, pt.Value),
+						"message":   fmt.Sprintf("%s on %s: %.2f %%", metricKey, host, pt.Value),
 					})
+				}
+
+				results[idx] = hostResult{
+					idx: idx,
+					series: domain.ReportSeries{
+						Name:    fmt.Sprintf("%s - %s", host, metricKey),
+						Host:    host,
+						Points:  hPoints,
+						Summary: hSummary,
+					},
+					rows: hRows,
+				}
+			}(hIdx, h)
+		}
+		wg.Wait()
+
+		var seriesList []domain.ReportSeries
+		var allTableRows []map[string]any
+		rowID := 1
+		for _, res := range results {
+			if len(res.series.Points) > 0 {
+				seriesList = append(seriesList, res.series)
+				for _, r := range res.rows {
+					r["id"] = rowID
+					allTableRows = append(allTableRows, r)
 					rowID++
 				}
 			}
@@ -616,7 +673,18 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 	}
 
 	// Build candidate endpoints to probe in order
-	candidates := []string{baseURL}
+	var candidates []string
+	s.promMu.RLock()
+	cachedURL := s.activePromURL
+	s.promMu.RUnlock()
+	if cachedURL != "" {
+		candidates = append(candidates, cachedURL)
+	}
+
+	if !strings.EqualFold(cachedURL, baseURL) {
+		candidates = append(candidates, baseURL)
+	}
+
 	if u, parseErr := url.Parse(baseURL); parseErr == nil {
 		h := u.Hostname()
 		port := u.Port()
@@ -631,21 +699,6 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 			)
 			if cfg.SSHHost != nil && *cfg.SSHHost != "" && *cfg.SSHHost != "localhost" && *cfg.SSHHost != "127.0.0.1" {
 				candidates = append(candidates, fmt.Sprintf("http://%s:%s", *cfg.SSHHost, port))
-			}
-			if targetHost != "" && targetHost != "all" && targetHost != "localhost" && targetHost != "127.0.0.1" {
-				candidates = append(candidates, fmt.Sprintf("http://%s:%s", targetHost, port))
-			}
-			if pool, dbErr := database.GetPool(); dbErr == nil && pool != nil {
-				rows, qErr := pool.Query(ctx, "SELECT DISTINCT host FROM remote_host_configs WHERE host IS NOT NULL AND host != '' AND host != 'localhost' AND host != '127.0.0.1'")
-				if qErr == nil {
-					for rows.Next() {
-						var rHost string
-						if err := rows.Scan(&rHost); err == nil && rHost != "" {
-							candidates = append(candidates, fmt.Sprintf("http://%s:%s", rHost, port))
-						}
-					}
-					rows.Close()
-				}
 			}
 		}
 	}
@@ -670,13 +723,16 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 			step,
 		)
 
-		req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+		probeCtx, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+		req, err := http.NewRequestWithContext(probeCtx, "GET", queryURL, nil)
 		if err != nil {
+			probeCancel()
 			lastErr = err
 			continue
 		}
 
 		resp, err := s.httpClient.Do(req)
+		probeCancel()
 		if err != nil {
 			lastErr = err
 			continue
@@ -707,47 +763,56 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 			continue
 		}
 
-		var points []domain.ReportDataPoint
-		if len(pResp.Data.Result) > 0 {
-			firstSeries := pResp.Data.Result[0]
-			if len(firstSeries.Values) > 0 {
-				for _, valPair := range firstSeries.Values {
-					if len(valPair) >= 2 {
-						tsFloat, _ := valPair[0].(float64)
-						valStr, _ := valPair[1].(string)
-						valFloat, _ := strconv.ParseFloat(valStr, 64)
-						if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
-							continue
+		if pResp.Status == "success" {
+			s.promMu.Lock()
+			s.activePromURL = cand
+			s.promMu.Unlock()
+
+			var points []domain.ReportDataPoint
+			if len(pResp.Data.Result) > 0 {
+				firstSeries := pResp.Data.Result[0]
+				if len(firstSeries.Values) > 0 {
+					for _, valPair := range firstSeries.Values {
+						if len(valPair) >= 2 {
+							tsFloat, _ := valPair[0].(float64)
+							valStr, _ := valPair[1].(string)
+							valFloat, _ := strconv.ParseFloat(valStr, 64)
+							if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
+								continue
+							}
+
+							t := time.Unix(int64(tsFloat), 0)
+							points = append(points, domain.ReportDataPoint{
+								Timestamp: t.UTC().Format(time.RFC3339),
+								Label:     t.UTC().Format(labelFmt),
+								Value:     math.Round(valFloat*100) / 100,
+							})
 						}
-
-						t := time.Unix(int64(tsFloat), 0)
-						points = append(points, domain.ReportDataPoint{
-							Timestamp: t.UTC().Format(time.RFC3339),
-							Label:     t.UTC().Format(labelFmt),
-							Value:     math.Round(valFloat*100) / 100,
-						})
 					}
+				} else if len(firstSeries.Value) >= 2 {
+					tsFloat, _ := firstSeries.Value[0].(float64)
+					valStr, _ := firstSeries.Value[1].(string)
+					valFloat, _ := strconv.ParseFloat(valStr, 64)
+					if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
+						continue
+					}
+					t := time.Unix(int64(tsFloat), 0)
+					points = append(points, domain.ReportDataPoint{
+						Timestamp: t.UTC().Format(time.RFC3339),
+						Label:     t.UTC().Format(labelFmt),
+						Value:     math.Round(valFloat*100) / 100,
+					})
 				}
-			} else if len(firstSeries.Value) >= 2 {
-				tsFloat, _ := firstSeries.Value[0].(float64)
-				valStr, _ := firstSeries.Value[1].(string)
-				valFloat, _ := strconv.ParseFloat(valStr, 64)
-				if math.IsNaN(valFloat) || math.IsInf(valFloat, 0) {
-					continue
-				}
-				t := time.Unix(int64(tsFloat), 0)
-				points = append(points, domain.ReportDataPoint{
-					Timestamp: t.UTC().Format(time.RFC3339),
-					Label:     t.UTC().Format(labelFmt),
-					Value:     math.Round(valFloat*100) / 100,
-				})
 			}
-		}
 
-		if len(points) > 0 {
-			summary := s.calculateSummary(points, "")
-			logger.Info("ReportService", fmt.Sprintf("Live Prometheus query succeeded via %s (points: %d)", cand, len(points)))
-			return points, summary, nil
+			if len(points) > 0 {
+				summary := s.calculateSummary(points, "")
+				logger.Info("ReportService", fmt.Sprintf("Live Prometheus query succeeded via %s (points: %d)", cand, len(points)))
+				return points, summary, nil
+			}
+
+			// Endpoint is valid Prometheus, but query returned no metrics for this specific target
+			return []domain.ReportDataPoint{}, domain.ReportWidgetSummary{}, nil
 		}
 	}
 
