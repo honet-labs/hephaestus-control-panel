@@ -466,27 +466,27 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 
 	now := time.Now()
 	var startTime time.Time
-	step := "15m"
+	step := "2m"
 
 	switch timeRange {
 	case "1h":
 		startTime = now.Add(-1 * time.Hour)
-		step = "1m"
+		step = "30s"
 	case "6h":
 		startTime = now.Add(-6 * time.Hour)
-		step = "5m"
+		step = "1m"
 	case "24h":
 		startTime = now.Add(-24 * time.Hour)
-		step = "15m"
+		step = "2m"
 	case "7d":
 		startTime = now.Add(-7 * 24 * time.Hour)
-		step = "1h"
+		step = "15m"
 	case "30d":
 		startTime = now.Add(-30 * 24 * time.Hour)
-		step = "4h"
+		step = "1h"
 	default:
 		startTime = now.Add(-24 * time.Hour)
-		step = "15m"
+		step = "2m"
 	}
 
 	if strings.Contains(aggregation, "daily") || aggregation == "day" {
@@ -720,6 +720,20 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 		}
 	}
 
+	stepMs := 120000 // default 2m
+	switch req.TimeRange {
+	case "1h":
+		stepMs = 30000 // 30s
+	case "6h":
+		stepMs = 60000 // 1m
+	case "24h":
+		stepMs = 120000 // 2m
+	case "7d":
+		stepMs = 900000 // 15m
+	case "30d":
+		stepMs = 3600000 // 1h
+	}
+
 	queryPayload := map[string]interface{}{
 		"queries": []map[string]interface{}{
 			{
@@ -727,10 +741,12 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 				"datasource": map[string]string{
 					"uid": dsUID,
 				},
-				"expr":    expr,
-				"format":  "time_series",
-				"instant": false,
-				"range":   true,
+				"expr":          expr,
+				"format":        "time_series",
+				"instant":       false,
+				"range":         true,
+				"intervalMs":    stepMs,
+				"maxDataPoints": 1000,
 			},
 		},
 		"from": s.parseTimeRangeStart(req.TimeRange),
