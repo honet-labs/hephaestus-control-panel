@@ -313,12 +313,43 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		WHERE NOT EXISTS (SELECT 1 FROM docker_connections WHERE id = 'docker-local-default' OR is_default = true);
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"infrastructure": "manage", "connections": "manage"}'::jsonb 
+		SET permissions = permissions || '{"infrastructure": "manage", "connections": "manage", "reports": "manage"}'::jsonb 
 		WHERE name IN ('ADMIN', 'OPERATOR');
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"infrastructure": "read", "connections": "read"}'::jsonb 
+		SET permissions = permissions || '{"infrastructure": "read", "connections": "read", "reports": "read"}'::jsonb 
 		WHERE name = 'VIEWER';
+
+		CREATE TABLE IF NOT EXISTS visual_reports (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			description TEXT DEFAULT '',
+			mode VARCHAR(50) NOT NULL DEFAULT 'document',
+			page_orientation VARCHAR(20) NOT NULL DEFAULT 'portrait',
+			header_config JSONB NOT NULL DEFAULT '{"title": "System Utilization Report", "subtitle": "", "showDate": true, "logoText": "HEPHAESTUS"}'::jsonb,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS visual_report_widgets (
+			id VARCHAR(50) PRIMARY KEY,
+			report_id VARCHAR(50) NOT NULL REFERENCES visual_reports(id) ON DELETE CASCADE,
+			page_number INTEGER NOT NULL DEFAULT 1,
+			title VARCHAR(255) NOT NULL,
+			chart_type VARCHAR(50) NOT NULL DEFAULT 'line',
+			source_type VARCHAR(50) NOT NULL DEFAULT 'opensearch',
+			source_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+			time_range VARCHAR(50) NOT NULL DEFAULT '24h',
+			theme VARCHAR(50) DEFAULT 'default',
+			width_percent INTEGER NOT NULL DEFAULT 50,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_visual_reports_user_id ON visual_reports(user_id);
+		CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_report_id ON visual_report_widgets(report_id);
+		CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_page ON visual_report_widgets(report_id, page_number);
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))

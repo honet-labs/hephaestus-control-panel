@@ -389,6 +389,35 @@ CREATE TABLE IF NOT EXISTS docker_connections (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 28. VisualReports - Visual reporting documents and metrics dashboards
+CREATE TABLE IF NOT EXISTS visual_reports (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT DEFAULT '',
+    mode VARCHAR(50) NOT NULL DEFAULT 'document',
+    page_orientation VARCHAR(20) NOT NULL DEFAULT 'portrait',
+    header_config JSONB NOT NULL DEFAULT '{"title": "System Utilization Report", "subtitle": "", "showDate": true, "logoText": "HEPHAESTUS"}'::jsonb,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 29. VisualReportWidgets - Chart and table widget components in reports
+CREATE TABLE IF NOT EXISTS visual_report_widgets (
+    id VARCHAR(50) PRIMARY KEY,
+    report_id VARCHAR(50) NOT NULL REFERENCES visual_reports(id) ON DELETE CASCADE,
+    page_number INTEGER NOT NULL DEFAULT 1,
+    title VARCHAR(255) NOT NULL,
+    chart_type VARCHAR(50) NOT NULL DEFAULT 'line',
+    source_type VARCHAR(50) NOT NULL DEFAULT 'opensearch',
+    source_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    time_range VARCHAR(50) NOT NULL DEFAULT '24h',
+    theme VARCHAR(50) DEFAULT 'default',
+    width_percent INTEGER NOT NULL DEFAULT 50,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================================================
@@ -417,6 +446,9 @@ CREATE INDEX IF NOT EXISTS idx_backup_schedules_is_active ON backup_schedules(is
 CREATE INDEX IF NOT EXISTS idx_backup_history_started_at ON backup_history(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_otel_configs_ssh_host ON opentelemetry_configs(ssh_host);
 CREATE INDEX IF NOT EXISTS idx_otel_config_history_config_id ON opentelemetry_config_history(otel_config_id);
+CREATE INDEX IF NOT EXISTS idx_visual_reports_user_id ON visual_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_report_id ON visual_report_widgets(report_id);
+CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_page ON visual_report_widgets(report_id, page_number);
 
 -- ==============================================================================
 -- SEED DEFAULT DATA
@@ -425,8 +457,8 @@ ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'
 
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "infrastructure": "manage", "settings": "manage"}'::jsonb),
-    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "infrastructure": "read", "settings": "none"}'::jsonb)
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "infrastructure": "manage", "reports": "manage", "settings": "manage"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "infrastructure": "read", "reports": "read", "settings": "none"}'::jsonb)
 ON CONFLICT (name) DO UPDATE SET 
     permissions = EXCLUDED.permissions,
     description = EXCLUDED.description;

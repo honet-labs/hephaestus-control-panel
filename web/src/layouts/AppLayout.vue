@@ -24,6 +24,7 @@ import {
   Search,
   Boxes,
   Server,
+  FileText,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -120,6 +121,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/security/vaultwarden')) return 'Vaultwarden';
   if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
   if (route.path.startsWith('/slideshow')) return 'Slide Show';
+  if (route.path.startsWith('/reports') || route.path.startsWith('/report')) return 'Report';
   if (route.path.startsWith('/settings')) return 'System Settings';
   return 'Dashboard';
 });
@@ -626,7 +628,22 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 8. System Settings -->
+          <!-- 9. Report -->
+          <router-link
+            v-if="authStore.can('reports', 'read')"
+            to="/reports"
+            :class="[
+              (route.path.startsWith('/reports') || route.path.startsWith('/report'))
+                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold dark:bg-[#293681]/40 dark:text-[#95CCDD] dark:border-[#4274D9]/50 shadow-xs'
+                : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
+              'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border'
+            ]"
+          >
+            <FileText class="w-4 h-4 shrink-0 transition" :class="(route.path.startsWith('/reports') || route.path.startsWith('/report')) ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+            <span>Report</span>
+          </router-link>
+
+          <!-- 10. System Settings -->
           <router-link
             v-if="authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN'"
             to="/settings"

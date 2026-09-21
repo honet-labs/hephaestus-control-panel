@@ -72,6 +72,7 @@ func main() {
 	otelRepo := repository.NewOTelRepository()
 	vaultwardenRepo := repository.NewVaultwardenRepository()
 	dockerRepo := repository.NewDockerRepository()
+	reportRepo := repository.NewReportRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -97,6 +98,7 @@ func main() {
 	vaultwardenService.StartBackgroundSync(nil)
 	dockerService := services.NewDockerService(dockerRepo, remoteRepo, sshService)
 	systemService := services.NewSystemService()
+	reportService := services.NewReportService(reportRepo, configRepo, openSearchService)
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -116,6 +118,7 @@ func main() {
 	settingsHandler := handlers.NewSettingsHandler(configRepo, userRepo, systemService)
 	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
+	reportHandler := handlers.NewReportHandler(reportService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -366,6 +369,17 @@ func main() {
 		api.POST("/docker/networks", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.CreateNetwork)
 		api.DELETE("/docker/networks/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteNetwork)
 		api.GET("/docker/system/info", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetSystemInfo)
+
+		// Visual Reporting (Feature: reports)
+		api.GET("/reports", middleware.RequirePermission("reports", "read"), reportHandler.ListReports)
+		api.POST("/reports", middleware.RequirePermission("reports", "manage"), reportHandler.CreateReport)
+		api.GET("/reports/:id", middleware.RequirePermission("reports", "read"), reportHandler.GetReport)
+		api.PUT("/reports/:id", middleware.RequirePermission("reports", "manage"), reportHandler.UpdateReport)
+		api.DELETE("/reports/:id", middleware.RequirePermission("reports", "manage"), reportHandler.DeleteReport)
+		api.POST("/reports/:id/widgets", middleware.RequirePermission("reports", "manage"), reportHandler.CreateWidget)
+		api.PUT("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.UpdateWidget)
+		api.DELETE("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.DeleteWidget)
+		api.POST("/reports/query-data", middleware.RequirePermission("reports", "read"), reportHandler.QueryWidgetData)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)

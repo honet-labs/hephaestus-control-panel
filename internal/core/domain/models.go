@@ -665,3 +665,75 @@ type DockerSystemInfo struct {
 	NCPU              int     `json:"ncpu"`
 	MemTotalMB        float64 `json:"memTotalMb"`
 }
+
+// ==================== VISUAL REPORTS DOMAIN ====================
+
+type VisualReportHeaderConfig struct {
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	ShowDate bool   `json:"showDate"`
+	LogoText string `json:"logoText"`
+}
+
+type VisualReport struct {
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	Description     string                   `json:"description"`
+	Mode            string                   `json:"mode"`            // "document" (multi-page A4) or "grid" (dashboard)
+	PageOrientation string                   `json:"pageOrientation"` // "portrait" or "landscape"
+	HeaderConfig    VisualReportHeaderConfig `json:"headerConfig"`
+	UserID          *int                     `json:"userId,omitempty"`
+	Widgets         []VisualReportWidget     `json:"widgets,omitempty"`
+	CreatedAt       time.Time                `json:"createdAt"`
+	UpdatedAt       time.Time                `json:"updatedAt"`
+}
+
+type VisualReportWidget struct {
+	ID           string                 `json:"id"`
+	ReportID     string                 `json:"reportId"`
+	PageNumber   int                    `json:"pageNumber"`
+	Title        string                 `json:"title"`
+	ChartType    string                 `json:"chartType"`  // "line", "bar", "area", "gauge", "table", "metric_card"
+	SourceType   string                 `json:"sourceType"` // "opensearch", "grafana"
+	SourceConfig map[string]interface{} `json:"sourceConfig"`
+	TimeRange    string                 `json:"timeRange"` // "1h", "24h", "7d", "30d"
+	Theme        string                 `json:"theme"`
+	WidthPercent int                    `json:"widthPercent"` // 50 (Half Width), 100 (Full Width)
+	SortOrder    int                    `json:"sortOrder"`
+	CreatedAt    time.Time              `json:"createdAt"`
+}
+
+type ReportDataPoint struct {
+	Timestamp string  `json:"timestamp"`
+	Label     string  `json:"label"`
+	Value     float64 `json:"value"`
+}
+
+type ReportWidgetSummary struct {
+	Min     float64 `json:"min"`
+	Max     float64 `json:"max"`
+	Avg     float64 `json:"avg"`
+	Current float64 `json:"current"`
+	Total   float64 `json:"total"`
+	Count   int     `json:"count"`
+	Unit    string  `json:"unit"`
+}
+
+type ReportQueryDataRequest struct {
+	SourceType   string                 `json:"sourceType"` // "opensearch", "grafana"
+	SourceConfig map[string]interface{} `json:"sourceConfig"`
+	TimeRange    string                 `json:"timeRange"` // "1h", "24h", "7d", "30d"
+	MetricKey    string                 `json:"metricKey,omitempty"`
+}
+
+type ReportQueryDataResponse struct {
+	Title       string              `json:"title"`
+	SourceType  string              `json:"sourceType"`
+	Points      []ReportDataPoint   `json:"points"`
+	Summary     ReportWidgetSummary `json:"summary"`
+	Categories  []string            `json:"categories,omitempty"`
+	TableRows   []map[string]any    `json:"tableRows,omitempty"`
+	IsConnected bool                `json:"isConnected"`
+	Message     string              `json:"message,omitempty"`
+}
+
