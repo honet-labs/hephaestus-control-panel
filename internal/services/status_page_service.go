@@ -12,7 +12,6 @@ import (
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
-	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
 )
 
