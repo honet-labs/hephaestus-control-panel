@@ -350,6 +350,72 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_visual_reports_user_id ON visual_reports(user_id);
 		CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_report_id ON visual_report_widgets(report_id);
 		CREATE INDEX IF NOT EXISTS idx_visual_report_widgets_page ON visual_report_widgets(report_id, page_number);
+
+		-- Status Pages (Halaman Status) upgrade
+		CREATE TABLE IF NOT EXISTS status_pages (
+			id VARCHAR(50) PRIMARY KEY,
+			title VARCHAR(255) NOT NULL,
+			slug VARCHAR(100) UNIQUE NOT NULL,
+			description TEXT DEFAULT '',
+			footer_text TEXT DEFAULT '',
+			theme VARCHAR(20) DEFAULT 'auto',
+			refresh_interval INTEGER DEFAULT 60,
+			is_public BOOLEAN DEFAULT true,
+			is_published BOOLEAN DEFAULT true,
+			show_tags BOOLEAN DEFAULT true,
+			custom_css TEXT DEFAULT '',
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS status_page_groups (
+			id VARCHAR(50) PRIMARY KEY,
+			page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+			name VARCHAR(255) NOT NULL,
+			sort_order INTEGER DEFAULT 0,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS status_page_items (
+			id VARCHAR(50) PRIMARY KEY,
+			page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+			group_id VARCHAR(50) REFERENCES status_page_groups(id) ON DELETE SET NULL,
+			name VARCHAR(255) NOT NULL,
+			source_type VARCHAR(50) NOT NULL,
+			source_id VARCHAR(100),
+			source_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+			description VARCHAR(255) DEFAULT '',
+			sort_order INTEGER DEFAULT 0,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS status_page_incidents (
+			id VARCHAR(50) PRIMARY KEY,
+			page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+			title VARCHAR(255) NOT NULL,
+			status VARCHAR(50) NOT NULL DEFAULT 'investigating',
+			severity VARCHAR(50) NOT NULL DEFAULT 'minor',
+			message TEXT NOT NULL,
+			is_active BOOLEAN DEFAULT true,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_status_pages_slug ON status_pages(slug);
+		CREATE INDEX IF NOT EXISTS idx_status_pages_is_public ON status_pages(is_public);
+		CREATE INDEX IF NOT EXISTS idx_status_page_groups_page_id ON status_page_groups(page_id);
+		CREATE INDEX IF NOT EXISTS idx_status_page_items_page_id ON status_page_items(page_id);
+		CREATE INDEX IF NOT EXISTS idx_status_page_items_group_id ON status_page_items(group_id);
+		CREATE INDEX IF NOT EXISTS idx_status_page_incidents_page_id ON status_page_incidents(page_id);
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"status_pages": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"status_pages": "read"}'::jsonb 
+		WHERE name = 'VIEWER';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))

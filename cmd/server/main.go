@@ -73,6 +73,7 @@ func main() {
 	vaultwardenRepo := repository.NewVaultwardenRepository()
 	dockerRepo := repository.NewDockerRepository()
 	reportRepo := repository.NewReportRepository()
+	statusPageRepo := repository.NewStatusPageRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -99,6 +100,7 @@ func main() {
 	dockerService := services.NewDockerService(dockerRepo, remoteRepo, sshService)
 	systemService := services.NewSystemService()
 	reportService := services.NewReportService(reportRepo, configRepo, openSearchService, promService)
+	statusPageService := services.NewStatusPageService(statusPageRepo, topologyRepo, remoteRepo, configRepo, openSearchService, promService, sshService)
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -119,6 +121,7 @@ func main() {
 	logsHandler := handlers.NewLogsHandler(authService)
 	queueHandler := handlers.NewQueueHandler()
 	reportHandler := handlers.NewReportHandler(reportService)
+	statusPageHandler := handlers.NewStatusPageHandler(statusPageService, authService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -158,6 +161,9 @@ func main() {
 	// Public Auth routes (with brute-force protection)
 	r.POST("/api/v1/auth/login", middleware.AuthRateLimitMiddleware(), authHandler.Login)
 	r.POST("/api/v1/auth/logout", authHandler.Logout)
+
+	// Public Status Page Endpoint (accessible publicly or checks auth if private)
+	r.GET("/api/v1/status-pages/public/:slug", statusPageHandler.GetPublicReport)
 
 	// WebSocket Endpoints (WebSocket handles auth via handshake message)
 	r.GET("/ws/remote-host", remoteHostHandler.HandleWebSocketTerminal)
@@ -384,6 +390,21 @@ func main() {
 		api.PUT("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.UpdateWidget)
 		api.DELETE("/reports/widgets/:widgetId", middleware.RequirePermission("reports", "manage"), reportHandler.DeleteWidget)
 		api.POST("/reports/query-data", middleware.RequirePermission("reports", "read"), reportHandler.QueryWidgetData)
+
+		// Status Pages (Feature: status_pages)
+		api.GET("/status-pages", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "read"), statusPageHandler.ListPages)
+		api.POST("/status-pages", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.CreatePage)
+		api.GET("/status-pages/sources", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "read"), statusPageHandler.GetSourceOptions)
+		api.GET("/status-pages/:id", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "read"), statusPageHandler.GetPage)
+		api.PUT("/status-pages/:id", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.UpdatePage)
+		api.DELETE("/status-pages/:id", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.DeletePage)
+		api.GET("/status-pages/:id/live", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "read"), statusPageHandler.GetLiveReportAdmin)
+		api.POST("/status-pages/:id/groups", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.SaveGroup)
+		api.DELETE("/status-pages/groups/:groupId", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.DeleteGroup)
+		api.POST("/status-pages/:id/items", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.SaveItem)
+		api.DELETE("/status-pages/items/:itemId", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.DeleteItem)
+		api.POST("/status-pages/:id/incidents", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.SaveIncident)
+		api.DELETE("/status-pages/incidents/:incidentId", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring"}, "manage"), statusPageHandler.DeleteIncident)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)

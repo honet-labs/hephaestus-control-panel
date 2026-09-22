@@ -418,9 +418,69 @@ CREATE TABLE IF NOT EXISTS visual_report_widgets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 30. StatusPages - Uptime status page publisher configurations
+CREATE TABLE IF NOT EXISTS status_pages (
+    id VARCHAR(50) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT DEFAULT '',
+    footer_text TEXT DEFAULT '',
+    theme VARCHAR(20) DEFAULT 'auto',
+    refresh_interval INTEGER DEFAULT 60,
+    is_public BOOLEAN DEFAULT true,
+    is_published BOOLEAN DEFAULT true,
+    show_tags BOOLEAN DEFAULT true,
+    custom_css TEXT DEFAULT '',
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 31. StatusPageGroups - Functional group categorizations in a status page
+CREATE TABLE IF NOT EXISTS status_page_groups (
+    id VARCHAR(50) PRIMARY KEY,
+    page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 32. StatusPageItems - Monitored service items connected to HCP data sources
+CREATE TABLE IF NOT EXISTS status_page_items (
+    id VARCHAR(50) PRIMARY KEY,
+    page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+    group_id VARCHAR(50) REFERENCES status_page_groups(id) ON DELETE SET NULL,
+    name VARCHAR(255) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    source_id VARCHAR(100),
+    source_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    description VARCHAR(255) DEFAULT '',
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 33. StatusPageIncidents - Active or past operational incidents and maintenance notices
+CREATE TABLE IF NOT EXISTS status_page_incidents (
+    id VARCHAR(50) PRIMARY KEY,
+    page_id VARCHAR(50) NOT NULL REFERENCES status_pages(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'investigating',
+    severity VARCHAR(50) NOT NULL DEFAULT 'minor',
+    message TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================================================
+CREATE INDEX IF NOT EXISTS idx_status_pages_slug ON status_pages(slug);
+CREATE INDEX IF NOT EXISTS idx_status_pages_is_public ON status_pages(is_public);
+CREATE INDEX IF NOT EXISTS idx_status_page_groups_page_id ON status_page_groups(page_id);
+CREATE INDEX IF NOT EXISTS idx_status_page_items_page_id ON status_page_items(page_id);
+CREATE INDEX IF NOT EXISTS idx_status_page_items_group_id ON status_page_items(group_id);
+CREATE INDEX IF NOT EXISTS idx_status_page_incidents_page_id ON status_page_incidents(page_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_timestamp ON activity_logs(timestamp DESC);
@@ -457,8 +517,8 @@ ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'
 
 INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
     ('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "infrastructure": "manage", "reports": "manage", "settings": "manage"}'::jsonb),
-    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "infrastructure": "read", "reports": "read", "settings": "none"}'::jsonb)
+    ('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "security": "manage", "infrastructure": "manage", "reports": "manage", "status_pages": "manage", "settings": "manage"}'::jsonb),
+    ('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "read", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "read", "infrastructure": "read", "reports": "read", "status_pages": "read", "settings": "none"}'::jsonb)
 ON CONFLICT (name) DO UPDATE SET 
     permissions = EXCLUDED.permissions,
     description = EXCLUDED.description;

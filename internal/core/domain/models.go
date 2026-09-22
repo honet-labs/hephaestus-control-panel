@@ -747,3 +747,107 @@ type ReportQueryDataResponse struct {
 	Message     string              `json:"message,omitempty"`
 }
 
+// ==================== STATUS PAGES DOMAIN ====================
+
+type StatusPage struct {
+	ID              string               `json:"id"`
+	Title           string               `json:"title"`
+	Slug            string               `json:"slug"`
+	Description     string               `json:"description"`
+	FooterText      string               `json:"footerText"`
+	Theme           string               `json:"theme"` // "auto", "dark", "light"
+	RefreshInterval int                  `json:"refreshInterval"` // in seconds, default 60
+	IsPublic        bool                 `json:"isPublic"`
+	IsPublished     bool                 `json:"isPublished"`
+	ShowTags        bool                 `json:"showTags"`
+	CustomCSS       string               `json:"customCss"`
+	UserID          *int                 `json:"userId,omitempty"`
+	Groups          []StatusPageGroup    `json:"groups,omitempty"`
+	Items           []StatusPageItem     `json:"items,omitempty"`
+	Incidents       []StatusPageIncident `json:"incidents,omitempty"`
+	CreatedAt       time.Time            `json:"createdAt"`
+	UpdatedAt       time.Time            `json:"updatedAt"`
+}
+
+type StatusPageGroup struct {
+	ID        string           `json:"id"`
+	PageID    string           `json:"pageId"`
+	Name      string           `json:"name"`
+	SortOrder int              `json:"sortOrder"`
+	Items     []StatusPageItem `json:"items,omitempty"`
+	CreatedAt time.Time        `json:"createdAt"`
+}
+
+type StatusPageItem struct {
+	ID           string                 `json:"id"`
+	PageID       string                 `json:"pageId"`
+	GroupID      *string                `json:"groupId,omitempty"`
+	Name         string                 `json:"name"`
+	SourceType   string                 `json:"sourceType"` // "topology", "opensearch", "prometheus", "grafana", "remote_server"
+	SourceID     *string                `json:"sourceId,omitempty"`
+	SourceConfig map[string]interface{} `json:"sourceConfig"`
+	Description  string                 `json:"description"`
+	SortOrder    int                    `json:"sortOrder"`
+	CreatedAt    time.Time              `json:"createdAt"`
+}
+
+type StatusPageIncident struct {
+	ID        string    `json:"id"`
+	PageID    string    `json:"pageId"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"` // "investigating", "identified", "monitoring", "resolved", "maintenance"
+	Severity  string    `json:"severity"` // "info", "minor", "major", "critical"
+	Message   string    `json:"message"`
+	IsActive  bool      `json:"isActive"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type StatusItemLiveResult struct {
+	ItemID      string                 `json:"itemId"`
+	Name        string                 `json:"name"`
+	GroupID     *string                `json:"groupId,omitempty"`
+	SourceType  string                 `json:"sourceType"`
+	SourceID    *string                `json:"sourceId,omitempty"`
+	Status      string                 `json:"status"` // "operational", "degraded", "down", "maintenance", "unknown"
+	LatencyMs   *float64               `json:"latencyMs,omitempty"`
+	Message     string                 `json:"message,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+	CheckedAt   time.Time              `json:"checkedAt"`
+}
+
+type StatusPageGroupReport struct {
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	SortOrder int                    `json:"sortOrder"`
+	Items     []StatusItemLiveResult `json:"items"`
+}
+
+type StatusPageLiveReport struct {
+	PageID          string                  `json:"pageId"`
+	Title           string                  `json:"title"`
+	Slug            string                  `json:"slug"`
+	Description     string                  `json:"description"`
+	FooterText      string                  `json:"footerText"`
+	Theme           string                  `json:"theme"`
+	RefreshInterval int                     `json:"refreshInterval"`
+	IsPublic        bool                    `json:"isPublic"`
+	OverallStatus   string                  `json:"overallStatus"` // "operational", "partial_outage", "major_outage", "maintenance"
+	OverallMessage  string                  `json:"overallMessage"`
+	ActiveIncidents []StatusPageIncident    `json:"activeIncidents"`
+	Groups          []StatusPageGroupReport `json:"groups"`
+	UngroupedItems  []StatusItemLiveResult  `json:"ungroupedItems,omitempty"`
+	LastChecked     time.Time               `json:"lastChecked"`
+}
+
+type StatusPageSourceOption struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	SourceType string `json:"sourceType"` // "topology", "opensearch", "prometheus", "grafana", "remote_server"
+	Detail     string `json:"detail,omitempty"`
+	IPOrHost   string `json:"ipOrHost,omitempty"`
+	Status     string `json:"status,omitempty"`
+}
+
+

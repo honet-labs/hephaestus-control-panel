@@ -66,6 +66,12 @@ const router = createRouter({
       redirect: '/infrastructure/containers',
     },
     {
+      path: '/status/:slug',
+      name: 'public-status-page',
+      component: () => import('../views/PublicStatusPageView.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
@@ -163,6 +169,15 @@ const router = createRouter({
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
+        },
+        {
+          path: 'status-pages',
+          name: 'status-pages',
+          component: () => import('../views/StatusPagesView.vue'),
+        },
+        {
+          path: 'status-page',
+          redirect: '/status-pages',
         },
       ],
     },
