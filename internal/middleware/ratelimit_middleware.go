@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -37,20 +38,50 @@ var (
 	initOnce       sync.Once
 )
 
+// GetRealClientIP reliably extracts visitor IP behind Cloudflare, Nginx, or direct connection
+func GetRealClientIP(c *gin.Context) string {
+	// 1. Cloudflare connecting IP (if present)
+	if cfIP := strings.TrimSpace(c.GetHeader("CF-Connecting-IP")); cfIP != "" {
+		if ip := net.ParseIP(cfIP); ip != nil {
+			return ip.String()
+		}
+	}
+
+	// 2. X-Real-IP set by Nginx reverse proxy
+	if realIP := strings.TrimSpace(c.GetHeader("X-Real-IP")); realIP != "" {
+		if ip := net.ParseIP(realIP); ip != nil {
+			return ip.String()
+		}
+	}
+
+	// 3. Gin ClientIP() which uses trusted proxies and X-Forwarded-For
+	if clientIP := strings.TrimSpace(c.ClientIP()); clientIP != "" {
+		return clientIP
+	}
+
+	// 4. Fallback to raw RemoteAddr
+	remoteHost, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err == nil && remoteHost != "" {
+		return remoteHost
+	}
+
+	return c.Request.RemoteAddr
+}
+
 func getRateLimiters() (*RateLimiter, *RateLimiter) {
 	initOnce.Do(func() {
-		// General API: 120 req/min (2 req/s, burst 30)
+		// General API: 60 req/s with burst 120 to ensure smooth UI dashboard polling and tab switching
 		generalLimiter = &RateLimiter{
-			rate:        2.0,
-			capacity:    30.0,
+			rate:        60.0,
+			capacity:    120.0,
 			clients:     make(map[string]*clientBucket),
 			maxFailures: 0,
 		}
 
-		// Auth Login: 5 attempts/min (0.1 req/s, burst 5, 15 min lockout on 5 fails)
+		// Auth Login: 10 attempts/min (0.2 req/s, burst 10, 15 min lockout on 5 consecutive failed logins from that IP)
 		authLimiter = &RateLimiter{
-			rate:        0.1,
-			capacity:    5.0,
+			rate:        0.2,
+			capacity:    10.0,
 			clients:     make(map[string]*clientBucket),
 			maxFailures: 5,
 			lockoutTime: 15 * time.Minute,
@@ -62,13 +93,13 @@ func getRateLimiters() (*RateLimiter, *RateLimiter) {
 	return generalLimiter, authLimiter
 }
 
-// GeneralRateLimitMiddleware limits general API traffic
+// GeneralRateLimitMiddleware limits general API traffic without hindering normal UI navigation
 func GeneralRateLimitMiddleware() gin.HandlerFunc {
 	limiter, _ := getRateLimiters()
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		ip := GetRealClientIP(c)
 		if !limiter.allow(ip) {
-			c.Header("Retry-After", "5")
+			c.Header("Retry-After", "1")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"error":   "Too Many Requests",
@@ -81,13 +112,13 @@ func GeneralRateLimitMiddleware() gin.HandlerFunc {
 }
 
 // AuthRateLimitMiddleware protects against brute-force login attacks
-// Uses dual-key protection (verified IP + target username) and standard Retry-After headers
+// Uses per-IP and per-IP+username protection to prevent shared account lockout (N-01)
 func AuthRateLimitMiddleware() gin.HandlerFunc {
 	_, limiter := getRateLimiters()
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		ip := GetRealClientIP(c)
 
-		// Extract target username from login payload to prevent distributed brute-force
+		// Extract target username from login payload
 		username := ""
 		if c.Request.Body != nil {
 			bodyBytes, err := io.ReadAll(c.Request.Body)
@@ -105,9 +136,10 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 		}
 
 		ipKey := "ip:" + ip
+		// Scope username lockout to the specific visitor IP to prevent shared lockout Denial of Service (N-01)
 		userKey := ""
 		if username != "" {
-			userKey = "user:" + username
+			userKey = "ip_user:" + ip + ":" + username
 		}
 
 		// 1. Check lockout for IP
@@ -125,7 +157,7 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 2. Check lockout for target Account
+		// 2. Check lockout for target Account from this IP
 		if userKey != "" {
 			if locked, remaining := limiter.isLockedOut(userKey); locked {
 				retrySec := int(remaining.Seconds())
@@ -136,7 +168,7 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 					"success": false,
 					"error":   "Account Locked",
-					"message": fmt.Sprintf("Too many failed login attempts for this account. Temporarily locked. Try again in %d seconds.", retrySec),
+					"message": fmt.Sprintf("Too many failed login attempts for this account from your IP. Temporarily locked. Try again in %d seconds.", retrySec),
 				})
 				return
 			}
@@ -144,7 +176,7 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 
 		// 3. Check burst rate allowance for IP
 		if !limiter.allow(ipKey) {
-			c.Header("Retry-After", "10")
+			c.Header("Retry-After", "2")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"error":   "Too Many Requests",

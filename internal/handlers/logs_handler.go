@@ -58,6 +58,11 @@ func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
 		token = c.GetHeader("Sec-WebSocket-Protocol")
 	}
 	if token == "" {
+		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
+			token = cookie
+		}
+	}
+	if token == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Authentication token required"})
 		return
 	}

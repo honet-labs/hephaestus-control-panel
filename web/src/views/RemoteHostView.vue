@@ -673,7 +673,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
   }
 
   // Open WebSocket with token and detected terminal dimensions
-  const token = authStore.token || localStorage.getItem('hephaestus_token') || localStorage.getItem('hcp_token') || '';
+  const token = authStore.token || sessionStorage.getItem('hcp_session') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const initialCols = session.term && session.term.cols > 0 ? session.term.cols : 80;
   const initialRows = session.term && session.term.rows > 0 ? session.term.rows : 24;

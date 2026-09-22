@@ -69,7 +69,7 @@ const generatedShareUrl = computed(() => {
     params.set('refresh', shareRefreshSec.value.toString());
   }
   if (shareIncludeToken.value) {
-    const token = localStorage.getItem('hephaestus_token');
+    const token = authStore.token || sessionStorage.getItem('hcp_session');
     if (token) {
       params.set('token', token);
     }

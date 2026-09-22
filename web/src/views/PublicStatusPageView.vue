@@ -140,7 +140,7 @@ const handleLogin = async () => {
       password: loginPassword.value,
     });
     if (res.data?.success) {
-      localStorage.setItem('hephaestus_token', res.data.data.token);
+      sessionStorage.setItem('hcp_session', res.data.data.token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.data.token}`;
       requiresAuth.value = false;
       await fetchStatus();

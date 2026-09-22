@@ -190,6 +190,11 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	rows, _ := strconv.Atoi(c.DefaultQuery("rows", "24"))
 	queryHostID := c.Query("hostId")
 	queryToken := c.Query("token")
+	if queryToken == "" {
+		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
+			queryToken = cookie
+		}
+	}
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {

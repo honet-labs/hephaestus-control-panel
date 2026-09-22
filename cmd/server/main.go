@@ -144,7 +144,7 @@ func main() {
 		"192.168.0.0/16",
 	})
 
-	// CORS Setup - Restrict origins to prevent credentialed cross-origin reflection (H-01)
+	// CORS Setup - Restrict origins to prevent credentialed cross-origin reflection (H-01, N-02)
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOriginFunc = func(origin string) bool {
 		origin = strings.TrimSpace(origin)
@@ -152,33 +152,22 @@ func main() {
 			return true
 		}
 
-		// Check explicit configured allowed origins
+		// Check explicitly configured allowed origins from config / env
 		for _, allowed := range cfg.AllowedOrigins {
 			if strings.EqualFold(origin, strings.TrimSpace(allowed)) {
 				return true
 			}
 		}
 
-		// Allow localhost / loopback
-		if strings.HasPrefix(origin, "http://localhost") ||
-			strings.HasPrefix(origin, "https://localhost") ||
-			strings.HasPrefix(origin, "http://127.0.0.1") ||
-			strings.HasPrefix(origin, "https://127.0.0.1") {
-			return true
-		}
-
-		// Allow local LAN / private subnets (RFC1918)
-		parsedURL, err := url.Parse(origin)
-		if err == nil {
-			hostname := parsedURL.Hostname()
-			if ip := net.ParseIP(hostname); ip != nil {
-				if ip.IsLoopback() || ip.IsPrivate() {
-					return true
-				}
+		// In development mode only, permit local frontend development dev servers
+		if cfg.AppEnv != "production" && gin.Mode() != gin.ReleaseMode {
+			if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" ||
+				origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
+				return true
 			}
 		}
 
-		// Reject arbitrary untrusted external origins from credential reflection
+		// In production, reject arbitrary loopback & external origins from credential reflection (N-02)
 		return false
 	}
 	corsConfig.AllowCredentials = true
