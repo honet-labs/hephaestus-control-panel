@@ -1,0 +1,4 @@
+# Hephaestus Control Panel (HCP)
+# Disallow search engines from indexing the administrative control panel
+User-agent: *
+Disallow: /

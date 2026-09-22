@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -131,10 +134,52 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware())
 
-	// CORS Setup - Allow dynamic origin resolution for custom host IP, domain, and ports
+	// Set Trusted Proxies to prevent X-Forwarded-For IP spoofing (C-01)
+	// Trust Docker internal bridge, localhost, and RFC1918 private subnets
+	_ = r.SetTrustedProxies([]string{
+		"127.0.0.1",
+		"::1",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	})
+
+	// CORS Setup - Restrict origins to prevent credentialed cross-origin reflection (H-01)
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowOriginFunc = func(origin string) bool {
-		return true
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			return true
+		}
+
+		// Check explicit configured allowed origins
+		for _, allowed := range cfg.AllowedOrigins {
+			if strings.EqualFold(origin, strings.TrimSpace(allowed)) {
+				return true
+			}
+		}
+
+		// Allow localhost / loopback
+		if strings.HasPrefix(origin, "http://localhost") ||
+			strings.HasPrefix(origin, "https://localhost") ||
+			strings.HasPrefix(origin, "http://127.0.0.1") ||
+			strings.HasPrefix(origin, "https://127.0.0.1") {
+			return true
+		}
+
+		// Allow local LAN / private subnets (RFC1918)
+		parsedURL, err := url.Parse(origin)
+		if err == nil {
+			hostname := parsedURL.Hostname()
+			if ip := net.ParseIP(hostname); ip != nil {
+				if ip.IsLoopback() || ip.IsPrivate() {
+					return true
+				}
+			}
+		}
+
+		// Reject arbitrary untrusted external origins from credential reflection
+		return false
 	}
 	corsConfig.AllowCredentials = true
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID", "X-Requested-With"}

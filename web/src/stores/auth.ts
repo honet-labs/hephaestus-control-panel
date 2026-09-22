@@ -2,6 +2,9 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
 
+// Ensure withCredentials is true so HttpOnly session cookie is always sent (H-02)
+axios.defaults.withCredentials = true;
+
 export interface User {
   id: number;
   username: string;
@@ -19,30 +22,32 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (_) {}
   }
 
-  const user = ref<User | null>(initialUser);
-  const token = ref<string | null>(localStorage.getItem('hephaestus_token'));
-  const isAuthenticated = ref<boolean>(!!token.value);
-
-  // Attach token to axios defaults
-  if (token.value) {
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`;
+  // Security Hardening: Remove sensitive tokens from localStorage to prevent XSS extraction (H-02)
+  if (localStorage.getItem('hephaestus_token')) {
+    localStorage.removeItem('hephaestus_token');
   }
 
-  const setAuth = (newUser: User, newToken: string) => {
+  const user = ref<User | null>(initialUser);
+  // Token is stored strictly in-memory during SPA lifecycle
+  const token = ref<string | null>(null);
+  const isAuthenticated = ref<boolean>(!!initialUser);
+
+  const setAuth = (newUser: User, newToken?: string) => {
     user.value = newUser;
-    token.value = newToken;
+    token.value = newToken || null;
     isAuthenticated.value = true;
-    localStorage.setItem('hephaestus_token', newToken);
     localStorage.setItem('hephaestus_user', JSON.stringify(newUser));
-    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    if (newToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    }
   };
 
   const clearAuth = () => {
     user.value = null;
     token.value = null;
     isAuthenticated.value = false;
-    localStorage.removeItem('hephaestus_token');
     localStorage.removeItem('hephaestus_user');
+    localStorage.removeItem('hephaestus_token');
     delete axios.defaults.headers.common['Authorization'];
   };
 

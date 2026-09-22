@@ -356,12 +356,12 @@ const setChartRef = (id: string, el: any) => {
 };
 
 const getECharts = async () => {
-  if ((window as any).echarts) return (window as any).echarts;
   try {
     const mod = await import('echarts');
     return mod.default || mod;
   } catch (e) {
-    return (window as any).echarts || null;
+    if ((window as any).echarts) return (window as any).echarts;
+    return null;
   }
 };
 

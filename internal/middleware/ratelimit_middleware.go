@@ -1,8 +1,12 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,6 +68,7 @@ func GeneralRateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		if !limiter.allow(ip) {
+			c.Header("Retry-After", "5")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"error":   "Too Many Requests",
@@ -76,21 +81,70 @@ func GeneralRateLimitMiddleware() gin.HandlerFunc {
 }
 
 // AuthRateLimitMiddleware protects against brute-force login attacks
+// Uses dual-key protection (verified IP + target username) and standard Retry-After headers
 func AuthRateLimitMiddleware() gin.HandlerFunc {
 	_, limiter := getRateLimiters()
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 
-		if locked, remaining := limiter.isLockedOut(ip); locked {
+		// Extract target username from login payload to prevent distributed brute-force
+		username := ""
+		if c.Request.Body != nil {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil {
+				// Restore body for subsequent handler binding
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+				var req struct {
+					Username string `json:"username"`
+				}
+				if err := json.Unmarshal(bodyBytes, &req); err == nil && req.Username != "" {
+					username = strings.ToLower(strings.TrimSpace(req.Username))
+				}
+			}
+		}
+
+		ipKey := "ip:" + ip
+		userKey := ""
+		if username != "" {
+			userKey = "user:" + username
+		}
+
+		// 1. Check lockout for IP
+		if locked, remaining := limiter.isLockedOut(ipKey); locked {
+			retrySec := int(remaining.Seconds())
+			if retrySec <= 0 {
+				retrySec = 1
+			}
+			c.Header("Retry-After", fmt.Sprintf("%d", retrySec))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"error":   "Account Locked",
-				"message": fmt.Sprintf("Too many failed login attempts. IP temporarily locked. Try again in %d seconds.", int(remaining.Seconds())),
+				"message": fmt.Sprintf("Too many failed login attempts. IP temporarily locked. Try again in %d seconds.", retrySec),
 			})
 			return
 		}
 
-		if !limiter.allow(ip) {
+		// 2. Check lockout for target Account
+		if userKey != "" {
+			if locked, remaining := limiter.isLockedOut(userKey); locked {
+				retrySec := int(remaining.Seconds())
+				if retrySec <= 0 {
+					retrySec = 1
+				}
+				c.Header("Retry-After", fmt.Sprintf("%d", retrySec))
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"success": false,
+					"error":   "Account Locked",
+					"message": fmt.Sprintf("Too many failed login attempts for this account. Temporarily locked. Try again in %d seconds.", retrySec),
+				})
+				return
+			}
+		}
+
+		// 3. Check burst rate allowance for IP
+		if !limiter.allow(ipKey) {
+			c.Header("Retry-After", "10")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
 				"error":   "Too Many Requests",
@@ -101,12 +155,18 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 
 		c.Next()
 
-		// If login failed (401 Unauthorized), track failure
+		// If login failed (401 Unauthorized), track failure on both IP and account
 		if c.Writer.Status() == http.StatusUnauthorized {
-			limiter.recordFailure(ip)
-			logger.Warn("Security", fmt.Sprintf("Failed login attempt from IP %s", ip))
+			limiter.recordFailure(ipKey)
+			if userKey != "" {
+				limiter.recordFailure(userKey)
+			}
+			logger.Warn("Security", fmt.Sprintf("Failed login attempt from IP %s for user '%s'", ip, username))
 		} else if c.Writer.Status() == http.StatusOK {
-			limiter.resetFailure(ip)
+			limiter.resetFailure(ipKey)
+			if userKey != "" {
+				limiter.resetFailure(userKey)
+			}
 		}
 	}
 }

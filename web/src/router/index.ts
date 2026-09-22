@@ -181,14 +181,20 @@ const router = createRouter({
         },
       ],
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue'),
+      meta: { requiresAuth: false },
+    },
   ],
 });
 
-// Request Interceptor: Ensure Authorization header is present if token exists
+// Request Interceptor: Attach Authorization header only if in-memory token is present (H-02)
 axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem('hephaestus_token');
-  if (token && !config.headers.Authorization) {
-    config.headers.Authorization = `Bearer ${token}`;
+  const authStore = useAuthStore();
+  if (authStore.token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${authStore.token}`;
   }
   return config;
 });
@@ -223,7 +229,6 @@ router.beforeEach(async (to, from, next) => {
     const qToken = to.query.token;
     authStore.token = qToken;
     authStore.isAuthenticated = true;
-    localStorage.setItem('hephaestus_token', qToken);
     axios.defaults.headers.common['Authorization'] = `Bearer ${qToken}`;
     if (!authStore.user) {
       await authStore.fetchUser();
@@ -231,15 +236,14 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (to.meta.requiresAuth) {
-    if (!authStore.isAuthenticated) {
-      return next({ name: 'login', query: { redirect: to.fullPath } });
-    }
-    // If authenticated token exists but user object is not yet loaded, load it before rendering
+    // If user object not yet loaded in Pinia, verify active session via HttpOnly cookie
     if (!authStore.user) {
       const u = await authStore.fetchUser();
-      if (!u && !authStore.isAuthenticated) {
+      if (!u || !authStore.isAuthenticated) {
         return next({ name: 'login', query: { redirect: to.fullPath } });
       }
+    } else if (!authStore.isAuthenticated) {
+      return next({ name: 'login', query: { redirect: to.fullPath } });
     }
   }
 
