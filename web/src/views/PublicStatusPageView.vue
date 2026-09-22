@@ -140,7 +140,6 @@ const handleLogin = async () => {
       password: loginPassword.value,
     });
     if (res.data?.success) {
-      sessionStorage.setItem('hcp_session', res.data.data.token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.data.token}`;
       requiresAuth.value = false;
       await fetchStatus();

@@ -17,9 +17,14 @@ RUN npm run build
 # ==========================================
 FROM ${REGISTRY_MIRROR}nginx:1.27-alpine
 
+RUN apk add --no-cache openssl
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY web/nginx.conf /etc/nginx/nginx.conf
+COPY web/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-EXPOSE 80
+EXPOSE 80 443
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

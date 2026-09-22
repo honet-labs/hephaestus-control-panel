@@ -224,6 +224,11 @@ axios.interceptors.response.use(
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
+  // Initialize session once on initial page load / refresh via HttpOnly cookie (H-02)
+  if (!authStore.isInitialized) {
+    await authStore.fetchUser();
+  }
+
   // Support auth token passed in query parameter for shared links / embed views
   if (to.query.token && typeof to.query.token === 'string') {
     const qToken = to.query.token;
@@ -236,13 +241,7 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (to.meta.requiresAuth) {
-    // If user object not yet loaded in Pinia, verify active session via HttpOnly cookie
-    if (!authStore.user) {
-      const u = await authStore.fetchUser();
-      if (!u || !authStore.isAuthenticated) {
-        return next({ name: 'login', query: { redirect: to.fullPath } });
-      }
-    } else if (!authStore.isAuthenticated) {
+    if (!authStore.isAuthenticated) {
       return next({ name: 'login', query: { redirect: to.fullPath } });
     }
   }

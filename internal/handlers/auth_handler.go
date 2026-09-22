@@ -19,7 +19,7 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 
 func (h *AuthHandler) setSessionCookie(c *gin.Context, token string, maxAge int) {
 	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie("hephaestus_session", token, maxAge, "/", "", isSecure, true)
 }
 

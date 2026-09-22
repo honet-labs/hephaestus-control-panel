@@ -14,30 +14,19 @@ export interface User {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const savedUserStr = sessionStorage.getItem('hcp_user');
-  let initialUser: User | null = null;
-  if (savedUserStr) {
-    try {
-      initialUser = JSON.parse(savedUserStr);
-    } catch (_) {}
-  }
-
-  const savedToken = sessionStorage.getItem('hcp_session');
-  const user = ref<User | null>(initialUser);
-  const token = ref<string | null>(savedToken);
-  const isAuthenticated = ref<boolean>(!!savedToken || !!initialUser);
-
-  if (savedToken) {
-    axios.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
-  }
+  // Session authentication is stored in HttpOnly; Secure; SameSite=Strict cookie (H-02)
+  // Token and user state in JS are stored strictly in-memory (no localStorage / sessionStorage token)
+  const user = ref<User | null>(null);
+  const token = ref<string | null>(null);
+  const isAuthenticated = ref<boolean>(false);
+  const isInitialized = ref<boolean>(false);
 
   const setAuth = (newUser: User, newToken?: string) => {
     user.value = newUser;
     token.value = newToken || null;
     isAuthenticated.value = true;
-    sessionStorage.setItem('hcp_user', JSON.stringify(newUser));
+    isInitialized.value = true;
     if (newToken) {
-      sessionStorage.setItem('hcp_session', newToken);
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
     }
   };
@@ -46,8 +35,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     token.value = null;
     isAuthenticated.value = false;
-    sessionStorage.removeItem('hcp_user');
-    sessionStorage.removeItem('hcp_session');
+    isInitialized.value = true;
     delete axios.defaults.headers.common['Authorization'];
   };
 
@@ -57,7 +45,6 @@ export const useAuthStore = defineStore('auth', () => {
       if (res.data && res.data.success) {
         user.value = res.data.data;
         isAuthenticated.value = true;
-        sessionStorage.setItem('hcp_user', JSON.stringify(res.data.data));
         return user.value;
       }
     } catch (err: any) {
@@ -66,9 +53,10 @@ export const useAuthStore = defineStore('auth', () => {
         clearAuth();
         return null;
       }
-      // For network errors or temporary 5xx downtime, keep existing cached user state from sessionStorage
-      console.warn('Backend temporarily unreachable, retaining cached auth session:', err?.message);
+      console.warn('Auth check non-fatal error:', err?.message);
       return user.value;
+    } finally {
+      isInitialized.value = true;
     }
     return null;
   };
@@ -103,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     isAuthenticated,
+    isInitialized,
     setAuth,
     clearAuth,
     fetchUser,
