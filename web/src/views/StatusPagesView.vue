@@ -177,22 +177,35 @@ const copyPageLink = (slug: string) => {
 };
 
 // Create New Page
+const isSlugManuallyEdited = ref(false);
+
+const generateSlug = (text: string) => {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+};
+
+const handleTitleInput = () => {
+  if (!isSlugManuallyEdited.value) {
+    newPageForm.value.slug = generateSlug(newPageForm.value.title);
+  }
+};
+
+const handleSlugManualInput = () => {
+  isSlugManuallyEdited.value = true;
+};
+
 const openCreateModal = () => {
+  isSlugManuallyEdited.value = false;
   newPageForm.value = {
     title: '',
     slug: '',
     isPublic: true,
   };
   showCreateModal.value = true;
-};
-
-const handleTitleInput = () => {
-  if (!newPageForm.value.slug || newPageForm.value.slug === '') {
-    newPageForm.value.slug = newPageForm.value.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  }
 };
 
 const submitCreatePage = async () => {
@@ -297,7 +310,7 @@ const deleteGroup = async (groupId: string) => {
 };
 
 // Monitored Items
-const openAddItemModal = (groupId?: string | null) => {
+const openAddItemModal = async (groupId?: string | null) => {
   targetGroupId.value = groupId || null;
   itemForm.value = {
     id: '',
@@ -306,6 +319,9 @@ const openAddItemModal = (groupId?: string | null) => {
     sourceId: '',
     description: '',
   };
+  if (sourceOptions.value.length === 0) {
+    await fetchSourceOptions();
+  }
   showItemModal.value = true;
 };
 
@@ -445,7 +461,6 @@ const getUngroupedItems = computed(() => {
 
 onMounted(() => {
   fetchPages();
-  fetchSourceOptions();
 });
 </script>
 
@@ -474,10 +489,10 @@ onMounted(() => {
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-          Halaman Status
+          Status Pages
         </h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Publikasikan status ketersediaan layanan dan pantau kesehatan infrastruktur secara real-time.
+          Publish service availability and monitor real-time infrastructure health.
         </p>
       </div>
       <div class="flex items-center gap-2 shrink-0">
@@ -494,23 +509,45 @@ onMounted(() => {
           class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer shadow-xs"
         >
           <Plus class="w-3.5 h-3.5" />
-          <span>Halaman Status Baru</span>
+          <span>New Status Page</span>
         </button>
+      </div>
+    </div>
+
+    <!-- Loading Skeleton Grid (Instant Visual Feedback) -->
+    <div v-if="loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-pulse">
+      <div v-for="i in 3" :key="i" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-5 space-y-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="space-y-2 flex-1">
+            <div class="h-4 bg-slate-200 dark:bg-slate-800 rounded-md w-3/4"></div>
+            <div class="h-3 bg-slate-100 dark:bg-slate-800/60 rounded-md w-1/2"></div>
+          </div>
+          <div class="h-5 bg-slate-200 dark:bg-slate-800 rounded-full w-14"></div>
+        </div>
+        <div class="h-3 bg-slate-100 dark:bg-slate-800/60 rounded-md w-full"></div>
+        <div class="flex items-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="h-3 bg-slate-100 dark:bg-slate-800/60 rounded-md w-16"></div>
+          <div class="h-3 bg-slate-100 dark:bg-slate-800/60 rounded-md w-20"></div>
+        </div>
+        <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="h-7 bg-slate-200 dark:bg-slate-800 rounded-lg w-20"></div>
+          <div class="h-7 bg-slate-100 dark:bg-slate-800/60 rounded-lg w-16"></div>
+        </div>
       </div>
     </div>
 
     <!-- Empty State -->
     <div
-      v-if="!loading && pages.length === 0"
+      v-else-if="pages.length === 0"
       class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl p-12 text-center space-y-4"
     >
       <div class="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-400 flex items-center justify-center mx-auto">
         <Activity class="w-7 h-7" />
       </div>
       <div class="space-y-1">
-        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">Tidak ada halaman status</h3>
+        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">No status pages found</h3>
         <p class="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-          Buat halaman status publik atau privat untuk menampilkan performa topologi, cluster, dan koneksi Anda.
+          Create a public or private status page to showcase the availability of your services, clusters, and network.
         </p>
       </div>
       <button
@@ -518,7 +555,7 @@ onMounted(() => {
         class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs"
       >
         <Plus class="w-3.5 h-3.5" />
-        <span>Tambahkan Halaman Status Baru</span>
+        <span>Create New Status Page</span>
       </button>
     </div>
 
@@ -552,20 +589,20 @@ onMounted(() => {
               class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide shrink-0"
               :class="page.isPublic ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'"
             >
-              {{ page.isPublic ? 'PUBLIK' : 'PRIVAT' }}
+              {{ page.isPublic ? 'PUBLIC' : 'PRIVATE' }}
             </span>
           </div>
 
           <!-- Description snippet -->
           <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
-            {{ page.description || 'Tidak ada deskripsi' }}
+            {{ page.description || 'No description provided' }}
           </p>
 
           <!-- Stats chips -->
           <div class="flex items-center gap-3 pt-2 text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80">
             <span class="flex items-center gap-1">
               <Layers class="w-3.5 h-3.5 text-slate-400" />
-              <span>{{ page.items?.length || 0 }} Layanan</span>
+              <span>{{ page.items?.length || 0 }} Services</span>
             </span>
             <span class="flex items-center gap-1">
               <Clock class="w-3.5 h-3.5 text-slate-400" />
@@ -573,7 +610,7 @@ onMounted(() => {
             </span>
             <span v-if="page.incidents && page.incidents.length > 0" class="flex items-center gap-1 text-amber-500">
               <AlertTriangle class="w-3.5 h-3.5" />
-              <span>{{ page.incidents.length }} Insiden</span>
+              <span>{{ page.incidents.length }} Incidents</span>
             </span>
           </div>
         </div>
@@ -586,7 +623,7 @@ onMounted(() => {
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-[#1a2133] hover:bg-slate-200 dark:hover:bg-[#252f48] text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer"
             >
               <Edit3 class="w-3.5 h-3.5 text-slate-400" />
-              <span>Konfigurasi</span>
+              <span>Configure</span>
             </button>
             <a
               :href="`/status/${page.slug}`"
@@ -594,13 +631,13 @@ onMounted(() => {
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 text-xs font-medium transition cursor-pointer"
             >
               <ExternalLink class="w-3.5 h-3.5 text-slate-400" />
-              <span>Buka</span>
+              <span>Open</span>
             </a>
           </div>
           <button
             @click="confirmDeletePage(page)"
             class="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
-            title="Hapus Halaman Status"
+            title="Delete Status Page"
           >
             <Trash2 class="w-4 h-4" />
           </button>
@@ -609,7 +646,7 @@ onMounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL: Tambahkan Halaman Status Baru (Step 1 - Sesuai Gambar Uptime Kuma) -->
+    <!-- MODAL: Add New Status Page (Step 1)                                   -->
     <!-- ===================================================================== -->
     <div
       v-if="showCreateModal"
@@ -617,7 +654,7 @@ onMounted(() => {
     >
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-5">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-          <h3 class="text-base font-bold text-slate-900 dark:text-white">Tambahkan Halaman Status Baru</h3>
+          <h3 class="text-base font-bold text-slate-900 dark:text-white">Add New Status Page</h3>
           <button @click="showCreateModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
             <X class="w-5 h-5" />
           </button>
@@ -625,13 +662,13 @@ onMounted(() => {
 
         <form @submit.prevent="submitCreatePage" class="space-y-4">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Nama Halaman Status</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status Page Name</label>
             <input
               v-model="newPageForm.title"
               @input="handleTitleInput"
               type="text"
               required
-              placeholder="Contoh: Infrastructure Monitoring"
+              placeholder="e.g. Infrastructure Monitoring"
               class="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 transition"
             />
           </div>
@@ -642,6 +679,7 @@ onMounted(() => {
               <span class="text-slate-400 select-none font-mono">/status/</span>
               <input
                 v-model="newPageForm.slug"
+                @input="handleSlugManualInput"
                 type="text"
                 required
                 placeholder="monitoring"
@@ -649,13 +687,13 @@ onMounted(() => {
               />
             </div>
             <ul class="text-[11px] text-slate-500 dark:text-slate-400 mt-2 space-y-1 list-disc pl-4">
-              <li>Mendukung karakter: <code class="text-blue-500">a-z</code>, <code class="text-blue-500">0-9</code>, <code class="text-blue-500">-</code></li>
-              <li>Tanda khusus <code class="text-emerald-500">default</code>: akan langsung ditampilkan pada rute root jika diset.</li>
+              <li>Supported characters: <code class="text-blue-500">a-z</code>, <code class="text-blue-500">0-9</code>, <code class="text-blue-500">-</code></li>
+              <li>Special keyword <code class="text-emerald-500">default</code>: will be displayed directly at root route if configured.</li>
             </ul>
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Akses Visibilitas</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Visibility Access</label>
             <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -664,7 +702,7 @@ onMounted(() => {
                 :class="newPageForm.isPublic ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-800 text-slate-500'"
               >
                 <Globe class="w-4 h-4" />
-                <span>Publik (Tanpa Login)</span>
+                <span>Public (No Login Required)</span>
               </button>
               <button
                 type="button"
@@ -673,7 +711,7 @@ onMounted(() => {
                 :class="!newPageForm.isPublic ? 'bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400' : 'border-slate-200 dark:border-slate-800 text-slate-500'"
               >
                 <Lock class="w-4 h-4" />
-                <span>Privat (Wajib Login)</span>
+                <span>Private (Login Required)</span>
               </button>
             </div>
           </div>
@@ -684,14 +722,14 @@ onMounted(() => {
               @click="showCreateModal = false"
               class="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="submit"
               :disabled="saving"
               class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50 shadow-xs"
             >
-              {{ saving ? 'Menyimpan...' : 'Selanjutnya' }}
+              {{ saving ? 'Saving...' : 'Next' }}
             </button>
           </div>
         </form>
@@ -699,7 +737,7 @@ onMounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- DRAWER/MODAL: Status Page Editor & Builder (Sesuai Gambar 3 Uptime Kuma) -->
+    <!-- DRAWER/MODAL: Status Page Editor & Builder                            -->
     <!-- ===================================================================== -->
     <div
       v-if="showEditDrawer && editingPage"
@@ -710,13 +748,13 @@ onMounted(() => {
         <div class="px-5 py-3.5 border-b border-slate-200 dark:border-[#1f283d] flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-[#131826]">
           <div class="flex items-center gap-3">
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">
-              Edit Halaman Status: <span class="text-blue-500">{{ editingPage.title }}</span>
+              Edit Status Page: <span class="text-blue-500">{{ editingPage.title }}</span>
             </h2>
             <span
               class="px-2 py-0.5 rounded-full text-[10px] font-bold"
               :class="editingPage.isPublic ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'"
             >
-              {{ editingPage.isPublic ? 'PUBLIK' : 'PRIVAT' }}
+              {{ editingPage.isPublic ? 'PUBLIC' : 'PRIVATE' }}
             </span>
           </div>
           <div class="flex items-center gap-2">
@@ -726,14 +764,14 @@ onMounted(() => {
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             >
               <ExternalLink class="w-3.5 h-3.5 text-slate-400" />
-              <span>Buka Publik</span>
+              <span>Open Public Page</span>
             </a>
             <button
               @click="savePageConfig"
               :disabled="saving"
               class="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs disabled:opacity-50"
             >
-              <span>{{ saving ? 'Menyimpan...' : 'Simpan Perubahan' }}</span>
+              <span>{{ saving ? 'Saving...' : 'Save Changes' }}</span>
             </button>
             <button
               @click="showEditDrawer = false"
@@ -748,10 +786,10 @@ onMounted(() => {
         <div class="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-[#1f283d]">
           <!-- Left Column: Page Settings (4 Cols) -->
           <div class="lg:col-span-4 p-5 space-y-4 overflow-y-auto bg-slate-50/30 dark:bg-[#111624]">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Pengaturan Tampilan</h4>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Page Settings</h4>
 
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Judul Halaman</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Page Title</label>
               <input
                 v-model="editingPage.title"
                 type="text"
@@ -772,17 +810,17 @@ onMounted(() => {
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Deskripsi</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
               <textarea
                 v-model="editingPage.description"
                 rows="3"
-                placeholder="Catatan sistem atau status berkala (mendukung teks bebas)"
+                placeholder="System status, service notes, or maintenance announcements..."
                 class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden resize-none"
               ></textarea>
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tulisan Footer</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Footer Text</label>
               <input
                 v-model="editingPage.footerText"
                 type="text"
@@ -792,37 +830,37 @@ onMounted(() => {
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Interval Muat Ulang</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Refresh Interval</label>
               <select
                 v-model="editingPage.refreshInterval"
                 class="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
               >
-                <option :value="30">30 Detik</option>
-                <option :value="60">60 Detik (Rekomendasi)</option>
-                <option :value="120">120 Detik (2 Menit)</option>
-                <option :value="300">300 Detik (5 Menit)</option>
+                <option :value="30">30 Seconds</option>
+                <option :value="60">60 Seconds (Recommended)</option>
+                <option :value="120">120 Seconds (2 Minutes)</option>
+                <option :value="300">300 Seconds (5 Minutes)</option>
               </select>
-              <p class="text-[10px] text-slate-400 mt-1">Laman status akan melakukan penyegaran data secara otomatis.</p>
+              <p class="text-[10px] text-slate-400 mt-1">Status page will automatically refresh live metrics periodically.</p>
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Akses Keamanan</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Access Visibility</label>
               <div class="flex items-center gap-2">
                 <button
                   type="button"
                   @click="editingPage.isPublic = true"
-                  class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition"
+                  class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer"
                   :class="editingPage.isPublic ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/40' : 'border-slate-200 dark:border-slate-800 text-slate-400'"
                 >
-                  Publik
+                  Public
                 </button>
                 <button
                   type="button"
                   @click="editingPage.isPublic = false"
-                  class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition"
+                  class="flex-1 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer"
                   :class="!editingPage.isPublic ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40' : 'border-slate-200 dark:border-slate-800 text-slate-400'"
                 >
-                  Privat (Auth)
+                  Private (Auth)
                 </button>
               </div>
             </div>
@@ -830,7 +868,7 @@ onMounted(() => {
             <div class="pt-2">
               <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                 <input type="checkbox" v-model="editingPage.showTags" class="rounded border-slate-700 text-blue-600" />
-                <span>Tampilkan label tags & latency</span>
+                <span>Show tags and latency metrics</span>
               </label>
             </div>
           </div>
@@ -841,15 +879,15 @@ onMounted(() => {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <div>
-                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Insiden & Pemeliharaan</h4>
-                  <p class="text-[11px] text-slate-500">Tampilkan banner insiden aktif atau pengumuman jadwal maintenance.</p>
+                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Incidents & Maintenance</h4>
+                  <p class="text-[11px] text-slate-500">Display active incident notices or scheduled maintenance banners.</p>
                 </div>
                 <button
                   @click="openAddIncidentModal"
                   class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer"
                 >
                   <Plus class="w-3 h-3" />
-                  <span>Buat Insiden</span>
+                  <span>New Incident</span>
                 </button>
               </div>
 
@@ -877,14 +915,14 @@ onMounted(() => {
                   <button
                     @click="deleteIncident(inc.id)"
                     class="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                    title="Hapus Insiden"
+                    title="Delete Incident"
                   >
                     <Trash2 class="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
               <div v-else class="text-center py-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-400">
-                Tidak ada insiden aktif saat ini.
+                No active incidents currently.
               </div>
             </div>
 
@@ -892,13 +930,13 @@ onMounted(() => {
             <div class="space-y-4 pt-2 border-t border-slate-200 dark:border-[#1f283d]">
               <div class="flex items-center justify-between">
                 <div>
-                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Layanan yang Dipantau</h4>
-                  <p class="text-[11px] text-slate-500">Kelompokkan dan sambungkan layanan dari sumber data HCP.</p>
+                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">Monitored Services</h4>
+                  <p class="text-[11px] text-slate-500">Group and connect live services from HCP data sources.</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <input
                     v-model="newGroupName"
-                    placeholder="Nama Grup Baru (misal: Core Network)"
+                    placeholder="New group name (e.g. Core Network)"
                     class="px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
                     @keyup.enter="addGroup"
                   />
@@ -906,7 +944,7 @@ onMounted(() => {
                     @click="addGroup"
                     class="px-3 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold rounded-lg transition cursor-pointer"
                   >
-                    Tambah Grup
+                    Add Group
                   </button>
                 </div>
               </div>
@@ -922,7 +960,7 @@ onMounted(() => {
                     <div class="flex items-center gap-2">
                       <Layers class="w-4 h-4 text-blue-500" />
                       <h5 class="text-xs font-bold text-slate-900 dark:text-white">{{ group.name }}</h5>
-                      <span class="text-[10px] text-slate-400">({{ getItemsForGroup(group.id).length }} monitor)</span>
+                      <span class="text-[10px] text-slate-400">({{ getItemsForGroup(group.id).length }} monitors)</span>
                     </div>
                     <div class="flex items-center gap-2">
                       <button
@@ -930,12 +968,12 @@ onMounted(() => {
                         class="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 hover:bg-blue-100 rounded-md transition cursor-pointer"
                       >
                         <Plus class="w-3 h-3" />
-                        <span>Tambah Monitor</span>
+                        <span>Add Monitor</span>
                       </button>
                       <button
                         @click="deleteGroup(group.id)"
                         class="text-slate-400 hover:text-rose-500 p-1 cursor-pointer"
-                        title="Hapus Grup"
+                        title="Delete Group"
                       >
                         <Trash2 class="w-3.5 h-3.5" />
                       </button>
@@ -966,20 +1004,20 @@ onMounted(() => {
                     </div>
                   </div>
                   <div v-else class="text-center py-2 text-[11px] text-slate-400">
-                    Belum ada monitor di grup ini.
+                    No monitors in this group yet.
                   </div>
                 </div>
 
                 <!-- Ungrouped Items -->
                 <div class="border border-dashed border-slate-200 dark:border-[#1f283d] rounded-xl p-4 bg-slate-50/50 dark:bg-[#0c0f17]/50 space-y-3">
                   <div class="flex items-center justify-between">
-                    <h5 class="text-xs font-semibold text-slate-600 dark:text-slate-400">Layanan Tanpa Grup</h5>
+                    <h5 class="text-xs font-semibold text-slate-600 dark:text-slate-400">Ungrouped Services</h5>
                     <button
                       @click="openAddItemModal(null)"
                       class="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition cursor-pointer"
                     >
                       <Plus class="w-3 h-3" />
-                      <span>Tambah Monitor</span>
+                      <span>Add Monitor</span>
                     </button>
                   </div>
                   <div v-if="getUngroupedItems.length > 0" class="space-y-1.5">
@@ -1004,7 +1042,7 @@ onMounted(() => {
                     </div>
                   </div>
                   <div v-else class="text-center py-2 text-[11px] text-slate-400">
-                    Tidak ada layanan tanpa grup.
+                    No ungrouped services.
                   </div>
                 </div>
               </div>
@@ -1015,7 +1053,7 @@ onMounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL: Tambahkan Monitor (Multi-Source Picker)                         -->
+    <!-- MODAL: Add Monitored Service (Multi-Source Picker)                    -->
     <!-- ===================================================================== -->
     <div
       v-if="showItemModal"
@@ -1023,7 +1061,7 @@ onMounted(() => {
     >
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Tambahkan Layanan yang Dipantau</h3>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Monitored Service</h3>
           <button @click="showItemModal = false" class="text-slate-400 hover:text-white cursor-pointer">
             <X class="w-5 h-5" />
           </button>
@@ -1032,7 +1070,7 @@ onMounted(() => {
         <form @submit.prevent="submitSaveItem" class="space-y-4">
           <!-- Source Type Selector -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Pilih Sumber Data</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Select Data Source</label>
             <div class="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -1084,13 +1122,13 @@ onMounted(() => {
 
           <!-- Target Selector -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Target Perangkat / Koneksi</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Target Device / Connection</label>
             <select
               v-model="itemForm.sourceId"
               @change="onSourceSelect"
               class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
             >
-              <option value="">-- Pilih dari target terdaftar --</option>
+              <option value="">-- Select from registered targets --</option>
               <option v-for="opt in filteredSourceOptions" :key="opt.id" :value="opt.id">
                 {{ opt.name }} [{{ opt.detail }}]
               </option>
@@ -1099,23 +1137,23 @@ onMounted(() => {
 
           <!-- Display Name -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Nama Tampilan di Status Page</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Display Name on Status Page</label>
             <input
               v-model="itemForm.name"
               type="text"
               required
-              placeholder="Contoh: Router Core Gedung A"
+              placeholder="e.g. Core Switch Rack A"
               class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
             />
           </div>
 
           <!-- Description -->
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Keterangan Singkat (Opsional)</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Short Description (Optional)</label>
             <input
               v-model="itemForm.description"
               type="text"
-              placeholder="Contoh: Gateway Utama ISP 1"
+              placeholder="e.g. Primary Gateway to ISP 1"
               class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
             />
           </div>
@@ -1126,13 +1164,13 @@ onMounted(() => {
               @click="showItemModal = false"
               class="px-3 py-1.5 text-xs text-slate-500 hover:text-white cursor-pointer"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="submit"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
             >
-              Tambahkan
+              Add Service
             </button>
           </div>
         </form>
@@ -1140,7 +1178,7 @@ onMounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL: Buat / Edit Insiden                                            -->
+    <!-- MODAL: Create / Edit Incident                                         -->
     <!-- ===================================================================== -->
     <div
       v-if="showIncidentModal"
@@ -1148,7 +1186,7 @@ onMounted(() => {
     >
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Buat Insiden / Maintenance</h3>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Create Incident / Maintenance</h3>
           <button @click="showIncidentModal = false" class="text-slate-400 hover:text-white cursor-pointer">
             <X class="w-5 h-5" />
           </button>
@@ -1156,19 +1194,19 @@ onMounted(() => {
 
         <form @submit.prevent="submitSaveIncident" class="space-y-4">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Judul Insiden</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Incident Title</label>
             <input
               v-model="incidentForm.title"
               type="text"
               required
-              placeholder="Contoh: Pemeliharaan Jaringan Core Switch"
+              placeholder="e.g. Core Switch Firmware Upgrade"
               class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
             />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status Insiden</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Incident Status</label>
               <select
                 v-model="incidentForm.status"
                 class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
@@ -1181,12 +1219,12 @@ onMounted(() => {
               </select>
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Tingkat Dampak (Severity)</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Impact Severity</label>
               <select
                 v-model="incidentForm.severity"
                 class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden"
               >
-                <option value="info">Informasi</option>
+                <option value="info">Informational</option>
                 <option value="minor">Minor Degradation</option>
                 <option value="major">Major Outage</option>
                 <option value="critical">Critical Downtime</option>
@@ -1195,12 +1233,12 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Pesan Detail Insiden</label>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Incident Details Message</label>
             <textarea
               v-model="incidentForm.message"
               rows="3"
               required
-              placeholder="Penjelasan detail kendala atau rentang waktu pemeliharaan..."
+              placeholder="Detailed explanation of the issue or scheduled maintenance window..."
               class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden resize-none"
             ></textarea>
           </div>
@@ -1208,7 +1246,7 @@ onMounted(() => {
           <div>
             <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
               <input type="checkbox" v-model="incidentForm.isActive" class="rounded border-slate-700 text-blue-600" />
-              <span>Insiden sedang berlangsung (Tampilkan banner aktif)</span>
+              <span>Incident is currently active (Show public banner)</span>
             </label>
           </div>
 
@@ -1218,13 +1256,13 @@ onMounted(() => {
               @click="showIncidentModal = false"
               class="px-3 py-1.5 text-xs text-slate-500 hover:text-white cursor-pointer"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="submit"
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
             >
-              Simpan Insiden
+              Save Incident
             </button>
           </div>
         </form>
@@ -1243,7 +1281,7 @@ onMounted(() => {
           <Trash2 class="w-6 h-6" />
         </div>
         <div class="space-y-1">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Halaman Status?</h3>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Status Page?</h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ pageToDelete?.title }}</strong>? This action cannot be undone.
           </p>

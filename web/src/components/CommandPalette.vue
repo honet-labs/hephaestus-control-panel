@@ -33,7 +33,7 @@ const items = [
   { name: 'SNMP Browser', icon: Radio, route: '/snmp' },
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger' },
   { name: 'Backup Manager', icon: Database, route: '/backup' },
-  { name: 'Halaman Status', icon: Activity, route: '/status-pages' },
+  { name: 'Status Pages', icon: Activity, route: '/status-pages' },
   { name: 'OpenSearch Cluster', icon: Search, route: '/opensearch-cluster', newTab: true },
   { name: 'Slide Show', icon: Activity, route: '/slideshow' },
   { name: 'System Settings', icon: Settings, route: '/settings' },

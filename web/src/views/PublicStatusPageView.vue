@@ -119,7 +119,7 @@ const fetchStatus = async (isManual = false) => {
         slug: err.response.data.slug || (slug as string),
       } as any;
     } else {
-      error.value = err.response?.data?.message || err.response?.data?.error || 'Gagal memuat halaman status';
+      error.value = err.response?.data?.message || err.response?.data?.error || 'Failed to load status page';
     }
   } finally {
     loading.value = false;
@@ -129,7 +129,7 @@ const fetchStatus = async (isManual = false) => {
 
 const handleLogin = async () => {
   if (!loginUsername.value || !loginPassword.value) {
-    loginError.value = 'Username dan password wajib diisi';
+    loginError.value = 'Username and password are required';
     return;
   }
   loginLoading.value = true;
@@ -146,7 +146,7 @@ const handleLogin = async () => {
       await fetchStatus();
     }
   } catch (err: any) {
-    loginError.value = err.response?.data?.error || 'Login gagal. Periksa username dan password Anda.';
+    loginError.value = err.response?.data?.error || 'Login failed. Please check your username and password.';
   } finally {
     loginLoading.value = false;
   }
@@ -262,7 +262,7 @@ onUnmounted(() => {
             @click="fetchStatus(true)"
             :disabled="refreshing"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
-            title="Segarkan data sekarang"
+            title="Refresh data now"
           >
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }" />
             <span class="hidden sm:inline">Refresh</span>
@@ -270,7 +270,7 @@ onUnmounted(() => {
           <button
             @click="toggleTheme"
             class="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            title="Ganti Mode Gelap / Terang"
+            title="Toggle Dark / Light Mode"
           >
             <Sun v-if="isDark" class="w-4 h-4" />
             <Moon v-else class="w-4 h-4" />
@@ -284,7 +284,7 @@ onUnmounted(() => {
       <!-- Loading State -->
       <div v-if="loading" class="py-20 text-center space-y-3">
         <RefreshCw class="w-8 h-8 animate-spin text-blue-500 mx-auto" />
-        <p class="text-xs text-slate-500">Memeriksa status ketersediaan infrastruktur...</p>
+        <p class="text-xs text-slate-500">Checking infrastructure availability status...</p>
       </div>
 
       <!-- Private Status Page Auth Guard -->
@@ -296,7 +296,7 @@ onUnmounted(() => {
           <div class="space-y-1">
             <h2 class="text-base font-bold text-slate-900 dark:text-white">{{ report?.title || 'Private Status Page' }}</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              Halaman status ini diproteksi secara privat. Silakan masuk dengan akun Anda untuk melihat performa layanan.
+              This status page is private. Please sign in with your account to view service performance.
             </p>
           </div>
 
@@ -311,7 +311,7 @@ onUnmounted(() => {
                 v-model="loginUsername"
                 type="text"
                 required
-                placeholder="Username akun"
+                placeholder="Account username"
                 class="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
               />
             </div>
@@ -322,7 +322,7 @@ onUnmounted(() => {
                 v-model="loginPassword"
                 type="password"
                 required
-                placeholder="Kata sandi"
+                placeholder="Password"
                 class="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c0f17] text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
               />
             </div>
@@ -332,8 +332,8 @@ onUnmounted(() => {
               :disabled="loginLoading"
               class="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs disabled:opacity-50"
             >
-              <span v-if="loginLoading">Memverifikasi...</span>
-              <span v-else>Masuk & Lihat Status</span>
+              <span v-if="loginLoading">Authenticating...</span>
+              <span v-else>Sign In & View Status</span>
               <ArrowRight v-if="!loginLoading" class="w-3.5 h-3.5" />
             </button>
           </form>
@@ -344,12 +344,12 @@ onUnmounted(() => {
       <div v-else-if="error" class="py-16 text-center space-y-4">
         <AlertTriangle class="w-10 h-10 text-amber-500 mx-auto" />
         <h2 class="text-base font-bold text-slate-800 dark:text-slate-200">{{ error }}</h2>
-        <p class="text-xs text-slate-500">Pastikan alamat slug URL halaman status sudah benar.</p>
+        <p class="text-xs text-slate-500">Please make sure the status page slug URL is correct.</p>
         <button
           @click="fetchStatus(true)"
           class="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold cursor-pointer"
         >
-          Coba Lagi
+          Try Again
         </button>
       </div>
 
@@ -371,7 +371,7 @@ onUnmounted(() => {
                 {{ report.overallMessage }}
               </h2>
               <p class="text-xs opacity-80 mt-0.5">
-                {{ totalOperationalCount.op }} dari {{ totalOperationalCount.total }} layanan beroperasi normal
+                {{ totalOperationalCount.op }} of {{ totalOperationalCount.total }} services operating normally
               </p>
             </div>
           </div>
@@ -379,7 +379,7 @@ onUnmounted(() => {
           <!-- Countdown Timer Chip -->
           <div class="flex items-center gap-2 self-start sm:self-auto text-xs opacity-75 shrink-0 bg-white/10 dark:bg-black/20 px-3 py-1.5 rounded-xl">
             <Clock class="w-3.5 h-3.5" />
-            <span>Penyegaran dalam {{ countdown }}s</span>
+            <span>Refreshes in {{ countdown }}s</span>
           </div>
         </div>
 
@@ -392,7 +392,7 @@ onUnmounted(() => {
         <div v-if="report.activeIncidents && report.activeIncidents.length > 0" class="space-y-3">
           <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
             <AlertTriangle class="w-3.5 h-3.5 text-amber-500" />
-            <span>Pemberitahuan Insiden Aktif</span>
+            <span>Active Incident Notice</span>
           </h3>
 
           <div
@@ -427,7 +427,7 @@ onUnmounted(() => {
                 <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ group.name }}</h3>
               </div>
               <span class="text-[11px] text-slate-500 font-medium">
-                {{ group.items.filter(i => i.status === 'operational').length }}/{{ group.items.length }} Normal
+                {{ group.items.filter(i => i.status === 'operational').length }}/{{ group.items.length }} Operational
               </span>
             </div>
 
@@ -463,7 +463,7 @@ onUnmounted(() => {
               </div>
 
               <div v-if="group.items.length === 0" class="p-4 text-center text-xs text-slate-400">
-                Tidak ada layanan dalam grup ini.
+                No services in this group.
               </div>
             </div>
           </div>
@@ -474,7 +474,7 @@ onUnmounted(() => {
             class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl overflow-hidden shadow-xs"
           >
             <div class="px-5 py-3 bg-slate-50/70 dark:bg-[#151b2c] border-b border-slate-200 dark:border-[#1f283d] flex items-center justify-between">
-              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Layanan Umum</h3>
+              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">General Services</h3>
             </div>
             <div class="divide-y divide-slate-100 dark:divide-[#1a2133]">
               <div
@@ -515,7 +515,7 @@ onUnmounted(() => {
             {{ report.footerText || 'Powered by Hephaestus Control Panel (HCP)' }}
           </p>
           <p class="text-[10px] text-slate-400">
-            Terakhir diperbarui: {{ new Date(report.lastChecked).toLocaleString() }}
+            Last updated: {{ new Date(report.lastChecked).toLocaleString() }}
           </p>
         </footer>
       </template>

@@ -27,10 +27,12 @@ func (r *StatusPageRepository) ListPages(ctx context.Context) ([]domain.StatusPa
 	}
 
 	query := `
-		SELECT id, title, slug, description, footer_text, theme, refresh_interval,
-		       is_public, is_published, show_tags, custom_css, user_id, created_at, updated_at
-		FROM status_pages
-		ORDER BY created_at DESC
+		SELECT sp.id, sp.title, sp.slug, sp.description, sp.footer_text, sp.theme, sp.refresh_interval,
+		       sp.is_public, sp.is_published, sp.show_tags, sp.custom_css, sp.user_id, sp.created_at, sp.updated_at,
+		       COALESCE((SELECT COUNT(*) FROM status_page_items WHERE page_id = sp.id), 0) AS item_count,
+		       COALESCE((SELECT COUNT(*) FROM status_page_incidents WHERE page_id = sp.id AND is_active = true), 0) AS incident_count
+		FROM status_pages sp
+		ORDER BY sp.created_at DESC
 	`
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
@@ -41,22 +43,18 @@ func (r *StatusPageRepository) ListPages(ctx context.Context) ([]domain.StatusPa
 	var pages []domain.StatusPage
 	for rows.Next() {
 		var p domain.StatusPage
+		var itemCount, incidentCount int
 		if err := rows.Scan(
 			&p.ID, &p.Title, &p.Slug, &p.Description, &p.FooterText, &p.Theme,
 			&p.RefreshInterval, &p.IsPublic, &p.IsPublished, &p.ShowTags,
 			&p.CustomCSS, &p.UserID, &p.CreatedAt, &p.UpdatedAt,
+			&itemCount, &incidentCount,
 		); err != nil {
 			return nil, err
 		}
 
-		// Count items & groups
-		items, _ := r.ListItems(ctx, p.ID)
-		p.Items = items
-		groups, _ := r.ListGroups(ctx, p.ID)
-		p.Groups = groups
-		incidents, _ := r.ListIncidents(ctx, p.ID, false)
-		p.Incidents = incidents
-
+		p.Items = make([]domain.StatusPageItem, itemCount)
+		p.Incidents = make([]domain.StatusPageIncident, incidentCount)
 		pages = append(pages, p)
 	}
 

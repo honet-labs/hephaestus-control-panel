@@ -129,7 +129,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/grok-debugger')) return 'Grok Debugger';
   if (route.path.startsWith('/backup')) return 'Backup Manager';
   if (route.path.startsWith('/security/vaultwarden')) return 'Vaultwarden';
-  if (route.path.startsWith('/status-pages')) return 'Halaman Status';
+  if (route.path.startsWith('/status-pages')) return 'Status Pages';
   if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
   if (route.path.startsWith('/slideshow')) return 'Slide Show';
   if (route.path === '/reports/raw') return 'Raw Data Report';
@@ -623,7 +623,7 @@ onUnmounted(() => {
                   'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                 ]"
               >
-                <span>Halaman Status</span>
+                <span>Status Pages</span>
               </router-link>
 
               <a
