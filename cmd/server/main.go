@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -160,7 +158,7 @@ func main() {
 		}
 
 		// In development mode only, permit local frontend development dev servers
-		if cfg.AppEnv != "production" && gin.Mode() != gin.ReleaseMode {
+		if cfg.Env != "production" && gin.Mode() != gin.ReleaseMode {
 			if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" ||
 				origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
 				return true
