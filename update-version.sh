@@ -72,6 +72,8 @@ if [ -f .env ]; then
             echo -e "${GREEN}[OK] AWS Public ECR mirror is accessible.${NC}"
         fi
     fi
+fi
+
 # Ensure performance and resource tuning environment variables exist in .env
 if [ -f .env ]; then
     if ! grep -q "GOMEMLIMIT" .env; then
