@@ -928,21 +928,8 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 	}
 
 	var cmdParts []string
-	if req.Command != nil {
-		switch v := req.Command.(type) {
-		case string:
-			if strings.TrimSpace(v) != "" {
-				cmdParts = strings.Fields(v)
-			}
-		case []string:
-			cmdParts = v
-		case []interface{}:
-			for _, item := range v {
-				if str, ok := item.(string); ok && str != "" {
-					cmdParts = append(cmdParts, str)
-				}
-			}
-		}
+	if strings.TrimSpace(req.Command) != "" {
+		cmdParts = strings.Fields(req.Command)
 	}
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
