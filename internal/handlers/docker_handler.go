@@ -470,6 +470,50 @@ func (h *DockerHandler) DeployContainer(c *gin.Context) {
 	})
 }
 
+func (h *DockerHandler) InspectContainer(c *gin.Context) {
+	id := c.Param("id")
+	connectionID := c.Query("connectionId")
+
+	details, err := h.dockerService.InspectContainer(c.Request.Context(), connectionID, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    details,
+	})
+}
+
+func (h *DockerHandler) EditContainer(c *gin.Context) {
+	id := c.Param("id")
+	connectionID := c.Query("connectionId")
+	var req domain.DeployContainerRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid container configuration: " + err.Error()})
+		return
+	}
+
+	newID, err := h.dockerService.EditContainer(c.Request.Context(), connectionID, id, req)
+	if err != nil {
+		// If error mentions container is running, return 400 Bad Request
+		statusCode := http.StatusInternalServerError
+		if strings.Contains(strings.ToLower(err.Error()), "running") {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"message":     "Container updated and recreated successfully",
+		"containerId": newID,
+	})
+}
+
 // -------------------------------------------------------------
 // Images Handlers
 // -------------------------------------------------------------

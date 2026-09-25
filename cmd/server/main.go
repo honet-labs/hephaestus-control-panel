@@ -394,6 +394,9 @@ func main() {
 		api.DELETE("/docker/connections/:id", middleware.RequireAnyPermission([]string{"connections", "infrastructure"}, "manage"), dockerHandler.DeleteConnection)
 		api.GET("/docker/containers", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListContainers)
 		api.GET("/docker/containers/:id", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetContainer)
+		api.GET("/docker/containers/:id/inspect", middleware.RequirePermission("infrastructure", "read"), dockerHandler.InspectContainer)
+		api.POST("/docker/containers/:id/edit", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.EditContainer)
+		api.PUT("/docker/containers/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.EditContainer)
 		api.POST("/docker/containers/:id/start", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.StartContainer)
 		api.POST("/docker/containers/:id/stop", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.StopContainer)
 		api.POST("/docker/containers/:id/restart", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.RestartContainer)
@@ -449,11 +452,12 @@ func main() {
 	}
 
 	// 9. HTTP Server with Graceful Shutdown
+	// Do NOT set ReadTimeout or WriteTimeout here as they sever hijacked WebSocket connections (SSH Terminal) and long downloads
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           r,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

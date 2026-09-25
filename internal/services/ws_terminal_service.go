@@ -112,23 +112,24 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 	}
 	defer closeDone()
 
-	// Goroutine 1: OpenSSH KeepAlive ticker (every 15s) to prevent SSH timeouts
+	// Goroutine 1: SSH KeepAlive ticker (every 10s) to prevent idle SSH connection drops
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-done:
 				return
 			case <-ticker.C:
-				_, _, _ = client.SendRequest("keepalive@openssh.com", true, nil)
+				// Send non-blocking OpenSSH keepalive request
+				_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
 			}
 		}
 	}()
 
-	// Goroutine 2: WebSocket Ping Heartbeat ticker (every 20s) to keep proxy/browser alive
+	// Goroutine 2: WebSocket Ping Heartbeat ticker (every 15s) to keep proxy/browser alive
 	go func() {
-		pingTicker := time.NewTicker(20 * time.Second)
+		pingTicker := time.NewTicker(15 * time.Second)
 		defer pingTicker.Stop()
 		for {
 			select {
@@ -136,7 +137,7 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 				return
 			case <-pingTicker.C:
 				wsMu.Lock()
-				_ = ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				_ = ws.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
 				wsMu.Unlock()
 			}
 		}
@@ -179,12 +180,19 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 		}
 	}()
 
-	// Configure WebSocket Ping/Pong handlers & Read deadline (60s)
+	// Configure WebSocket Ping/Pong handlers & Read deadline (180s generous timeout for background tabs)
+	const idleTimeout = 180 * time.Second
 	ws.SetReadLimit(65536)
-	_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = ws.SetReadDeadline(time.Now().Add(idleTimeout))
 	ws.SetPongHandler(func(string) error {
-		_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = ws.SetReadDeadline(time.Now().Add(idleTimeout))
 		return nil
+	})
+	ws.SetPingHandler(func(appData string) error {
+		_ = ws.SetReadDeadline(time.Now().Add(idleTimeout))
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(5*time.Second))
 	})
 
 	// Main Loop: Read from WebSocket -> SSH stdin
@@ -193,7 +201,7 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 		if err != nil {
 			break
 		}
-		_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = ws.SetReadDeadline(time.Now().Add(idleTimeout))
 
 		var msg domain.WsTerminalMessage
 		if err := json.Unmarshal(message, &msg); err == nil {

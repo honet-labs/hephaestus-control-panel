@@ -721,7 +721,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
       }
-    }, 15000);
+    }, 10000);
   };
 
   ws.onmessage = (ev) => {
@@ -750,7 +750,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
           clearInterval(session.heartbeatTimer);
           session.heartbeatTimer = undefined;
         }
-        session.term?.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+        session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
       }
     } catch (e) {
       if (!session.connected) {
@@ -769,7 +769,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       clearInterval(session.heartbeatTimer);
       session.heartbeatTimer = undefined;
     }
-    session.term?.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+    session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
   };
 
   ws.onerror = () => {
@@ -1995,18 +1995,32 @@ const handleWindowResize = () => {
   }
 };
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    openSessions.value.forEach((s) => {
+      if (s.ws && s.ws.readyState === WebSocket.OPEN) {
+        try {
+          s.ws.send(JSON.stringify({ type: 'ping' }));
+        } catch (_) {}
+      }
+    });
+  }
+};
+
 onMounted(async () => {
   await fetchHosts();
   await restorePersistedSessions();
   window.addEventListener('click', closeAllContextMenus);
   window.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('resize', handleWindowResize);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   window.removeEventListener('click', closeAllContextMenus);
   window.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('resize', handleWindowResize);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   openSessions.value.forEach((s) => {
     if (s.resizeObserver) {
       try {

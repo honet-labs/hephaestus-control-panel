@@ -916,6 +916,8 @@ func (s *DockerService) RemoveImage(ctx context.Context, connectionID, imageID s
 // -------------------------------------------------------------
 
 func (s *DockerService) DeployContainer(ctx context.Context, connectionID string, req domain.DeployContainerRequest) (string, error) {
+	req.Normalize()
+
 	conn, err := s.resolveConnection(ctx, connectionID)
 	if err != nil {
 		return "", err
@@ -925,13 +927,44 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		return "", errors.New("image is required")
 	}
 
+	var cmdParts []string
+	if req.Command != nil {
+		switch v := req.Command.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				cmdParts = strings.Fields(v)
+			}
+		case []string:
+			cmdParts = v
+		case []interface{}:
+			for _, item := range v {
+				if str, ok := item.(string); ok && str != "" {
+					cmdParts = append(cmdParts, str)
+				}
+			}
+		}
+	}
+
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		args := []string{"run", "-d"}
+		action := "run -d"
+		if req.StartAfter != nil && !*req.StartAfter {
+			action = "create"
+		}
+		args := []string{action}
 		if req.Name != "" {
 			args = append(args, fmt.Sprintf("--name %s", req.Name))
 		}
 		if req.RestartPolicy != "" && req.RestartPolicy != "no" {
 			args = append(args, fmt.Sprintf("--restart %s", req.RestartPolicy))
+		}
+		if req.NetworkMode != "" && req.NetworkMode != "bridge" {
+			args = append(args, fmt.Sprintf("--network %s", req.NetworkMode))
+		}
+		if req.CPULimit > 0 {
+			args = append(args, fmt.Sprintf("--cpus %g", req.CPULimit))
+		}
+		if req.MemoryLimitMB > 0 {
+			args = append(args, fmt.Sprintf("--memory %dm", req.MemoryLimitMB))
 		}
 		for _, p := range req.PortBindings {
 			p = strings.TrimSpace(p)
@@ -953,11 +986,11 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		}
 
 		args = append(args, req.Image)
-		if req.Command != "" {
-			args = append(args, req.Command)
+		if len(cmdParts) > 0 {
+			args = append(args, strings.Join(cmdParts, " "))
 		}
 
-		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("run %s", strings.Join(args, " ")))
+		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, strings.Join(args, " "))
 		if err != nil {
 			return "", fmt.Errorf("deploy container failed: %w (stderr: %s)", err, stderr)
 		}
@@ -992,20 +1025,31 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		restartPolicyName = "unless-stopped"
 	}
 
+	hostConfig := map[string]interface{}{
+		"Binds":        req.VolumeBindings,
+		"PortBindings": portMap,
+		"RestartPolicy": map[string]string{
+			"Name": restartPolicyName,
+		},
+	}
+	if req.NetworkMode != "" && req.NetworkMode != "bridge" {
+		hostConfig["NetworkMode"] = req.NetworkMode
+	}
+	if req.CPULimit > 0 {
+		hostConfig["NanoCpus"] = int64(req.CPULimit * 1e9)
+	}
+	if req.MemoryLimitMB > 0 {
+		hostConfig["Memory"] = req.MemoryLimitMB * 1024 * 1024
+	}
+
 	payload := map[string]interface{}{
 		"Image":        req.Image,
 		"ExposedPorts": exposedPorts,
 		"Env":          req.EnvVars,
-		"HostConfig": map[string]interface{}{
-			"Binds":        req.VolumeBindings,
-			"PortBindings": portMap,
-			"RestartPolicy": map[string]string{
-				"Name": restartPolicyName,
-			},
-		},
+		"HostConfig":   hostConfig,
 	}
-	if req.Command != "" {
-		payload["Cmd"] = strings.Fields(req.Command)
+	if len(cmdParts) > 0 {
+		payload["Cmd"] = cmdParts
 	}
 
 	bodyJSON, _ := json.Marshal(payload)
@@ -1032,12 +1076,194 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		return "", errors.New("container created but no container ID returned")
 	}
 
-	// Automatically start created container
-	startURL := fmt.Sprintf("%s/v1.43/containers/%s/start", baseURL, result.ID)
-	startReq, _ := http.NewRequestWithContext(ctx, "POST", startURL, nil)
-	_, _ = client.Do(startReq)
+	// Automatically start created container unless startAfter is explicitly false
+	if req.StartAfter == nil || *req.StartAfter {
+		startURL := fmt.Sprintf("%s/v1.43/containers/%s/start", baseURL, result.ID)
+		startReq, _ := http.NewRequestWithContext(ctx, "POST", startURL, nil)
+		_, _ = client.Do(startReq)
+	}
 
 	return result.ID, nil
+}
+
+// -------------------------------------------------------------
+// Container Inspection & Edit
+// -------------------------------------------------------------
+
+type dockerRawInspect struct {
+	ID     string `json:"Id"`
+	Name   string `json:"Name"`
+	Config struct {
+		Image string   `json:"Image"`
+		Cmd   []string `json:"Cmd"`
+		Env   []string `json:"Env"`
+	} `json:"Config"`
+	State struct {
+		Status  string `json:"Status"`
+		Running bool   `json:"Running"`
+	} `json:"State"`
+	HostConfig struct {
+		Binds         []string                                                  `json:"Binds"`
+		PortBindings  map[string][]struct{ HostPort string `json:"HostPort"` } `json:"PortBindings"`
+		RestartPolicy struct {
+			Name string `json:"Name"`
+		} `json:"RestartPolicy"`
+		NetworkMode string `json:"NetworkMode"`
+		NanoCPUs    int64  `json:"NanoCpus"`
+		Memory      int64  `json:"Memory"`
+	} `json:"HostConfig"`
+}
+
+func parseInspectDetails(raw dockerRawInspect) domain.ContainerInspectDetails {
+	details := domain.ContainerInspectDetails{
+		ID:            raw.ID,
+		Name:          strings.TrimPrefix(raw.Name, "/"),
+		Image:         raw.Config.Image,
+		Command:       strings.Join(raw.Config.Cmd, " "),
+		State:         raw.State.Status,
+		IsRunning:     raw.State.Running,
+		RestartPolicy: raw.HostConfig.RestartPolicy.Name,
+		NetworkMode:   raw.HostConfig.NetworkMode,
+		Ports:         make([]domain.DockerPortMapping, 0),
+		Volumes:       make([]domain.DockerVolumeMapping, 0),
+		Env:           make([]domain.DockerEnvMapping, 0),
+	}
+
+	if raw.HostConfig.NanoCPUs > 0 {
+		details.CPULimit = float64(raw.HostConfig.NanoCPUs) / 1e9
+	}
+	if raw.HostConfig.Memory > 0 {
+		details.MemoryLimitMB = raw.HostConfig.Memory / (1024 * 1024)
+	}
+
+	for containerPortProto, bindings := range raw.HostConfig.PortBindings {
+		parts := strings.Split(containerPortProto, "/")
+		port := parts[0]
+		proto := "tcp"
+		if len(parts) > 1 {
+			proto = parts[1]
+		}
+		for _, b := range bindings {
+			details.Ports = append(details.Ports, domain.DockerPortMapping{
+				HostPort:      b.HostPort,
+				ContainerPort: port,
+				Protocol:      proto,
+			})
+		}
+	}
+
+	for _, bind := range raw.HostConfig.Binds {
+		parts := strings.Split(bind, ":")
+		if len(parts) >= 2 {
+			ro := false
+			if len(parts) >= 3 && parts[2] == "ro" {
+				ro = true
+			}
+			details.Volumes = append(details.Volumes, domain.DockerVolumeMapping{
+				HostPath:      parts[0],
+				ContainerPath: parts[1],
+				ReadOnly:      ro,
+			})
+		}
+	}
+
+	for _, e := range raw.Config.Env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			details.Env = append(details.Env, domain.DockerEnvMapping{
+				Key:   parts[0],
+				Value: parts[1],
+			})
+		}
+	}
+
+	return details
+}
+
+func (s *DockerService) InspectContainer(ctx context.Context, connectionID, containerID string) (*domain.ContainerInspectDetails, error) {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw dockerRawInspect
+
+	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("inspect %s", containerID))
+		if err != nil {
+			return nil, fmt.Errorf("docker inspect failed: %w (stderr: %s)", err, stderr)
+		}
+		var raws []dockerRawInspect
+		if err := json.Unmarshal([]byte(stdout), &raws); err == nil && len(raws) > 0 {
+			raw = raws[0]
+		} else if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+			return nil, fmt.Errorf("failed to parse inspect json: %w", err)
+		}
+	} else {
+		client, baseURL := s.getLocalHTTPClient(conn)
+		url := fmt.Sprintf("%s/v1.43/containers/%s/json", baseURL, containerID)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("failed to inspect container (%d): %s", resp.StatusCode, string(body))
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			return nil, fmt.Errorf("failed to decode inspect json: %w", err)
+		}
+	}
+
+	details := parseInspectDetails(raw)
+	return &details, nil
+}
+
+func (s *DockerService) EditContainer(ctx context.Context, connectionID, containerID string, req domain.DeployContainerRequest) (string, error) {
+	req.Normalize()
+
+	// 1. Inspect existing container
+	details, err := s.InspectContainer(ctx, connectionID, containerID)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// 2. Strict check: Container must be stopped before editing!
+	if details.IsRunning || strings.EqualFold(details.State, "running") {
+		return "", errors.New("Container is currently running. You must stop the container before editing.")
+	}
+
+	// Fallback to existing values if not provided
+	if req.Name == "" {
+		req.Name = details.Name
+	}
+	if req.Image == "" {
+		req.Image = details.Image
+	}
+	if req.NetworkMode == "" {
+		req.NetworkMode = details.NetworkMode
+	}
+
+	// 3. Remove old stopped container (with force: false because it must already be stopped)
+	if err := s.RemoveContainer(ctx, connectionID, containerID, false); err != nil {
+		return "", fmt.Errorf("failed to remove existing stopped container before updating: %w", err)
+	}
+
+	// 4. Deploy replacement container with updated configuration
+	newID, err := s.DeployContainer(ctx, connectionID, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to deploy updated container: %w", err)
+	}
+
+	return newID, nil
 }
 
 // -------------------------------------------------------------

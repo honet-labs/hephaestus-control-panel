@@ -646,10 +646,70 @@ type DeployContainerRequest struct {
 	Name           string   `json:"name"`
 	Image          string   `json:"image"`
 	PortBindings   []string `json:"portBindings"`   // e.g. ["8080:80", "443:443"]
+	Ports          []string `json:"ports,omitempty"` // Frontend alias
 	VolumeBindings []string `json:"volumeBindings"` // e.g. ["/data:/app/data"]
+	Volumes        []string `json:"volumes,omitempty"` // Frontend alias
 	EnvVars        []string `json:"envVars"`        // e.g. ["FOO=BAR"]
+	Environment    []string `json:"environment,omitempty"` // Frontend alias
 	RestartPolicy  string   `json:"restartPolicy"`  // "always", "unless-stopped", "no"
 	Command        string   `json:"command,omitempty"`
+	NetworkMode    string   `json:"networkMode,omitempty"`
+	CPULimit       float64  `json:"cpuLimit,omitempty"`       // Cores limit, 0 = unlimited
+	MemoryLimitMB  int64    `json:"memoryLimitMb,omitempty"`  // In MB, 0 = unlimited
+	MemoryLimit    int64    `json:"memoryLimit,omitempty"`    // In bytes fallback
+	AutoRemove     bool     `json:"autoRemove,omitempty"`
+	StartAfter     *bool    `json:"startAfter,omitempty"`     // Auto start container (default true)
+}
+
+func (r *DeployContainerRequest) Normalize() {
+	if len(r.PortBindings) == 0 && len(r.Ports) > 0 {
+		r.PortBindings = r.Ports
+	}
+	if len(r.VolumeBindings) == 0 && len(r.Volumes) > 0 {
+		r.VolumeBindings = r.Volumes
+	}
+	if len(r.EnvVars) == 0 && len(r.Environment) > 0 {
+		r.EnvVars = r.Environment
+	}
+	if r.MemoryLimitMB == 0 && r.MemoryLimit > 0 {
+		r.MemoryLimitMB = r.MemoryLimit / (1024 * 1024)
+	}
+	if r.RestartPolicy == "" {
+		r.RestartPolicy = "unless-stopped"
+	}
+}
+
+type DockerPortMapping struct {
+	HostPort      string `json:"hostPort"`
+	ContainerPort string `json:"containerPort"`
+	Protocol      string `json:"protocol"`
+}
+
+type DockerVolumeMapping struct {
+	HostPath      string `json:"hostPath"`
+	ContainerPath string `json:"containerPath"`
+	ReadOnly      bool   `json:"readonly"`
+}
+
+type DockerEnvMapping struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type ContainerInspectDetails struct {
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	Image         string                `json:"image"`
+	Command       string                `json:"command"`
+	State         string                `json:"state"` // running, exited, paused, etc.
+	IsRunning     bool                  `json:"isRunning"`
+	Ports         []DockerPortMapping   `json:"ports"`
+	Volumes       []DockerVolumeMapping `json:"volumes"`
+	Env           []DockerEnvMapping    `json:"env"`
+	RestartPolicy string                `json:"restartPolicy"`
+	NetworkMode   string                `json:"networkMode"`
+	CPULimit      float64               `json:"cpuLimit"`      // 0 = unlimited
+	MemoryLimitMB int64                 `json:"memoryLimitMb"` // in MB, 0 = unlimited
 }
 
 type DockerSystemInfo struct {

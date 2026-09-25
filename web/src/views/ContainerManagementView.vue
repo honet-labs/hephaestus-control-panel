@@ -30,7 +30,9 @@ import {
   Radio,
   Sliders,
   ChevronDown,
-  Network
+  Network,
+  Pencil,
+  AlertTriangle
 } from 'lucide-vue-next';
 
 interface DockerConnection {
@@ -337,11 +339,33 @@ const deployForm = ref({
   volumes: [{ host: '', container: '', readonly: false }],
   restartPolicy: 'unless-stopped',
   networkMode: 'bridge',
-  memoryLimitMb: 0,
-  cpuLimit: 0,
+  memoryLimitMb: '' as string | number,
+  cpuLimit: '' as string | number,
   autoRemove: false,
 });
 const deploying = ref(false);
+
+// Edit Container State
+const showEditModal = ref(false);
+const showMustStopModal = ref(false);
+const targetEditContainer = ref<DockerContainer | null>(null);
+const editingContainer = ref(false);
+const editLoadingDetails = ref(false);
+
+const editForm = ref({
+  id: '',
+  name: '',
+  image: '',
+  command: '',
+  ports: [{ host: '', container: '', protocol: 'tcp' }],
+  env: [{ key: '', value: '' }],
+  volumes: [{ host: '', container: '', readonly: false }],
+  restartPolicy: 'unless-stopped',
+  networkMode: 'bridge',
+  memoryLimitMb: '' as string | number,
+  cpuLimit: '' as string | number,
+  startAfter: true,
+});
 
 // Connection Form
 const newConn = ref({
@@ -693,18 +717,24 @@ const handleDeploy = async () => {
     .filter((v) => v.host && v.container)
     .map((v) => `${v.host}:${v.container}${v.readonly ? ':ro' : ''}`);
 
+  const cpu = deployForm.value.cpuLimit !== '' && Number(deployForm.value.cpuLimit) > 0 ? Number(deployForm.value.cpuLimit) : 0;
+  const mem = deployForm.value.memoryLimitMb !== '' && Number(deployForm.value.memoryLimitMb) > 0 ? Number(deployForm.value.memoryLimitMb) : 0;
+
   try {
     const res = await axios.post('/api/v1/docker/containers/deploy', {
       name: deployForm.value.name.trim(),
       image: deployForm.value.image.trim(),
-      command: deployForm.value.command ? deployForm.value.command.split(' ') : [],
+      command: deployForm.value.command ? deployForm.value.command.trim() : '',
       ports: validPorts,
+      portBindings: validPorts,
       environment: validEnv,
+      envVars: validEnv,
       volumes: validVols,
+      volumeBindings: validVols,
       restartPolicy: deployForm.value.restartPolicy,
       networkMode: deployForm.value.networkMode,
-      memoryLimit: Number(deployForm.value.memoryLimitMb) * 1024 * 1024,
-      cpuLimit: Number(deployForm.value.cpuLimit),
+      memoryLimitMb: mem,
+      cpuLimit: cpu,
       autoRemove: deployForm.value.autoRemove,
     }, {
       params: { connectionId: selectedConnectionId.value },
@@ -723,8 +753,8 @@ const handleDeploy = async () => {
         volumes: [{ host: '', container: '', readonly: false }],
         restartPolicy: 'unless-stopped',
         networkMode: 'bridge',
-        memoryLimitMb: 0,
-        cpuLimit: 0,
+        memoryLimitMb: '',
+        cpuLimit: '',
         autoRemove: false,
       };
       await fetchData();
@@ -735,6 +765,193 @@ const handleDeploy = async () => {
     showToast(err.response?.data?.error || 'Deployment request failed', 'error');
   } finally {
     deploying.value = false;
+  }
+};
+
+// =============================================================
+// Edit Container Handlers
+// =============================================================
+const addEditPortRow = () => {
+  editForm.value.ports.push({ host: '', container: '', protocol: 'tcp' });
+};
+const removeEditPortRow = (index: number) => {
+  editForm.value.ports.splice(index, 1);
+};
+
+const addEditEnvRow = () => {
+  editForm.value.env.push({ key: '', value: '' });
+};
+const removeEditEnvRow = (index: number) => {
+  editForm.value.env.splice(index, 1);
+};
+
+const addEditVolumeRow = () => {
+  editForm.value.volumes.push({ host: '', container: '', readonly: false });
+};
+const removeEditVolumeRow = (index: number) => {
+  editForm.value.volumes.splice(index, 1);
+};
+
+const handleOpenEdit = async (container: DockerContainer) => {
+  targetEditContainer.value = container;
+  // Rule: Container must be stopped before editing!
+  if (container.state === 'running') {
+    showMustStopModal.value = true;
+    return;
+  }
+
+  await openEditModal(container);
+};
+
+const handleStopAndEdit = async () => {
+  if (!targetEditContainer.value) return;
+  const c = targetEditContainer.value;
+  showMustStopModal.value = false;
+  actionLoading.value[c.id] = true;
+  try {
+    const res = await axios.post(`/api/v1/docker/containers/${c.id}/stop`, null, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+    if (res.data?.success) {
+      showToast(`Container "${getCleanContainerName(c)}" stopped. Loading edit configuration...`);
+      c.state = 'exited';
+      c.status = 'Exited';
+      await openEditModal(c);
+      await fetchData();
+    } else {
+      showToast(res.data?.error || 'Failed to stop container', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to stop container', 'error');
+  } finally {
+    actionLoading.value[c.id] = false;
+  }
+};
+
+const openEditModal = async (container: DockerContainer) => {
+  targetEditContainer.value = container;
+  editLoadingDetails.value = true;
+  showEditModal.value = true;
+
+  editForm.value = {
+    id: container.id,
+    name: getCleanContainerName(container),
+    image: container.image || '',
+    command: container.command || '',
+    ports: container.ports && container.ports.length > 0 ? container.ports.map((p) => ({
+      host: p.publicPort ? String(p.publicPort) : '',
+      container: String(p.privatePort),
+      protocol: p.type || 'tcp',
+    })) : [{ host: '', container: '', protocol: 'tcp' }],
+    env: [{ key: '', value: '' }],
+    volumes: [{ host: '', container: '', readonly: false }],
+    restartPolicy: 'unless-stopped',
+    networkMode: 'bridge',
+    memoryLimitMb: '',
+    cpuLimit: '',
+    startAfter: true,
+  };
+
+  try {
+    const res = await axios.get(`/api/v1/docker/containers/${container.id}/inspect`, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+    if (res.data?.success && res.data.data) {
+      const d = res.data.data;
+      if (d.name) editForm.value.name = d.name;
+      if (d.image) editForm.value.image = d.image;
+      if (d.command) editForm.value.command = d.command;
+      if (d.restartPolicy) editForm.value.restartPolicy = d.restartPolicy;
+      if (d.networkMode) editForm.value.networkMode = d.networkMode;
+      if (d.cpuLimit && d.cpuLimit > 0) editForm.value.cpuLimit = d.cpuLimit;
+      if (d.memoryLimitMb && d.memoryLimitMb > 0) editForm.value.memoryLimitMb = d.memoryLimitMb;
+
+      if (Array.isArray(d.ports) && d.ports.length > 0) {
+        editForm.value.ports = d.ports.map((p: any) => ({
+          host: p.hostPort || '',
+          container: p.containerPort || '',
+          protocol: p.protocol || 'tcp',
+        }));
+      }
+
+      if (Array.isArray(d.volumes) && d.volumes.length > 0) {
+        editForm.value.volumes = d.volumes.map((v: any) => ({
+          host: v.hostPath || '',
+          container: v.containerPath || '',
+          readonly: !!v.readonly,
+        }));
+      }
+
+      if (Array.isArray(d.env) && d.env.length > 0) {
+        editForm.value.env = d.env.map((e: any) => ({
+          key: e.key || '',
+          value: e.value || '',
+        }));
+      }
+    }
+  } catch (err: any) {
+    console.warn('Inspect details fallback:', err);
+  } finally {
+    if (editForm.value.ports.length === 0) editForm.value.ports.push({ host: '', container: '', protocol: 'tcp' });
+    if (editForm.value.env.length === 0) editForm.value.env.push({ key: '', value: '' });
+    if (editForm.value.volumes.length === 0) editForm.value.volumes.push({ host: '', container: '', readonly: false });
+    editLoadingDetails.value = false;
+  }
+};
+
+const handleSaveEdit = async () => {
+  if (!editForm.value.name.trim() || !editForm.value.image.trim()) {
+    showToast('Container Name and Image are required', 'error');
+    return;
+  }
+  editingContainer.value = true;
+
+  const validPorts = editForm.value.ports
+    .filter((p) => p.host && p.container)
+    .map((p) => `${p.host}:${p.container}/${p.protocol || 'tcp'}`);
+
+  const validEnv = editForm.value.env
+    .filter((e) => e.key)
+    .map((e) => `${e.key}=${e.value}`);
+
+  const validVols = editForm.value.volumes
+    .filter((v) => v.host && v.container)
+    .map((v) => `${v.host}:${v.container}${v.readonly ? ':ro' : ''}`);
+
+  const cpu = editForm.value.cpuLimit !== '' && Number(editForm.value.cpuLimit) > 0 ? Number(editForm.value.cpuLimit) : 0;
+  const mem = editForm.value.memoryLimitMb !== '' && Number(editForm.value.memoryLimitMb) > 0 ? Number(editForm.value.memoryLimitMb) : 0;
+
+  try {
+    const res = await axios.post(`/api/v1/docker/containers/${editForm.value.id}/edit`, {
+      name: editForm.value.name.trim(),
+      image: editForm.value.image.trim(),
+      command: editForm.value.command ? editForm.value.command.trim() : '',
+      ports: validPorts,
+      portBindings: validPorts,
+      environment: validEnv,
+      envVars: validEnv,
+      volumes: validVols,
+      volumeBindings: validVols,
+      restartPolicy: editForm.value.restartPolicy,
+      networkMode: editForm.value.networkMode,
+      cpuLimit: cpu,
+      memoryLimitMb: mem,
+      startAfter: editForm.value.startAfter,
+    }, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+
+    if (res.data?.success) {
+      showToast(`Container "${editForm.value.name}" updated and recreated successfully`);
+      showEditModal.value = false;
+      await fetchData();
+    } else {
+      showToast(res.data?.error || 'Failed to update container', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to update container', 'error');
+  } finally {
+    editingContainer.value = false;
   }
 };
 
@@ -1483,6 +1700,15 @@ watch(selectedConnectionId, () => {
                         <Activity class="w-3.5 h-3.5" />
                       </button>
 
+                      <!-- Edit button -->
+                      <button
+                        @click="handleOpenEdit(c)"
+                        class="p-1.5 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                        title="Edit Container"
+                      >
+                        <Pencil class="w-3.5 h-3.5" />
+                      </button>
+
                       <!-- Delete button -->
                       <button
                         @click="confirmDeleteContainer(c)"
@@ -1868,6 +2094,46 @@ watch(selectedConnectionId, () => {
               >
                 <X class="w-3.5 h-3.5" />
               </button>
+            </div>
+          </div>
+
+          <!-- Resource Limits (CPU & Memory) -->
+          <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+            <div class="flex items-center justify-between">
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+                Resource Limits (Optional)
+              </label>
+              <span class="text-[10px] text-slate-400 italic">
+                Leave empty to use all host resources (unlimited)
+              </span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  CPU Limit (Cores)
+                </label>
+                <input
+                  v-model="deployForm.cpuLimit"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  placeholder="e.g. 1.5 (Leave blank for unlimited)"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Memory Limit (MB)
+                </label>
+                <input
+                  v-model="deployForm.memoryLimitMb"
+                  type="number"
+                  step="16"
+                  min="16"
+                  placeholder="e.g. 512 (Leave blank for unlimited)"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
             </div>
           </div>
 
@@ -2465,6 +2731,353 @@ watch(selectedConnectionId, () => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MUST STOP CONTAINER MODAL (Strict AGENTS.md compliance) -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showMustStopModal && targetEditContainer"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <!-- Amber circle warning icon -->
+        <div class="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+          <AlertTriangle class="w-6 h-6" />
+        </div>
+
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+            Container Must Be Stopped
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            To edit configuration, <strong class="text-slate-800 dark:text-slate-200">{{ getCleanContainerName(targetEditContainer) }}</strong> must be stopped first. Would you like to stop it now?
+          </p>
+        </div>
+
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showMustStopModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="handleStopAndEdit"
+            :disabled="actionLoading[targetEditContainer.id]"
+            class="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <RefreshCw v-if="actionLoading[targetEditContainer.id]" class="w-3.5 h-3.5 animate-spin" />
+            <span>{{ actionLoading[targetEditContainer.id] ? 'Stopping...' : 'Stop & Edit' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- EDIT CONTAINER MODAL -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showEditModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-slate-200 dark:border-[#1b2234] flex items-center justify-between shrink-0">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Edit Container: {{ editForm.name }}
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+              ID: {{ editForm.id.substring(0, 12) }} &bull; Container must be stopped to apply new configuration
+            </p>
+          </div>
+          <button
+            @click="showEditModal = false"
+            class="p-1 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1b2234] transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Body / Form -->
+        <div class="p-5 overflow-y-auto flex-1 space-y-4 text-xs">
+          <div v-if="editLoadingDetails" class="py-12 text-center text-slate-500">
+            <RefreshCw class="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
+            <p class="text-xs">Loading container configuration...</p>
+          </div>
+
+          <form v-else @submit.prevent="handleSaveEdit" id="editContainerForm" class="space-y-4">
+            <!-- Name & Image -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Container Name *
+                </label>
+                <input
+                  v-model="editForm.name"
+                  required
+                  placeholder="e.g. production-nginx"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Docker Image *
+                </label>
+                <input
+                  v-model="editForm.image"
+                  required
+                  placeholder="e.g. nginx:alpine"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <!-- Resource Limits (CPU & Memory) -->
+            <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <div class="flex items-center justify-between">
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+                  Resource Limits (Optional)
+                </label>
+                <span class="text-[10px] text-slate-400 italic">
+                  Leave empty to use all host resources (unlimited)
+                </span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    CPU Limit (Cores)
+                  </label>
+                  <input
+                    v-model="editForm.cpuLimit"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    placeholder="e.g. 1.5 (Leave blank for unlimited)"
+                    class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Memory Limit (MB)
+                  </label>
+                  <input
+                    v-model="editForm.memoryLimitMb"
+                    type="number"
+                    step="16"
+                    min="16"
+                    placeholder="e.g. 512 (Leave blank for unlimited)"
+                    class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Port Mappings -->
+            <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <div class="flex items-center justify-between">
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Port Bindings</label>
+                <button
+                  type="button"
+                  @click="addEditPortRow"
+                  class="text-[11px] text-blue-600 dark:text-[#95CCDD] font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus class="w-3 h-3" />
+                  <span>Add Port</span>
+                </button>
+              </div>
+              <div
+                v-for="(p, idx) in editForm.ports"
+                :key="idx"
+                class="flex items-center gap-2"
+              >
+                <input
+                  v-model="p.host"
+                  placeholder="Host Port (e.g. 8080)"
+                  class="w-1/3 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <span class="text-slate-400">:</span>
+                <input
+                  v-model="p.container"
+                  placeholder="Container Port (e.g. 80)"
+                  class="w-1/3 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <select
+                  v-model="p.protocol"
+                  class="bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-200"
+                >
+                  <option value="tcp">TCP</option>
+                  <option value="udp">UDP</option>
+                </select>
+                <button
+                  type="button"
+                  @click="removeEditPortRow(idx)"
+                  class="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Environment Variables -->
+            <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <div class="flex items-center justify-between">
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Environment Variables</label>
+                <button
+                  type="button"
+                  @click="addEditEnvRow"
+                  class="text-[11px] text-blue-600 dark:text-[#95CCDD] font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus class="w-3 h-3" />
+                  <span>Add Variable</span>
+                </button>
+              </div>
+              <div
+                v-for="(e, idx) in editForm.env"
+                :key="idx"
+                class="flex items-center gap-2"
+              >
+                <input
+                  v-model="e.key"
+                  placeholder="KEY (e.g. APP_ENV)"
+                  class="w-1/2 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <span class="text-slate-400">=</span>
+                <input
+                  v-model="e.value"
+                  placeholder="VALUE (e.g. production)"
+                  class="w-1/2 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  @click="removeEditEnvRow(idx)"
+                  class="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Volume Mounts -->
+            <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <div class="flex items-center justify-between">
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Volume Mounts</label>
+                <button
+                  type="button"
+                  @click="addEditVolumeRow"
+                  class="text-[11px] text-blue-600 dark:text-[#95CCDD] font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus class="w-3 h-3" />
+                  <span>Add Volume</span>
+                </button>
+              </div>
+              <div
+                v-for="(v, idx) in editForm.volumes"
+                :key="idx"
+                class="flex items-center gap-2"
+              >
+                <input
+                  v-model="v.host"
+                  placeholder="Host Path (/var/data)"
+                  class="w-1/2 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <span class="text-slate-400">:</span>
+                <input
+                  v-model="v.container"
+                  placeholder="Container Path (/app/data)"
+                  class="w-1/2 bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  @click="removeEditVolumeRow(idx)"
+                  class="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Restart Policy & Network -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Restart Policy</label>
+                <select
+                  v-model="editForm.restartPolicy"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200"
+                >
+                  <option value="unless-stopped">Unless Stopped</option>
+                  <option value="always">Always</option>
+                  <option value="on-failure">On Failure</option>
+                  <option value="no">Never (No)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Network Mode</label>
+                <select
+                  v-model="editForm.networkMode"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200"
+                >
+                  <option value="bridge">bridge (Default NAT network)</option>
+                  <option value="host">host (Use host network stack)</option>
+                  <option value="none">none (No networking)</option>
+                  <option
+                    v-for="net in networks.filter(n => n.name !== 'bridge' && n.name !== 'host' && n.name !== 'none')"
+                    :key="net.id"
+                    :value="net.name"
+                  >
+                    {{ net.name }} ({{ net.driver }})
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Command Override -->
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Command Override (Optional)
+              </label>
+              <input
+                v-model="editForm.command"
+                placeholder="e.g. npm start or sh -c 'sleep 10 && app'"
+                class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <!-- Start after recreation option -->
+            <div class="pt-2">
+              <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  v-model="editForm.startAfter"
+                  class="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Start container immediately after saving changes</span>
+              </label>
+            </div>
+          </form>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-5 py-3 border-t border-slate-200 dark:border-[#1b2234] flex items-center justify-end gap-2 bg-slate-50/50 dark:bg-[#0c101a] shrink-0">
+          <button
+            type="button"
+            @click="showEditModal = false"
+            class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="editContainerForm"
+            :disabled="editingContainer || editLoadingDetails"
+            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw v-if="editingContainer" class="w-3.5 h-3.5 animate-spin" />
+            <span>{{ editingContainer ? 'Updating Container...' : 'Save & Recreate Container' }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
