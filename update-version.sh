@@ -72,6 +72,26 @@ if [ -f .env ]; then
             echo -e "${GREEN}[OK] AWS Public ECR mirror is accessible.${NC}"
         fi
     fi
+# Ensure performance and resource tuning environment variables exist in .env
+if [ -f .env ]; then
+    if ! grep -q "GOMEMLIMIT" .env; then
+        echo -e "${CYAN}[*] Applying recommended performance & resource tuning configurations to .env...${NC}"
+        cat << 'EOF' >> .env
+
+# Resource & Database Connection Pool Tuning
+DB_MAX_CONNS=10
+DB_MIN_CONNS=2
+DB_MAX_CONN_IDLE_TIME=300
+DB_MAX_CONN_LIFETIME=3600
+POSTGRES_SHARED_BUFFERS=64MB
+POSTGRES_WORK_MEM=4MB
+POSTGRES_MAINTENANCE_WORK_MEM=16MB
+POSTGRES_MAX_CONNECTIONS=40
+POSTGRES_WAL_BUFFERS=4MB
+GOMEMLIMIT=256MiB
+GOGC=80
+EOF
+    fi
 fi
 
 echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack...${NC}"

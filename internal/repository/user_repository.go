@@ -282,6 +282,24 @@ func (r *UserRepository) ListActivityLogs(ctx context.Context, limit, offset int
 	return logs, count, nil
 }
 
+// PruneOldActivityLogs deletes activity logs older than retentionDays (default: 60 days) to prevent unbounded table growth
+func (r *UserRepository) PruneOldActivityLogs(ctx context.Context, retentionDays int) (int64, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return 0, err
+	}
+	if retentionDays <= 0 {
+		retentionDays = 60
+	}
+
+	query := `DELETE FROM activity_logs WHERE timestamp < NOW() - ($1 || ' days')::INTERVAL`
+	tag, err := pool.Exec(ctx, query, retentionDays)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ==============================================================================
 // SYSTEM ROLES & PERMISSIONS REPOSITORY
 // ==============================================================================

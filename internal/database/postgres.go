@@ -51,10 +51,32 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	poolConfig.MaxConns = 15
-	poolConfig.MinConns = 2
-	poolConfig.MaxConnIdleTime = 5 * time.Minute
-	poolConfig.MaxConnLifetime = 1 * time.Hour
+	maxConns := cfg.DB.MaxConns
+	if maxConns <= 0 {
+		maxConns = 10
+	}
+	minConns := cfg.DB.MinConns
+	if minConns < 0 {
+		minConns = 2
+	}
+	if minConns > maxConns {
+		minConns = maxConns
+	}
+
+	idleTime := time.Duration(cfg.DB.MaxConnIdleTime) * time.Second
+	if idleTime <= 0 {
+		idleTime = 5 * time.Minute
+	}
+
+	lifetime := time.Duration(cfg.DB.MaxConnLifetime) * time.Second
+	if lifetime <= 0 {
+		lifetime = 1 * time.Hour
+	}
+
+	poolConfig.MaxConns = int32(maxConns)
+	poolConfig.MinConns = int32(minConns)
+	poolConfig.MaxConnIdleTime = idleTime
+	poolConfig.MaxConnLifetime = lifetime
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {

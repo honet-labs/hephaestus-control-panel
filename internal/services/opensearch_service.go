@@ -35,6 +35,12 @@ func NewOpenSearchService() *OpenSearchService {
 
 func (s *OpenSearchService) RegisterWorker(wp *queue.WorkerPool) {
 	wp.RegisterHandler("opensearch_poll", func(ctx context.Context, job *domain.Job, updateProgress func(progress int, msg string)) error {
+		cfg, err := s.GetActiveConfig(ctx)
+		if err != nil || cfg == nil || !cfg.IsActive || cfg.Host == "" {
+			// Silently skip if OpenSearch is not configured or not active
+			return nil
+		}
+
 		health, err := s.GetClusterHealth(ctx)
 		if err != nil {
 			logger.Warn("OpenSearch", fmt.Sprintf("Auto-refresh poll failed: %v", err))

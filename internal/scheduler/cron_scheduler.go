@@ -48,7 +48,7 @@ func GetScheduler() *CronScheduler {
 }
 
 func (s *CronScheduler) registerSystemJobs() {
-	// 1. Periodic expired sessions cleanup (Every 6 hours)
+	// 1. Periodic expired sessions and activity log cleanup (Every 6 hours)
 	_, err := s.cron.AddFunc("0 0 */6 * * *", func() {
 		ctx := context.Background()
 		cleaned, err := s.userRepo.CleanExpiredSessions(ctx)
@@ -57,9 +57,16 @@ func (s *CronScheduler) registerSystemJobs() {
 		} else if cleaned > 0 {
 			logger.Info("Cron", fmt.Sprintf("Cleaned up %d expired user sessions", cleaned))
 		}
+
+		prunedLogs, err := s.userRepo.PruneOldActivityLogs(ctx, 60)
+		if err != nil {
+			logger.Error("Cron", "Failed to prune old activity logs", err)
+		} else if prunedLogs > 0 {
+			logger.Info("Cron", fmt.Sprintf("Pruned %d activity logs older than 60 days", prunedLogs))
+		}
 	})
 	if err != nil {
-		logger.Error("Cron", "Failed to schedule session cleanup job", err)
+		logger.Error("Cron", "Failed to schedule session and activity log cleanup job", err)
 	}
 
 	// 2. Periodic ICMP Device Ping Cycle (Every 60 seconds)
@@ -71,8 +78,8 @@ func (s *CronScheduler) registerSystemJobs() {
 		logger.Error("Cron", "Failed to schedule ICMP ping cycle", err)
 	}
 
-	// 3. Periodic OpenSearch Telemetry Poll (Every 30 seconds)
-	_, err = s.cron.AddFunc("*/30 * * * * *", func() {
+	// 3. Periodic OpenSearch Telemetry Poll (Every 60 seconds)
+	_, err = s.cron.AddFunc("0 * * * * *", func() {
 		wp := queue.GetWorkerPool()
 		_, _ = wp.Enqueue("opensearch_poll", map[string]interface{}{}, 0)
 	})

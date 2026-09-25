@@ -221,27 +221,49 @@ func (r *TopologyRepository) DeleteEdge(ctx context.Context, id int) error {
 
 // Device Ping Results
 func (r *TopologyRepository) SavePingResult(ctx context.Context, res domain.DevicePingResult) error {
+	return r.SavePingResultsBatch(ctx, []domain.DevicePingResult{res})
+}
+
+// SavePingResultsBatch executes batch insertion and status updates inside a single database transaction
+func (r *TopologyRepository) SavePingResultsBatch(ctx context.Context, results []domain.DevicePingResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+
 	pool, err := database.GetPool()
 	if err != nil {
 		return err
 	}
 
-	query := `INSERT INTO device_ping_results (device_id, ip, reachable, latency_ms, checked_at)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	insertQuery := `INSERT INTO device_ping_results (device_id, ip, reachable, latency_ms, checked_at)
               VALUES ($1, $2, $3, $4, $5)
               ON CONFLICT (device_id) DO UPDATE SET
                 ip = EXCLUDED.ip, reachable = EXCLUDED.reachable,
                 latency_ms = EXCLUDED.latency_ms, checked_at = EXCLUDED.checked_at`
-	_, err = pool.Exec(ctx, query, res.DeviceID, res.IP, res.Reachable, res.LatencyMS, res.CheckedAt)
-	if err != nil {
-		return err
+
+	updateStatusQuery := `UPDATE topology_devices SET status = $1 WHERE id = $2`
+
+	for _, res := range results {
+		if _, err := tx.Exec(ctx, insertQuery, res.DeviceID, res.IP, res.Reachable, res.LatencyMS, res.CheckedAt); err != nil {
+			return err
+		}
+
+		status := "offline"
+		if res.Reachable {
+			status = "online"
+		}
+		if _, err := tx.Exec(ctx, updateStatusQuery, status, res.DeviceID); err != nil {
+			return err
+		}
 	}
 
-	status := "offline"
-	if res.Reachable {
-		status = "online"
-	}
-	_, _ = pool.Exec(ctx, `UPDATE topology_devices SET status = $1 WHERE id = $2`, status, res.DeviceID)
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *TopologyRepository) ListPingResults(ctx context.Context) ([]domain.DevicePingResult, error) {

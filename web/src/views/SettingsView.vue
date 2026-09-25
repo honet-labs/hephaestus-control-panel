@@ -360,6 +360,10 @@ const dbConfig = ref({
   password: '',
   database: 'hephaestus_db',
   ssl: false,
+  maxConns: 10,
+  minConns: 2,
+  maxConnIdleTime: 300,
+  maxConnLifetime: 3600,
 });
 const dbStatus = ref<{ success: boolean; message: string } | null>(null);
 const dbTesting = ref(false);
@@ -374,6 +378,10 @@ const fetchDatabaseConfig = async () => {
       dbConfig.value.user = res.data.data.user || 'hephaestus';
       dbConfig.value.database = res.data.data.database || 'hephaestus_db';
       dbConfig.value.ssl = Boolean(res.data.data.ssl);
+      dbConfig.value.maxConns = res.data.data.maxConns || 10;
+      dbConfig.value.minConns = res.data.data.minConns ?? 2;
+      dbConfig.value.maxConnIdleTime = res.data.data.maxConnIdleTime || 300;
+      dbConfig.value.maxConnLifetime = res.data.data.maxConnLifetime || 3600;
     }
   } catch (err) {
     console.warn('Could not fetch active db config:', err);
@@ -391,6 +399,10 @@ const testDbConnection = async () => {
       password: dbConfig.value.password,
       database: dbConfig.value.database,
       ssl: dbConfig.value.ssl,
+      maxConns: Number(dbConfig.value.maxConns) || 10,
+      minConns: Number(dbConfig.value.minConns) ?? 2,
+      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 300,
+      maxConnLifetime: Number(dbConfig.value.maxConnLifetime) || 3600,
     });
     if (res.data.success) {
       dbStatus.value = { success: true, message: res.data.message || 'PostgreSQL Connection Verified Successfully!' };
@@ -418,6 +430,10 @@ const saveDbConfig = async () => {
       password: dbConfig.value.password,
       database: dbConfig.value.database,
       ssl: dbConfig.value.ssl,
+      maxConns: Number(dbConfig.value.maxConns) || 10,
+      minConns: Number(dbConfig.value.minConns) ?? 2,
+      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 300,
+      maxConnLifetime: Number(dbConfig.value.maxConnLifetime) || 3600,
     });
     if (res.data.success) {
       dbStatus.value = { success: true, message: 'Database configuration applied & pool reconnected successfully!' };
@@ -1238,6 +1254,67 @@ onUnmounted(() => {
             />
             <span class="font-medium">Use SSL / TLS Encrypted Connection (sslmode=require)</span>
           </label>
+        </div>
+
+        <!-- Connection Pool & Resource Tuning -->
+        <div class="pt-3 border-t border-slate-800/80 space-y-3">
+          <div>
+            <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <span>Connection Pool & Resource Tuning</span>
+            </h4>
+            <p class="text-[10px] text-slate-400">
+              Tune connection pool boundaries to optimize RAM and CPU overhead. Smaller pools (e.g. 5–10) are recommended for 1GB/2GB VPS.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1 font-bold">Max Pool Connections</label>
+              <input
+                v-model.number="dbConfig.maxConns"
+                type="number"
+                min="1"
+                max="100"
+                placeholder="10"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
+              />
+              <p class="text-[9px] text-slate-500 mt-0.5">Maximum concurrent connections in pool (Default: 10)</p>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1 font-bold">Min Idle Connections</label>
+              <input
+                v-model.number="dbConfig.minConns"
+                type="number"
+                min="0"
+                max="50"
+                placeholder="2"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
+              />
+              <p class="text-[9px] text-slate-500 mt-0.5">Minimum warm connections kept open (Default: 2)</p>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1 font-bold">Max Idle Duration (Seconds)</label>
+              <input
+                v-model.number="dbConfig.maxConnIdleTime"
+                type="number"
+                min="10"
+                placeholder="300"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
+              />
+              <p class="text-[9px] text-slate-500 mt-0.5">Timeout before closing inactive connections (Default: 300s)</p>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1 font-bold">Max Lifetime (Seconds)</label>
+              <input
+                v-model.number="dbConfig.maxConnLifetime"
+                type="number"
+                min="60"
+                placeholder="3600"
+                class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
+              />
+              <p class="text-[9px] text-slate-500 mt-0.5">Max connection duration before recycle (Default: 3600s)</p>
+            </div>
+          </div>
         </div>
 
         <div v-if="dbStatus" :class="['p-3 rounded-lg border text-xs font-mono', dbStatus.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400']">

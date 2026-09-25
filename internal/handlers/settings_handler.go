@@ -513,11 +513,15 @@ func (h *SettingsHandler) GetDatabaseConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"host":     cfg.DB.Host,
-			"port":     cfg.DB.Port,
-			"user":     cfg.DB.User,
-			"database": cfg.DB.Database,
-			"ssl":      cfg.DB.SSL,
+			"host":            cfg.DB.Host,
+			"port":            cfg.DB.Port,
+			"user":            cfg.DB.User,
+			"database":        cfg.DB.Database,
+			"ssl":             cfg.DB.SSL,
+			"maxConns":        cfg.DB.MaxConns,
+			"minConns":        cfg.DB.MinConns,
+			"maxConnIdleTime": cfg.DB.MaxConnIdleTime,
+			"maxConnLifetime": cfg.DB.MaxConnLifetime,
 		},
 	})
 }
@@ -527,6 +531,19 @@ func (h *SettingsHandler) UpdateDatabaseConfig(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
 		return
+	}
+
+	if req.MaxConns <= 0 {
+		req.MaxConns = 10
+	}
+	if req.MinConns < 0 {
+		req.MinConns = 2
+	}
+	if req.MaxConnIdleTime <= 0 {
+		req.MaxConnIdleTime = 300
+	}
+	if req.MaxConnLifetime <= 0 {
+		req.MaxConnLifetime = 3600
 	}
 
 	appCfg := config.GetConfig()

@@ -81,11 +81,11 @@ func (s *IcmpPingService) HandlePingCycleJob(ctx context.Context, job *domain.Jo
 	updateProgress(80, "Saving ping results to database...")
 	onlineCount := 0
 	for _, res := range results {
-		_ = s.topologyRepo.SavePingResult(ctx, res)
 		if res.Reachable {
 			onlineCount++
 		}
 	}
+	_ = s.topologyRepo.SavePingResultsBatch(ctx, results)
 
 	updateProgress(100, fmt.Sprintf("Ping cycle completed: %d/%d online", onlineCount, len(devices)))
 	logger.Info("ICMP", fmt.Sprintf("Ping cycle completed: %d online, %d offline", onlineCount, len(devices)-onlineCount))
