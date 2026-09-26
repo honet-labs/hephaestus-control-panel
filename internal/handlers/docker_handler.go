@@ -308,6 +308,35 @@ func (h *DockerHandler) DeleteConnection(c *gin.Context) {
 // Container Handlers
 // -------------------------------------------------------------
 
+// canAccessContainer checks if the current user has access to a container
+func (h *DockerHandler) canAccessContainer(c *gin.Context, connectionID, containerID string) bool {
+	userVal, exists := c.Get("user")
+	if !exists {
+		return true // Fallback if no user context
+	}
+	u, ok := userVal.(*domain.User)
+	if !ok || u == nil {
+		return true
+	}
+	if u.IsAdmin() {
+		return true
+	}
+
+	containers, err := h.dockerService.ListContainers(c.Request.Context(), connectionID, true)
+	if err != nil {
+		return true
+	}
+	for _, ct := range containers {
+		if ct.ID == containerID || (len(containerID) >= 8 && strings.HasPrefix(ct.ID, containerID)) {
+			if ct.Visibility == "private" {
+				return ct.UserID != nil && *ct.UserID == u.ID
+			}
+			return true
+		}
+	}
+	return true
+}
+
 func (h *DockerHandler) ListContainers(c *gin.Context) {
 	connectionID := c.Query("connectionId")
 	all := c.Query("all") == "true" || c.Query("all") == "1"
@@ -322,10 +351,40 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 		return
 	}
 
+	// Filter by visibility based on current authenticated user
+	userVal, hasUser := c.Get("user")
+	var currentUser *domain.User
+	if hasUser {
+		currentUser, _ = userVal.(*domain.User)
+	}
+
+	filtered := make([]domain.DockerContainer, 0, len(containers))
+	for _, ct := range containers {
+		isOwner := false
+		if currentUser != nil {
+			if ct.UserID != nil && *ct.UserID == currentUser.ID {
+				isOwner = true
+			} else if ct.OwnerUsername != "" && strings.EqualFold(ct.OwnerUsername, currentUser.Username) {
+				isOwner = true
+			}
+		}
+		ct.IsOwner = isOwner
+
+		// Visibility logic:
+		// 1. Superadmin / Admin sees all containers (with visibility indicators)
+		// 2. Container creator always sees their own container
+		// 3. Other users only see containers that are "public"
+		if currentUser != nil && currentUser.IsAdmin() {
+			filtered = append(filtered, ct)
+		} else if ct.Visibility == "public" || ct.Visibility == "" || isOwner {
+			filtered = append(filtered, ct)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"total":      len(containers),
-		"data":       containers,
+		"success": true,
+		"total":   len(filtered),
+		"data":    filtered,
 	})
 }
 
@@ -333,6 +392,11 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 func (h *DockerHandler) GetContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
+
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied. This is a private container."})
+		return
+	}
 
 	containers, err := h.dockerService.ListContainers(c.Request.Context(), connectionID, true)
 	if err != nil {
@@ -354,6 +418,11 @@ func (h *DockerHandler) StartContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
+
 	if err := h.dockerService.StartContainer(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -364,6 +433,11 @@ func (h *DockerHandler) StartContainer(c *gin.Context) {
 func (h *DockerHandler) StopContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
+
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
 
 	if err := h.dockerService.StopContainer(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -376,6 +450,11 @@ func (h *DockerHandler) RestartContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
+
 	if err := h.dockerService.RestartContainer(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -387,6 +466,11 @@ func (h *DockerHandler) PauseContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
+
 	if err := h.dockerService.PauseContainer(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -397,6 +481,11 @@ func (h *DockerHandler) PauseContainer(c *gin.Context) {
 func (h *DockerHandler) UnpauseContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
+
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
 
 	if err := h.dockerService.UnpauseContainer(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -410,6 +499,11 @@ func (h *DockerHandler) RemoveContainer(c *gin.Context) {
 	connectionID := c.Query("connectionId")
 	force := c.Query("force") == "true" || c.Query("force") == "1"
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
+
 	if err := h.dockerService.RemoveContainer(c.Request.Context(), connectionID, id, force); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -421,6 +515,11 @@ func (h *DockerHandler) GetContainerLogs(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
 	tail, _ := strconv.Atoi(c.DefaultQuery("tail", "200"))
+
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container logs"})
+		return
+	}
 
 	logs, err := h.dockerService.GetContainerLogs(c.Request.Context(), connectionID, id, tail)
 	if err != nil {
@@ -440,6 +539,11 @@ func (h *DockerHandler) GetContainerStats(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container stats"})
+		return
+	}
+
 	stats, err := h.dockerService.GetContainerStats(c.Request.Context(), connectionID, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -455,6 +559,14 @@ func (h *DockerHandler) DeployContainer(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid container deployment specification"})
 		return
+	}
+
+	// Inject creator user identity
+	if userVal, exists := c.Get("user"); exists {
+		if u, ok := userVal.(*domain.User); ok {
+			req.UserID = &u.ID
+			req.OwnerUsername = u.Username
+		}
 	}
 
 	id, err := h.dockerService.DeployContainer(c.Request.Context(), connectionID, req)
@@ -473,6 +585,11 @@ func (h *DockerHandler) DeployContainer(c *gin.Context) {
 func (h *DockerHandler) InspectContainer(c *gin.Context) {
 	id := c.Param("id")
 	connectionID := c.Query("connectionId")
+
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to private container"})
+		return
+	}
 
 	details, err := h.dockerService.InspectContainer(c.Request.Context(), connectionID, id)
 	if err != nil {
@@ -496,9 +613,23 @@ func (h *DockerHandler) EditContainer(c *gin.Context) {
 		return
 	}
 
+	if !h.canAccessContainer(c, connectionID, id) {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Access denied to edit private container"})
+		return
+	}
+
+	// Preserve owner info if not specified
+	if userVal, exists := c.Get("user"); exists {
+		if u, ok := userVal.(*domain.User); ok {
+			if req.UserID == nil {
+				req.UserID = &u.ID
+				req.OwnerUsername = u.Username
+			}
+		}
+	}
+
 	newID, err := h.dockerService.EditContainer(c.Request.Context(), connectionID, id, req)
 	if err != nil {
-		// If error mentions container is running, return 400 Bad Request
 		statusCode := http.StatusInternalServerError
 		if strings.Contains(strings.ToLower(err.Error()), "running") {
 			statusCode = http.StatusBadRequest
@@ -511,6 +642,82 @@ func (h *DockerHandler) EditContainer(c *gin.Context) {
 		"success":     true,
 		"message":     "Container updated and recreated successfully",
 		"containerId": newID,
+	})
+}
+
+// UpdateVisibility allows changing the visibility of a container
+func (h *DockerHandler) UpdateVisibility(c *gin.Context) {
+	id := c.Param("id")
+	connectionID := c.Query("connectionId")
+
+	var input struct {
+		Visibility string `json:"visibility" binding:"required"`
+		Name       string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Visibility ('public' or 'private') is required"})
+		return
+	}
+
+	userVal, exists := c.Get("user")
+	var u *domain.User
+	if exists {
+		u, _ = userVal.(*domain.User)
+	}
+
+	containers, err := h.dockerService.ListContainers(c.Request.Context(), connectionID, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var target *domain.DockerContainer
+	for i := range containers {
+		if containers[i].ID == id || (len(id) >= 8 && strings.HasPrefix(containers[i].ID, id)) {
+			target = &containers[i]
+			break
+		}
+	}
+
+	if target == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Container not found"})
+		return
+	}
+
+	// Permission check: only admin or owner can change visibility
+	if u != nil && !u.IsAdmin() {
+		isOwner := (target.UserID != nil && *target.UserID == u.ID) ||
+			(target.OwnerUsername != "" && strings.EqualFold(target.OwnerUsername, u.Username))
+		if !isOwner {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Only the container creator or an Administrator can change container visibility"})
+			return
+		}
+	}
+
+	cleanName := target.Name
+	if input.Name != "" {
+		cleanName = input.Name
+	}
+
+	var userID *int
+	username := target.OwnerUsername
+	if target.UserID != nil {
+		userID = target.UserID
+	} else if u != nil {
+		userID = &u.ID
+		username = u.Username
+	}
+
+	err = h.dockerService.UpdateContainerVisibility(c.Request.Context(), connectionID, target.ID, input.Visibility, cleanName, userID, username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"message":    fmt.Sprintf("Container visibility changed to %s", input.Visibility),
+		"visibility": input.Visibility,
 	})
 }
 

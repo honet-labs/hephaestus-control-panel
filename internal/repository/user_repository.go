@@ -204,8 +204,16 @@ func (r *UserRepository) GetSessionByToken(ctx context.Context, tokenHash string
 		u.Permissions["*"] = "manage"
 	}
 
-	// Extend session sliding window (max 7 days)
-	_, _ = pool.Exec(ctx, `UPDATE user_sessions SET expires_at = LEAST(NOW() + INTERVAL '24 hours', created_at + INTERVAL '7 days') WHERE token = $1`, tokenHash)
+	// Extend session sliding window:
+	// If session was configured with long expiration (> 30 days from creation), keep it long (10 years)
+	// Otherwise, keep default sliding window (max 7 days from creation)
+	_, _ = pool.Exec(ctx, `
+		UPDATE user_sessions 
+		SET expires_at = CASE 
+			WHEN expires_at > created_at + INTERVAL '30 days' THEN NOW() + INTERVAL '10 years'
+			ELSE LEAST(NOW() + INTERVAL '24 hours', created_at + INTERVAL '7 days')
+		END 
+		WHERE token = $1`, tokenHash)
 
 	return &s, &u, nil
 }

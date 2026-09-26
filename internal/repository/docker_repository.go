@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/config"
@@ -42,6 +43,19 @@ func (r *DockerRepository) ensureTable(ctx context.Context, pool *pgxpool.Pool) 
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE IF NOT EXISTS docker_container_metadata (
+			connection_id VARCHAR(50) NOT NULL,
+			container_id VARCHAR(100) NOT NULL,
+			container_name VARCHAR(255) NOT NULL,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			username VARCHAR(100),
+			visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(connection_id, container_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_meta_user ON docker_container_metadata(user_id);
 	`)
 }
 
@@ -343,5 +357,100 @@ func (r *DockerRepository) DeleteConnection(ctx context.Context, id string) erro
 	}
 
 	_, err = pool.Exec(ctx, `DELETE FROM docker_connections WHERE id = $1`, id)
+	return err
+}
+
+// -------------------------------------------------------------
+// Container Metadata & Visibility Persistence
+// -------------------------------------------------------------
+
+func (r *DockerRepository) SaveContainerMetadata(ctx context.Context, meta domain.ContainerMetadata) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	r.ensureTable(ctx, pool)
+
+	if meta.Visibility == "" {
+		meta.Visibility = "public"
+	}
+
+	query := `
+		INSERT INTO docker_container_metadata (connection_id, container_id, container_name, user_id, username, visibility, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+		ON CONFLICT (connection_id, container_id) DO UPDATE SET
+			container_name = EXCLUDED.container_name,
+			user_id = COALESCE(EXCLUDED.user_id, docker_container_metadata.user_id),
+			username = COALESCE(EXCLUDED.username, docker_container_metadata.username),
+			visibility = EXCLUDED.visibility,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	_, err = pool.Exec(ctx, query, meta.ConnectionID, meta.ContainerID, meta.ContainerName, meta.UserID, meta.Username, meta.Visibility)
+	return err
+}
+
+func (r *DockerRepository) ListContainerMetadata(ctx context.Context, connectionID string) (map[string]*domain.ContainerMetadata, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return make(map[string]*domain.ContainerMetadata), nil
+	}
+	r.ensureTable(ctx, pool)
+
+	rows, err := pool.Query(ctx, `
+		SELECT connection_id, container_id, container_name, user_id, COALESCE(username, ''), visibility, created_at, updated_at
+		FROM docker_container_metadata
+		WHERE connection_id = $1 OR connection_id = '' OR $1 = ''
+	`, connectionID)
+	if err != nil {
+		return make(map[string]*domain.ContainerMetadata), nil
+	}
+	defer rows.Close()
+
+	result := make(map[string]*domain.ContainerMetadata)
+	for rows.Next() {
+		var m domain.ContainerMetadata
+		if err := rows.Scan(&m.ConnectionID, &m.ContainerID, &m.ContainerName, &m.UserID, &m.Username, &m.Visibility, &m.CreatedAt, &m.UpdatedAt); err == nil {
+			// Index by full ID, short ID, and name for flexible matching
+			result[m.ContainerID] = &m
+			if len(m.ContainerID) >= 12 {
+				result[m.ContainerID[:12]] = &m
+			}
+			if m.ContainerName != "" {
+				result["name:"+strings.TrimPrefix(m.ContainerName, "/")] = &m
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r *DockerRepository) UpdateContainerVisibility(ctx context.Context, connectionID, containerID, visibility, containerName string, userID *int, username string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	r.ensureTable(ctx, pool)
+
+	if visibility != "private" {
+		visibility = "public"
+	}
+
+	query := `
+		INSERT INTO docker_container_metadata (connection_id, container_id, container_name, user_id, username, visibility, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+		ON CONFLICT (connection_id, container_id) DO UPDATE SET
+			visibility = $6,
+			container_name = CASE WHEN $3 <> '' THEN $3 ELSE docker_container_metadata.container_name END,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	_, err = pool.Exec(ctx, query, connectionID, containerID, containerName, userID, username, visibility)
+	return err
+}
+
+func (r *DockerRepository) DeleteContainerMetadata(ctx context.Context, connectionID, containerID string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `DELETE FROM docker_container_metadata WHERE (connection_id = $1 OR connection_id = '') AND (container_id = $2 OR container_id LIKE $2 || '%')`, connectionID, containerID)
 	return err
 }

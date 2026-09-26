@@ -572,19 +572,34 @@ type DockerContainerPort struct {
 }
 
 type DockerContainer struct {
-	ID      string                `json:"id"`
-	Names   []string              `json:"names"`
-	Name    string                `json:"name"`
-	Image   string                `json:"image"`
-	ImageID string                `json:"imageId"`
-	Command string                `json:"command"`
-	Created int64                 `json:"created"`
-	State   string                `json:"state"` // running, exited, paused, restarting
-	Status  string                `json:"status"`
-	Ports     []DockerContainerPort `json:"ports"`
-	Networks  []string              `json:"networks,omitempty"`
-	IPAddress string                `json:"ipAddress,omitempty"`
-	Labels    map[string]string     `json:"labels,omitempty"`
+	ID            string                `json:"id"`
+	Names         []string              `json:"names"`
+	Name          string                `json:"name"`
+	Image         string                `json:"image"`
+	ImageID       string                `json:"imageId"`
+	Command       string                `json:"command"`
+	Created       int64                 `json:"created"`
+	State         string                `json:"state"` // running, exited, paused, restarting
+	Status        string                `json:"status"`
+	Ports         []DockerContainerPort `json:"ports"`
+	Networks      []string              `json:"networks,omitempty"`
+	IPAddress     string                `json:"ipAddress,omitempty"`
+	Labels        map[string]string     `json:"labels,omitempty"`
+	UserID        *int                  `json:"userId,omitempty"`
+	OwnerUsername string                `json:"ownerUsername,omitempty"`
+	Visibility    string                `json:"visibility"` // "public" or "private"
+	IsOwner       bool                  `json:"isOwner"`
+}
+
+type ContainerMetadata struct {
+	ConnectionID  string    `json:"connectionId"`
+	ContainerID   string    `json:"containerId"`
+	ContainerName string    `json:"containerName"`
+	UserID        *int      `json:"userId,omitempty"`
+	Username      string    `json:"username,omitempty"`
+	Visibility    string    `json:"visibility"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type DockerContainerStats struct {
@@ -659,9 +674,15 @@ type DeployContainerRequest struct {
 	MemoryLimit    int64    `json:"memoryLimit,omitempty"`    // In bytes fallback
 	AutoRemove     bool     `json:"autoRemove,omitempty"`
 	StartAfter     *bool    `json:"startAfter,omitempty"`     // Auto start container (default true)
+	Visibility     string   `json:"visibility,omitempty"`     // "public" or "private"
+	UserID         *int     `json:"userId,omitempty"`
+	OwnerUsername  string   `json:"ownerUsername,omitempty"`
 }
 
 func (r *DeployContainerRequest) Normalize() {
+	if r.Visibility == "" {
+		r.Visibility = "public"
+	}
 	if len(r.PortBindings) == 0 && len(r.Ports) > 0 {
 		r.PortBindings = r.Ports
 	}

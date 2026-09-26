@@ -32,7 +32,9 @@ import {
   ChevronDown,
   Network,
   Pencil,
-  AlertTriangle
+  AlertTriangle,
+  Lock,
+  Globe
 } from 'lucide-vue-next';
 
 interface DockerConnection {
@@ -72,6 +74,10 @@ interface DockerContainer {
   networks?: string[];
   ipAddress?: string;
   labels?: Record<string, string>;
+  userId?: number;
+  ownerUsername?: string;
+  visibility?: 'public' | 'private';
+  isOwner?: boolean;
 }
 
 interface DockerImage {
@@ -151,6 +157,8 @@ const activeTab = ref<'containers' | 'images' | 'networks' | 'deploy' | 'connect
 // Filters
 const searchKeyword = ref('');
 const statusFilter = ref<'all' | 'running' | 'stopped' | 'paused'>('all');
+const visibilityFilter = ref<'all' | 'public' | 'private'>('all');
+const updatingVisibility = ref<Record<string, boolean>>({});
 const selectedContainers = ref<string[]>([]);
 
 // Modals
@@ -342,6 +350,7 @@ const deployForm = ref({
   memoryLimitMb: '' as string | number,
   cpuLimit: '' as string | number,
   autoRemove: false,
+  visibility: 'public' as 'public' | 'private',
 });
 const deploying = ref(false);
 
@@ -365,6 +374,7 @@ const editForm = ref({
   memoryLimitMb: '' as string | number,
   cpuLimit: '' as string | number,
   startAfter: true,
+  visibility: 'public' as 'public' | 'private',
 });
 
 // Connection Form
@@ -462,13 +472,20 @@ const filteredContainers = computed(() => {
     list = list.filter((c) => c.state === 'paused');
   }
 
+  if (visibilityFilter.value === 'public') {
+    list = list.filter((c) => (c.visibility || 'public') === 'public');
+  } else if (visibilityFilter.value === 'private') {
+    list = list.filter((c) => c.visibility === 'private');
+  }
+
   if (searchKeyword.value.trim()) {
     const q = searchKeyword.value.toLowerCase().trim();
     list = list.filter((c) => {
       const name = getCleanContainerName(c).toLowerCase();
       const img = (c.image || '').toLowerCase();
       const id = (c.id || '').toLowerCase();
-      return name.includes(q) || img.includes(q) || id.includes(q);
+      const owner = (c.ownerUsername || '').toLowerCase();
+      return name.includes(q) || img.includes(q) || id.includes(q) || owner.includes(q);
     });
   }
 
@@ -550,6 +567,29 @@ const performContainerAction = async (containerId: string, action: 'start' | 'st
     showToast(err.response?.data?.error || `Failed to ${action} container`, 'error');
   } finally {
     actionLoading.value[containerId] = false;
+  }
+};
+
+// Container Visibility Action
+const toggleVisibility = async (container: DockerContainer) => {
+  const newVis: 'public' | 'private' = (container.visibility === 'private') ? 'public' : 'private';
+  updatingVisibility.value[container.id] = true;
+  try {
+    const res = await axios.post(`/api/v1/docker/containers/${container.id}/visibility`, {
+      visibility: newVis,
+    }, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+    if (res.data?.success) {
+      container.visibility = newVis;
+      showToast(`Container "${getCleanContainerName(container)}" is now ${newVis.toUpperCase()}`);
+    } else {
+      showToast(res.data?.error || 'Failed to update visibility', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to update visibility', 'error');
+  } finally {
+    updatingVisibility.value[container.id] = false;
   }
 };
 
@@ -736,6 +776,7 @@ const handleDeploy = async () => {
       memoryLimitMb: mem,
       cpuLimit: cpu,
       autoRemove: deployForm.value.autoRemove,
+      visibility: deployForm.value.visibility,
     }, {
       params: { connectionId: selectedConnectionId.value },
     });
@@ -756,6 +797,7 @@ const handleDeploy = async () => {
         memoryLimitMb: '',
         cpuLimit: '',
         autoRemove: false,
+        visibility: 'public',
       };
       await fetchData();
     } else {
@@ -850,6 +892,7 @@ const openEditModal = async (container: DockerContainer) => {
     memoryLimitMb: '',
     cpuLimit: '',
     startAfter: true,
+    visibility: (container.visibility as 'public' | 'private') || 'public',
   };
 
   try {
@@ -937,6 +980,7 @@ const handleSaveEdit = async () => {
       cpuLimit: cpu,
       memoryLimitMb: mem,
       startAfter: editForm.value.startAfter,
+      visibility: editForm.value.visibility,
     }, {
       params: { connectionId: selectedConnectionId.value },
     });
@@ -1456,52 +1500,94 @@ watch(selectedConnectionId, () => {
             />
           </div>
 
-          <!-- State Filter Buttons -->
-          <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234] self-start sm:self-auto">
-            <button
-              @click="statusFilter = 'all'"
-              :class="[
-                'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
-                statusFilter === 'all'
-                  ? 'bg-white dark:bg-[#20283e] text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              ]"
-            >
-              All ({{ containers.length }})
-            </button>
-            <button
-              @click="statusFilter = 'running'"
-              :class="[
-                'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
-                statusFilter === 'running'
-                  ? 'bg-white dark:bg-[#20283e] text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              ]"
-            >
-              Running ({{ containers.filter(c => c.state === 'running').length }})
-            </button>
-            <button
-              @click="statusFilter = 'stopped'"
-              :class="[
-                'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
-                statusFilter === 'stopped'
-                  ? 'bg-white dark:bg-[#20283e] text-rose-600 dark:text-rose-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              ]"
-            >
-              Stopped ({{ containers.filter(c => c.state === 'exited' || c.state === 'dead').length }})
-            </button>
-            <button
-              @click="statusFilter = 'paused'"
-              :class="[
-                'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
-                statusFilter === 'paused'
-                  ? 'bg-white dark:bg-[#20283e] text-amber-600 dark:text-amber-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              ]"
-            >
-              Paused ({{ containers.filter(c => c.state === 'paused').length }})
-            </button>
+          <!-- Filter Controls: Visibility & State -->
+          <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <!-- Visibility Filter Buttons -->
+            <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234]">
+              <button
+                @click="visibilityFilter = 'all'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
+                  visibilityFilter === 'all'
+                    ? 'bg-white dark:bg-[#20283e] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                All Visibility
+              </button>
+              <button
+                @click="visibilityFilter = 'public'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer flex items-center gap-1',
+                  visibilityFilter === 'public'
+                    ? 'bg-white dark:bg-[#20283e] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Globe class="w-3 h-3 text-slate-400" />
+                <span>Public ({{ containers.filter(c => (c.visibility || 'public') === 'public').length }})</span>
+              </button>
+              <button
+                @click="visibilityFilter = 'private'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer flex items-center gap-1',
+                  visibilityFilter === 'private'
+                    ? 'bg-white dark:bg-[#20283e] text-amber-600 dark:text-amber-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Lock class="w-3 h-3 text-amber-500" />
+                <span>Private ({{ containers.filter(c => c.visibility === 'private').length }})</span>
+              </button>
+            </div>
+
+            <!-- State Filter Buttons -->
+            <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234]">
+              <button
+                @click="statusFilter = 'all'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
+                  statusFilter === 'all'
+                    ? 'bg-white dark:bg-[#20283e] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                All ({{ containers.length }})
+              </button>
+              <button
+                @click="statusFilter = 'running'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
+                  statusFilter === 'running'
+                    ? 'bg-white dark:bg-[#20283e] text-emerald-600 dark:text-emerald-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                Running ({{ containers.filter(c => c.state === 'running').length }})
+              </button>
+              <button
+                @click="statusFilter = 'stopped'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
+                  statusFilter === 'stopped'
+                    ? 'bg-white dark:bg-[#20283e] text-rose-600 dark:text-rose-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                Stopped ({{ containers.filter(c => c.state === 'exited' || c.state === 'dead').length }})
+              </button>
+              <button
+                @click="statusFilter = 'paused'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer',
+                  statusFilter === 'paused'
+                    ? 'bg-white dark:bg-[#20283e] text-amber-600 dark:text-amber-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                Paused ({{ containers.filter(c => c.state === 'paused').length }})
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1565,21 +1651,47 @@ watch(selectedConnectionId, () => {
                     </div>
                   </td>
 
-                  <!-- Name & Short ID -->
+                  <!-- Name & Short ID & Visibility Badge -->
                   <td class="py-3 px-4">
-                    <div class="font-bold text-slate-900 dark:text-white">
-                      {{ getCleanContainerName(c) }}
-                    </div>
-                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5">
-                      <span>{{ c.id.substring(0, 12) }}</span>
-                      <button
-                        @click="copyToClipboard(c.id, c.id)"
-                        class="hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
-                        title="Copy Container ID"
+                    <div class="flex items-center gap-2">
+                      <span class="font-bold text-slate-900 dark:text-white">
+                        {{ getCleanContainerName(c) }}
+                      </span>
+                      <!-- Visibility Badge -->
+                      <span
+                        v-if="c.visibility === 'private'"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono"
+                        title="Private: Visible only to creator and administrators"
                       >
-                        <Check v-if="copiedId === c.id" class="w-3 h-3 text-emerald-500" />
-                        <Copy v-else class="w-3 h-3" />
-                      </button>
+                        <Lock class="w-2.5 h-2.5" />
+                        <span>Private</span>
+                      </span>
+                      <span
+                        v-else
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#141824] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#1b2234] font-mono"
+                        title="Public: Visible to all authorized users"
+                      >
+                        <Globe class="w-2.5 h-2.5 text-slate-400" />
+                        <span>Public</span>
+                      </span>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                      <div class="flex items-center gap-1">
+                        <span>{{ c.id.substring(0, 12) }}</span>
+                        <button
+                          @click="copyToClipboard(c.id, c.id)"
+                          class="hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                          title="Copy Container ID"
+                        >
+                          <Check v-if="copiedId === c.id" class="w-3 h-3 text-emerald-500" />
+                          <Copy v-else class="w-3 h-3" />
+                        </button>
+                      </div>
+                      <span v-if="c.ownerUsername">&bull;</span>
+                      <span v-if="c.ownerUsername" class="text-slate-500 dark:text-slate-400">
+                        owner: {{ c.ownerUsername }}
+                      </span>
                     </div>
                   </td>
 
@@ -1698,6 +1810,17 @@ watch(selectedConnectionId, () => {
                         title="View Resource Metrics"
                       >
                         <Activity class="w-3.5 h-3.5" />
+                      </button>
+
+                      <!-- Visibility Toggle (Public / Private) -->
+                      <button
+                        @click="toggleVisibility(c)"
+                        :disabled="updatingVisibility[c.id]"
+                        class="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer disabled:opacity-50"
+                        :title="c.visibility === 'private' ? 'Make Public (Visible to all users)' : 'Make Private (Only you & admins)'"
+                      >
+                        <Lock v-if="c.visibility === 'private'" class="w-3.5 h-3.5 text-amber-500" />
+                        <Globe v-else class="w-3.5 h-3.5" />
                       </button>
 
                       <!-- Edit button -->
@@ -2168,6 +2291,66 @@ watch(selectedConnectionId, () => {
                   {{ net.name }} ({{ net.driver }})
                 </option>
               </select>
+            </div>
+          </div>
+
+          <!-- Container Visibility & Access Control -->
+          <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+              Container Visibility & Access Control
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label
+                :class="[
+                  'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition',
+                  deployForm.visibility === 'public'
+                    ? 'border-blue-500/50 bg-blue-500/5 ring-1 ring-blue-500/20'
+                    : 'border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#141824]/50 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <input
+                  type="radio"
+                  name="deployVisibility"
+                  value="public"
+                  v-model="deployForm.visibility"
+                  class="mt-0.5 text-blue-600 focus:ring-0 cursor-pointer"
+                />
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                    <Globe class="w-3.5 h-3.5 text-slate-400" />
+                    <span>Public Container</span>
+                  </div>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                    Visible and manageable by all authorized team members in this environment.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                :class="[
+                  'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition',
+                  deployForm.visibility === 'private'
+                    ? 'border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20'
+                    : 'border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#141824]/50 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <input
+                  type="radio"
+                  name="deployVisibility"
+                  value="private"
+                  v-model="deployForm.visibility"
+                  class="mt-0.5 text-amber-600 focus:ring-0 cursor-pointer"
+                />
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                    <Lock class="w-3.5 h-3.5 text-amber-500" />
+                    <span>Private Container</span>
+                  </div>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                    Visible and manageable only by you (the creator) and system administrators.
+                  </p>
+                </div>
+              </label>
             </div>
           </div>
 
@@ -3043,6 +3226,66 @@ watch(selectedConnectionId, () => {
                 placeholder="e.g. npm start or sh -c 'sleep 10 && app'"
                 class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
               />
+            </div>
+
+            <!-- Container Visibility & Access Control -->
+            <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+                Container Visibility & Access Control
+              </label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label
+                  :class="[
+                    'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition',
+                    editForm.visibility === 'public'
+                      ? 'border-blue-500/50 bg-blue-500/5 ring-1 ring-blue-500/20'
+                      : 'border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#141824]/50 hover:border-slate-300 dark:hover:border-slate-700'
+                  ]"
+                >
+                  <input
+                    type="radio"
+                    name="editVisibility"
+                    value="public"
+                    v-model="editForm.visibility"
+                    class="mt-0.5 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                  <div class="space-y-0.5">
+                    <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                      <Globe class="w-3.5 h-3.5 text-slate-400" />
+                      <span>Public Container</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                      Visible and manageable by all authorized team members in this environment.
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  :class="[
+                    'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition',
+                    editForm.visibility === 'private'
+                      ? 'border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20'
+                      : 'border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#141824]/50 hover:border-slate-300 dark:hover:border-slate-700'
+                  ]"
+                >
+                  <input
+                    type="radio"
+                    name="editVisibility"
+                    value="private"
+                    v-model="editForm.visibility"
+                    class="mt-0.5 text-amber-600 focus:ring-0 cursor-pointer"
+                  />
+                  <div class="space-y-0.5">
+                    <div class="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                      <Lock class="w-3.5 h-3.5 text-amber-500" />
+                      <span>Private Container</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                      Visible and manageable only by you (the creator) and system administrators.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
 
             <!-- Start after recreation option -->

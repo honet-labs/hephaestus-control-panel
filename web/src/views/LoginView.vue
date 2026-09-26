@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import { ShieldCheck, Lock, User, AlertCircle } from 'lucide-vue-next';
 
 const username = ref('');
 const password = ref('');
+const neverExpire = ref(true);
 const error = ref('');
 const loading = ref(false);
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const checkSetup = async () => {
@@ -28,10 +30,12 @@ const handleLogin = async () => {
     const res = await axios.post('/api/v1/auth/login', {
       username: username.value,
       password: password.value,
+      neverExpire: neverExpire.value,
     });
     if (res.data.success) {
       authStore.setAuth(res.data.data.user, res.data.data.token);
-      router.push('/');
+      const redirectTarget = (route.query.redirect as string) || '/';
+      router.push(redirectTarget);
     }
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Login failed. Please check credentials.';
@@ -101,11 +105,24 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- Never Expire Session Option -->
+          <div class="flex items-center justify-between pt-0.5">
+            <label class="flex items-center gap-2 cursor-pointer select-none text-slate-400 hover:text-slate-300">
+              <input
+                id="login-never-expire"
+                type="checkbox"
+                v-model="neverExpire"
+                class="w-3.5 h-3.5 rounded border-[#1b2234] bg-[#141824] text-[#4274D9] focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#4274D9]"
+              />
+              <span class="text-[11px]">Stay signed in (Never expire session)</span>
+            </label>
+          </div>
+
           <button
             id="login-submit-btn"
             type="submit"
             :disabled="loading"
-            class="w-full py-2.5 bg-[#4274D9] hover:bg-[#3461c2] disabled:opacity-50 text-white font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition duration-150"
+            class="w-full py-2.5 bg-[#4274D9] hover:bg-[#3461c2] disabled:opacity-50 text-white font-bold rounded-lg shadow-lg shadow-[#4274D9]/25 transition duration-150 cursor-pointer"
           >
             {{ loading ? 'Signing In...' : 'Sign In' }}
           </button>

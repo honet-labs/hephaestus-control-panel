@@ -199,11 +199,60 @@ func (s *DockerService) ListContainers(ctx context.Context, connectionID string,
 		return nil, err
 	}
 
+	var containers []domain.DockerContainer
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		return s.listContainersSSH(ctx, conn, all)
+		containers, err = s.listContainersSSH(ctx, conn, all)
+	} else {
+		containers, err = s.listContainersLocal(ctx, conn, all)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	return s.listContainersLocal(ctx, conn, all)
+	// Enrich containers with ownership and visibility from database metadata and labels
+	metaMap, _ := s.dockerRepo.ListContainerMetadata(ctx, conn.ID)
+	for i := range containers {
+		c := &containers[i]
+		cleanName := strings.TrimPrefix(c.Name, "/")
+
+		if meta, found := metaMap[c.ID]; found {
+			c.Visibility = meta.Visibility
+			c.UserID = meta.UserID
+			c.OwnerUsername = meta.Username
+		} else if len(c.ID) >= 12 && metaMap[c.ID[:12]] != nil {
+			meta := metaMap[c.ID[:12]]
+			c.Visibility = meta.Visibility
+			c.UserID = meta.UserID
+			c.OwnerUsername = meta.Username
+		} else if metaMap["name:"+cleanName] != nil {
+			meta := metaMap["name:"+cleanName]
+			c.Visibility = meta.Visibility
+			c.UserID = meta.UserID
+			c.OwnerUsername = meta.Username
+		}
+
+		// Fallback to container labels
+		if c.Visibility == "" && c.Labels != nil {
+			if v, ok := c.Labels["hephaestus.visibility"]; ok && v != "" {
+				c.Visibility = v
+			}
+			if uName, ok := c.Labels["hephaestus.creator_username"]; ok && uName != "" && c.OwnerUsername == "" {
+				c.OwnerUsername = uName
+			}
+			if uIDStr, ok := c.Labels["hephaestus.creator_id"]; ok && uIDStr != "" && c.UserID == nil {
+				if id, convErr := strconv.Atoi(uIDStr); convErr == nil {
+					c.UserID = &id
+				}
+			}
+		}
+
+		// Default visibility for preexisting containers is public
+		if c.Visibility == "" {
+			c.Visibility = "public"
+		}
+	}
+
+	return containers, nil
 }
 
 func (s *DockerService) listContainersLocal(ctx context.Context, conn *domain.DockerConnection, all bool) ([]domain.DockerContainer, error) {
@@ -327,6 +376,7 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 			Status   string `json:"Status"`
 			Ports    string `json:"Ports"`
 			Networks string `json:"Networks"`
+			Labels   string `json:"Labels"`
 		}
 
 		if err := json.Unmarshal([]byte(line), &item); err == nil {
@@ -349,6 +399,16 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 				}
 			}
 
+			labelsMap := make(map[string]string)
+			if item.Labels != "" {
+				for _, p := range strings.Split(item.Labels, ",") {
+					parts := strings.SplitN(p, "=", 2)
+					if len(parts) == 2 {
+						labelsMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+					}
+				}
+			}
+
 			createdUnix := parseDockerTime(item.Created)
 
 			containers = append(containers, domain.DockerContainer{
@@ -362,6 +422,7 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 				Status:   item.Status,
 				Ports:    parsePortsString(item.Ports),
 				Networks: netNames,
+				Labels:   labelsMap,
 			})
 		}
 	}
@@ -475,7 +536,17 @@ func (s *DockerService) RemoveContainer(ctx context.Context, connectionID, conta
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to remove container (%d): %s", resp.StatusCode, string(body))
 	}
+
+	_ = s.dockerRepo.DeleteContainerMetadata(ctx, conn.ID, containerID)
 	return nil
+}
+
+func (s *DockerService) UpdateContainerVisibility(ctx context.Context, connectionID, containerID, visibility, name string, userID *int, username string) error {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	return s.dockerRepo.UpdateContainerVisibility(ctx, conn.ID, containerID, visibility, name, userID, username)
 }
 
 // -------------------------------------------------------------
@@ -972,6 +1043,16 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 			}
 		}
 
+		if req.Visibility != "" {
+			args = append(args, fmt.Sprintf("--label hephaestus.visibility=%s", req.Visibility))
+		}
+		if req.UserID != nil {
+			args = append(args, fmt.Sprintf("--label hephaestus.creator_id=%d", *req.UserID))
+		}
+		if req.OwnerUsername != "" {
+			args = append(args, fmt.Sprintf("--label hephaestus.creator_username=%s", req.OwnerUsername))
+		}
+
 		args = append(args, req.Image)
 		if len(cmdParts) > 0 {
 			args = append(args, strings.Join(cmdParts, " "))
@@ -981,7 +1062,16 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		if err != nil {
 			return "", fmt.Errorf("deploy container failed: %w (stderr: %s)", err, stderr)
 		}
-		return strings.TrimSpace(stdout), nil
+		containerID := strings.TrimSpace(stdout)
+		_ = s.dockerRepo.SaveContainerMetadata(ctx, domain.ContainerMetadata{
+			ConnectionID:  conn.ID,
+			ContainerID:   containerID,
+			ContainerName: req.Name,
+			UserID:        req.UserID,
+			Username:      req.OwnerUsername,
+			Visibility:    req.Visibility,
+		})
+		return containerID, nil
 	}
 
 	// Deploy on Local Docker Engine
@@ -1029,11 +1119,22 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		hostConfig["Memory"] = req.MemoryLimitMB * 1024 * 1024
 	}
 
+	labelsMap := map[string]string{
+		"hephaestus.visibility": req.Visibility,
+	}
+	if req.UserID != nil {
+		labelsMap["hephaestus.creator_id"] = fmt.Sprintf("%d", *req.UserID)
+	}
+	if req.OwnerUsername != "" {
+		labelsMap["hephaestus.creator_username"] = req.OwnerUsername
+	}
+
 	payload := map[string]interface{}{
 		"Image":        req.Image,
 		"ExposedPorts": exposedPorts,
 		"Env":          req.EnvVars,
 		"HostConfig":   hostConfig,
+		"Labels":       labelsMap,
 	}
 	if len(cmdParts) > 0 {
 		payload["Cmd"] = cmdParts
@@ -1062,6 +1163,16 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 	if result.ID == "" {
 		return "", errors.New("container created but no container ID returned")
 	}
+
+	// Persist metadata
+	_ = s.dockerRepo.SaveContainerMetadata(ctx, domain.ContainerMetadata{
+		ConnectionID:  conn.ID,
+		ContainerID:   result.ID,
+		ContainerName: req.Name,
+		UserID:        req.UserID,
+		Username:      req.OwnerUsername,
+		Visibility:    req.Visibility,
+	})
 
 	// Automatically start created container unless startAfter is explicitly false
 	if req.StartAfter == nil || *req.StartAfter {

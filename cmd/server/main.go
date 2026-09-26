@@ -403,6 +403,7 @@ func main() {
 		api.POST("/docker/containers/:id/pause", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.PauseContainer)
 		api.POST("/docker/containers/:id/unpause", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.UnpauseContainer)
 		api.DELETE("/docker/containers/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteContainer)
+		api.POST("/docker/containers/:id/visibility", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.UpdateVisibility)
 		api.GET("/docker/containers/:id/logs", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetLogs)
 		api.GET("/docker/containers/:id/stats", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetStats)
 		api.POST("/docker/containers/deploy", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeployContainer)

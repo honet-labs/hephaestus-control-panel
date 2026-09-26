@@ -26,7 +26,7 @@ func NewAuthService(userRepo *repository.UserRepository, configRepo *repository.
 	}
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string) (*domain.User, string, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string, neverExpire bool) (*domain.User, string, error) {
 	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
 		logger.Warn("Auth", fmt.Sprintf("Login failed: Username '%s' not found", username))
@@ -48,13 +48,17 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*do
 	rawToken := hex.EncodeToString(tokenBytes)
 	tokenHash := config.HashToken(rawToken)
 
-	// Session valid for 24 hours (sliding window max 7 days)
-	_, err = s.userRepo.CreateSession(ctx, user.ID, tokenHash, 24*time.Hour)
+	// Session duration: 10 years if neverExpire, otherwise 24 hours (sliding window)
+	duration := 24 * time.Hour
+	if neverExpire {
+		duration = 10 * 365 * 24 * time.Hour
+	}
+	_, err = s.userRepo.CreateSession(ctx, user.ID, tokenHash, duration)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
 
-	logger.Info("Auth", fmt.Sprintf("Login success: User '%s' authenticated", username))
+	logger.Info("Auth", fmt.Sprintf("Login success: User '%s' authenticated (neverExpire=%t)", username, neverExpire))
 	_ = s.userRepo.LogActivity(ctx, "Auth", "Login Success", fmt.Sprintf("User '%s' logged in", username), "SUCCESS", &user.ID)
 	return user, rawToken, nil
 }

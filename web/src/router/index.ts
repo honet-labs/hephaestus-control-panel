@@ -205,15 +205,23 @@ axios.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       const url = error.config?.url || '';
-      const isAuthUrl = url.includes('/api/v1/auth/login') || url.includes('/api/v1/setup');
+      // Exclude auth initialization and setup endpoints from calling router.push here,
+      // because router.beforeEach is already awaiting fetchUser() and will handle the transition cleanly.
+      const isAuthUrl =
+        url.includes('/api/v1/auth/login') ||
+        url.includes('/api/v1/setup') ||
+        url.includes('/api/v1/auth/me');
+
       if (!isAuthUrl) {
         const authStore = useAuthStore();
         authStore.clearAuth();
         if (router.currentRoute.value.name !== 'login') {
-          router.push({
-            name: 'login',
-            query: { redirect: router.currentRoute.value.fullPath },
-          });
+          router
+            .push({
+              name: 'login',
+              query: { redirect: router.currentRoute.value.fullPath },
+            })
+            .catch(() => {});
         }
       }
     }
@@ -226,7 +234,11 @@ router.beforeEach(async (to, from, next) => {
 
   // Initialize session once on initial page load / refresh via HttpOnly cookie (H-02)
   if (!authStore.isInitialized) {
-    await authStore.fetchUser();
+    try {
+      await authStore.fetchUser();
+    } catch (_) {
+      authStore.clearAuth();
+    }
   }
 
   // Support auth token passed in query parameter for shared links / embed views

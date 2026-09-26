@@ -338,9 +338,18 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		SET permissions = permissions || '{"infrastructure": "manage", "connections": "manage", "reports": "manage"}'::jsonb 
 		WHERE name IN ('ADMIN', 'OPERATOR');
 
-		UPDATE system_roles 
-		SET permissions = permissions || '{"infrastructure": "read", "connections": "read", "reports": "read"}'::jsonb 
-		WHERE name = 'VIEWER';
+		CREATE TABLE IF NOT EXISTS docker_container_metadata (
+			connection_id VARCHAR(50) NOT NULL,
+			container_id VARCHAR(100) NOT NULL,
+			container_name VARCHAR(255) NOT NULL,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			username VARCHAR(100),
+			visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY(connection_id, container_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_meta_user ON docker_container_metadata(user_id);
 
 		CREATE TABLE IF NOT EXISTS visual_reports (
 			id VARCHAR(50) PRIMARY KEY,

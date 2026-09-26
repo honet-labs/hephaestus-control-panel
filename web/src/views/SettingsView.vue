@@ -1274,11 +1274,11 @@ onUnmounted(() => {
                 v-model.number="dbConfig.maxConns"
                 type="number"
                 min="1"
-                max="100"
+                max="1000"
                 placeholder="10"
                 class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
               />
-              <p class="text-[9px] text-slate-500 mt-0.5">Maximum concurrent connections in pool (Default: 10)</p>
+              <p class="text-[9px] text-slate-500 mt-0.5">Maximum concurrent connections in pool (Default: 10, Max: 1000)</p>
             </div>
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Min Idle Connections</label>
@@ -1286,11 +1286,11 @@ onUnmounted(() => {
                 v-model.number="dbConfig.minConns"
                 type="number"
                 min="0"
-                max="50"
+                max="500"
                 placeholder="2"
                 class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
               />
-              <p class="text-[9px] text-slate-500 mt-0.5">Minimum warm connections kept open (Default: 2)</p>
+              <p class="text-[9px] text-slate-500 mt-0.5">Minimum warm connections kept open (Default: 2, Max: 500)</p>
             </div>
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Max Idle Duration (Seconds)</label>

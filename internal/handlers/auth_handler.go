@@ -24,8 +24,10 @@ func (h *AuthHandler) setSessionCookie(c *gin.Context, token string, maxAge int)
 }
 
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username    string `json:"username" binding:"required"`
+	Password    string `json:"password" binding:"required"`
+	NeverExpire bool   `json:"neverExpire"`
+	RememberMe  bool   `json:"rememberMe"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -39,7 +41,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, token, err := h.authService.Login(c.Request.Context(), strings.TrimSpace(req.Username), req.Password)
+	neverExpire := req.NeverExpire || req.RememberMe
+	user, token, err := h.authService.Login(c.Request.Context(), strings.TrimSpace(req.Username), req.Password, neverExpire)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
@@ -49,7 +52,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	h.setSessionCookie(c, token, 86400*7)
+	cookieMaxAge := 86400 * 7 // default 7 days
+	if neverExpire {
+		cookieMaxAge = 86400 * 365 * 10 // 10 years (never expire)
+	}
+	h.setSessionCookie(c, token, cookieMaxAge)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
