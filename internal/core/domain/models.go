@@ -587,8 +587,22 @@ type DockerContainer struct {
 	Labels        map[string]string     `json:"labels,omitempty"`
 	UserID        *int                  `json:"userId,omitempty"`
 	OwnerUsername string                `json:"ownerUsername,omitempty"`
-	Visibility    string                `json:"visibility"` // "public" or "private"
-	IsOwner       bool                  `json:"isOwner"`
+	Visibility     string                `json:"visibility"` // "public" or "private"
+	IsOwner        bool                  `json:"isOwner"`
+	UserPermission string                `json:"userPermission,omitempty"` // "owner", "manage", "read", "public"
+	SharesCount    int                   `json:"sharesCount"`
+}
+
+type DockerContainerShare struct {
+	ID               string    `json:"id"`
+	ConnectionID     string    `json:"connectionId"`
+	ContainerID      string    `json:"containerId"`
+	UserID           int       `json:"userId"`
+	Username         string    `json:"username"`
+	Permission       string    `json:"permission"` // "read" or "manage"
+	SharedBy         *int      `json:"sharedBy,omitempty"`
+	SharedByUsername string    `json:"sharedByUsername,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type ContainerMetadata struct {

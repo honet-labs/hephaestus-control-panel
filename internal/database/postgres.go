@@ -351,6 +351,19 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_docker_container_meta_user ON docker_container_metadata(user_id);
 
+		CREATE TABLE IF NOT EXISTS docker_container_shares (
+			id VARCHAR(50) PRIMARY KEY,
+			connection_id VARCHAR(50) NOT NULL,
+			container_id VARCHAR(100) NOT NULL,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(20) NOT NULL DEFAULT 'read',
+			shared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id, container_id, user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_shares_container ON docker_container_shares(connection_id, container_id);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_shares_user ON docker_container_shares(user_id);
+
 		CREATE TABLE IF NOT EXISTS visual_reports (
 			id VARCHAR(50) PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,

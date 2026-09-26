@@ -549,6 +549,30 @@ func (s *DockerService) UpdateContainerVisibility(ctx context.Context, connectio
 	return s.dockerRepo.UpdateContainerVisibility(ctx, conn.ID, containerID, visibility, name, userID, username)
 }
 
+func (s *DockerService) ListShares(ctx context.Context, connectionID, containerID string) ([]domain.DockerContainerShare, error) {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.dockerRepo.ListShares(ctx, conn.ID, containerID)
+}
+
+func (s *DockerService) AddShare(ctx context.Context, connectionID, containerID string, targetUserID int, permission string, sharedBy int) error {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	return s.dockerRepo.AddShare(ctx, conn.ID, containerID, targetUserID, permission, sharedBy)
+}
+
+func (s *DockerService) DeleteShare(ctx context.Context, connectionID, containerID string, targetUserID int) error {
+	conn, err := s.resolveConnection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	return s.dockerRepo.DeleteShare(ctx, conn.ID, containerID, targetUserID)
+}
+
 // -------------------------------------------------------------
 // Container Logs & Stats
 // -------------------------------------------------------------

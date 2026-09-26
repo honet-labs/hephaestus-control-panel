@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import { useAuthStore } from '../stores/auth';
 import {
   Boxes,
   Server,
@@ -34,7 +35,9 @@ import {
   Pencil,
   AlertTriangle,
   Lock,
-  Globe
+  Globe,
+  Share2,
+  Users
 } from 'lucide-vue-next';
 
 interface DockerConnection {
@@ -78,6 +81,20 @@ interface DockerContainer {
   ownerUsername?: string;
   visibility?: 'public' | 'private';
   isOwner?: boolean;
+  userPermission?: 'owner' | 'manage' | 'read' | 'public' | string;
+  sharesCount?: number;
+}
+
+interface DockerContainerShare {
+  id: string;
+  connectionId: string;
+  containerId: string;
+  userId: number;
+  username: string;
+  permission: 'read' | 'manage';
+  sharedBy?: number;
+  sharedByUsername?: string;
+  createdAt: string;
 }
 
 interface DockerImage {
@@ -154,12 +171,48 @@ const actionLoading = ref<Record<string, boolean>>({});
 // Tab Navigation
 const activeTab = ref<'containers' | 'images' | 'networks' | 'deploy' | 'connections'>('containers');
 
+// User Auth & Role Checks
+const authStore = useAuthStore();
+const isAdmin = computed(() => {
+  const role = authStore.user?.role?.toUpperCase();
+  return role === 'ADMIN' || role === 'SUPERADMIN';
+});
+
+const canManageContainer = (c: DockerContainer): boolean => {
+  if (isAdmin.value || c.isOwner) return true;
+  if (c.userPermission === 'manage') return true;
+  if (c.visibility === 'public' || !c.visibility) return true;
+  return false;
+};
+
+const canAdministerContainer = (c: DockerContainer): boolean => {
+  if (isAdmin.value || c.isOwner) return true;
+  return false;
+};
+
 // Filters
 const searchKeyword = ref('');
 const statusFilter = ref<'all' | 'running' | 'stopped' | 'paused'>('all');
-const visibilityFilter = ref<'all' | 'public' | 'private'>('all');
+const visibilityFilter = ref<'all' | 'public' | 'private' | 'shared'>('all');
 const updatingVisibility = ref<Record<string, boolean>>({});
 const selectedContainers = ref<string[]>([]);
+
+// Share Access State
+const isShareModalOpen = ref(false);
+const selectedContainerForShare = ref<DockerContainer | null>(null);
+const containerShares = ref<DockerContainerShare[]>([]);
+const availableUsers = ref<{ id: number; username: string; role: string }[]>([]);
+const isShareLoading = ref(false);
+const isShareSubmitting = ref(false);
+const shareForm = ref<{ userId: string | number; permission: 'read' | 'manage' }>({
+  userId: '',
+  permission: 'read',
+});
+
+// Revoke Share Confirmation Modal State (Strict AGENTS.md compliance)
+const shareToRevoke = ref<DockerContainerShare | null>(null);
+const showRevokeShareModal = ref(false);
+const isRevokingShare = ref(false);
 
 // Modals
 const showLogsModal = ref(false);
@@ -475,7 +528,9 @@ const filteredContainers = computed(() => {
   if (visibilityFilter.value === 'public') {
     list = list.filter((c) => (c.visibility || 'public') === 'public');
   } else if (visibilityFilter.value === 'private') {
-    list = list.filter((c) => c.visibility === 'private');
+    list = list.filter((c) => c.visibility === 'private' && (c.isOwner || isAdmin.value));
+  } else if (visibilityFilter.value === 'shared') {
+    list = list.filter((c) => (c.userPermission === 'read' || c.userPermission === 'manage') && !c.isOwner);
   }
 
   if (searchKeyword.value.trim()) {
@@ -590,6 +645,106 @@ const toggleVisibility = async (container: DockerContainer) => {
     showToast(err.response?.data?.error || 'Failed to update visibility', 'error');
   } finally {
     updatingVisibility.value[container.id] = false;
+  }
+};
+
+// Share Access Handlers
+const openShareModal = async (container: DockerContainer, event?: MouseEvent) => {
+  if (event) event.stopPropagation();
+  selectedContainerForShare.value = container;
+  isShareModalOpen.value = true;
+  shareForm.value = { userId: '', permission: 'read' };
+  await Promise.all([
+    fetchContainerShares(container.id),
+    fetchAvailableUsers(),
+  ]);
+};
+
+const fetchContainerShares = async (containerId: string) => {
+  isShareLoading.value = true;
+  try {
+    const res = await axios.get(`/api/v1/docker/containers/${containerId}/shares`, {
+      params: { connectionId: selectedConnectionId.value },
+    });
+    if (res.data?.success) {
+      containerShares.value = res.data.data || [];
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch container shares:', err);
+    containerShares.value = [];
+  } finally {
+    isShareLoading.value = false;
+  }
+};
+
+const fetchAvailableUsers = async () => {
+  try {
+    const res = await axios.get('/api/v1/docker/users');
+    if (res.data?.success) {
+      availableUsers.value = res.data.data || [];
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch available users:', err);
+  }
+};
+
+const handleGrantShare = async () => {
+  if (!selectedContainerForShare.value || !shareForm.value.userId) return;
+  isShareSubmitting.value = true;
+  try {
+    const res = await axios.post(
+      `/api/v1/docker/containers/${selectedContainerForShare.value.id}/shares`,
+      {
+        userId: Number(shareForm.value.userId),
+        permission: shareForm.value.permission,
+      },
+      {
+        params: { connectionId: selectedConnectionId.value },
+      }
+    );
+    if (res.data?.success) {
+      shareForm.value.userId = '';
+      showToast('Container access granted successfully');
+      await fetchContainerShares(selectedContainerForShare.value.id);
+      await fetchData();
+    } else {
+      showToast(res.data?.error || 'Failed to grant share access', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to grant share access', 'error');
+  } finally {
+    isShareSubmitting.value = false;
+  }
+};
+
+const promptRevokeShare = (share: DockerContainerShare) => {
+  shareToRevoke.value = share;
+  showRevokeShareModal.value = true;
+};
+
+const executeRevokeShare = async () => {
+  if (!selectedContainerForShare.value || !shareToRevoke.value) return;
+  isRevokingShare.value = true;
+  try {
+    const res = await axios.delete(
+      `/api/v1/docker/containers/${selectedContainerForShare.value.id}/shares/${shareToRevoke.value.userId}`,
+      {
+        params: { connectionId: selectedConnectionId.value },
+      }
+    );
+    if (res.data?.success) {
+      showToast(`Access revoked for @${shareToRevoke.value.username}`);
+      showRevokeShareModal.value = false;
+      shareToRevoke.value = null;
+      await fetchContainerShares(selectedContainerForShare.value.id);
+      await fetchData();
+    } else {
+      showToast(res.data?.error || 'Failed to revoke access', 'error');
+    }
+  } catch (err: any) {
+    showToast(err.response?.data?.error || 'Failed to revoke access', 'error');
+  } finally {
+    isRevokingShare.value = false;
   }
 };
 
@@ -1537,7 +1692,20 @@ watch(selectedConnectionId, () => {
                 ]"
               >
                 <Lock class="w-3 h-3 text-amber-500" />
-                <span>Private ({{ containers.filter(c => c.visibility === 'private').length }})</span>
+                <span>Private ({{ containers.filter(c => c.visibility === 'private' && (c.isOwner || isAdmin)).length }})</span>
+              </button>
+              <button
+                v-if="containers.some(c => (c.userPermission === 'read' || c.userPermission === 'manage') && !c.isOwner)"
+                @click="visibilityFilter = 'shared'"
+                :class="[
+                  'px-2.5 py-1 text-[11px] font-semibold rounded-md transition cursor-pointer flex items-center gap-1',
+                  visibilityFilter === 'shared'
+                    ? 'bg-white dark:bg-[#20283e] text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Share2 class="w-3 h-3 text-slate-400" />
+                <span>Shared with Me ({{ containers.filter(c => (c.userPermission === 'read' || c.userPermission === 'manage') && !c.isOwner).length }})</span>
               </button>
             </div>
 
@@ -1657,14 +1825,25 @@ watch(selectedConnectionId, () => {
                       <span class="font-bold text-slate-900 dark:text-white">
                         {{ getCleanContainerName(c) }}
                       </span>
-                      <!-- Visibility Badge -->
+                      <!-- Visibility & Share Badge -->
                       <span
-                        v-if="c.visibility === 'private'"
+                        v-if="!c.isOwner && !isAdmin && (c.userPermission === 'read' || c.userPermission === 'manage')"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-mono"
+                        :title="c.userPermission === 'manage' ? 'Shared with you: Full Control (Manage)' : 'Shared with you: Read Only'"
+                      >
+                        <Share2 class="w-2.5 h-2.5" />
+                        <span>{{ c.userPermission === 'manage' ? 'Shared (Manage)' : 'Shared (Read Only)' }}</span>
+                      </span>
+                      <span
+                        v-else-if="c.visibility === 'private'"
                         class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono"
-                        title="Private: Visible only to creator and administrators"
+                        :title="c.sharesCount && c.sharesCount > 0 ? `Private (Shared with ${c.sharesCount} user(s))` : 'Private: Visible only to creator and administrators'"
                       >
                         <Lock class="w-2.5 h-2.5" />
                         <span>Private</span>
+                        <span v-if="c.sharesCount && c.sharesCount > 0" class="text-[9px] opacity-80">
+                          &bull; {{ c.sharesCount }} shared
+                        </span>
                       </span>
                       <span
                         v-else
@@ -1741,9 +1920,9 @@ watch(selectedConnectionId, () => {
                   <!-- Actions -->
                   <td class="py-3 px-4 text-right whitespace-nowrap">
                     <div class="flex items-center justify-end gap-1">
-                      <!-- Start button if stopped -->
+                      <!-- Start button if stopped & canManage -->
                       <button
-                        v-if="c.state !== 'running'"
+                        v-if="c.state !== 'running' && canManageContainer(c)"
                         @click="performContainerAction(c.id, 'start')"
                         :disabled="actionLoading[c.id]"
                         class="p-1.5 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
@@ -1752,9 +1931,9 @@ watch(selectedConnectionId, () => {
                         <Play class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Stop button if running -->
+                      <!-- Stop button if running & canManage -->
                       <button
-                        v-if="c.state === 'running'"
+                        v-if="c.state === 'running' && canManageContainer(c)"
                         @click="performContainerAction(c.id, 'stop')"
                         :disabled="actionLoading[c.id]"
                         class="p-1.5 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
@@ -1763,19 +1942,20 @@ watch(selectedConnectionId, () => {
                         <Square class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Restart button -->
+                      <!-- Restart button if canManage -->
                       <button
+                        v-if="canManageContainer(c)"
                         @click="performContainerAction(c.id, 'restart')"
                         :disabled="actionLoading[c.id]"
-                        class="p-1.5 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
                         title="Restart Container"
                       >
                         <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': actionLoading[c.id] }" />
                       </button>
 
-                      <!-- Pause / Unpause -->
+                      <!-- Pause / Unpause if canManage -->
                       <button
-                        v-if="c.state === 'running'"
+                        v-if="c.state === 'running' && canManageContainer(c)"
                         @click="performContainerAction(c.id, 'pause')"
                         :disabled="actionLoading[c.id]"
                         class="p-1.5 text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
@@ -1784,7 +1964,7 @@ watch(selectedConnectionId, () => {
                         <Pause class="w-3.5 h-3.5" />
                       </button>
                       <button
-                        v-if="c.state === 'paused'"
+                        v-if="c.state === 'paused' && canManageContainer(c)"
                         @click="performContainerAction(c.id, 'unpause')"
                         :disabled="actionLoading[c.id]"
                         class="p-1.5 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
@@ -1793,47 +1973,66 @@ watch(selectedConnectionId, () => {
                         <Play class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Logs button -->
+                      <!-- Logs button (all viewers) -->
                       <button
                         @click="openLogsModal(c)"
-                        class="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
                         title="View Logs"
                       >
                         <Terminal class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Stats button -->
+                      <!-- Stats button (all viewers) -->
                       <button
                         v-if="c.state === 'running'"
                         @click="openStatsModal(c)"
-                        class="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
                         title="View Resource Metrics"
                       >
                         <Activity class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Visibility Toggle (Public / Private) -->
+                      <!-- Share button (Owner / Admin only) -->
                       <button
+                        v-if="canAdministerContainer(c)"
+                        @click="openShareModal(c, $event)"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer relative"
+                        :title="c.sharesCount && c.sharesCount > 0 ? `Share Access (${c.sharesCount} users shared)` : 'Share Container Access'"
+                      >
+                        <Share2 class="w-3.5 h-3.5" />
+                        <span
+                          v-if="c.sharesCount && c.sharesCount > 0"
+                          class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[8px] font-bold flex items-center justify-center font-mono"
+                        >
+                          {{ c.sharesCount }}
+                        </span>
+                      </button>
+
+                      <!-- Visibility Toggle (Public / Private) (Owner / Admin only) -->
+                      <button
+                        v-if="canAdministerContainer(c)"
                         @click="toggleVisibility(c)"
                         :disabled="updatingVisibility[c.id]"
-                        class="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer disabled:opacity-50"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer disabled:opacity-50"
                         :title="c.visibility === 'private' ? 'Make Public (Visible to all users)' : 'Make Private (Only you & admins)'"
                       >
                         <Lock v-if="c.visibility === 'private'" class="w-3.5 h-3.5 text-amber-500" />
                         <Globe v-else class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Edit button -->
+                      <!-- Edit button (Manage permission or Owner / Admin) -->
                       <button
+                        v-if="canManageContainer(c)"
                         @click="handleOpenEdit(c)"
-                        class="p-1.5 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
+                        class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
                         title="Edit Container"
                       >
                         <Pencil class="w-3.5 h-3.5" />
                       </button>
 
-                      <!-- Delete button -->
+                      <!-- Delete button (Owner / Admin or public container with manage permission) -->
                       <button
+                        v-if="canAdministerContainer(c) || (c.visibility === 'public' && authStore.can('infrastructure', 'manage'))"
                         @click="confirmDeleteContainer(c)"
                         class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
                         title="Delete Container"
@@ -3319,6 +3518,200 @@ watch(selectedConnectionId, () => {
           >
             <RefreshCw v-if="editingContainer" class="w-3.5 h-3.5 animate-spin" />
             <span>{{ editingContainer ? 'Updating Container...' : 'Save & Recreate Container' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- CONTAINER SHARE ACCESS MODAL (Portainer-style granular access) -->
+    <!-- ============================================================= -->
+    <div
+      v-if="isShareModalOpen && selectedContainerForShare"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col font-sans">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#151c2e]">
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+              <Share2 class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Share Container Access</h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400">
+                {{ getCleanContainerName(selectedContainerForShare) }} &bull; <span class="font-mono text-slate-700 dark:text-slate-300">{{ selectedContainerForShare.image }}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            @click="isShareModalOpen = false"
+            class="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+          <!-- Container Owner Banner -->
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] flex items-center justify-between text-xs">
+            <span class="text-slate-500 dark:text-slate-400 font-medium">Container Owner</span>
+            <span class="text-slate-800 dark:text-slate-200 font-semibold font-mono bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+              @{{ selectedContainerForShare.ownerUsername || 'You' }} (Full Ownership)
+            </span>
+          </div>
+
+          <!-- Grant Access Form -->
+          <div class="p-4 bg-slate-50/70 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-3">
+            <h4 class="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <Users class="w-3.5 h-3.5 text-slate-400" />
+              <span>Grant Access to User</span>
+            </h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div class="sm:col-span-6 space-y-1">
+                <label class="block text-[11px] text-slate-600 dark:text-slate-400 font-medium">Select User</label>
+                <select
+                  v-model="shareForm.userId"
+                  class="w-full bg-white dark:bg-[#1a2234] border border-slate-300 dark:border-[#20293d] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="" disabled>Choose user...</option>
+                  <option
+                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && (!selectedContainerForShare?.userId || u.id !== selectedContainerForShare.userId))"
+                    :key="u.id"
+                    :value="u.id"
+                  >
+                    {{ u.username }} ({{ u.role }})
+                  </option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-4 space-y-1">
+                <label class="block text-[11px] text-slate-600 dark:text-slate-400 font-medium">Access Level</label>
+                <select
+                  v-model="shareForm.permission"
+                  class="w-full bg-white dark:bg-[#1a2234] border border-slate-300 dark:border-[#20293d] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition"
+                >
+                  <option value="read">Read Only (View, Logs, Stats)</option>
+                  <option value="manage">Full Control (Start, Stop, Edit)</option>
+                </select>
+              </div>
+
+              <div class="sm:col-span-2 flex items-end">
+                <button
+                  type="button"
+                  @click="handleGrantShare"
+                  :disabled="!shareForm.userId || isShareSubmitting"
+                  class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition shadow-xs flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw v-if="isShareSubmitting" class="w-3.5 h-3.5 animate-spin" />
+                  <span>{{ isShareSubmitting ? '...' : 'Grant' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Shares List -->
+          <div class="space-y-2">
+            <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Currently Shared Users ({{ containerShares.length }})
+            </h4>
+
+            <div v-if="isShareLoading" class="p-6 text-center text-xs text-slate-500">
+              <RefreshCw class="w-4 h-4 animate-spin mx-auto mb-2 text-slate-400" />
+              <span>Loading access list...</span>
+            </div>
+            <div v-else-if="containerShares.length === 0" class="p-6 text-center text-xs text-slate-500 bg-slate-50/50 dark:bg-[#141824] rounded-xl border border-slate-200 dark:border-[#1b2234]">
+              This container is not shared with any other users.
+            </div>
+            <div v-else class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div
+                v-for="s in containerShares"
+                :key="s.id"
+                class="p-3 bg-slate-50/70 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-xl flex items-center justify-between gap-3 text-xs"
+              >
+                <div class="flex items-center gap-2.5">
+                  <div class="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white font-bold text-xs flex items-center justify-center shrink-0">
+                    {{ s.username.substring(0, 2).toUpperCase() }}
+                  </div>
+                  <div>
+                    <p class="font-semibold text-slate-900 dark:text-white">@{{ s.username }}</p>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                      Granted by @{{ s.sharedByUsername || 'Admin' }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <span
+                    :class="[
+                      'px-2 py-0.5 rounded text-[10px] font-semibold border uppercase font-mono',
+                      s.permission === 'manage'
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                    ]"
+                  >
+                    {{ s.permission === 'manage' ? 'Full Control' : 'Read Only' }}
+                  </span>
+                  <button
+                    @click="promptRevokeShare(s)"
+                    title="Revoke access"
+                    class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end px-6 py-3 border-t border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#151c2e]">
+          <button
+            type="button"
+            @click="isShareModalOpen = false"
+            class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- REVOKE SHARE CONFIRMATION MODAL (Strict AGENTS.md compliance) -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showRevokeShareModal && shareToRevoke"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center font-sans">
+        <!-- Red circle trash icon -->
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Revoke Access?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to revoke access for <strong class="text-slate-800 dark:text-slate-200">@{{ shareToRevoke.username }}</strong>? They will no longer be able to view or manage this container.
+          </p>
+        </div>
+
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showRevokeShareModal = false"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeRevokeShare"
+            :disabled="isRevokingShare"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ isRevokingShare ? 'Revoking...' : 'Confirm Revoke' }}
           </button>
         </div>
       </div>

@@ -56,6 +56,19 @@ func (r *DockerRepository) ensureTable(ctx context.Context, pool *pgxpool.Pool) 
 			PRIMARY KEY(connection_id, container_id)
 		);
 		CREATE INDEX IF NOT EXISTS idx_docker_container_meta_user ON docker_container_metadata(user_id);
+
+		CREATE TABLE IF NOT EXISTS docker_container_shares (
+			id VARCHAR(50) PRIMARY KEY,
+			connection_id VARCHAR(50) NOT NULL,
+			container_id VARCHAR(100) NOT NULL,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(20) NOT NULL DEFAULT 'read',
+			shared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(connection_id, container_id, user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_shares_container ON docker_container_shares(connection_id, container_id);
+		CREATE INDEX IF NOT EXISTS idx_docker_container_shares_user ON docker_container_shares(user_id);
 	`)
 }
 
@@ -451,6 +464,147 @@ func (r *DockerRepository) DeleteContainerMetadata(ctx context.Context, connecti
 	if err != nil {
 		return err
 	}
+	_, _ = pool.Exec(ctx, `DELETE FROM docker_container_shares WHERE (connection_id = $1 OR connection_id = '') AND (container_id = $2 OR container_id LIKE $2 || '%' OR $2 LIKE container_id || '%')`, connectionID, containerID)
 	_, err = pool.Exec(ctx, `DELETE FROM docker_container_metadata WHERE (connection_id = $1 OR connection_id = '') AND (container_id = $2 OR container_id LIKE $2 || '%')`, connectionID, containerID)
 	return err
 }
+
+// ==================== CONTAINER ACCESS SHARING METHODS ====================
+
+func (r *DockerRepository) ListShares(ctx context.Context, connectionID, containerID string) ([]domain.DockerContainerShare, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	r.ensureTable(ctx, pool)
+
+	query := `
+		SELECT s.id, s.connection_id, s.container_id, s.user_id, u.username, s.permission,
+		       s.shared_by, COALESCE(sb.username, 'Admin') AS shared_by_username, s.created_at
+		FROM docker_container_shares s
+		JOIN users u ON s.user_id = u.id
+		LEFT JOIN users sb ON s.shared_by = sb.id
+		WHERE (s.connection_id = $1 OR s.connection_id = '' OR $1 = '')
+		  AND (s.container_id = $2 OR s.container_id LIKE $2 || '%' OR $2 LIKE s.container_id || '%')
+		ORDER BY s.created_at DESC
+	`
+	rows, err := pool.Query(ctx, query, connectionID, containerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var shares []domain.DockerContainerShare
+	for rows.Next() {
+		var s domain.DockerContainerShare
+		if err := rows.Scan(&s.ID, &s.ConnectionID, &s.ContainerID, &s.UserID, &s.Username, &s.Permission, &s.SharedBy, &s.SharedByUsername, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		shares = append(shares, s)
+	}
+	return shares, nil
+}
+
+func (r *DockerRepository) AddShare(ctx context.Context, connectionID, containerID string, targetUserID int, permission string, sharedBy int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	r.ensureTable(ctx, pool)
+
+	if permission == "" {
+		permission = "read"
+	}
+	permission = strings.ToLower(permission)
+	if permission != "read" && permission != "manage" {
+		permission = "read"
+	}
+
+	shareID := fmt.Sprintf("dcs-%s", uuid.New().String()[:8])
+	query := `
+		INSERT INTO docker_container_shares (id, connection_id, container_id, user_id, permission, shared_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+		ON CONFLICT (connection_id, container_id, user_id) DO UPDATE SET
+			permission = EXCLUDED.permission,
+			shared_by = EXCLUDED.shared_by,
+			created_at = CURRENT_TIMESTAMP
+	`
+	_, err = pool.Exec(ctx, query, shareID, connectionID, containerID, targetUserID, permission, sharedBy)
+	return err
+}
+
+func (r *DockerRepository) DeleteShare(ctx context.Context, connectionID, containerID string, targetUserID int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	query := `DELETE FROM docker_container_shares 
+	          WHERE (connection_id = $1 OR connection_id = '' OR $1 = '')
+	            AND (container_id = $2 OR container_id LIKE $2 || '%' OR $2 LIKE container_id || '%')
+	            AND user_id = $3`
+	_, err = pool.Exec(ctx, query, connectionID, containerID, targetUserID)
+	return err
+}
+
+func (r *DockerRepository) ListContainerSharesMap(ctx context.Context, connectionID string) (map[string][]domain.DockerContainerShare, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return make(map[string][]domain.DockerContainerShare), nil
+	}
+	r.ensureTable(ctx, pool)
+
+	query := `
+		SELECT s.id, s.connection_id, s.container_id, s.user_id, u.username, s.permission,
+		       s.shared_by, COALESCE(sb.username, 'Admin') AS shared_by_username, s.created_at
+		FROM docker_container_shares s
+		JOIN users u ON s.user_id = u.id
+		LEFT JOIN users sb ON s.shared_by = sb.id
+		WHERE s.connection_id = $1 OR s.connection_id = '' OR $1 = ''
+		ORDER BY s.created_at DESC
+	`
+	rows, err := pool.Query(ctx, query, connectionID)
+	if err != nil {
+		return make(map[string][]domain.DockerContainerShare), nil
+	}
+	defer rows.Close()
+
+	result := make(map[string][]domain.DockerContainerShare)
+	for rows.Next() {
+		var s domain.DockerContainerShare
+		if err := rows.Scan(&s.ID, &s.ConnectionID, &s.ContainerID, &s.UserID, &s.Username, &s.Permission, &s.SharedBy, &s.SharedByUsername, &s.CreatedAt); err == nil {
+			result[s.ContainerID] = append(result[s.ContainerID], s)
+			if len(s.ContainerID) >= 12 {
+				result[s.ContainerID[:12]] = append(result[s.ContainerID[:12]], s)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r *DockerRepository) ListAvailableUsers(ctx context.Context) ([]map[string]interface{}, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, username, role FROM users ORDER BY username ASC`
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []map[string]interface{}
+	for rows.Next() {
+		var id int
+		var username, role string
+		if err := rows.Scan(&id, &username, &role); err == nil {
+			users = append(users, map[string]interface{}{
+				"id":       id,
+				"username": username,
+				"role":     role,
+			})
+		}
+	}
+	return users, nil
+}
+
