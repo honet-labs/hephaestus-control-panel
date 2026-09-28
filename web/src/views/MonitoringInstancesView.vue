@@ -45,6 +45,7 @@ interface DiskMetric {
 
 interface LiveMetrics {
   isOnline: boolean;
+  detectedHostname?: string;
   agentVersion: string;
   hasOtel: boolean;
   cpuPct: number | null;
@@ -68,6 +69,7 @@ interface MonitoringInstance {
   name: string;
   host: string;
   ipAddress: string;
+  hostname?: string;
   port: number;
   instanceType: string;
   groupName: string;
@@ -572,6 +574,7 @@ const instanceForm = ref({
   name: '',
   host: '',
   ipAddress: '',
+  hostname: '',
   port: 8889,
   instanceType: 'server',
   groupName: 'Default',
@@ -589,6 +592,7 @@ const openCreateModal = () => {
     name: '',
     host: '',
     ipAddress: '',
+    hostname: '',
     port: 8889,
     instanceType: 'server',
     groupName: 'Default',
@@ -609,6 +613,7 @@ const openEditModal = (inst: MonitoringInstance) => {
     name: inst.name,
     host: inst.host,
     ipAddress: inst.ipAddress || inst.host,
+    hostname: inst.hostname || inst.liveMetrics?.detectedHostname || '',
     port: inst.port || 8889,
     instanceType: inst.instanceType || 'server',
     groupName: inst.groupName || 'Default',
@@ -632,6 +637,7 @@ const saveInstance = async () => {
       name: instanceForm.value.name.trim(),
       host: instanceForm.value.host.trim(),
       ipAddress: instanceForm.value.ipAddress.trim() || instanceForm.value.host.trim(),
+      hostname: instanceForm.value.hostname.trim(),
       port: Number(instanceForm.value.port) || 8889,
       instanceType: instanceForm.value.instanceType,
       groupName: instanceForm.value.groupName.trim() || 'Default',
@@ -1102,6 +1108,23 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Hostname & IP Info Subheader (Separated) -->
+        <div class="flex flex-wrap items-center gap-2 text-[11px] pb-1 border-b border-slate-100 dark:border-[#161d2d]">
+          <div class="flex items-center gap-1 font-mono">
+            <span class="text-[10px] text-slate-400 uppercase tracking-wider">Host:</span>
+            <span class="text-slate-800 dark:text-slate-200 font-semibold truncate max-w-[120px]" :title="inst.liveMetrics?.detectedHostname || inst.hostname || inst.host">
+              {{ inst.liveMetrics?.detectedHostname || inst.hostname || (inst.host !== inst.ipAddress ? inst.host : '-') }}
+            </span>
+          </div>
+          <span class="text-slate-300 dark:text-slate-700">•</span>
+          <div class="flex items-center gap-1 font-mono">
+            <span class="text-[10px] text-slate-400 uppercase tracking-wider">IP:</span>
+            <span class="text-slate-600 dark:text-slate-300">
+              {{ inst.ipAddress || inst.host }}
+            </span>
+          </div>
+        </div>
+
         <!-- Metrics Rows (Replicating exact card rows from Screenshot 1) -->
         <div class="space-y-2 text-xs">
           <!-- CPU Row -->
@@ -1248,10 +1271,12 @@ onUnmounted(() => {
         <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
           <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400">
             <tr>
-              <th class="py-3 px-4">System</th>
-              <th class="py-3 px-4 min-w-[150px]">CPU</th>
-              <th class="py-3 px-4 min-w-[150px]">Memory</th>
-              <th class="py-3 px-4 min-w-[150px]">Disk</th>
+              <th class="py-3 px-4 min-w-[170px]">System Name</th>
+              <th class="py-3 px-4 min-w-[120px]">Hostname</th>
+              <th class="py-3 px-4 min-w-[120px]">IP Address</th>
+              <th class="py-3 px-4 min-w-[140px]">CPU</th>
+              <th class="py-3 px-4 min-w-[140px]">Memory</th>
+              <th class="py-3 px-4 min-w-[140px]">Disk</th>
               <th class="py-3 px-4 min-w-[110px]">Net</th>
               <th class="py-3 px-4 min-w-[90px]">Agent</th>
               <th class="py-3 px-4 text-right">Actions</th>
@@ -1263,28 +1288,43 @@ onUnmounted(() => {
               :key="inst.id"
               class="hover:bg-slate-50/60 dark:hover:bg-[#141b2c] transition"
             >
-              <!-- System Column -->
+              <!-- System Name Column -->
               <td class="py-3 px-4">
                 <div class="flex items-center gap-2">
                   <span
                     class="w-2 h-2 rounded-full shrink-0"
-                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500' : 'bg-slate-400'"
+                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50' : 'bg-slate-400'"
+                    :title="inst.liveMetrics?.isOnline ? 'Online (Telemetry Active)' : 'Offline / Telemetry Inactive'"
                   ></span>
                   <div>
                     <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span>{{ inst.name }}</span>
                       <span
                         v-if="inst.groupName"
-                        class="px-1.5 py-0.2 rounded text-[9px] font-normal bg-slate-100 dark:bg-[#192236] text-slate-500 dark:text-slate-400"
+                        class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-slate-100 dark:bg-[#192236] text-slate-500 dark:text-slate-400"
                       >
                         {{ inst.groupName }}
                       </span>
                     </div>
-                    <div class="text-[11px] text-slate-400 font-mono">
-                      {{ inst.host }}
-                    </div>
                   </div>
                 </div>
+              </td>
+
+              <!-- Hostname Column -->
+              <td class="py-3 px-4">
+                <span
+                  class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200"
+                  :title="inst.liveMetrics?.detectedHostname || inst.hostname || inst.host"
+                >
+                  {{ inst.liveMetrics?.detectedHostname || inst.hostname || (inst.host !== inst.ipAddress ? inst.host : '-') }}
+                </span>
+              </td>
+
+              <!-- IP Address Column -->
+              <td class="py-3 px-4">
+                <span class="font-mono text-xs text-slate-600 dark:text-slate-300">
+                  {{ inst.ipAddress || inst.host }}
+                </span>
               </td>
 
               <!-- CPU Column -->
@@ -1293,13 +1333,20 @@ onUnmounted(() => {
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
                   </span>
-                  <div class="w-24 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
+                  <div class="w-20 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(inst.liveMetrics?.cpuPct)"
                       :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.cpuPct || 0))}%` }"
                     ></div>
                   </div>
+                  <span
+                    v-if="inst.liveMetrics?.cpuCount"
+                    class="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
+                    title="Logical vCPU Cores"
+                  >
+                    {{ inst.liveMetrics.cpuCount }}c
+                  </span>
                 </div>
               </td>
 
@@ -1309,13 +1356,19 @@ onUnmounted(() => {
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
                   </span>
-                  <div class="w-24 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
+                  <div class="w-20 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(inst.liveMetrics?.memPct)"
                       :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.memPct || 0))}%` }"
                     ></div>
                   </div>
+                </div>
+                <div
+                  v-if="inst.liveMetrics?.memTotalBytes"
+                  class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5"
+                >
+                  {{ (inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1) }} / {{ (inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1) }} GB
                 </div>
               </td>
 
@@ -1325,7 +1378,7 @@ onUnmounted(() => {
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
                   </span>
-                  <div class="w-24 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
+                  <div class="w-20 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(inst.liveMetrics?.diskPct)"
@@ -1337,7 +1390,10 @@ onUnmounted(() => {
 
               <!-- Net Column -->
               <td class="py-3 px-4 font-semibold">
-                {{ (inst.liveMetrics?.netTotalMb || 0).toFixed(2) }} MB/s
+                <div>{{ (inst.liveMetrics?.netTotalMb || 0).toFixed(2) }} MB/s</div>
+                <div class="text-[10px] text-slate-400 font-normal">
+                  ↓{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} ↑{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }}
+                </div>
               </td>
 
               <!-- Agent Column -->
@@ -1637,14 +1693,25 @@ onUnmounted(() => {
             </select>
           </div>
 
-          <!-- Host / IP -->
+          <!-- Hostname -->
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Hostname or IP *</label>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Hostname</label>
             <input
-              v-model="instanceForm.host"
+              v-model="instanceForm.hostname"
               type="text"
-              placeholder="10.20.3.36 or host.fqdn"
-              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              placeholder="e.g. yggdrasil, agent-node"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
+            />
+          </div>
+
+          <!-- IP Address -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">IP Address *</label>
+            <input
+              v-model="instanceForm.ipAddress"
+              type="text"
+              placeholder="e.g. 10.20.3.29"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
             />
           </div>
 
@@ -1655,7 +1722,7 @@ onUnmounted(() => {
               v-model.number="instanceForm.port"
               type="number"
               placeholder="8889"
-              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
             />
           </div>
 

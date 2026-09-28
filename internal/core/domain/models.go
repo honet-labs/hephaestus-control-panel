@@ -1033,6 +1033,7 @@ type MonitoringInstance struct {
 	Name             string               `json:"name"`
 	Host             string               `json:"host"`
 	IPAddress        string               `json:"ipAddress"`
+	Hostname         string               `json:"hostname,omitempty"`
 	Port             int                  `json:"port"`
 	InstanceType     string               `json:"instanceType"` // "vm", "docker", "server"
 	GroupName        string               `json:"groupName"`
@@ -1075,9 +1076,10 @@ type InstanceDiskMetric struct {
 }
 
 type InstanceLiveMetrics struct {
-	IsOnline      bool                 `json:"isOnline"`
-	AgentVersion  string               `json:"agentVersion"` // e.g. "0.11.1" or "N/A"
-	HasOTel       bool                 `json:"hasOtel"`      // true if OpenTelemetry data reported
+	IsOnline         bool                 `json:"isOnline"`
+	DetectedHostname string               `json:"detectedHostname,omitempty"` // Real hostname from OpenTelemetry
+	AgentVersion     string               `json:"agentVersion"`               // e.g. "0.159.0" or "N/A"
+	HasOTel          bool                 `json:"hasOtel"`                    // true if OpenTelemetry data reported
 	CPUPct        *float64             `json:"cpuPct"`       // nil or float
 	CPUCount      int                  `json:"cpuCount"`     // vCPU count
 	MemPct        *float64             `json:"memPct"`
@@ -1119,6 +1121,7 @@ type CreateMonitoringInstanceRequest struct {
 	Name             string   `json:"name" binding:"required"`
 	Host             string   `json:"host" binding:"required"`
 	IPAddress        string   `json:"ipAddress"`
+	Hostname         string   `json:"hostname"`
 	Port             int      `json:"port"`
 	InstanceType     string   `json:"instanceType"` // "vm", "docker", "server"
 	GroupName        string   `json:"groupName"`
@@ -1134,6 +1137,7 @@ type UpdateMonitoringInstanceRequest struct {
 	Name             string   `json:"name" binding:"required"`
 	Host             string   `json:"host" binding:"required"`
 	IPAddress        string   `json:"ipAddress"`
+	Hostname         string   `json:"hostname"`
 	Port             int      `json:"port"`
 	InstanceType     string   `json:"instanceType"`
 	GroupName        string   `json:"groupName"`
