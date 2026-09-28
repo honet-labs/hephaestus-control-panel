@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/logger"
+	"go-hephaestus/internal/queue"
 	"go-hephaestus/internal/repository"
 )
 
@@ -18,18 +20,152 @@ type MonitoringInstanceService struct {
 	instRepo       *repository.MonitoringInstanceRepository
 	remoteHostRepo *repository.RemoteHostRepository
 	promService    *PrometheusService
+	workerPool     *queue.WorkerPool
+
+	// Metrics Cache & Polling Engine
+	cacheMu         sync.RWMutex
+	metricsCache    map[string]*domain.InstanceLiveMetrics
+	lastPolledAt    time.Time
+	isPolling       bool
+	pollInterval    time.Duration
+	stopChan        chan struct{}
+	pollTriggerChan chan struct{}
 }
 
 func NewMonitoringInstanceService(
 	instRepo *repository.MonitoringInstanceRepository,
 	remoteHostRepo *repository.RemoteHostRepository,
 	promService *PrometheusService,
+	workerPool *queue.WorkerPool,
 ) *MonitoringInstanceService {
 	return &MonitoringInstanceService{
-		instRepo:       instRepo,
-		remoteHostRepo: remoteHostRepo,
-		promService:    promService,
+		instRepo:        instRepo,
+		remoteHostRepo:  remoteHostRepo,
+		promService:     promService,
+		workerPool:      workerPool,
+		metricsCache:    make(map[string]*domain.InstanceLiveMetrics),
+		pollInterval:    30 * time.Second, // default 30s as requested
+		stopChan:        make(chan struct{}),
+		pollTriggerChan: make(chan struct{}, 1),
 	}
+}
+
+// StartBackgroundEngine starts the periodic polling queue engine to fetch metrics from Prometheus in background
+func (s *MonitoringInstanceService) StartBackgroundEngine() {
+	if s.workerPool != nil {
+		s.workerPool.RegisterHandler("monitoring_instance_poll", func(ctx context.Context, job *domain.Job, updateProgress func(progress int, msg string)) error {
+			s.pollAllMetricsOnce(ctx)
+			return nil
+		})
+	}
+
+	go func() {
+		// Wait 2 seconds on startup before initial poll
+		time.Sleep(2 * time.Second)
+		s.pollAllMetricsOnce(context.Background())
+
+		s.cacheMu.RLock()
+		interval := s.pollInterval
+		s.cacheMu.RUnlock()
+
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-s.stopChan:
+				return
+			case <-s.pollTriggerChan:
+				s.pollAllMetricsOnce(context.Background())
+			case <-ticker.C:
+				s.cacheMu.RLock()
+				curInterval := s.pollInterval
+				s.cacheMu.RUnlock()
+
+				if curInterval != interval && curInterval > 0 {
+					interval = curInterval
+					ticker.Reset(interval)
+				}
+				if interval > 0 {
+					s.pollAllMetricsOnce(context.Background())
+				}
+			}
+		}
+	}()
+	logger.Info("MonitoringEngine", "Background Prometheus metric polling engine started (Default: 30s)")
+}
+
+func (s *MonitoringInstanceService) Stop() {
+	close(s.stopChan)
+}
+
+func (s *MonitoringInstanceService) TriggerImmediatePoll() {
+	select {
+	case s.pollTriggerChan <- struct{}{}:
+	default:
+	}
+}
+
+func (s *MonitoringInstanceService) SetPollInterval(d time.Duration) {
+	s.cacheMu.Lock()
+	s.pollInterval = d
+	s.cacheMu.Unlock()
+	logger.Info("MonitoringEngine", fmt.Sprintf("Auto-refresh polling interval updated to %v", d))
+}
+
+func (s *MonitoringInstanceService) GetEngineStatus() map[string]interface{} {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+
+	return map[string]interface{}{
+		"lastPolledAt":        s.lastPolledAt,
+		"pollIntervalSeconds": int(s.pollInterval.Seconds()),
+		"isPolling":           s.isPolling,
+		"cachedInstances":     len(s.metricsCache),
+	}
+}
+
+// pollAllMetricsOnce runs batch metrics retrieval with a strict timeout and updates the in-memory cache
+func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
+	s.cacheMu.Lock()
+	if s.isPolling {
+		s.cacheMu.Unlock()
+		return
+	}
+	s.isPolling = true
+	s.cacheMu.Unlock()
+
+	defer func() {
+		s.cacheMu.Lock()
+		s.isPolling = false
+		s.cacheMu.Unlock()
+	}()
+
+	// Query all instances across the system with a 12-second timeout context to prevent any hang
+	pollCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	instances, err := s.instRepo.List(pollCtx, 0, "ADMIN", "", "")
+	if err != nil || len(instances) == 0 {
+		return
+	}
+
+	start := time.Now()
+	s.BatchGetLiveMetrics(pollCtx, instances)
+
+	s.cacheMu.Lock()
+	for _, inst := range instances {
+		if inst.LiveMetrics != nil {
+			s.metricsCache[inst.ID] = inst.LiveMetrics
+		}
+	}
+	s.lastPolledAt = time.Now()
+	s.cacheMu.Unlock()
+
+	logger.Info("MonitoringEngine", fmt.Sprintf("Polled metrics for %d instances in %v", len(instances), time.Since(start)))
 }
 
 // Prometheus API response structures
@@ -69,7 +205,38 @@ func (s *MonitoringInstanceService) ListInstances(
 	}
 
 	if fetchMetrics && len(instances) > 0 {
-		s.BatchGetLiveMetrics(ctx, instances)
+		s.cacheMu.RLock()
+		cacheLen := len(s.metricsCache)
+		for _, inst := range instances {
+			if cached, exists := s.metricsCache[inst.ID]; exists {
+				inst.LiveMetrics = cached
+			} else {
+				// Clean N/A placeholder
+				inst.LiveMetrics = &domain.InstanceLiveMetrics{
+					IsOnline:      false,
+					AgentVersion:  "N/A",
+					HasOTel:       false,
+					CPUPct:        nil,
+					CPUCount:      0,
+					MemPct:        nil,
+					MemUsedBytes:  0,
+					MemFreeBytes:  0,
+					MemTotalBytes: 0,
+					DiskPct:       nil,
+					Disks:         []domain.InstanceDiskMetric{},
+					NetDownloadMB: 0,
+					NetUploadMB:   0,
+					NetTotalMB:    0,
+					LastUpdated:   s.lastPolledAt,
+				}
+			}
+		}
+		s.cacheMu.RUnlock()
+
+		// Trigger background poll if cache was empty
+		if cacheLen == 0 {
+			s.TriggerImmediatePoll()
+		}
 	}
 
 	return instances, nil
@@ -88,8 +255,29 @@ func (s *MonitoringInstanceService) GetInstance(
 	}
 
 	if fetchMetrics {
-		metrics, _ := s.GetLiveMetrics(ctx, inst)
-		inst.LiveMetrics = metrics
+		s.cacheMu.RLock()
+		if cached, exists := s.metricsCache[inst.ID]; exists {
+			inst.LiveMetrics = cached
+		} else {
+			inst.LiveMetrics = &domain.InstanceLiveMetrics{
+				IsOnline:      false,
+				AgentVersion:  "N/A",
+				HasOTel:       false,
+				CPUPct:        nil,
+				CPUCount:      0,
+				MemPct:        nil,
+				MemUsedBytes:  0,
+				MemFreeBytes:  0,
+				MemTotalBytes: 0,
+				DiskPct:       nil,
+				Disks:         []domain.InstanceDiskMetric{},
+				NetDownloadMB: 0,
+				NetUploadMB:   0,
+				NetTotalMB:    0,
+				LastUpdated:   s.lastPolledAt,
+			}
+		}
+		s.cacheMu.RUnlock()
 	}
 
 	return inst, nil

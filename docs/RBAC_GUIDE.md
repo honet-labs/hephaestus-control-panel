@@ -207,3 +207,19 @@ Hanya tampilkan tombol aksi jika user adalah pemilik (*owner*), memiliki izin `m
 6. [ ] Terapkan `middleware.RequirePermission` pada seluruh endpoint rute di `main.go`.
 7. [ ] Bungkus tombol aksi di Vue template dengan `authStore.can(...)` atau `inst.isOwner`.
 8. [ ] Tambahkan entri di `CommandPalette.vue` dan `AppLayout.vue`.
+
+---
+
+## 8. Monitoring Instances Background Queue & Auto-Refresh Engine
+
+Untuk mencegah aplikasi mengalami **hang** atau *request timeout* saat menarik data Prometheus:
+1. **In-Memory Thread-Safe Cache (`metricsCache`)**:
+   - Endpoint `GET /api/v1/monitoring/instances` mengembalikan data dari memory cache (`< 5ms response time`).
+   - Permintaan HTTP dari browser tidak pernah memblokir query langsung ke Prometheus.
+2. **Background Queue Engine**:
+   - Engine berjalan secara periodik di background melalui goroutine dan worker pool.
+   - Interval auto-refresh dapat diatur dinamis: **30 detik (default)**, **1 menit**, atau **5 menit** via API `POST /api/v1/monitoring/instances/engine/interval`.
+   - Terdapat mekanisme *concurrency lock* (`isPolling`) dan timeout 12 detik sehingga siklus penarikan data tidak akan pernah bertumpuk (*no queue storm*).
+3. **On-Demand Immediate Queue Poll**:
+   - Tombol Refresh di UI memicu `POST /api/v1/monitoring/instances/poll-now` yang memasukkan task ke queue secara non-blocking dan langsung mengembalikan status terbaru.
+

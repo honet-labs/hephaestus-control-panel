@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/services"
@@ -297,3 +300,58 @@ func (h *MonitoringInstanceHandler) DeleteShare(c *gin.Context) {
 		"message": "Share revoked successfully",
 	})
 }
+
+// GetEngineStatus handles GET /api/v1/monitoring/instances/engine/status
+func (h *MonitoringInstanceHandler) GetEngineStatus(c *gin.Context) {
+	status := h.service.GetEngineStatus()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    status,
+	})
+}
+
+// SetEngineInterval handles POST /api/v1/monitoring/instances/engine/interval
+func (h *MonitoringInstanceHandler) SetEngineInterval(c *gin.Context) {
+	var body struct {
+		Interval string `json:"interval" binding:"required"` // "30s", "1m", "5m"
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Interval required (e.g. '30s', '1m', '5m')"})
+		return
+	}
+
+	var dur time.Duration
+	switch strings.ToLower(strings.TrimSpace(body.Interval)) {
+	case "30s", "30":
+		dur = 30 * time.Second
+	case "1m", "60s", "60":
+		dur = 1 * time.Minute
+	case "5m", "300s", "300":
+		dur = 5 * time.Minute
+	default:
+		parsed, err := time.ParseDuration(body.Interval)
+		if err != nil || parsed < 5*time.Second {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid interval. Supported: '30s', '1m', '5m'"})
+			return
+		}
+		dur = parsed
+	}
+
+	h.service.SetPollInterval(dur)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Auto-refresh polling queue interval set to %v", dur),
+		"data":    h.service.GetEngineStatus(),
+	})
+}
+
+// PollNow handles POST /api/v1/monitoring/instances/poll-now
+func (h *MonitoringInstanceHandler) PollNow(c *gin.Context) {
+	h.service.TriggerImmediatePoll()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Prometheus metric polling queue triggered immediately",
+		"data":    h.service.GetEngineStatus(),
+	})
+}
+

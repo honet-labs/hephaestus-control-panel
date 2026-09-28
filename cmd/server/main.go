@@ -103,7 +103,8 @@ func main() {
 	systemService := services.NewSystemService()
 	reportService := services.NewReportService(reportRepo, configRepo, openSearchService, promService)
 	statusPageService := services.NewStatusPageService(statusPageRepo, topologyRepo, remoteRepo, configRepo, openSearchService, promService, sshService)
-	monitoringInstanceService := services.NewMonitoringInstanceService(monitoringInstanceRepo, remoteRepo, promService)
+	monitoringInstanceService := services.NewMonitoringInstanceService(monitoringInstanceRepo, remoteRepo, promService, workerPool)
+	monitoringInstanceService.StartBackgroundEngine()
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -323,6 +324,9 @@ func main() {
 		api.GET("/monitoring/instances/:id/shares", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.ListShares)
 		api.POST("/monitoring/instances/:id/shares", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.AddShare)
 		api.DELETE("/monitoring/instances/:id/shares/:userId", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.DeleteShare)
+		api.GET("/monitoring/instances/engine/status", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetEngineStatus)
+		api.POST("/monitoring/instances/engine/interval", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.SetEngineInterval)
+		api.POST("/monitoring/instances/poll-now", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.PollNow)
 
 		// VPS Telemetry, Processes, Services, and Network (Feature: remote_servers)
 		api.GET("/vps/:id/metrics", middleware.RequirePermission("remote_servers", "read"), vpsHandler.GetMetrics)

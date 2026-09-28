@@ -138,9 +138,15 @@ const searchQuery = ref('');
 const selectedGroup = ref('all');
 const selectedTag = ref('all');
 const viewMode = ref<'grid' | 'list'>('grid');
-const autoRefreshInterval = ref<number>(15); // seconds
+const autoRefreshInterval = ref<number>(30); // 30s default
 const expandedDisks = ref<Record<string, boolean>>({});
 const activeDropdownId = ref<string | null>(null);
+const engineStatus = ref<{
+  lastPolledAt: string;
+  pollIntervalSeconds: number;
+  isPolling: boolean;
+  cachedInstances: number;
+} | null>(null);
 
 // Notification
 const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -153,6 +159,42 @@ const showNotice = (text: string, type: 'success' | 'error' = 'success') => {
 
 // Auto refresh timer
 let refreshTimer: any = null;
+
+const lastPolledHuman = computed(() => {
+  if (engineStatus.value?.lastPolledAt) {
+    const d = new Date(engineStatus.value.lastPolledAt);
+    if (!isNaN(d.getTime()) && d.getFullYear() > 2000) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+  }
+  return '';
+});
+
+const fetchEngineStatus = async () => {
+  try {
+    const res = await axios.get('/api/v1/monitoring/instances/engine/status');
+    if (res.data?.success) {
+      engineStatus.value = res.data.data;
+    }
+  } catch {
+    // ignore
+  }
+};
+
+const triggerPollNow = async () => {
+  refreshing.value = true;
+  try {
+    await axios.post('/api/v1/monitoring/instances/poll-now');
+    // Fetch cached instances immediately (non-blocking)
+    await fetchInstances(true);
+    await fetchEngineStatus();
+    showNotice('Metrics poll queued and updated');
+  } catch (err: any) {
+    showNotice(err.response?.data?.error || 'Failed to poll metrics', 'error');
+  } finally {
+    refreshing.value = false;
+  }
+};
 
 // ECharts Dynamic Loader
 const getECharts = async () => {
@@ -722,14 +764,24 @@ const toggleDisks = (id: string) => {
   expandedDisks.value[id] = !expandedDisks.value[id];
 };
 
-// Auto refresh interval handler
-const setAutoRefresh = (sec: number) => {
+// Auto refresh interval handler (30s, 1m, 5m, 0/pause)
+const setAutoRefresh = async (sec: number) => {
   autoRefreshInterval.value = sec;
   clearInterval(refreshTimer);
   if (sec > 0) {
     refreshTimer = setInterval(() => {
       fetchInstances(true);
+      fetchEngineStatus();
     }, sec * 1000);
+
+    // Sync interval with backend queue engine
+    try {
+      await axios.post('/api/v1/monitoring/instances/engine/interval', {
+        interval: `${sec}s`,
+      });
+    } catch {
+      // ignore
+    }
   }
 };
 
@@ -753,6 +805,7 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
   await fetchInstances();
   await fetchGroups();
+  await fetchEngineStatus();
   setAutoRefresh(autoRefreshInterval.value);
 });
 
@@ -792,15 +845,15 @@ onUnmounted(() => {
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
-        <!-- Refresh Button -->
+        <!-- Refresh Button (Instant queue trigger) -->
         <button
-          @click="fetchInstances(false)"
+          @click="triggerPollNow"
           :disabled="loading || refreshing"
           class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#161c2d] text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer disabled:opacity-50"
-          title="Refresh Metrics"
+          title="Queue Prometheus metric poll now"
         >
           <RefreshCw class="w-3.5 h-3.5 text-slate-400" :class="{ 'animate-spin': refreshing || loading }" />
-          <span>Refresh</span>
+          <span>{{ refreshing ? 'Polling...' : 'Refresh' }}</span>
         </button>
 
         <!-- Sync Remote Hosts -->
@@ -825,10 +878,19 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Toolbar: Status subtitle, Instant Search, Filters & View Switcher -->
+    <!-- Toolbar: Queue engine status, Instant Search, Filters & View Switcher -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
-      <div class="text-xs text-slate-500 dark:text-slate-400 font-medium">
-        Updated in real time. Click on an instance to view detailed telemetry.
+      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Queue Engine: <strong>{{ autoRefreshInterval === 0 ? 'Paused' : autoRefreshInterval < 60 ? `${autoRefreshInterval}s` : `${autoRefreshInterval / 60}m` }}</strong></span>
+        </div>
+        <span class="text-slate-300 dark:text-slate-600">•</span>
+        <span>Cached: <strong>{{ instances.length }} devices</strong></span>
+        <template v-if="lastPolledHuman">
+          <span class="text-slate-300 dark:text-slate-600">•</span>
+          <span>Last polled: <strong>{{ lastPolledHuman }}</strong></span>
+        </template>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
@@ -864,18 +926,17 @@ onUnmounted(() => {
           <option v-for="t in availableTags" :key="t" :value="t">{{ t }}</option>
         </select>
 
-        <!-- Auto Refresh Selector -->
+        <!-- Auto Refresh Selector (30s, 1m, 5m, Pause) -->
         <select
           :value="autoRefreshInterval"
           @change="setAutoRefresh(Number(($event.target as HTMLSelectElement).value))"
-          class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-          title="Auto Refresh Rate"
+          class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer font-medium"
+          title="Auto Refresh Rate (Queue Engine)"
         >
-          <option :value="10">10s auto</option>
-          <option :value="15">15s auto</option>
-          <option :value="30">30s auto</option>
-          <option :value="60">60s auto</option>
-          <option :value="0">Pause</option>
+          <option :value="30">Auto: 30s (Default)</option>
+          <option :value="60">Auto: 1m</option>
+          <option :value="300">Auto: 5m</option>
+          <option :value="0">Auto: Pause</option>
         </select>
 
         <!-- Grid vs List View Toggle -->
