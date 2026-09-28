@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -16,9 +18,11 @@ import (
 )
 
 type PrometheusService struct {
-	configRepo *repository.ConfigRepository
-	sshService *SSHService
-	httpClient *http.Client
+	configRepo    *repository.ConfigRepository
+	sshService    *SSHService
+	httpClient    *http.Client
+	promMu        sync.RWMutex
+	cachedBaseURL string
 }
 
 func NewPrometheusService(configRepo *repository.ConfigRepository, sshService *SSHService) *PrometheusService {
@@ -29,17 +33,94 @@ func NewPrometheusService(configRepo *repository.ConfigRepository, sshService *S
 	}
 }
 
+func (s *PrometheusService) GetActiveConfig(ctx context.Context) (*domain.PrometheusConfig, error) {
+	return s.configRepo.GetActivePrometheus(ctx)
+}
+
+func (s *PrometheusService) resolveBaseURL(ctx context.Context, promCfg *domain.PrometheusConfig) string {
+	s.promMu.RLock()
+	cached := s.cachedBaseURL
+	s.promMu.RUnlock()
+	if cached != "" {
+		return cached
+	}
+
+	rawBase := strings.TrimSuffix(promCfg.ReloadURL, "/-/reload")
+	rawBase = strings.TrimRight(rawBase, "/")
+
+	var candidates []string
+	if rawBase != "" {
+		candidates = append(candidates, rawBase)
+	}
+
+	if u, err := url.Parse(rawBase); err == nil {
+		h := u.Hostname()
+		port := u.Port()
+		if port == "" {
+			port = "9090"
+		}
+		if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "" {
+			candidates = append(candidates,
+				fmt.Sprintf("http://host.docker.internal:%s", port),
+				fmt.Sprintf("http://172.17.0.1:%s", port),
+			)
+			if promCfg.SSHHost != nil && *promCfg.SSHHost != "" && *promCfg.SSHHost != "localhost" && *promCfg.SSHHost != "127.0.0.1" {
+				candidates = append(candidates, fmt.Sprintf("http://%s:%s", *promCfg.SSHHost, port))
+			}
+		}
+	} else if promCfg.SSHHost != nil && *promCfg.SSHHost != "" {
+		candidates = append(candidates, fmt.Sprintf("http://%s:9090", *promCfg.SSHHost))
+	}
+
+	// Always fallback to rawBase if probing doesn't pick anything
+	workingURL := rawBase
+	for _, cand := range candidates {
+		probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		req, err := http.NewRequestWithContext(probeCtx, "GET", cand+"/-/healthy", nil)
+		if err == nil {
+			resp, rErr := s.httpClient.Do(req)
+			if rErr == nil {
+				resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+					workingURL = cand
+					cancel()
+					break
+				}
+			}
+		}
+		cancel()
+	}
+
+	s.promMu.Lock()
+	s.cachedBaseURL = workingURL
+	s.promMu.Unlock()
+
+	return workingURL
+}
+
 func (s *PrometheusService) Query(ctx context.Context, promQL string) (interface{}, error) {
 	return s.QueryPromQL(ctx, promQL)
 }
 
 func (s *PrometheusService) QueryPromQL(ctx context.Context, promQL string) (interface{}, error) {
+	data, err := s.QueryPromQLRaw(ctx, promQL)
+	if err != nil {
+		return nil, err
+	}
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *PrometheusService) QueryPromQLRaw(ctx context.Context, promQL string) ([]byte, error) {
 	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("no active Prometheus server found: %w", err)
 	}
 
-	baseURL := strings.TrimSuffix(promCfg.ReloadURL, "/-/reload")
+	baseURL := s.resolveBaseURL(ctx, promCfg)
 	queryURL := fmt.Sprintf("%s/api/v1/query?query=%s", baseURL, url.QueryEscape(promQL))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
@@ -53,11 +134,41 @@ func (s *PrometheusService) QueryPromQL(ctx context.Context, promQL string) (int
 	}
 	defer resp.Body.Close()
 
-	var result interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (s *PrometheusService) QueryRangePromQL(ctx context.Context, promQL string, start, end time.Time, step string) ([]byte, error) {
+	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("no active Prometheus server found: %w", err)
+	}
+
+	baseURL := s.resolveBaseURL(ctx, promCfg)
+	queryURL := fmt.Sprintf("%s/api/v1/query_range?query=%s&start=%d&end=%d&step=%s",
+		baseURL, url.QueryEscape(promQL), start.Unix(), end.Unix(), step)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", queryURL, nil)
+	if err != nil {
 		return nil, err
 	}
-	return result, nil
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 func (s *PrometheusService) ReloadConfig(ctx context.Context) error {

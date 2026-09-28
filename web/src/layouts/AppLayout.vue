@@ -57,6 +57,7 @@ const isToolsOpen = ref(
   route.path.startsWith('/backup')
 );
 const isMonitoringOpen = ref(
+  route.path.startsWith('/monitoring/instances') ||
   route.path.startsWith('/status-pages') ||
   route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
@@ -94,6 +95,7 @@ const isToolsActive = computed(() =>
 );
 const isSecurityActive = computed(() => route.path.startsWith('/security'));
 const isMonitoringActive = computed(() =>
+  route.path.startsWith('/monitoring/instances') ||
   route.path.startsWith('/status-pages') ||
   route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
@@ -129,6 +131,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/grok-debugger')) return 'Grok Debugger';
   if (route.path.startsWith('/backup')) return 'Backup Manager';
   if (route.path.startsWith('/security/vaultwarden')) return 'Vaultwarden';
+  if (route.path.startsWith('/monitoring/instances')) return 'Monitoring Instances';
   if (route.path.startsWith('/status-pages')) return 'Status Pages';
   if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
   if (route.path.startsWith('/slideshow')) return 'Slide Show';
@@ -165,7 +168,7 @@ watch(
     if (newPath.startsWith('/security')) {
       isSecurityOpen.value = true;
     }
-    if (newPath.startsWith('/status-pages') || newPath.startsWith('/opensearch-cluster') || newPath.startsWith('/slideshow')) {
+    if (newPath.startsWith('/monitoring/instances') || newPath.startsWith('/status-pages') || newPath.startsWith('/opensearch-cluster') || newPath.startsWith('/slideshow')) {
       isMonitoringOpen.value = true;
     }
     if (newPath.startsWith('/reports') || newPath.startsWith('/report')) {
@@ -594,7 +597,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 8. Monitoring (Accordion) -->
-          <div v-if="authStore.can('status_pages', 'read') || authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
+          <div v-if="authStore.can('monitoring_instances', 'read') || authStore.can('status_pages', 'read') || authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
             <button
               @click="isMonitoringOpen = !isMonitoringOpen"
               :class="[
@@ -613,6 +616,19 @@ onUnmounted(() => {
 
             <!-- Monitoring Sub-Menu Items -->
             <div v-show="isMonitoringOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <router-link
+                v-if="authStore.can('monitoring_instances', 'read')"
+                to="/monitoring/instances"
+                :class="[
+                  route.path.startsWith('/monitoring/instances')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                ]"
+              >
+                <span>Monitoring Instance</span>
+              </router-link>
+
               <router-link
                 v-if="authStore.can('status_pages', 'read')"
                 to="/status-pages"

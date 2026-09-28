@@ -41,6 +41,7 @@ import {
   KeyRound,
   Radio,
   Boxes,
+  Server,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -538,6 +539,7 @@ const SYSTEM_FEATURES = [
   { key: 'dataprepper_config', label: 'Data Prepper Pipelines', desc: 'Log routing, pipeline buffer configuration, and sink YAML validator', icon: Layers },
   { key: 'prometheus_config', label: 'Prometheus & PromQL', desc: 'Prometheus query console and scrape target endpoint configurations', icon: BarChart2 },
   { key: 'opentelemetry_config', label: 'OpenTelemetry Remote Config', desc: 'Multi-host OpenTelemetry Collector agent management, YAML configuration & systemd service control', icon: Radio },
+  { key: 'monitoring_instances', label: 'Monitoring Instances', desc: 'Real-time CPU, Memory, Disk, and Network telemetry via OpenTelemetry & Prometheus', icon: Server },
   { key: 'slideshow', label: 'Slideshow & Kiosk', desc: 'Rotating NOC presentation views and full-screen telemetry monitoring', icon: Monitor },
   { key: 'settings', label: 'System & Audit Logs', desc: 'Background queue daemons, console logs, and security audit trail', icon: Settings },
 ];

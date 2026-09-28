@@ -1026,4 +1026,133 @@ type StatusPageSourceOption struct {
 	Status     string `json:"status,omitempty"`
 }
 
+// ==================== MONITORING INSTANCES DOMAIN ====================
+
+type MonitoringInstance struct {
+	ID               string               `json:"id"`
+	Name             string               `json:"name"`
+	Host             string               `json:"host"`
+	IPAddress        string               `json:"ipAddress"`
+	Port             int                  `json:"port"`
+	InstanceType     string               `json:"instanceType"` // "vm", "docker", "server"
+	GroupName        string               `json:"groupName"`
+	Tags             []string             `json:"tags"`
+	PrometheusTarget string               `json:"prometheusTarget"`
+	RemoteHostID     *string              `json:"remoteHostId,omitempty"`
+	UserID           *int                 `json:"userId,omitempty"`
+	OwnerUsername    string               `json:"ownerUsername,omitempty"`
+	Visibility       string               `json:"visibility"` // "public", "private"
+	AlertEnabled     bool                 `json:"alertEnabled"`
+	Notes            string               `json:"notes,omitempty"`
+	IsOwner          bool                 `json:"isOwner"`
+	UserPermission   string               `json:"userPermission,omitempty"` // "read", "manage"
+	SharesCount      int                  `json:"sharesCount"`
+	CreatedAt        time.Time            `json:"createdAt"`
+	UpdatedAt        time.Time            `json:"updatedAt"`
+	LiveMetrics      *InstanceLiveMetrics `json:"liveMetrics,omitempty"`
+}
+
+type MonitoringInstanceShare struct {
+	ID               string    `json:"id"`
+	InstanceID       string    `json:"instanceId"`
+	UserID           int       `json:"userId"`
+	Username         string    `json:"username,omitempty"`
+	Permission       string    `json:"permission"` // "read", "manage"
+	SharedBy         *int      `json:"sharedBy,omitempty"`
+	SharedByUsername string    `json:"sharedByUsername,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
+type InstanceDiskMetric struct {
+	Mountpoint string  `json:"mountpoint"`
+	Device     string  `json:"device,omitempty"`
+	FSType     string  `json:"fsType,omitempty"`
+	UsagePct   float64 `json:"usagePct"`
+	UsedBytes  float64 `json:"usedBytes"`
+	TotalBytes float64 `json:"totalBytes"`
+	FreeBytes  float64 `json:"freeBytes"`
+	UsageHuman string  `json:"usageHuman"`
+}
+
+type InstanceLiveMetrics struct {
+	IsOnline      bool                 `json:"isOnline"`
+	AgentVersion  string               `json:"agentVersion"` // e.g. "0.11.1" or "N/A"
+	HasOTel       bool                 `json:"hasOtel"`      // true if OpenTelemetry data reported
+	CPUPct        *float64             `json:"cpuPct"`       // nil or float
+	CPUCount      int                  `json:"cpuCount"`     // vCPU count
+	MemPct        *float64             `json:"memPct"`
+	MemUsedBytes  float64              `json:"memUsedBytes"`
+	MemFreeBytes  float64              `json:"memFreeBytes"`
+	MemTotalBytes float64              `json:"memTotalBytes"`
+	DiskPct       *float64             `json:"diskPct"` // overall/root disk %
+	Disks         []InstanceDiskMetric `json:"disks"`
+	NetDownloadMB float64              `json:"netDownloadMb"` // MB/s
+	NetUploadMB   float64              `json:"netUploadMb"`   // MB/s
+	NetTotalMB    float64              `json:"netTotalMb"`    // MB/s
+	Temperature   *float64             `json:"temperature,omitempty"`
+	GPUUsagePct   *float64             `json:"gpuUsagePct,omitempty"`
+	LastUpdated   time.Time            `json:"lastUpdated"`
+}
+
+type MetricHistoryPoint struct {
+	Timestamp int64   `json:"timestamp"` // Unix timestamp in seconds
+	Value     float64 `json:"value"`
+}
+
+type InstanceHistorySeries struct {
+	MetricName string               `json:"metricName"`
+	Unit       string               `json:"unit"`
+	Points     []MetricHistoryPoint `json:"points"`
+}
+
+type InstanceHistoryResponse struct {
+	InstanceID string               `json:"instanceId"`
+	TimeRange  string               `json:"timeRange"` // "1h", "6h", "24h", "7d"
+	CPU        []MetricHistoryPoint `json:"cpu"`
+	Memory     []MetricHistoryPoint `json:"memory"`
+	Disk       []MetricHistoryPoint `json:"disk"`
+	NetIn      []MetricHistoryPoint `json:"netIn"`
+	NetOut     []MetricHistoryPoint `json:"netOut"`
+}
+
+type CreateMonitoringInstanceRequest struct {
+	Name             string   `json:"name" binding:"required"`
+	Host             string   `json:"host" binding:"required"`
+	IPAddress        string   `json:"ipAddress"`
+	Port             int      `json:"port"`
+	InstanceType     string   `json:"instanceType"` // "vm", "docker", "server"
+	GroupName        string   `json:"groupName"`
+	Tags             []string `json:"tags"`
+	PrometheusTarget string   `json:"prometheusTarget"`
+	RemoteHostID     *string  `json:"remoteHostId"`
+	Visibility       string   `json:"visibility"`
+	AlertEnabled     bool     `json:"alertEnabled"`
+	Notes            string   `json:"notes"`
+}
+
+type UpdateMonitoringInstanceRequest struct {
+	Name             string   `json:"name" binding:"required"`
+	Host             string   `json:"host" binding:"required"`
+	IPAddress        string   `json:"ipAddress"`
+	Port             int      `json:"port"`
+	InstanceType     string   `json:"instanceType"`
+	GroupName        string   `json:"groupName"`
+	Tags             []string `json:"tags"`
+	PrometheusTarget string   `json:"prometheusTarget"`
+	RemoteHostID     *string  `json:"remoteHostId"`
+	Visibility       string   `json:"visibility"`
+	AlertEnabled     bool     `json:"alertEnabled"`
+	Notes            string   `json:"notes"`
+}
+
+type SyncRemoteHostsRequest struct {
+	HostIDs []string `json:"hostIds"`
+}
+
+type ShareMonitoringInstanceRequest struct {
+	UserID     int    `json:"userId" binding:"required"`
+	Permission string `json:"permission" binding:"required"` // "read", "manage"
+}
+
+
 

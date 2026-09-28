@@ -194,6 +194,16 @@ const router = createRouter({
           path: 'status-page',
           redirect: '/status-pages',
         },
+        {
+          path: 'monitoring/instances',
+          name: 'monitoring-instances',
+          component: () => import('../views/MonitoringInstancesView.vue'),
+          meta: { requiresAuth: true, feature: 'monitoring_instances' },
+        },
+        {
+          path: 'monitoring-instances',
+          redirect: '/monitoring/instances',
+        },
       ],
     },
     {

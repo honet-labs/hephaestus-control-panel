@@ -75,6 +75,7 @@ func main() {
 	dockerRepo := repository.NewDockerRepository()
 	reportRepo := repository.NewReportRepository()
 	statusPageRepo := repository.NewStatusPageRepository()
+	monitoringInstanceRepo := repository.NewMonitoringInstanceRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -102,6 +103,7 @@ func main() {
 	systemService := services.NewSystemService()
 	reportService := services.NewReportService(reportRepo, configRepo, openSearchService, promService)
 	statusPageService := services.NewStatusPageService(statusPageRepo, topologyRepo, remoteRepo, configRepo, openSearchService, promService, sshService)
+	monitoringInstanceService := services.NewMonitoringInstanceService(monitoringInstanceRepo, remoteRepo, promService)
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -123,6 +125,7 @@ func main() {
 	queueHandler := handlers.NewQueueHandler()
 	reportHandler := handlers.NewReportHandler(reportService)
 	statusPageHandler := handlers.NewStatusPageHandler(statusPageService, authService)
+	monitoringInstanceHandler := handlers.NewMonitoringInstanceHandler(monitoringInstanceService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -306,6 +309,20 @@ func main() {
 		api.POST("/prometheus/reload", middleware.RequirePermission("prometheus_config", "manage"), promHandler.Reload)
 		api.GET("/prometheus/config", middleware.RequirePermission("prometheus_config", "read"), promHandler.GetConfig)
 		api.POST("/prometheus/config", middleware.RequirePermission("prometheus_config", "manage"), promHandler.SaveConfig)
+
+		// Monitoring Instances (Feature: monitoring_instances)
+		api.GET("/monitoring/instances", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.ListInstances)
+		api.GET("/monitoring/instances/groups", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetGroups)
+		api.GET("/monitoring/instances/:id", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetInstance)
+		api.POST("/monitoring/instances", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.CreateInstance)
+		api.PUT("/monitoring/instances/:id", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.UpdateInstance)
+		api.DELETE("/monitoring/instances/:id", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.DeleteInstance)
+		api.PUT("/monitoring/instances/:id/alert", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.ToggleAlert)
+		api.POST("/monitoring/instances/sync-remote-hosts", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.SyncFromRemoteHosts)
+		api.GET("/monitoring/instances/:id/history", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetInstanceHistory)
+		api.GET("/monitoring/instances/:id/shares", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.ListShares)
+		api.POST("/monitoring/instances/:id/shares", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.AddShare)
+		api.DELETE("/monitoring/instances/:id/shares/:userId", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.DeleteShare)
 
 		// VPS Telemetry, Processes, Services, and Network (Feature: remote_servers)
 		api.GET("/vps/:id/metrics", middleware.RequirePermission("remote_servers", "read"), vpsHandler.GetMetrics)

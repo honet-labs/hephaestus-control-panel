@@ -678,6 +678,53 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_docker_conn_shares_conn_id ON docker_connection_shares(connection_id);
 		CREATE INDEX IF NOT EXISTS idx_docker_conn_shares_user_id ON docker_connection_shares(user_id);
+
+		-- =========================================================================
+		-- Monitoring Instances & Granular Sharing
+		-- =========================================================================
+		CREATE TABLE IF NOT EXISTS monitoring_instances (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			host VARCHAR(255) NOT NULL,
+			ip_address VARCHAR(100),
+			port INTEGER DEFAULT 8889,
+			instance_type VARCHAR(50) DEFAULT 'server',
+			group_name VARCHAR(100) DEFAULT 'Default',
+			tags TEXT[] DEFAULT '{}',
+			prometheus_target VARCHAR(255),
+			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+			alert_enabled BOOLEAN DEFAULT true,
+			notes TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_user_id ON monitoring_instances(user_id);
+		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_group ON monitoring_instances(group_name);
+		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_remote_host ON monitoring_instances(remote_host_id);
+
+		CREATE TABLE IF NOT EXISTS monitoring_instance_shares (
+			id VARCHAR(50) PRIMARY KEY,
+			instance_id VARCHAR(50) NOT NULL REFERENCES monitoring_instances(id) ON DELETE CASCADE,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(20) NOT NULL DEFAULT 'read',
+			shared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(instance_id, user_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_monitoring_instance_shares_inst ON monitoring_instance_shares(instance_id);
+		CREATE INDEX IF NOT EXISTS idx_monitoring_instance_shares_user ON monitoring_instance_shares(user_id);
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"monitoring_instances": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"monitoring_instances": "read"}'::jsonb 
+		WHERE name = 'VIEWER';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))
