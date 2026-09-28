@@ -569,7 +569,18 @@ func getInstancePattern(inst *domain.MonitoringInstance) string {
 }
 
 type hostMetricCollector struct {
-	hosts []*hostMetricData
+	hosts  []*hostMetricData
+	byIP   map[string]*hostMetricData
+	byHost map[string]*hostMetricData
+	byInst map[string]*hostMetricData
+}
+
+func newHostMetricCollector() *hostMetricCollector {
+	return &hostMetricCollector{
+		byIP:   make(map[string]*hostMetricData),
+		byHost: make(map[string]*hostMetricData),
+		byInst: make(map[string]*hostMetricData),
+	}
 }
 
 type hostMetricData struct {
@@ -595,39 +606,51 @@ func (c *hostMetricCollector) getOrCreate(labels map[string]string) *hostMetricD
 	host := strings.TrimSpace(labels["hostname"])
 	inst := strings.TrimSpace(labels["instance"])
 
-	for _, h := range c.hosts {
-		matched := false
-		if ip != "" && h.ipAddress == ip {
-			matched = true
-		} else if host != "" && strings.EqualFold(h.hostname, host) {
-			matched = true
-		} else if inst != "" && (h.instanceTarget == inst || (h.ipAddress != "" && strings.HasPrefix(inst, h.ipAddress))) {
-			matched = true
-		}
-
-		if matched {
-			if ip != "" && h.ipAddress == "" {
-				h.ipAddress = ip
-			}
-			if host != "" && h.hostname == "" {
-				h.hostname = host
-			}
-			if inst != "" && h.instanceTarget == "" {
-				h.instanceTarget = inst
-			}
-			if ver := labels["otel_scope_version"]; ver != "" && (h.agentVersion == "" || h.agentVersion == "N/A") {
-				h.agentVersion = ver
-			}
-			return h
-		}
+	var h *hostMetricData
+	if ip != "" {
+		h = c.byIP[ip]
+	}
+	if h == nil && host != "" {
+		h = c.byHost[strings.ToLower(host)]
+	}
+	if h == nil && inst != "" {
+		h = c.byInst[inst]
 	}
 
-	h := &hostMetricData{
+	if h != nil {
+		if ip != "" && h.ipAddress == "" {
+			h.ipAddress = ip
+			c.byIP[ip] = h
+		}
+		if host != "" && h.hostname == "" {
+			h.hostname = host
+			c.byHost[strings.ToLower(host)] = h
+		}
+		if inst != "" && h.instanceTarget == "" {
+			h.instanceTarget = inst
+			c.byInst[inst] = h
+		}
+		if ver := labels["otel_scope_version"]; ver != "" && (h.agentVersion == "" || h.agentVersion == "N/A") {
+			h.agentVersion = ver
+		}
+		return h
+	}
+
+	h = &hostMetricData{
 		ipAddress:      ip,
 		hostname:       host,
 		instanceTarget: inst,
 		agentVersion:   labels["otel_scope_version"],
 		disks:          make(map[string]*domain.InstanceDiskMetric),
+	}
+	if ip != "" {
+		c.byIP[ip] = h
+	}
+	if host != "" {
+		c.byHost[strings.ToLower(host)] = h
+	}
+	if inst != "" {
+		c.byInst[inst] = h
 	}
 	c.hosts = append(c.hosts, h)
 	return h
@@ -638,16 +661,16 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		return
 	}
 
-	collector := &hostMetricCollector{}
+	collector := newHostMetricCollector()
 
-	// 1. Query Up status
+	// 1. Query Up status (Populates upMap ONLY, does NOT create dummy host records)
+	upMap := make(map[string]bool)
 	upRes, err := s.executeInstantQuery(ctx, "up")
 	if err == nil && upRes != nil && upRes.Status == "success" {
 		for _, item := range upRes.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
-					h := collector.getOrCreate(item.Metric)
-					h.isOnline = true
+					upMap[item.Metric["instance"]] = true
 				}
 			}
 		}
@@ -937,32 +960,64 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 
 	for _, inst := range instances {
 		var matched *hostMetricData
-		for _, h := range collector.hosts {
-			// Match by IP Address
-			if h.ipAddress != "" && (h.ipAddress == inst.IPAddress || h.ipAddress == inst.Host) {
-				matched = h
-				break
-			}
-			// Match by Hostname
-			if h.hostname != "" {
-				if strings.EqualFold(h.hostname, inst.Host) ||
-					strings.EqualFold(h.hostname, inst.Name) ||
-					strings.Contains(strings.ToLower(inst.Name), strings.ToLower(h.hostname)) {
+		instIP := strings.TrimSpace(inst.IPAddress)
+		if instIP == "" {
+			instIP = strings.TrimSpace(inst.Host)
+		}
+		instTarget := strings.TrimSpace(inst.PrometheusTarget)
+		instNameLower := strings.ToLower(inst.Name)
+		instHostLower := strings.ToLower(inst.Host)
+
+		// Tier 1: Exact PrometheusTarget match (e.g. 10.20.3.36:8889)
+		if instTarget != "" {
+			for _, h := range collector.hosts {
+				if h.hasOTel && h.instanceTarget == instTarget {
 					matched = h
 					break
 				}
 			}
-			// Match by Prometheus Target or Instance prefix
-			if inst.PrometheusTarget != "" && h.instanceTarget == inst.PrometheusTarget {
-				matched = h
-				break
+		}
+
+		// Tier 2: Hostname + IP match
+		if matched == nil {
+			for _, h := range collector.hosts {
+				if !h.hasOTel {
+					continue
+				}
+				hLower := strings.ToLower(h.hostname)
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
+					if h.ipAddress != "" && (h.ipAddress == instIP || h.ipAddress == inst.Host) {
+						matched = h
+						break
+					}
+				}
 			}
-			if h.instanceTarget != "" {
-				if inst.IPAddress != "" && strings.HasPrefix(h.instanceTarget, inst.IPAddress) {
+		}
+
+		// Tier 3: Hostname match alone
+		if matched == nil {
+			for _, h := range collector.hosts {
+				if !h.hasOTel {
+					continue
+				}
+				hLower := strings.ToLower(h.hostname)
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
 					matched = h
 					break
 				}
-				if inst.Host != "" && strings.HasPrefix(h.instanceTarget, inst.Host) {
+			}
+		}
+
+		// Tier 4: IP match alone (with port check to avoid matching e.g. port 9090 when exporter is on 8889)
+		if matched == nil {
+			for _, h := range collector.hosts {
+				if !h.hasOTel {
+					continue
+				}
+				if h.ipAddress != "" && (h.ipAddress == instIP || h.ipAddress == inst.Host) {
+					if instTarget != "" && h.instanceTarget != "" && !strings.EqualFold(instTarget, h.instanceTarget) {
+						continue
+					}
 					matched = h
 					break
 				}
@@ -1030,8 +1085,14 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 
 		netTotal := math.Round((matched.netDown+matched.netUp)*100) / 100
 
+		// Check online status against upMap or if metrics are live
+		isOnline := false
+		if upMap[matched.instanceTarget] || upMap[inst.PrometheusTarget] || upMap[fmt.Sprintf("%s:%d", instIP, inst.Port)] || matched.isOnline || matched.hasOTel {
+			isOnline = true
+		}
+
 		inst.LiveMetrics = &domain.InstanceLiveMetrics{
-			IsOnline:         matched.isOnline,
+			IsOnline:         isOnline,
 			DetectedHostname: matched.hostname,
 			AgentVersion:     ver,
 			HasOTel:          true,
