@@ -1266,52 +1266,50 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <!-- VIEW 2: TABLE / LIST VIEW (Replicating User Screenshot 2)              -->
     <!-- ===================================================================== -->
-    <div v-else class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-sm">
-      <div class="overflow-x-auto">
+    <div v-else class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-sm">
+      <div class="overflow-x-auto min-h-[340px]">
         <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-          <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
-              <th class="py-3 px-4 min-w-[170px]">System Name</th>
+              <th class="py-3 px-4 min-w-[220px]">System Name</th>
               <th class="py-3 px-4 min-w-[120px]">Hostname</th>
               <th class="py-3 px-4 min-w-[120px]">IP Address</th>
-              <th class="py-3 px-4 min-w-[140px]">CPU</th>
+              <th class="py-3 px-4 min-w-[130px]">CPU</th>
               <th class="py-3 px-4 min-w-[140px]">Memory</th>
-              <th class="py-3 px-4 min-w-[140px]">Disk</th>
+              <th class="py-3 px-4 min-w-[130px]">Disk</th>
               <th class="py-3 px-4 min-w-[110px]">Net</th>
               <th class="py-3 px-4 min-w-[90px]">Agent</th>
-              <th class="py-3 px-4 text-right">Actions</th>
+              <th class="py-3 px-4 text-right min-w-[80px]">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
             <tr
-              v-for="inst in filteredInstances"
+              v-for="(inst, index) in filteredInstances"
               :key="inst.id"
               class="hover:bg-slate-50/60 dark:hover:bg-[#141b2c] transition"
             >
               <!-- System Name Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span
                     class="w-2 h-2 rounded-full shrink-0"
                     :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50' : 'bg-slate-400'"
                     :title="inst.liveMetrics?.isOnline ? 'Online (Telemetry Active)' : 'Offline / Telemetry Inactive'"
                   ></span>
-                  <div>
-                    <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{{ inst.name }}</span>
-                      <span
-                        v-if="inst.groupName"
-                        class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-slate-100 dark:bg-[#192236] text-slate-500 dark:text-slate-400"
-                      >
-                        {{ inst.groupName }}
-                      </span>
-                    </div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-slate-900 dark:text-white">{{ inst.name }}</span>
+                    <span
+                      v-if="inst.groupName"
+                      class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-slate-100 dark:bg-[#192236] text-slate-500 dark:text-slate-400 shrink-0"
+                    >
+                      {{ inst.groupName }}
+                    </span>
                   </div>
                 </div>
               </td>
 
               <!-- Hostname Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <span
                   class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200"
                   :title="inst.liveMetrics?.detectedHostname || inst.hostname || inst.host"
@@ -1321,14 +1319,14 @@ onUnmounted(() => {
               </td>
 
               <!-- IP Address Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <span class="font-mono text-xs text-slate-600 dark:text-slate-300">
                   {{ inst.ipAddress || inst.host }}
                 </span>
               </td>
 
               <!-- CPU Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
@@ -1351,7 +1349,7 @@ onUnmounted(() => {
               </td>
 
               <!-- Memory Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
@@ -1373,7 +1371,7 @@ onUnmounted(() => {
               </td>
 
               <!-- Disk Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span class="w-12 font-semibold">
                     {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
@@ -1389,7 +1387,7 @@ onUnmounted(() => {
               </td>
 
               <!-- Net Column -->
-              <td class="py-3 px-4 font-semibold">
+              <td class="py-3 px-4 font-semibold whitespace-nowrap">
                 <div>{{ (inst.liveMetrics?.netTotalMb || 0).toFixed(2) }} MB/s</div>
                 <div class="text-[10px] text-slate-400 font-normal">
                   ↓{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} ↑{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }}
@@ -1397,7 +1395,7 @@ onUnmounted(() => {
               </td>
 
               <!-- Agent Column -->
-              <td class="py-3 px-4">
+              <td class="py-3 px-4 whitespace-nowrap">
                 <div class="flex items-center gap-1.5 font-semibold">
                   <span
                     class="w-1.5 h-1.5 rounded-full shrink-0"
@@ -1408,7 +1406,7 @@ onUnmounted(() => {
               </td>
 
               <!-- Actions Column -->
-              <td class="py-3 px-4 text-right">
+              <td class="py-3 px-4 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1 dropdown-container">
                   <button
                     @click="toggleAlert(inst)"
@@ -1425,7 +1423,7 @@ onUnmounted(() => {
                     />
                   </button>
 
-                  <div class="relative">
+                  <div class="relative" :class="{ 'z-40': activeDropdownId === inst.id }">
                     <button
                       @click="activeDropdownId = activeDropdownId === inst.id ? null : inst.id"
                       class="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1a2337] cursor-pointer"
@@ -1435,7 +1433,8 @@ onUnmounted(() => {
 
                     <div
                       v-if="activeDropdownId === inst.id"
-                      class="absolute right-0 top-6 z-30 w-44 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-xl shadow-xl py-1 text-xs text-left"
+                      class="absolute right-0 z-50 w-44 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-xl shadow-2xl py-1 text-xs text-left animate-in fade-in"
+                      :class="(filteredInstances.length >= 4 && index >= Math.floor(filteredInstances.length / 2)) ? 'bottom-full mb-1.5' : 'top-6'"
                     >
                       <button
                         @click="openHistoryModal(inst)"
@@ -1471,6 +1470,15 @@ onUnmounted(() => {
                     </div>
                   </div>
                 </div>
+              </td>
+            </tr>
+
+            <!-- Empty State -->
+            <tr v-if="filteredInstances.length === 0">
+              <td colspan="9" class="py-12 text-center text-slate-400 dark:text-slate-500">
+                <Server class="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p class="font-semibold text-xs text-slate-600 dark:text-slate-300">No monitoring instances found</p>
+                <p class="text-[11px] text-slate-400 mt-0.5">Try adjusting your search or group filter.</p>
               </td>
             </tr>
           </tbody>
