@@ -236,6 +236,38 @@ func (h *MonitoringInstanceHandler) GetInstanceHistory(c *gin.Context) {
 	})
 }
 
+// GetContainerHistory handles GET /api/v1/monitoring/containers/history
+func (h *MonitoringInstanceHandler) GetContainerHistory(c *gin.Context) {
+	containerID := c.Query("containerId")
+	containerName := c.Query("containerName")
+	hostname := c.Query("hostname")
+	ipAddress := c.Query("ipAddress")
+	timeRange := c.DefaultQuery("range", "24h")
+
+	if containerID == "" && containerName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Either containerId or containerName is required",
+		})
+		return
+	}
+
+	history, err := h.service.GetContainerHistory(c.Request.Context(), containerID, containerName, hostname, ipAddress, timeRange)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to fetch container metric history",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    history,
+	})
+}
+
 // ListShares handles GET /api/v1/monitoring/instances/:id/shares
 func (h *MonitoringInstanceHandler) ListShares(c *gin.Context) {
 	userID, userRole := getUserContext(c)

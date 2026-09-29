@@ -33,6 +33,7 @@ import {
   Users,
   Sliders,
   Box,
+  Settings,
 } from 'lucide-vue-next';
 
 interface DockerContainerMetric {
@@ -188,7 +189,7 @@ const searchQuery = ref('');
 const selectedGroup = ref('all');
 const selectedTag = ref('all');
 const viewMode = ref<'grid' | 'list'>('grid');
-const autoRefreshInterval = ref<number>(30); // 30s default
+const autoRefreshInterval = ref<number>(loadSavedAutoRefresh());
 const activeDropdownId = ref<string | null>(null);
 const engineStatus = ref<{
   lastPolledAt: string;
@@ -351,6 +352,21 @@ const filteredInstances = computed(() => {
 const DEFAULT_WARNING_THRESHOLD = 80;
 const DEFAULT_CRITICAL_THRESHOLD = 90;
 
+const loadSavedAutoRefresh = (): number => {
+  try {
+    const raw = localStorage.getItem('hcp_monitoring_auto_refresh');
+    if (raw !== null) {
+      const parsed = Number(raw);
+      if (!isNaN(parsed) && [0, 15, 30, 60, 300].includes(parsed)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 30; // 30s default
+};
+
 const loadSavedThresholds = () => {
   try {
     const raw = localStorage.getItem('hcp_monitoring_thresholds');
@@ -371,18 +387,22 @@ const loadSavedThresholds = () => {
 const savedThresholds = loadSavedThresholds();
 const warningThreshold = ref<number>(savedThresholds.warning);
 const criticalThreshold = ref<number>(savedThresholds.critical);
-const showThresholdModal = ref(false);
+const showSettingsModal = ref(false);
+const showThresholdModal = showSettingsModal; // alias for backwards compatibility
 
 const editWarningThreshold = ref<number>(warningThreshold.value);
 const editCriticalThreshold = ref<number>(criticalThreshold.value);
+const pendingAutoRefresh = ref<number>(autoRefreshInterval.value);
 
-const openThresholdModal = () => {
+const openSettingsModal = () => {
   editWarningThreshold.value = warningThreshold.value;
   editCriticalThreshold.value = criticalThreshold.value;
-  showThresholdModal.value = true;
+  pendingAutoRefresh.value = autoRefreshInterval.value;
+  showSettingsModal.value = true;
 };
+const openThresholdModal = openSettingsModal;
 
-const saveThresholds = () => {
+const saveSettings = async () => {
   const w = Number(editWarningThreshold.value);
   const c = Number(editCriticalThreshold.value);
   if (isNaN(w) || isNaN(c) || w <= 0 || c <= 0) {
@@ -393,6 +413,8 @@ const saveThresholds = () => {
     showNotice('Warning threshold must be lower than critical threshold', 'error');
     return;
   }
+
+  // 1. Save & Apply Thresholds
   warningThreshold.value = w;
   criticalThreshold.value = c;
   try {
@@ -403,14 +425,27 @@ const saveThresholds = () => {
   } catch {
     // ignore
   }
-  showNotice(`Thresholds saved: Warning ${w}%, Critical ${c}%`);
-  showThresholdModal.value = false;
-};
 
-const resetThresholdsToDefault = () => {
+  // 2. Save & Apply Auto-Refresh Interval
+  const sec = Number(pendingAutoRefresh.value);
+  await setAutoRefresh(sec);
+  try {
+    localStorage.setItem('hcp_monitoring_auto_refresh', String(sec));
+  } catch {
+    // ignore
+  }
+
+  showNotice(`Settings saved: Auto Refresh ${sec === 0 ? 'Paused' : sec < 60 ? `${sec}s` : `${sec / 60}m`}, Thresholds ${w}% / ${c}%`);
+  showSettingsModal.value = false;
+};
+const saveThresholds = saveSettings;
+
+const resetSettingsToDefault = () => {
   editWarningThreshold.value = DEFAULT_WARNING_THRESHOLD;
   editCriticalThreshold.value = DEFAULT_CRITICAL_THRESHOLD;
+  pendingAutoRefresh.value = 30;
 };
+const resetThresholdsToDefault = resetSettingsToDefault;
 
 const applyPreset = (w: number, c: number) => {
   editWarningThreshold.value = w;
@@ -578,9 +613,9 @@ const inventoryStatusSummary = computed(() => {
 
 // Modal live preview counts based on pending slider values
 const previewModalCounts = computed(() => {
-  let critical = 0;
-  let warning = 0;
-  let normal = 0;
+  let serverCritical = 0;
+  let serverWarning = 0;
+  let serverNormal = 0;
   const w = Number(editWarningThreshold.value) || 80;
   const c = Number(editCriticalThreshold.value) || 90;
 
@@ -596,11 +631,30 @@ const previewModalCounts = computed(() => {
       }
     }
     const maxVal = Math.max(cpu, mem, disk);
-    if (maxVal >= c) critical++;
-    else if (maxVal >= w) warning++;
-    else normal++;
+    if (maxVal >= c) serverCritical++;
+    else if (maxVal >= w) serverWarning++;
+    else serverNormal++;
   }
-  return { critical, warning, normal };
+
+  let containerCritical = 0;
+  let containerWarning = 0;
+  let containerNormal = 0;
+  for (const ctr of dockerContainers.value) {
+    const cpu = ctr.cpuPct ?? 0;
+    const mem = ctr.memPct ?? 0;
+    const maxVal = Math.max(cpu, mem);
+    if (maxVal >= c) containerCritical++;
+    else if (maxVal >= w) containerWarning++;
+    else containerNormal++;
+  }
+
+  return {
+    server: { critical: serverCritical, warning: serverWarning, normal: serverNormal },
+    container: { critical: containerCritical, warning: containerWarning, normal: containerNormal },
+    critical: serverCritical + containerCritical,
+    warning: serverWarning + containerWarning,
+    normal: serverNormal + containerNormal,
+  };
 });
 
 // -----------------------------------------------------------------------------
@@ -672,8 +726,19 @@ const toggleAlert = async (inst: MonitoringInstance) => {
 // -----------------------------------------------------------------------------
 // History Modal & ECharts Visualizer
 // -----------------------------------------------------------------------------
+interface HistoryTarget {
+  type: 'server' | 'container';
+  id: string;
+  name: string;
+  subtext: string;
+  targetInfo: string;
+  rawServer?: MonitoringInstance;
+  rawContainer?: DockerContainerMetric;
+}
+
 const showHistoryModal = ref(false);
-const historyInstance = ref<MonitoringInstance | null>(null);
+const historyTarget = ref<HistoryTarget | null>(null);
+const historyInstance = computed(() => historyTarget.value?.rawServer || null);
 const historyTimeRange = ref<'1h' | '6h' | '24h' | '7d'>('24h');
 const historyActiveMetric = ref<'cpu' | 'memory' | 'disk' | 'network'>('cpu');
 const historyData = ref<InstanceHistory | null>(null);
@@ -683,14 +748,35 @@ let historyChartInstance: any = null;
 
 const openHistoryModal = async (inst: MonitoringInstance) => {
   activeDropdownId.value = null;
-  historyInstance.value = inst;
+  historyTarget.value = {
+    type: 'server',
+    id: inst.id,
+    name: inst.name,
+    subtext: `Host: ${inst.host} | Group: ${inst.groupName || 'Default'}`,
+    targetInfo: inst.prometheusTarget || inst.host,
+    rawServer: inst,
+  };
+  showHistoryModal.value = true;
+  await fetchHistoryData();
+};
+
+const openContainerHistoryModal = async (c: DockerContainerMetric) => {
+  activeDropdownId.value = null;
+  historyTarget.value = {
+    type: 'container',
+    id: c.containerId || c.containerName,
+    name: c.containerName,
+    subtext: `Host Node: ${c.hostname} (${c.ipAddress}) | Image: ${c.imageName}`,
+    targetInfo: `${c.hostname} (${c.ipAddress}) : ${c.containerName}`,
+    rawContainer: c,
+  };
   showHistoryModal.value = true;
   await fetchHistoryData();
 };
 
 const closeHistoryModal = () => {
   showHistoryModal.value = false;
-  historyInstance.value = null;
+  historyTarget.value = null;
   historyData.value = null;
   if (historyChartInstance) {
     historyChartInstance.dispose();
@@ -699,12 +785,26 @@ const closeHistoryModal = () => {
 };
 
 const fetchHistoryData = async () => {
-  if (!historyInstance.value) return;
+  if (!historyTarget.value) return;
   loadingHistory.value = true;
   try {
-    const res = await axios.get(`/api/v1/monitoring/instances/${historyInstance.value.id}/history`, {
-      params: { range: historyTimeRange.value },
-    });
+    let res;
+    if (historyTarget.value.type === 'server') {
+      res = await axios.get(`/api/v1/monitoring/instances/${historyTarget.value.id}/history`, {
+        params: { range: historyTimeRange.value },
+      });
+    } else {
+      const c = historyTarget.value.rawContainer;
+      res = await axios.get('/api/v1/monitoring/containers/history', {
+        params: {
+          containerId: c?.containerId || '',
+          containerName: c?.containerName || historyTarget.value.name,
+          hostname: c?.hostname || '',
+          ipAddress: c?.ipAddress || '',
+          range: historyTimeRange.value,
+        },
+      });
+    }
     if (res.data?.success) {
       historyData.value = res.data.data;
       nextTick(() => {
@@ -773,11 +873,13 @@ const renderHistoryChart = async () => {
       },
     ];
   } else if (historyActiveMetric.value === 'disk') {
-    yAxisName = 'Disk (%)';
+    const isContainer = historyTarget.value?.type === 'container';
+    yAxisName = isContainer ? 'MB/s' : 'Disk (%)';
+    yMax = isContainer ? undefined : 100;
     const diskPoints = historyData.value.disk.map((p) => [p.timestamp * 1000, p.value]);
     seriesConfig = [
       {
-        name: 'Disk Usage',
+        name: isContainer ? 'Block I/O' : 'Disk Usage',
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -840,9 +942,10 @@ const renderHistoryChart = async () => {
         const d = new Date(params[0].value[0]);
         const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         let html = `<div class="font-bold mb-1">${timeStr}</div>`;
+        const isContainer = historyTarget.value?.type === 'container';
         params.forEach((item: any) => {
           const val = item.value[1];
-          const unit = historyActiveMetric.value === 'network' ? ' MB/s' : '%';
+          const unit = historyActiveMetric.value === 'network' || (historyActiveMetric.value === 'disk' && isContainer) ? ' MB/s' : '%';
           html += `<div class="flex items-center gap-2 text-xs">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};"></span>
             <span>${item.seriesName}: <strong>${val !== undefined ? val + unit : 'N/A'}</strong></span>
@@ -1384,6 +1487,16 @@ onUnmounted(() => {
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
+        <!-- Monitoring Settings (Global: Auto-refresh & Alert Thresholds) -->
+        <button
+          @click="openSettingsModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#161c2d] text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer"
+          title="Configure auto-refresh polling rate and alert thresholds"
+        >
+          <Settings class="w-3.5 h-3.5 text-slate-400" />
+          <span>Settings</span>
+        </button>
+
         <!-- Refresh Button (Instant queue trigger) -->
         <button
           @click="triggerPollNow"
@@ -1500,32 +1613,6 @@ onUnmounted(() => {
         >
           <option value="all">All Tags</option>
           <option v-for="t in availableTags" :key="t" :value="t">{{ t }}</option>
-        </select>
-
-        <!-- Alert Thresholds Config Button -->
-        <button
-          @click="openThresholdModal"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161c2d] transition cursor-pointer font-medium"
-          :title="`Thresholds: Warning ${warningThreshold}%, Critical ${criticalThreshold}%. Click to customize.`"
-        >
-          <Sliders class="w-3.5 h-3.5 text-slate-400" />
-          <span class="hidden sm:inline">Thresholds:</span>
-          <span class="font-mono text-[11px] font-semibold text-amber-600 dark:text-amber-400">{{ warningThreshold }}%</span>
-          <span class="text-slate-300 dark:text-slate-600">/</span>
-          <span class="font-mono text-[11px] font-semibold text-rose-600 dark:text-rose-400">{{ criticalThreshold }}%</span>
-        </button>
-
-        <!-- Auto Refresh Selector (30s, 1m, 5m, Pause) -->
-        <select
-          :value="autoRefreshInterval"
-          @change="setAutoRefresh(Number(($event.target as HTMLSelectElement).value))"
-          class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer font-medium"
-          title="Auto Refresh Rate (Queue Engine)"
-        >
-          <option :value="30">Auto: 30s (Default)</option>
-          <option :value="60">Auto: 1m</option>
-          <option :value="300">Auto: 5m</option>
-          <option :value="0">Auto: Pause</option>
         </select>
 
         <!-- Grid vs List View Toggle -->
@@ -2791,8 +2878,18 @@ onUnmounted(() => {
 
             <!-- Card Footer -->
             <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#161c2d] text-[11px] text-slate-400">
-              <span class="font-mono truncate max-w-[150px]">ID: {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}</span>
-              <span class="font-mono text-slate-500 dark:text-slate-400">Node: {{ c.ipAddress }}</span>
+              <span class="font-mono truncate max-w-[140px]">ID: {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}</span>
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-slate-500 dark:text-slate-400 hidden sm:inline">{{ c.ipAddress }}</span>
+                <button
+                  @click="openContainerHistoryModal(c)"
+                  class="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-50 dark:bg-[#161c2d] hover:bg-slate-100 dark:hover:bg-[#1e273c] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222d42] transition cursor-pointer font-medium text-[11px]"
+                  title="View metric telemetry history"
+                >
+                  <History class="w-3 h-3 text-slate-400" />
+                  <span>History</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2863,6 +2960,7 @@ onUnmounted(() => {
                 <th class="py-3 px-3 font-semibold">Network I/O</th>
                 <th class="py-3 px-3 font-semibold">Block I/O</th>
                 <th class="py-3 px-4 font-semibold">Container ID</th>
+                <th class="py-3 px-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-[#161c2d]">
@@ -2954,6 +3052,18 @@ onUnmounted(() => {
                 <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-400 text-[11px]">
                   {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}
                 </td>
+
+                <!-- Actions -->
+                <td class="py-3 px-4 text-right">
+                  <button
+                    @click="openContainerHistoryModal(c)"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1e273c] transition cursor-pointer font-medium"
+                    title="View metric telemetry history"
+                  >
+                    <History class="w-3.5 h-3.5 text-slate-400" />
+                    <span>History</span>
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -3015,7 +3125,7 @@ onUnmounted(() => {
     <!-- MODAL 1: VIEW HISTORY (Interactive Line Charts with ECharts)         -->
     <!-- ===================================================================== -->
     <div
-      v-if="showHistoryModal && historyInstance"
+      v-if="showHistoryModal && historyTarget"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
       <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-4xl shadow-2xl p-6 space-y-4">
@@ -3023,10 +3133,10 @@ onUnmounted(() => {
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
           <div>
             <h3 class="text-base font-bold text-slate-900 dark:text-white">
-              Telemetry History: {{ historyInstance.name }}
+              Telemetry History: {{ historyTarget.name }}
             </h3>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Host: {{ historyInstance.host }} | Group: {{ historyInstance.groupName }}
+              {{ historyTarget.subtext }}
             </p>
           </div>
           <button
@@ -3060,7 +3170,7 @@ onUnmounted(() => {
               :class="historyActiveMetric === 'disk' ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-500 dark:text-slate-400'"
               class="px-3 py-1 text-xs rounded-md transition cursor-pointer"
             >
-              Disk Usage
+              {{ historyTarget?.type === 'container' ? 'Block I/O' : 'Disk Usage' }}
             </button>
             <button
               @click="historyActiveMetric = 'network'"
@@ -3094,7 +3204,7 @@ onUnmounted(() => {
         </div>
 
         <div class="flex items-center justify-between text-[11px] text-slate-400">
-          <span>Prometheus Target: <code>{{ historyInstance.prometheusTarget || historyInstance.host }}</code></span>
+          <span>Target: <code>{{ historyTarget?.targetInfo }}</code></span>
           <button
             @click="closeHistoryModal"
             class="px-4 py-1.5 bg-slate-200 dark:bg-[#1a2337] hover:bg-slate-300 dark:hover:bg-[#222d46] text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
@@ -3472,34 +3582,75 @@ onUnmounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL 6: ALERT & PRIORITY THRESHOLDS CONFIGURATION                     -->
+    <!-- MODAL 6: MONITORING SETTINGS & ALERT THRESHOLDS                         -->
     <!-- ===================================================================== -->
     <div
-      v-if="showThresholdModal"
+      v-if="showSettingsModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 font-sans">
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 font-sans">
         <!-- Header -->
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-              Alert & Priority Thresholds
+              Monitoring Settings
             </h3>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Instances exceeding these levels automatically jump to the top.
+              Applies globally to both Server and Docker Container monitoring.
             </p>
           </div>
           <button
-            @click="showThresholdModal = false"
+            @click="showSettingsModal = false"
             class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#192236] transition cursor-pointer"
           >
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <!-- Form Cards -->
-        <div class="space-y-3.5 text-xs">
-          <!-- Warning Threshold Input -->
+        <!-- Settings Content -->
+        <div class="space-y-4 text-xs">
+          <!-- 1. Auto Refresh Interval Selector -->
+          <div class="p-3.5 rounded-xl bg-slate-50/80 dark:bg-[#0c101c] border border-slate-200 dark:border-[#1b2234] space-y-2.5">
+            <div class="flex items-center justify-between">
+              <label class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <RefreshCw class="w-3.5 h-3.5 text-slate-400" />
+                <span>Auto Refresh Rate (Polling Engine)</span>
+              </label>
+              <span class="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                {{ pendingAutoRefresh === 0 ? 'Paused (Manual)' : pendingAutoRefresh < 60 ? `${pendingAutoRefresh}s` : `${pendingAutoRefresh / 60}m` }}
+              </span>
+            </div>
+
+            <!-- Interval Buttons -->
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              <button
+                v-for="opt in [
+                  { sec: 15, label: '15s', desc: 'Fast' },
+                  { sec: 30, label: '30s', desc: 'Default' },
+                  { sec: 60, label: '1m', desc: 'Standard' },
+                  { sec: 300, label: '5m', desc: 'Eco' },
+                  { sec: 0, label: 'Pause', desc: 'Manual' },
+                ]"
+                :key="opt.sec"
+                type="button"
+                @click="pendingAutoRefresh = opt.sec"
+                :class="[
+                  pendingAutoRefresh === opt.sec
+                    ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                    : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                  'py-2 px-1 text-center rounded-lg border text-xs transition cursor-pointer flex flex-col items-center justify-center'
+                ]"
+              >
+                <span class="text-xs">{{ opt.label }}</span>
+                <span class="text-[10px] opacity-75 font-normal">{{ opt.desc }}</span>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Synchronizes browser metric updates and background Prometheus queue engine polling for both Servers & Containers.
+            </p>
+          </div>
+
+          <!-- 2. Warning Threshold Input -->
           <div class="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 space-y-2.5">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -3528,11 +3679,11 @@ onUnmounted(() => {
               class="w-full accent-amber-500 cursor-pointer"
             />
             <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              Default 80%. When CPU, Memory, or any Disk exceeds this level, the instance is elevated ahead of normal hosts.
+              Default 80%. When CPU, Memory, or Disk exceeds this level, resources are styled in amber and elevated.
             </p>
           </div>
 
-          <!-- Critical Threshold Input -->
+          <!-- 3. Critical Threshold Input -->
           <div class="p-3.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 space-y-2.5">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -3561,7 +3712,7 @@ onUnmounted(() => {
               class="w-full accent-rose-500 cursor-pointer"
             />
             <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              Default 90%. When CPU, Memory, or any Disk exceeds this level, the instance gets highest priority and is pinned to the top of Page 1.
+              Default 90%. When CPU, Memory, or Disk exceeds this level, resources get highest priority and are pinned to the top.
             </p>
           </div>
 
@@ -3593,21 +3744,52 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Live Inventory Impact Preview -->
-          <div class="p-3 bg-slate-50 dark:bg-[#0d121f] rounded-xl border border-slate-200 dark:border-[#1b2234]">
-            <div class="font-medium text-slate-600 dark:text-slate-400 mb-2">Live Inventory Impact:</div>
-            <div class="grid grid-cols-3 gap-2 text-center font-mono">
-              <div class="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40">
-                <div class="font-bold text-sm text-rose-600 dark:text-rose-400">{{ previewModalCounts.critical }}</div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Critical</div>
+          <!-- Live Threshold Impact Preview -->
+          <div class="p-3.5 bg-slate-50 dark:bg-[#0d121f] rounded-xl border border-slate-200 dark:border-[#1b2234] space-y-2.5">
+            <div class="font-medium text-slate-600 dark:text-slate-400 text-xs">Live Threshold Impact Preview:</div>
+            <div class="grid grid-cols-2 gap-3">
+              <!-- Server Inventory Impact -->
+              <div class="space-y-1.5">
+                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <Server class="w-3 h-3 text-slate-400" />
+                  <span>Servers ({{ instances.length }})</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1 text-center font-mono text-xs">
+                  <div class="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40">
+                    <div class="font-bold text-xs text-rose-600 dark:text-rose-400">{{ previewModalCounts.server?.critical ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Crit</div>
+                  </div>
+                  <div class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
+                    <div class="font-bold text-xs text-amber-600 dark:text-amber-400">{{ previewModalCounts.server?.warning ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Warn</div>
+                  </div>
+                  <div class="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
+                    <div class="font-bold text-xs text-emerald-600 dark:text-emerald-400">{{ previewModalCounts.server?.normal ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Norm</div>
+                  </div>
+                </div>
               </div>
-              <div class="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
-                <div class="font-bold text-sm text-amber-600 dark:text-amber-400">{{ previewModalCounts.warning }}</div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Warning</div>
-              </div>
-              <div class="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
-                <div class="font-bold text-sm text-emerald-600 dark:text-emerald-400">{{ previewModalCounts.normal }}</div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Normal</div>
+
+              <!-- Docker Container Impact -->
+              <div class="space-y-1.5">
+                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <Layers class="w-3 h-3 text-slate-400" />
+                  <span>Containers ({{ dockerContainers.length }})</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1 text-center font-mono text-xs">
+                  <div class="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40">
+                    <div class="font-bold text-xs text-rose-600 dark:text-rose-400">{{ previewModalCounts.container?.critical ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Crit</div>
+                  </div>
+                  <div class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
+                    <div class="font-bold text-xs text-amber-600 dark:text-amber-400">{{ previewModalCounts.container?.warning ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Warn</div>
+                  </div>
+                  <div class="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
+                    <div class="font-bold text-xs text-emerald-600 dark:text-emerald-400">{{ previewModalCounts.container?.normal ?? 0 }}</div>
+                    <div class="text-[9px] text-slate-500 font-sans">Norm</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3617,7 +3799,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#1b2234]">
           <button
             type="button"
-            @click="resetThresholdsToDefault"
+            @click="resetSettingsToDefault"
             class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
           >
             Reset Default
@@ -3625,14 +3807,14 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <button
               type="button"
-              @click="showThresholdModal = false"
+              @click="showSettingsModal = false"
               class="px-3.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a2337] rounded-lg transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
-              @click="saveThresholds"
+              @click="saveSettings"
               class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
             >
               Save & Apply

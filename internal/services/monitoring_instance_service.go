@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1907,3 +1908,237 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 
 	return resp, nil
 }
+
+// GetContainerHistory retrieves historical series data for interactive line charts for a Docker container
+func (s *MonitoringInstanceService) GetContainerHistory(
+	ctx context.Context,
+	containerID string,
+	containerName string,
+	hostname string,
+	ipAddress string,
+	timeRange string,
+) (*domain.InstanceHistoryResponse, error) {
+	now := time.Now()
+	var startTime time.Time
+	var step string
+
+	switch timeRange {
+	case "1h":
+		startTime = now.Add(-1 * time.Hour)
+		step = "30s"
+	case "6h":
+		startTime = now.Add(-6 * time.Hour)
+		step = "2m"
+	case "7d":
+		startTime = now.Add(-7 * 24 * time.Hour)
+		step = "30m"
+	case "24h":
+		fallthrough
+	default:
+		timeRange = "24h"
+		startTime = now.Add(-24 * time.Hour)
+		step = "5m"
+	}
+
+	instID := containerID
+	if instID == "" {
+		instID = containerName
+	}
+
+	resp := &domain.InstanceHistoryResponse{
+		InstanceID: instID,
+		TimeRange:  timeRange,
+		CPU:        []domain.MetricHistoryPoint{},
+		Memory:     []domain.MetricHistoryPoint{},
+		Disk:       []domain.MetricHistoryPoint{},
+		NetIn:      []domain.MetricHistoryPoint{},
+		NetOut:     []domain.MetricHistoryPoint{},
+	}
+
+	var matchers []string
+	if containerID != "" {
+		matchers = append(matchers, fmt.Sprintf(`container_id=~"^%s.*"`, regexp.QuoteMeta(containerID)))
+	} else if containerName != "" {
+		matchers = append(matchers, fmt.Sprintf(`container_name="%s"`, containerName))
+	}
+	if hostname != "" {
+		matchers = append(matchers, fmt.Sprintf(`hostname="%s"`, hostname))
+	}
+
+	filter := strings.Join(matchers, ",")
+	if filter != "" {
+		filter = "{" + filter + "}"
+	}
+
+	nameFilter := ""
+	if containerName != "" {
+		nameFilter = fmt.Sprintf(`{container_name="%s"}`, containerName)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	parsePoints := func(res *promMatrixResponse) []domain.MetricHistoryPoint {
+		var points []domain.MetricHistoryPoint
+		if res == nil || res.Status != "success" || len(res.Data.Result) == 0 {
+			return points
+		}
+		for _, rawPoint := range res.Data.Result[0].Values {
+			if len(rawPoint) > 1 {
+				var ts int64
+				switch t := rawPoint[0].(type) {
+				case float64:
+					ts = int64(t)
+				case int64:
+					ts = t
+				}
+				if val, ok := parseFloat(rawPoint[1]); ok && !math.IsNaN(val) && !math.IsInf(val, 0) {
+					points = append(points, domain.MetricHistoryPoint{
+						Timestamp: ts,
+						Value:     math.Round(val*100) / 100,
+					})
+				}
+			}
+		}
+		return points
+	}
+
+	// 1. CPU History %
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pts []domain.MetricHistoryPoint
+		if filter != "" {
+			q := fmt.Sprintf(`avg(container_cpu_utilization_ratio%s)`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && nameFilter != "" {
+			q := fmt.Sprintf(`avg(container_cpu_utilization_ratio%s)`, nameFilter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && filter != "" {
+			q := fmt.Sprintf(`sum(rate(container_cpu_usage_nanoseconds_total%s[2m])) / 10000000`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		mu.Lock()
+		resp.CPU = pts
+		mu.Unlock()
+	}()
+
+	// 2. Memory History %
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pts []domain.MetricHistoryPoint
+		if filter != "" {
+			q := fmt.Sprintf(`avg(container_memory_percent_ratio%s)`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && nameFilter != "" {
+			q := fmt.Sprintf(`avg(container_memory_percent_ratio%s)`, nameFilter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && filter != "" {
+			q := fmt.Sprintf(`(sum(container_memory_usage_total_bytes%s) / sum(container_memory_usage_limit_bytes%s)) * 100`, filter, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		mu.Lock()
+		resp.Memory = pts
+		mu.Unlock()
+	}()
+
+	// 3. Disk / Block I/O (MB/s)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pts []domain.MetricHistoryPoint
+		if filter != "" {
+			q := fmt.Sprintf(`sum(rate(container_blockio_io_service_bytes_recursive_total%s[2m])) / 1048576`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && nameFilter != "" {
+			q := fmt.Sprintf(`sum(rate(container_blockio_io_service_bytes_recursive_total%s[2m])) / 1048576`, nameFilter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		mu.Lock()
+		resp.Disk = pts
+		mu.Unlock()
+	}()
+
+	// 4. Net In (Download MB/s)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pts []domain.MetricHistoryPoint
+		if filter != "" {
+			q := fmt.Sprintf(`sum(rate(container_network_io_usage_rx_bytes_total%s[2m])) / 1048576`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && nameFilter != "" {
+			q := fmt.Sprintf(`sum(rate(container_network_io_usage_rx_bytes_total%s[2m])) / 1048576`, nameFilter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		mu.Lock()
+		resp.NetIn = pts
+		mu.Unlock()
+	}()
+
+	// 5. Net Out (Upload MB/s)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var pts []domain.MetricHistoryPoint
+		if filter != "" {
+			q := fmt.Sprintf(`sum(rate(container_network_io_usage_tx_bytes_total%s[2m])) / 1048576`, filter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 && nameFilter != "" {
+			q := fmt.Sprintf(`sum(rate(container_network_io_usage_tx_bytes_total%s[2m])) / 1048576`, nameFilter)
+			r, err := s.executeRangeQuery(ctx, q, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		mu.Lock()
+		resp.NetOut = pts
+		mu.Unlock()
+	}()
+
+	wg.Wait()
+
+	return resp, nil
+}
+

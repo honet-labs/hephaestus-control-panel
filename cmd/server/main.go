@@ -315,6 +315,7 @@ func main() {
 		api.GET("/monitoring/instances", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.ListInstances)
 		api.GET("/monitoring/instances/groups", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetGroups)
 		api.GET("/monitoring/containers", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.ListContainers)
+		api.GET("/monitoring/containers/history", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetContainerHistory)
 		api.GET("/monitoring/instances/:id", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.GetInstance)
 		api.POST("/monitoring/instances", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.CreateInstance)
 		api.PUT("/monitoring/instances/:id", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.UpdateInstance)
