@@ -24,12 +24,14 @@ import {
   History,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   ArrowDown,
   ArrowUp,
   X,
   Check,
   AlertCircle,
   Users,
+  Sliders,
 } from 'lucide-vue-next';
 
 interface DiskMetric {
@@ -291,6 +293,269 @@ const filteredInstances = computed(() => {
     }
     return true;
   });
+});
+
+// -----------------------------------------------------------------------------
+// Alert & Priority Thresholds Configuration (Warning default 80%, Critical default 90%)
+// -----------------------------------------------------------------------------
+const DEFAULT_WARNING_THRESHOLD = 80;
+const DEFAULT_CRITICAL_THRESHOLD = 90;
+
+const loadSavedThresholds = () => {
+  try {
+    const raw = localStorage.getItem('hcp_monitoring_thresholds');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const w = Number(parsed.warning);
+      const c = Number(parsed.critical);
+      if (!isNaN(w) && !isNaN(c) && w > 0 && c > w) {
+        return { warning: w, critical: c };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { warning: DEFAULT_WARNING_THRESHOLD, critical: DEFAULT_CRITICAL_THRESHOLD };
+};
+
+const savedThresholds = loadSavedThresholds();
+const warningThreshold = ref<number>(savedThresholds.warning);
+const criticalThreshold = ref<number>(savedThresholds.critical);
+const showThresholdModal = ref(false);
+
+const editWarningThreshold = ref<number>(warningThreshold.value);
+const editCriticalThreshold = ref<number>(criticalThreshold.value);
+
+const openThresholdModal = () => {
+  editWarningThreshold.value = warningThreshold.value;
+  editCriticalThreshold.value = criticalThreshold.value;
+  showThresholdModal.value = true;
+};
+
+const saveThresholds = () => {
+  const w = Number(editWarningThreshold.value);
+  const c = Number(editCriticalThreshold.value);
+  if (isNaN(w) || isNaN(c) || w <= 0 || c <= 0) {
+    showNotice('Thresholds must be positive numbers', 'error');
+    return;
+  }
+  if (w >= c) {
+    showNotice('Warning threshold must be lower than critical threshold', 'error');
+    return;
+  }
+  warningThreshold.value = w;
+  criticalThreshold.value = c;
+  try {
+    localStorage.setItem(
+      'hcp_monitoring_thresholds',
+      JSON.stringify({ warning: w, critical: c })
+    );
+  } catch {
+    // ignore
+  }
+  showNotice(`Thresholds saved: Warning ${w}%, Critical ${c}%`);
+  showThresholdModal.value = false;
+};
+
+const resetThresholdsToDefault = () => {
+  editWarningThreshold.value = DEFAULT_WARNING_THRESHOLD;
+  editCriticalThreshold.value = DEFAULT_CRITICAL_THRESHOLD;
+};
+
+const applyPreset = (w: number, c: number) => {
+  editWarningThreshold.value = w;
+  editCriticalThreshold.value = c;
+};
+
+// -----------------------------------------------------------------------------
+// Resource Status & Smart Priority Sorting
+// -----------------------------------------------------------------------------
+interface InstanceStatus {
+  maxUsage: number;
+  criticalResource: 'cpu' | 'memory' | 'disk' | null;
+  severity: 'critical' | 'warning' | 'normal' | 'offline';
+  cpu: number;
+  memory: number;
+  disk: number;
+}
+
+const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
+  if (!inst.liveMetrics || !inst.liveMetrics.isOnline) {
+    return {
+      maxUsage: -1,
+      criticalResource: null,
+      severity: 'offline',
+      cpu: 0,
+      memory: 0,
+      disk: 0,
+    };
+  }
+
+  const cpu = typeof inst.liveMetrics.cpuPct === 'number' ? inst.liveMetrics.cpuPct : 0;
+  const memory = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
+  let disk = typeof inst.liveMetrics.diskPct === 'number' ? inst.liveMetrics.diskPct : 0;
+
+  if (Array.isArray(inst.liveMetrics.disks) && inst.liveMetrics.disks.length > 0) {
+    for (const d of inst.liveMetrics.disks) {
+      if (typeof d.usagePct === 'number' && d.usagePct > disk) {
+        disk = d.usagePct;
+      }
+    }
+  }
+
+  let maxUsage = cpu;
+  let criticalResource: 'cpu' | 'memory' | 'disk' = 'cpu';
+
+  if (memory > maxUsage) {
+    maxUsage = memory;
+    criticalResource = 'memory';
+  }
+  if (disk > maxUsage) {
+    maxUsage = disk;
+    criticalResource = 'disk';
+  }
+
+  let severity: 'critical' | 'warning' | 'normal' = 'normal';
+  if (maxUsage >= criticalThreshold.value) {
+    severity = 'critical';
+  } else if (maxUsage >= warningThreshold.value) {
+    severity = 'warning';
+  }
+
+  return {
+    maxUsage,
+    criticalResource: severity === 'normal' ? null : criticalResource,
+    severity,
+    cpu,
+    memory,
+    disk,
+  };
+};
+
+// Sorted Instances: Critical first, then Warning, then Normal, then Offline
+const sortedInstances = computed(() => {
+  const list = [...filteredInstances.value];
+  return list.sort((a, b) => {
+    const statusA = getInstanceStatus(a);
+    const statusB = getInstanceStatus(b);
+
+    const tierMap = { critical: 0, warning: 1, normal: 2, offline: 3 };
+    const tierA = tierMap[statusA.severity];
+    const tierB = tierMap[statusB.severity];
+
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+
+    if (statusA.severity === 'critical' || statusA.severity === 'warning') {
+      if (Math.abs(statusB.maxUsage - statusA.maxUsage) > 0.05) {
+        return statusB.maxUsage - statusA.maxUsage;
+      }
+    }
+
+    if (statusA.severity === 'normal') {
+      if (Math.abs(statusB.maxUsage - statusA.maxUsage) > 0.05) {
+        return statusB.maxUsage - statusA.maxUsage;
+      }
+    }
+
+    return a.name.localeCompare(b.name);
+  });
+});
+
+// Summary stats across filtered inventory
+const inventoryStatusSummary = computed(() => {
+  let criticalCount = 0;
+  let warningCount = 0;
+  let normalCount = 0;
+  let offlineCount = 0;
+
+  for (const inst of filteredInstances.value) {
+    const s = getInstanceStatus(inst);
+    if (s.severity === 'critical') criticalCount++;
+    else if (s.severity === 'warning') warningCount++;
+    else if (s.severity === 'normal') normalCount++;
+    else offlineCount++;
+  }
+
+  return { criticalCount, warningCount, normalCount, offlineCount };
+});
+
+// Modal live preview counts based on pending slider values
+const previewModalCounts = computed(() => {
+  let critical = 0;
+  let warning = 0;
+  let normal = 0;
+  const w = Number(editWarningThreshold.value) || 80;
+  const c = Number(editCriticalThreshold.value) || 90;
+
+  for (const inst of instances.value) {
+    if (!inst.liveMetrics?.isOnline) continue;
+    const cpu = inst.liveMetrics.cpuPct ?? 0;
+    const mem = inst.liveMetrics.memPct ?? 0;
+    let disk = inst.liveMetrics.diskPct ?? 0;
+    if (inst.liveMetrics.disks) {
+      for (const d of inst.liveMetrics.disks) {
+        if (d.usagePct > disk) disk = d.usagePct;
+      }
+    }
+    const maxVal = Math.max(cpu, mem, disk);
+    if (maxVal >= c) critical++;
+    else if (maxVal >= w) warning++;
+    else normal++;
+  }
+  return { critical, warning, normal };
+});
+
+// -----------------------------------------------------------------------------
+// Pagination Logic (Grid: max 9 items, Table: max 12 items)
+// -----------------------------------------------------------------------------
+const GRID_PAGE_SIZE = 9;
+const gridPage = ref(1);
+const gridTotalPages = computed(() => Math.max(1, Math.ceil(sortedInstances.value.length / GRID_PAGE_SIZE)));
+const paginatedGridInstances = computed(() => {
+  const start = (gridPage.value - 1) * GRID_PAGE_SIZE;
+  return sortedInstances.value.slice(start, start + GRID_PAGE_SIZE);
+});
+
+const TABLE_PAGE_SIZE = 12;
+const tablePage = ref(1);
+const tableTotalPages = computed(() => Math.max(1, Math.ceil(sortedInstances.value.length / TABLE_PAGE_SIZE)));
+const paginatedTableInstances = computed(() => {
+  const start = (tablePage.value - 1) * TABLE_PAGE_SIZE;
+  return sortedInstances.value.slice(start, start + TABLE_PAGE_SIZE);
+});
+
+const getVisiblePages = (current: number, total: number): number[] => {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, -1, total];
+  }
+  if (current >= total - 3) {
+    return [1, -1, total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, -1, current - 1, current, current + 1, -1, total];
+};
+
+// Reset page to 1 on filter or threshold changes
+watch([searchQuery, selectedGroup, selectedTag, warningThreshold, criticalThreshold], () => {
+  gridPage.value = 1;
+  tablePage.value = 1;
+});
+
+// Clamp pages within valid bounds
+watch(gridTotalPages, (newTotal) => {
+  if (gridPage.value > newTotal) {
+    gridPage.value = newTotal;
+  }
+});
+
+watch(tableTotalPages, (newTotal) => {
+  if (tablePage.value > newTotal) {
+    tablePage.value = newTotal;
+  }
 });
 
 // Toggle alert notification
@@ -805,11 +1070,11 @@ const setAutoRefresh = async (sec: number) => {
   }
 };
 
-// Progress bar color helper
+// Progress bar color helper (dynamically based on custom thresholds)
 const getBarColor = (val: number | null | undefined) => {
   if (val === null || val === undefined) return 'bg-slate-700 dark:bg-slate-800';
-  if (val >= 90) return 'bg-rose-500';
-  if (val >= 70) return 'bg-amber-500';
+  if (val >= criticalThreshold.value) return 'bg-rose-500';
+  if (val >= warningThreshold.value) return 'bg-amber-500';
   return 'bg-emerald-500';
 };
 
@@ -821,13 +1086,13 @@ const toggleRowExpand = (id: string) => {
 };
 
 const isAllExpanded = computed(() => {
-  if (filteredInstances.value.length === 0) return false;
-  return filteredInstances.value.every((i) => !!expandedRows.value[i.id]);
+  if (paginatedTableInstances.value.length === 0) return false;
+  return paginatedTableInstances.value.every((i) => !!expandedRows.value[i.id]);
 });
 
 const toggleExpandAll = () => {
   const next = !isAllExpanded.value;
-  filteredInstances.value.forEach((i) => {
+  paginatedTableInstances.value.forEach((i) => {
     expandedRows.value[i.id] = next;
   });
 };
@@ -979,6 +1244,19 @@ onUnmounted(() => {
           <option v-for="t in availableTags" :key="t" :value="t">{{ t }}</option>
         </select>
 
+        <!-- Alert Thresholds Config Button -->
+        <button
+          @click="openThresholdModal"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161c2d] transition cursor-pointer font-medium"
+          :title="`Thresholds: Warning ${warningThreshold}%, Critical ${criticalThreshold}%. Click to customize.`"
+        >
+          <Sliders class="w-3.5 h-3.5 text-slate-400" />
+          <span class="hidden sm:inline">Thresholds:</span>
+          <span class="font-mono text-[11px] font-semibold text-amber-600 dark:text-amber-400">{{ warningThreshold }}%</span>
+          <span class="text-slate-300 dark:text-slate-600">/</span>
+          <span class="font-mono text-[11px] font-semibold text-rose-600 dark:text-rose-400">{{ criticalThreshold }}%</span>
+        </button>
+
         <!-- Auto Refresh Selector (30s, 1m, 5m, Pause) -->
         <select
           :value="autoRefreshInterval"
@@ -1045,39 +1323,63 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <!-- VIEW 1: GRID / CARD VIEW (Replicating User Screenshot 1)               -->
     <!-- ===================================================================== -->
-    <div v-else-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div
-        v-for="inst in filteredInstances"
-        :key="inst.id"
-        class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-4 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition space-y-3.5 relative"
-      >
-        <!-- Card Header -->
-        <div class="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-[#1b2234] pb-2.5">
-          <div class="flex items-center gap-2 min-w-0">
-            <!-- Status Dot (Green for online with OTel, Amber if up without OTel, Slate/Red if offline) -->
-            <span
-              class="w-2.5 h-2.5 rounded-full shrink-0"
-              :class="
-                inst.liveMetrics?.isOnline
-                  ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
-                  : inst.liveMetrics?.hasOtel
-                  ? 'bg-rose-500'
-                  : 'bg-slate-400'
-              "
-              :title="inst.liveMetrics?.isOnline ? 'Online (OpenTelemetry Reporting)' : 'Offline / No Telemetry'"
-            ></span>
+    <div v-else-if="viewMode === 'grid'" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          v-for="inst in paginatedGridInstances"
+          :key="inst.id"
+          class="bg-white dark:bg-[#111624] border rounded-xl p-4 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition space-y-3.5 relative"
+          :class="
+            getInstanceStatus(inst).severity === 'critical'
+              ? 'border-rose-400 dark:border-rose-700/80 ring-1 ring-rose-500/20 shadow-rose-500/5'
+              : getInstanceStatus(inst).severity === 'warning'
+              ? 'border-amber-400 dark:border-amber-700/80 ring-1 ring-amber-500/20 shadow-amber-500/5'
+              : 'border-slate-200 dark:border-[#1f283d]'
+          "
+        >
+          <!-- Card Header -->
+          <div class="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-[#1b2234] pb-2.5">
+            <div class="flex items-center gap-2 min-w-0">
+              <!-- Status Dot (Green for online with OTel, Amber if up without OTel, Slate/Red if offline) -->
+              <span
+                class="w-2.5 h-2.5 rounded-full shrink-0"
+                :class="
+                  inst.liveMetrics?.isOnline
+                    ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
+                    : inst.liveMetrics?.hasOtel
+                    ? 'bg-rose-500'
+                    : 'bg-slate-400'
+                "
+                :title="inst.liveMetrics?.isOnline ? 'Online (OpenTelemetry Reporting)' : 'Offline / No Telemetry'"
+              ></span>
 
-            <span class="text-sm font-bold text-slate-900 dark:text-white truncate" :title="inst.name">
-              {{ inst.name }}
-            </span>
+              <span class="text-sm font-bold text-slate-900 dark:text-white truncate" :title="inst.name">
+                {{ inst.name }}
+              </span>
 
-            <span
-              v-if="inst.groupName"
-              class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-400 shrink-0"
-            >
-              {{ inst.groupName }}
-            </span>
-          </div>
+              <!-- Priority Severity Status Badge -->
+              <span
+                v-if="getInstanceStatus(inst).severity === 'critical'"
+                class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300/50 dark:border-rose-800/50 shrink-0"
+                :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+              >
+                CRITICAL
+              </span>
+              <span
+                v-else-if="getInstanceStatus(inst).severity === 'warning'"
+                class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300/50 dark:border-amber-800/50 shrink-0"
+                :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+              >
+                WARNING
+              </span>
+
+              <span
+                v-if="inst.groupName"
+                class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-400 shrink-0"
+              >
+                {{ inst.groupName }}
+              </span>
+            </div>
 
           <!-- Top Right Action Icons -->
           <div class="flex items-center gap-1 shrink-0 dropdown-container">
@@ -1282,6 +1584,79 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- Grid View Pagination Bar (Only when instances exceed 9) -->
+      <div
+        v-if="sortedInstances.length > GRID_PAGE_SIZE"
+        class="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-xs text-xs text-slate-500 dark:text-slate-400"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <span>
+            Showing
+            <strong class="text-slate-800 dark:text-slate-200">{{ (gridPage - 1) * GRID_PAGE_SIZE + 1 }}</strong>
+            to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(gridPage * GRID_PAGE_SIZE, sortedInstances.length) }}</strong>
+            of
+            <strong class="text-slate-800 dark:text-slate-200">{{ sortedInstances.length }}</strong>
+            instances
+          </span>
+
+          <span
+            v-if="inventoryStatusSummary.criticalCount > 0"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300"
+          >
+            {{ inventoryStatusSummary.criticalCount }} Critical
+          </span>
+          <span
+            v-if="inventoryStatusSummary.warningCount > 0"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300"
+          >
+            {{ inventoryStatusSummary.warningCount }} Warning
+          </span>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            @click="gridPage--"
+            :disabled="gridPage <= 1"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+          >
+            <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+            <span>Prev</span>
+          </button>
+
+          <div class="flex items-center gap-1">
+            <template v-for="(p, idx) in getVisiblePages(gridPage, gridTotalPages)" :key="idx">
+              <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+              <button
+                v-else
+                type="button"
+                @click="gridPage = p"
+                :class="[
+                  gridPage === p
+                    ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                    : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                  'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </template>
+          </div>
+
+          <button
+            type="button"
+            @click="gridPage++"
+            :disabled="gridPage >= gridTotalPages"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+          >
+            <span>Next</span>
+            <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- ===================================================================== -->
@@ -1318,12 +1693,16 @@ onUnmounted(() => {
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
             <template
-              v-for="(inst, index) in filteredInstances"
+              v-for="(inst, index) in paginatedTableInstances"
               :key="inst.id"
             >
               <tr
                 class="hover:bg-slate-50/60 dark:hover:bg-[#141b2c] transition"
-                :class="{ 'bg-slate-50/50 dark:bg-[#131929]': expandedRows[inst.id] }"
+                :class="[
+                  expandedRows[inst.id] ? 'bg-slate-50/50 dark:bg-[#131929]' : '',
+                  getInstanceStatus(inst).severity === 'critical' ? 'bg-rose-50/20 dark:bg-rose-950/10' : '',
+                  getInstanceStatus(inst).severity === 'warning' ? 'bg-amber-50/20 dark:bg-amber-950/10' : '',
+                ]"
               >
                 <!-- System Name Column -->
                 <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
@@ -1348,6 +1727,22 @@ onUnmounted(() => {
                       @click="toggleRowExpand(inst.id)"
                     >
                       {{ inst.name }}
+                    </span>
+
+                    <!-- Semantic Priority Badge -->
+                    <span
+                      v-if="getInstanceStatus(inst).severity === 'critical'"
+                      class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300/50 dark:border-rose-800/50 shrink-0"
+                      :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                    >
+                      CRITICAL
+                    </span>
+                    <span
+                      v-else-if="getInstanceStatus(inst).severity === 'warning'"
+                      class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300/50 dark:border-amber-800/50 shrink-0"
+                      :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                    >
+                      WARNING
                     </span>
                   </div>
                 </td>
@@ -1508,7 +1903,7 @@ onUnmounted(() => {
                       <div
                         v-if="activeDropdownId === inst.id"
                         class="absolute right-0 z-50 w-44 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-xl shadow-2xl py-1 text-xs text-left animate-in fade-in"
-                        :class="(filteredInstances.length >= 4 && index >= Math.floor(filteredInstances.length / 2)) ? 'bottom-full mb-1.5' : 'top-6'"
+                        :class="(paginatedTableInstances.length >= 4 && index >= Math.floor(paginatedTableInstances.length / 2)) ? 'bottom-full mb-1.5' : 'top-6'"
                       >
                         <button
                           @click="openHistoryModal(inst)"
@@ -1854,6 +2249,79 @@ onUnmounted(() => {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Table View Pagination Bar (Only when instances exceed 12) -->
+      <div
+        v-if="sortedInstances.length > TABLE_PAGE_SIZE"
+        class="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 dark:border-[#1f283d] bg-slate-50/50 dark:bg-[#0c101b] rounded-b-xl text-xs text-slate-500 dark:text-slate-400"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <span>
+            Showing
+            <strong class="text-slate-800 dark:text-slate-200">{{ (tablePage - 1) * TABLE_PAGE_SIZE + 1 }}</strong>
+            to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(tablePage * TABLE_PAGE_SIZE, sortedInstances.length) }}</strong>
+            of
+            <strong class="text-slate-800 dark:text-slate-200">{{ sortedInstances.length }}</strong>
+            instances
+          </span>
+
+          <span
+            v-if="inventoryStatusSummary.criticalCount > 0"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300"
+          >
+            {{ inventoryStatusSummary.criticalCount }} Critical
+          </span>
+          <span
+            v-if="inventoryStatusSummary.warningCount > 0"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300"
+          >
+            {{ inventoryStatusSummary.warningCount }} Warning
+          </span>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            @click="tablePage--"
+            :disabled="tablePage <= 1"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+          >
+            <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+            <span>Prev</span>
+          </button>
+
+          <div class="flex items-center gap-1">
+            <template v-for="(p, idx) in getVisiblePages(tablePage, tableTotalPages)" :key="idx">
+              <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+              <button
+                v-else
+                type="button"
+                @click="tablePage = p"
+                :class="[
+                  tablePage === p
+                    ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                    : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                  'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </template>
+          </div>
+
+          <button
+            type="button"
+            @click="tablePage++"
+            :disabled="tablePage >= tableTotalPages"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+          >
+            <span>Next</span>
+            <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -2381,6 +2849,177 @@ onUnmounted(() => {
           >
             {{ deleting ? 'Deleting...' : 'Confirm Delete' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 6: ALERT & PRIORITY THRESHOLDS CONFIGURATION                     -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showThresholdModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 font-sans">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              Alert & Priority Thresholds
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Instances exceeding these levels automatically jump to the top.
+            </p>
+          </div>
+          <button
+            @click="showThresholdModal = false"
+            class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#192236] transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Form Cards -->
+        <div class="space-y-3.5 text-xs">
+          <!-- Warning Threshold Input -->
+          <div class="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <label class="font-bold text-slate-800 dark:text-slate-200">
+                  Warning Threshold
+                </label>
+              </div>
+              <div class="flex items-center gap-1">
+                <input
+                  v-model.number="editWarningThreshold"
+                  type="number"
+                  min="30"
+                  max="95"
+                  class="w-16 px-2 py-1 text-xs text-right font-mono font-bold bg-white dark:bg-[#161c2d] border border-amber-300 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+                <span class="font-bold text-slate-500">%</span>
+              </div>
+            </div>
+            <input
+              v-model.number="editWarningThreshold"
+              type="range"
+              min="30"
+              max="95"
+              step="1"
+              class="w-full accent-amber-500 cursor-pointer"
+            />
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Default 80%. When CPU, Memory, or any Disk exceeds this level, the instance is elevated ahead of normal hosts.
+            </p>
+          </div>
+
+          <!-- Critical Threshold Input -->
+          <div class="p-3.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                <label class="font-bold text-slate-800 dark:text-slate-200">
+                  Critical Threshold
+                </label>
+              </div>
+              <div class="flex items-center gap-1">
+                <input
+                  v-model.number="editCriticalThreshold"
+                  type="number"
+                  min="40"
+                  max="100"
+                  class="w-16 px-2 py-1 text-xs text-right font-mono font-bold bg-white dark:bg-[#161c2d] border border-rose-300 dark:border-rose-800 rounded-lg text-rose-700 dark:text-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                />
+                <span class="font-bold text-slate-500">%</span>
+              </div>
+            </div>
+            <input
+              v-model.number="editCriticalThreshold"
+              type="range"
+              min="40"
+              max="100"
+              step="1"
+              class="w-full accent-rose-500 cursor-pointer"
+            />
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Default 90%. When CPU, Memory, or any Disk exceeds this level, the instance gets highest priority and is pinned to the top of Page 1.
+            </p>
+          </div>
+
+          <!-- Quick Presets -->
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[11px] font-medium text-slate-400">Quick Presets:</span>
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                @click="applyPreset(80, 90)"
+                class="px-2 py-1 rounded text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#161c2d] dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              >
+                Default (80/90)
+              </button>
+              <button
+                type="button"
+                @click="applyPreset(70, 85)"
+                class="px-2 py-1 rounded text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#161c2d] dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              >
+                Strict (70/85)
+              </button>
+              <button
+                type="button"
+                @click="applyPreset(85, 95)"
+                class="px-2 py-1 rounded text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#161c2d] dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              >
+                Relaxed (85/95)
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Inventory Impact Preview -->
+          <div class="p-3 bg-slate-50 dark:bg-[#0d121f] rounded-xl border border-slate-200 dark:border-[#1b2234]">
+            <div class="font-medium text-slate-600 dark:text-slate-400 mb-2">Live Inventory Impact:</div>
+            <div class="grid grid-cols-3 gap-2 text-center font-mono">
+              <div class="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40">
+                <div class="font-bold text-sm text-rose-600 dark:text-rose-400">{{ previewModalCounts.critical }}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Critical</div>
+              </div>
+              <div class="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
+                <div class="font-bold text-sm text-amber-600 dark:text-amber-400">{{ previewModalCounts.warning }}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Warning</div>
+              </div>
+              <div class="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
+                <div class="font-bold text-sm text-emerald-600 dark:text-emerald-400">{{ previewModalCounts.normal }}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-sans">Normal</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+          <button
+            type="button"
+            @click="resetThresholdsToDefault"
+            class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
+          >
+            Reset Default
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="showThresholdModal = false"
+              class="px-3.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1a2337] rounded-lg transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="saveThresholds"
+              class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+            >
+              Save & Apply
+            </button>
+          </div>
         </div>
       </div>
     </div>
