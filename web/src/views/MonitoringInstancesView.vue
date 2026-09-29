@@ -1418,7 +1418,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Navigation Tabs: Server vs Container Docker -->
-    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-[#1b2234] pb-2 text-xs" role="tablist">
+    <div class="flex flex-wrap items-center gap-2.5 border-b border-slate-200 dark:border-[#1b2234] pb-3 text-xs" role="tablist">
       <button
         role="tab"
         :aria-selected="activeTab === 'servers'"
@@ -2663,47 +2663,47 @@ onUnmounted(() => {
       </div>
 
       <!-- Container Summary Cards -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
           <div>
             <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Containers</div>
-            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ filteredContainers.length }}</div>
-            <div class="text-[10px] text-slate-400">across {{ containerStats.hostsCount }} host nodes</div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ filteredContainers.length }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">across {{ containerStats.hostsCount }} host nodes</div>
           </div>
-          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
             <Layers class="w-4 h-4" />
           </div>
         </div>
 
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
           <div>
             <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak CPU</div>
-            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.maxCpu }}%</div>
-            <div class="text-[10px] text-slate-400">highest container load</div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.maxCpu }}%</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">highest container load</div>
           </div>
-          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
             <Cpu class="w-4 h-4" />
           </div>
         </div>
 
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
           <div>
             <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak Memory</div>
-            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.maxMem }}%</div>
-            <div class="text-[10px] text-slate-400">highest container ratio</div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.maxMem }}%</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">highest container ratio</div>
           </div>
-          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
             <HardDrive class="w-4 h-4" />
           </div>
         </div>
 
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
           <div>
             <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Memory</div>
-            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.totalMemHuman }}</div>
-            <div class="text-[10px] text-slate-400">excluding file cache</div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.totalMemHuman }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">excluding file cache</div>
           </div>
-          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
             <HardDrive class="w-4 h-4" />
           </div>
         </div>
@@ -2730,46 +2730,46 @@ onUnmounted(() => {
           <div
             v-for="c in paginatedGridContainers"
             :key="c.id"
-            class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4.5 space-y-3.5 shadow-sm hover:border-slate-300 dark:hover:border-[#2a3652] transition flex flex-col justify-between"
+            class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-5 space-y-4 shadow-xs hover:border-slate-300 dark:hover:border-[#2a3652] transition flex flex-col justify-between"
           >
             <!-- Card Header -->
-            <div class="space-y-2">
+            <div class="space-y-2 pb-3 border-b border-slate-100 dark:border-[#161c2d]">
               <div class="flex items-start justify-between gap-2">
                 <div class="flex items-center gap-2 min-w-0">
-                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50"></span>
                   <div class="min-w-0">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate" :title="c.containerName">
                       {{ c.containerName }}
                     </h3>
                   </div>
                 </div>
-                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#182032] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] shrink-0">
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#182032] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] shrink-0 font-mono">
                   {{ c.hostname }}
                 </span>
               </div>
 
               <!-- Image name badge -->
               <div class="flex items-center gap-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
-                <span class="px-2 py-0.5 rounded bg-slate-50 dark:bg-[#0c101a] border border-slate-200/60 dark:border-[#1b2234] truncate max-w-full">
+                <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#0c101a] border border-slate-200/60 dark:border-[#1b2234] truncate max-w-full text-slate-600 dark:text-slate-400">
                   {{ c.imageName }}
                 </span>
               </div>
             </div>
 
             <!-- Resource Gauges (CPU & Memory) -->
-            <div class="space-y-3 pt-1 border-t border-slate-100 dark:border-[#161c2d]">
+            <div class="space-y-3.5">
               <!-- CPU Usage -->
-              <div class="space-y-1">
+              <div class="space-y-1.5">
                 <div class="flex items-center justify-between text-xs">
                   <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
                     <Cpu class="w-3.5 h-3.5 text-slate-400" />
                     <span>CPU Usage</span>
                   </span>
-                  <span class="font-bold text-slate-900 dark:text-white">
+                  <span class="font-bold text-slate-900 dark:text-white font-mono">
                     {{ c.cpuPct != null ? `${c.cpuPct.toFixed(1)}%` : '0%' }}
                   </span>
                 </div>
-                <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div class="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div
                     class="h-full rounded-full transition-all duration-300"
                     :class="getBarColor(c.cpuPct)"
@@ -2779,24 +2779,24 @@ onUnmounted(() => {
               </div>
 
               <!-- Memory Usage -->
-              <div class="space-y-1">
+              <div class="space-y-1.5">
                 <div class="flex items-center justify-between text-xs">
                   <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
                     <HardDrive class="w-3.5 h-3.5 text-slate-400" />
                     <span>Memory</span>
                   </span>
-                  <span class="font-bold text-slate-900 dark:text-white">
+                  <span class="font-bold text-slate-900 dark:text-white font-mono">
                     {{ c.memPct != null ? `${c.memPct.toFixed(1)}%` : '0%' }}
                   </span>
                 </div>
-                <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div class="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div
                     class="h-full rounded-full transition-all duration-300"
                     :class="getBarColor(c.memPct)"
                     :style="{ width: `${Math.min(100, Math.max(0, c.memPct ?? 0))}%` }"
                   ></div>
                 </div>
-                <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
                   <span>{{ formatBytesHuman(c.memUsageBytes) }} / {{ formatBytesHuman(c.memLimitBytes) }}</span>
                   <span v-if="c.memCacheBytes > 0">{{ formatBytesHuman(c.memCacheBytes) }} cache</span>
                 </div>
@@ -2804,11 +2804,11 @@ onUnmounted(() => {
             </div>
 
             <!-- Network & Block I/O Stats (2 columns) -->
-            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-[#161c2d] text-[11px]">
+            <div class="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 dark:border-[#161c2d] text-[11px]">
               <!-- Network Column -->
-              <div class="bg-slate-50/60 dark:bg-[#0c101a] p-2 rounded-lg border border-slate-200/50 dark:border-[#1b2234] space-y-0.5">
-                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
-                  <Network class="w-3 h-3 text-slate-400" />
+              <div class="bg-slate-50/70 dark:bg-[#0c101a] p-3 rounded-xl border border-slate-200/60 dark:border-[#1b2234] space-y-1">
+                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1.5">
+                  <Network class="w-3.5 h-3.5 text-slate-400" />
                   <span>Network</span>
                 </div>
                 <div class="text-slate-700 dark:text-slate-300">
@@ -2820,9 +2820,9 @@ onUnmounted(() => {
               </div>
 
               <!-- Block I/O Column -->
-              <div class="bg-slate-50/60 dark:bg-[#0c101a] p-2 rounded-lg border border-slate-200/50 dark:border-[#1b2234] space-y-0.5">
-                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
-                  <HardDrive class="w-3 h-3 text-slate-400" />
+              <div class="bg-slate-50/70 dark:bg-[#0c101a] p-3 rounded-xl border border-slate-200/60 dark:border-[#1b2234] space-y-1">
+                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1.5">
+                  <HardDrive class="w-3.5 h-3.5 text-slate-400" />
                   <span>Disk I/O</span>
                 </div>
                 <div class="text-slate-700 dark:text-slate-300">
@@ -2835,9 +2835,9 @@ onUnmounted(() => {
             </div>
 
             <!-- Card Footer -->
-            <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#161c2d] text-[10px] text-slate-400">
-              <span class="font-mono">ID: {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}</span>
-              <span>Node: {{ c.ipAddress }}</span>
+            <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#161c2d] text-[11px] text-slate-400">
+              <span class="font-mono truncate max-w-[150px]">ID: {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}</span>
+              <span class="font-mono text-slate-500 dark:text-slate-400">Node: {{ c.ipAddress }}</span>
             </div>
           </div>
         </div>
