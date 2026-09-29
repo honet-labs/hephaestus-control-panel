@@ -32,7 +32,40 @@ import {
   AlertCircle,
   Users,
   Sliders,
+  Box,
 } from 'lucide-vue-next';
+
+interface DockerContainerMetric {
+  id: string;
+  containerId: string;
+  containerName: string;
+  containerHostname: string;
+  imageName: string;
+  runtime: string;
+  hostname: string;
+  ipAddress: string;
+  environment: string;
+  isOnline: boolean;
+  cpuPct: number | null;
+  cpuTotalNs: number;
+  cpuKernelNs: number;
+  cpuUserNs: number;
+  memPct: number | null;
+  memUsageBytes: number;
+  memLimitBytes: number;
+  memCacheBytes: number;
+  netRxBytes: number;
+  netTxBytes: number;
+  netRxRateMb: number;
+  netTxRateMb: number;
+  netRxDropped: number;
+  netTxDropped: number;
+  blockReadBytes: number;
+  blockWriteBytes: number;
+  blockReadRateMb: number;
+  blockWriteRateMb: number;
+  lastUpdated: string;
+}
 
 interface DiskMetric {
   mountpoint: string;
@@ -143,6 +176,9 @@ interface ShareItem {
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
 
+// Top Navigation Tabs ('servers' | 'containers')
+const activeTab = ref<'servers' | 'containers'>('servers');
+
 // State
 const instances = ref<MonitoringInstance[]>([]);
 const groups = ref<string[]>([]);
@@ -159,7 +195,17 @@ const engineStatus = ref<{
   pollIntervalSeconds: number;
   isPolling: boolean;
   cachedInstances: number;
+  cachedContainers?: number;
 } | null>(null);
+
+// Docker Containers State
+const dockerContainers = ref<DockerContainerMetric[]>([]);
+const loadingContainers = ref(false);
+const containerSearch = ref('');
+const containerHostFilter = ref('ALL');
+const containerSortBy = ref<'name' | 'cpu' | 'mem' | 'host'>('cpu');
+const containerSortDir = ref<'asc' | 'desc'>('desc');
+const containerViewMode = ref<'grid' | 'table'>('grid');
 
 // Notification
 const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -198,9 +244,12 @@ const triggerPollNow = async () => {
   refreshing.value = true;
   try {
     await axios.post('/api/v1/monitoring/instances/poll-now');
-    // Fetch cached instances immediately (non-blocking)
-    await fetchInstances(true);
-    await fetchEngineStatus();
+    // Fetch cached instances & containers immediately (non-blocking)
+    await Promise.all([
+      fetchInstances(true),
+      fetchDockerContainers(false),
+      fetchEngineStatus(),
+    ]);
     showNotice('Metrics poll queued and updated');
   } catch (err: any) {
     showNotice(err.response?.data?.error || 'Failed to poll metrics', 'error');
@@ -1092,6 +1141,7 @@ const setAutoRefresh = async (sec: number) => {
   if (sec > 0) {
     refreshTimer = setInterval(() => {
       fetchInstances(true);
+      fetchDockerContainers(false);
       fetchEngineStatus();
     }, sec * 1000);
 
@@ -1147,6 +1197,138 @@ const getMemFreePct = (memPct: number | null | undefined): string => {
   return `${Math.max(0, Math.min(100, +(100 - memPct).toFixed(1)))}%`;
 };
 
+// -----------------------------------------------------------------------------
+// Docker Containers Logic & Computeds
+// -----------------------------------------------------------------------------
+const fetchDockerContainers = async (showLoading = false) => {
+  if (showLoading) loadingContainers.value = true;
+  try {
+    const res = await axios.get('/api/v1/monitoring/containers');
+    if (res.data?.success) {
+      dockerContainers.value = res.data.data || [];
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch docker containers:', err);
+  } finally {
+    loadingContainers.value = false;
+  }
+};
+
+const containerHosts = computed(() => {
+  const hosts = new Set<string>();
+  for (const c of dockerContainers.value) {
+    if (c.hostname) hosts.add(c.hostname);
+  }
+  return Array.from(hosts).sort();
+});
+
+const filteredContainers = computed(() => {
+  let list = dockerContainers.value;
+
+  if (containerHostFilter.value !== 'ALL') {
+    list = list.filter(
+      (c) =>
+        c.hostname === containerHostFilter.value ||
+        c.ipAddress === containerHostFilter.value
+    );
+  }
+
+  const q = containerSearch.value.trim().toLowerCase();
+  if (q) {
+    list = list.filter(
+      (c) =>
+        c.containerName.toLowerCase().includes(q) ||
+        c.imageName.toLowerCase().includes(q) ||
+        c.hostname.toLowerCase().includes(q) ||
+        c.ipAddress.toLowerCase().includes(q) ||
+        c.containerId.toLowerCase().includes(q) ||
+        (c.containerHostname && c.containerHostname.toLowerCase().includes(q))
+    );
+  }
+
+  return [...list].sort((a, b) => {
+    let diff = 0;
+    if (containerSortBy.value === 'cpu') {
+      diff = (a.cpuPct ?? 0) - (b.cpuPct ?? 0);
+    } else if (containerSortBy.value === 'mem') {
+      diff = (a.memPct ?? 0) - (b.memPct ?? 0);
+    } else if (containerSortBy.value === 'host') {
+      diff = a.hostname.localeCompare(b.hostname);
+    } else {
+      diff = a.containerName.localeCompare(b.containerName);
+    }
+    return containerSortDir.value === 'desc' ? -diff : diff;
+  });
+});
+
+const containerStats = computed(() => {
+  const total = dockerContainers.value.length;
+  let maxCpu = 0;
+  let maxMem = 0;
+  let totalMemUsed = 0;
+  const hosts = new Set<string>();
+
+  for (const c of dockerContainers.value) {
+    if (c.hostname) hosts.add(c.hostname);
+    if ((c.cpuPct ?? 0) > maxCpu) maxCpu = c.cpuPct ?? 0;
+    if ((c.memPct ?? 0) > maxMem) maxMem = c.memPct ?? 0;
+    totalMemUsed += c.memUsageBytes;
+  }
+
+  return {
+    total,
+    hostsCount: hosts.size,
+    maxCpu: maxCpu.toFixed(1),
+    maxMem: maxMem.toFixed(1),
+    totalMemHuman: formatBytesHuman(totalMemUsed),
+  };
+});
+
+const CONTAINER_GRID_PAGE_SIZE = 9;
+const containerGridPage = ref(1);
+const containerGridTotalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredContainers.value.length / CONTAINER_GRID_PAGE_SIZE))
+);
+const paginatedGridContainers = computed(() => {
+  const start = (containerGridPage.value - 1) * CONTAINER_GRID_PAGE_SIZE;
+  return filteredContainers.value.slice(start, start + CONTAINER_GRID_PAGE_SIZE);
+});
+
+const CONTAINER_TABLE_PAGE_SIZE = 12;
+const containerTablePage = ref(1);
+const containerTableTotalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredContainers.value.length / CONTAINER_TABLE_PAGE_SIZE))
+);
+const paginatedTableContainers = computed(() => {
+  const start = (containerTablePage.value - 1) * CONTAINER_TABLE_PAGE_SIZE;
+  return filteredContainers.value.slice(start, start + CONTAINER_TABLE_PAGE_SIZE);
+});
+
+watch([containerSearch, containerHostFilter, containerSortBy, containerSortDir], () => {
+  containerGridPage.value = 1;
+  containerTablePage.value = 1;
+});
+
+const formatBytesHuman = (bytes: number | null | undefined): string => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let b = bytes;
+  let u = 0;
+  while (b >= 1024 && u < units.length - 1) {
+    b /= 1024;
+    u++;
+  }
+  return `${b.toFixed(u === 0 ? 0 : u >= 2 ? 1 : 0)} ${units[u]}`;
+};
+
+const formatRateMB = (mbVal: number | null | undefined): string => {
+  if (!mbVal || mbVal <= 0) return '0 B/s';
+  const bytesSec = mbVal * 1024 * 1024;
+  if (bytesSec < 1024) return `${bytesSec.toFixed(0)} B/s`;
+  if (bytesSec < 1024 * 1024) return `${(bytesSec / 1024).toFixed(1)} KB/s`;
+  return `${(bytesSec / (1024 * 1024)).toFixed(2)} MB/s`;
+};
+
 // Close dropdown on outside click
 const handleClickOutside = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
@@ -1157,9 +1339,12 @@ const handleClickOutside = (e: MouseEvent) => {
 
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
-  await fetchInstances();
-  await fetchGroups();
-  await fetchEngineStatus();
+  await Promise.all([
+    fetchInstances(),
+    fetchDockerContainers(true),
+    fetchGroups(),
+    fetchEngineStatus(),
+  ]);
   setAutoRefresh(autoRefreshInterval.value);
 });
 
@@ -1212,7 +1397,7 @@ onUnmounted(() => {
 
         <!-- Sync Remote Hosts -->
         <button
-          v-if="authStore.can('monitoring_instances', 'manage')"
+          v-if="activeTab === 'servers' && authStore.can('monitoring_instances', 'manage')"
           @click="openSyncModal"
           class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#161c2d] text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer"
         >
@@ -1222,7 +1407,7 @@ onUnmounted(() => {
 
         <!-- Add Manual Host -->
         <button
-          v-if="authStore.can('monitoring_instances', 'manage')"
+          v-if="activeTab === 'servers' && authStore.can('monitoring_instances', 'manage')"
           @click="openCreateModal"
           class="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition cursor-pointer"
         >
@@ -1232,8 +1417,45 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Toolbar: Queue engine status, Instant Search, Filters & View Switcher -->
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
+    <!-- Navigation Tabs: Server vs Container Docker -->
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-[#1b2234] pb-2 text-xs" role="tablist">
+      <button
+        role="tab"
+        :aria-selected="activeTab === 'servers'"
+        @click="activeTab = 'servers'"
+        :class="[
+          'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
+          activeTab === 'servers'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-[#1b2234] bg-white dark:bg-[#111624]'
+        ]"
+      >
+        <Server class="w-3.5 h-3.5" />
+        <span>Server ({{ instances.length }})</span>
+      </button>
+
+      <button
+        role="tab"
+        :aria-selected="activeTab === 'containers'"
+        @click="activeTab = 'containers'"
+        :class="[
+          'px-4 py-2 rounded-xl font-semibold transition flex items-center gap-2 cursor-pointer',
+          activeTab === 'containers'
+            ? 'bg-[#4274D9] text-white border border-[#4274D9] shadow-sm font-bold'
+            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/40 border border-slate-200 dark:border-[#1b2234] bg-white dark:bg-[#111624]'
+        ]"
+      >
+        <Layers class="w-3.5 h-3.5" />
+        <span>Container Docker ({{ dockerContainers.length }})</span>
+      </button>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 1: SERVER (HOSTS) MONITORING                                      -->
+    <!-- ===================================================================== -->
+    <div v-if="activeTab === 'servers'" class="space-y-6 animate-in fade-in duration-150">
+      <!-- Toolbar: Queue engine status, Instant Search, Filters & View Switcher -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
       <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
         <div class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2347,6 +2569,489 @@ onUnmounted(() => {
             <span>Next</span>
             <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
           </button>
+        </div>
+      </div>
+    </div>
+
+    </div> <!-- Close Tab 1: Server Monitoring -->
+
+    <!-- ===================================================================== -->
+    <!-- TAB 2: CONTAINER DOCKER MONITORING                                   -->
+    <!-- ===================================================================== -->
+    <div v-else-if="activeTab === 'containers'" class="space-y-6 animate-in fade-in duration-150">
+      <!-- Container Toolbar: Queue engine status, Instant Search, Host Filter, Sort, View Switcher -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Queue Engine: <strong>{{ autoRefreshInterval === 0 ? 'Paused' : autoRefreshInterval < 60 ? `${autoRefreshInterval}s` : `${autoRefreshInterval / 60}m` }}</strong></span>
+          </div>
+          <span class="text-slate-300 dark:text-slate-600">•</span>
+          <span>Containers: <strong>{{ dockerContainers.length }}</strong></span>
+          <span class="text-slate-300 dark:text-slate-600">•</span>
+          <span>Active Nodes: <strong>{{ containerStats.hostsCount }}</strong></span>
+          <template v-if="lastPolledHuman">
+            <span class="text-slate-300 dark:text-slate-600">•</span>
+            <span>Last polled: <strong>{{ lastPolledHuman }}</strong></span>
+          </template>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Container Search -->
+          <div class="relative min-w-[180px] sm:w-56">
+            <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              v-model="containerSearch"
+              type="text"
+              placeholder="Search container, image, host..."
+              class="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
+            />
+          </div>
+
+          <!-- Host Node Filter -->
+          <select
+            v-model="containerHostFilter"
+            class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+          >
+            <option value="ALL">All Nodes ({{ dockerContainers.length }})</option>
+            <option v-for="h in containerHosts" :key="h" :value="h">
+              Node: {{ h }} ({{ dockerContainers.filter(c => c.hostname === h).length }})
+            </option>
+          </select>
+
+          <!-- Sort Selector -->
+          <select
+            v-model="containerSortBy"
+            class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+          >
+            <option value="cpu">Sort: CPU Usage</option>
+            <option value="mem">Sort: Memory Usage</option>
+            <option value="name">Sort: Container Name</option>
+            <option value="host">Sort: Host Node</option>
+          </select>
+
+          <!-- Sort Direction Toggle -->
+          <button
+            @click="containerSortDir = containerSortDir === 'desc' ? 'asc' : 'desc'"
+            class="p-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-[#161c2d] transition cursor-pointer"
+            :title="containerSortDir === 'desc' ? 'Descending' : 'Ascending'"
+          >
+            <ArrowDown v-if="containerSortDir === 'desc'" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <ArrowUp v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+          </button>
+
+          <!-- View Mode Switcher -->
+          <div class="flex items-center bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg p-0.5">
+            <button
+              @click="containerViewMode = 'grid'"
+              :class="containerViewMode === 'grid' ? 'bg-slate-100 dark:bg-[#1e273c] text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'"
+              class="p-1 rounded-md transition cursor-pointer"
+              title="Grid Card View"
+            >
+              <LayoutGrid class="w-3.5 h-3.5" />
+            </button>
+            <button
+              @click="containerViewMode = 'table'"
+              :class="containerViewMode === 'table' ? 'bg-slate-100 dark:bg-[#1e273c] text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'"
+              class="p-1 rounded-md transition cursor-pointer"
+              title="Table Details View"
+            >
+              <List class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Container Summary Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Containers</div>
+            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ filteredContainers.length }}</div>
+            <div class="text-[10px] text-slate-400">across {{ containerStats.hostsCount }} host nodes</div>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+            <Layers class="w-4 h-4" />
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak CPU</div>
+            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.maxCpu }}%</div>
+            <div class="text-[10px] text-slate-400">highest container load</div>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+            <Cpu class="w-4 h-4" />
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak Memory</div>
+            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.maxMem }}%</div>
+            <div class="text-[10px] text-slate-400">highest container ratio</div>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+            <HardDrive class="w-4 h-4" />
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-xl p-3.5 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Memory</div>
+            <div class="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{{ containerStats.totalMemHuman }}</div>
+            <div class="text-[10px] text-slate-400">excluding file cache</div>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
+            <HardDrive class="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="loadingContainers" class="p-12 text-center bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl">
+        <RefreshCw class="w-6 h-6 animate-spin mx-auto text-blue-500" />
+        <p class="text-xs text-slate-400 mt-2 font-medium">Fetching Docker container metrics from Prometheus...</p>
+      </div>
+
+      <!-- Empty State -->
+      <div v-else-if="filteredContainers.length === 0" class="p-12 text-center bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl space-y-2">
+        <Layers class="w-8 h-8 mx-auto text-slate-400" />
+        <div class="text-sm font-bold text-slate-900 dark:text-white">No Docker Containers Found</div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+          No active Docker containers match the filter criteria or telemetry has not reported yet from OpenTelemetry collector.
+        </p>
+      </div>
+
+      <!-- Container Grid View (Cards) -->
+      <div v-else-if="containerViewMode === 'grid'" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div
+            v-for="c in paginatedGridContainers"
+            :key="c.id"
+            class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4.5 space-y-3.5 shadow-sm hover:border-slate-300 dark:hover:border-[#2a3652] transition flex flex-col justify-between"
+          >
+            <!-- Card Header -->
+            <div class="space-y-2">
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                  <div class="min-w-0">
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate" :title="c.containerName">
+                      {{ c.containerName }}
+                    </h3>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#182032] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] shrink-0">
+                  {{ c.hostname }}
+                </span>
+              </div>
+
+              <!-- Image name badge -->
+              <div class="flex items-center gap-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                <span class="px-2 py-0.5 rounded bg-slate-50 dark:bg-[#0c101a] border border-slate-200/60 dark:border-[#1b2234] truncate max-w-full">
+                  {{ c.imageName }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Resource Gauges (CPU & Memory) -->
+            <div class="space-y-3 pt-1 border-t border-slate-100 dark:border-[#161c2d]">
+              <!-- CPU Usage -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                    <Cpu class="w-3.5 h-3.5 text-slate-400" />
+                    <span>CPU Usage</span>
+                  </span>
+                  <span class="font-bold text-slate-900 dark:text-white">
+                    {{ c.cpuPct != null ? `${c.cpuPct.toFixed(1)}%` : '0%' }}
+                  </span>
+                </div>
+                <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all duration-300"
+                    :class="getBarColor(c.cpuPct)"
+                    :style="{ width: `${Math.min(100, Math.max(0, c.cpuPct ?? 0))}%` }"
+                  ></div>
+                </div>
+              </div>
+
+              <!-- Memory Usage -->
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                    <HardDrive class="w-3.5 h-3.5 text-slate-400" />
+                    <span>Memory</span>
+                  </span>
+                  <span class="font-bold text-slate-900 dark:text-white">
+                    {{ c.memPct != null ? `${c.memPct.toFixed(1)}%` : '0%' }}
+                  </span>
+                </div>
+                <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all duration-300"
+                    :class="getBarColor(c.memPct)"
+                    :style="{ width: `${Math.min(100, Math.max(0, c.memPct ?? 0))}%` }"
+                  ></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                  <span>{{ formatBytesHuman(c.memUsageBytes) }} / {{ formatBytesHuman(c.memLimitBytes) }}</span>
+                  <span v-if="c.memCacheBytes > 0">{{ formatBytesHuman(c.memCacheBytes) }} cache</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Network & Block I/O Stats (2 columns) -->
+            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-[#161c2d] text-[11px]">
+              <!-- Network Column -->
+              <div class="bg-slate-50/60 dark:bg-[#0c101a] p-2 rounded-lg border border-slate-200/50 dark:border-[#1b2234] space-y-0.5">
+                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                  <Network class="w-3 h-3 text-slate-400" />
+                  <span>Network</span>
+                </div>
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">RX:</span> {{ formatRateMB(c.netRxRateMb) }}
+                </div>
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">TX:</span> {{ formatRateMB(c.netTxRateMb) }}
+                </div>
+              </div>
+
+              <!-- Block I/O Column -->
+              <div class="bg-slate-50/60 dark:bg-[#0c101a] p-2 rounded-lg border border-slate-200/50 dark:border-[#1b2234] space-y-0.5">
+                <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                  <HardDrive class="w-3 h-3 text-slate-400" />
+                  <span>Disk I/O</span>
+                </div>
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">R:</span> {{ formatRateMB(c.blockReadRateMb) }}
+                </div>
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">W:</span> {{ formatRateMB(c.blockWriteRateMb) }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Card Footer -->
+            <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-[#161c2d] text-[10px] text-slate-400">
+              <span class="font-mono">ID: {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}</span>
+              <span>Node: {{ c.ipAddress }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Container Grid Pagination -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-xl text-xs">
+          <div class="text-slate-500 dark:text-slate-400">
+            Showing <strong class="text-slate-800 dark:text-slate-200">{{ (containerGridPage - 1) * CONTAINER_GRID_PAGE_SIZE + 1 }}</strong> to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(containerGridPage * CONTAINER_GRID_PAGE_SIZE, filteredContainers.length) }}</strong> of
+            <strong class="text-slate-800 dark:text-slate-200">{{ filteredContainers.length }}</strong> containers
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="containerGridPage--"
+              :disabled="containerGridPage <= 1"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+              <span>Prev</span>
+            </button>
+
+            <div class="flex items-center gap-1">
+              <template v-for="(p, idx) in getVisiblePages(containerGridPage, containerGridTotalPages)" :key="idx">
+                <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+                <button
+                  v-else
+                  type="button"
+                  @click="containerGridPage = p"
+                  :class="[
+                    containerGridPage === p
+                      ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                      : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                    'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                  ]"
+                >
+                  {{ p }}
+                </button>
+              </template>
+            </div>
+
+            <button
+              type="button"
+              @click="containerGridPage++"
+              :disabled="containerGridPage >= containerGridTotalPages"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <span>Next</span>
+              <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Container Table View (Details) -->
+      <div v-else class="space-y-4">
+        <div class="overflow-x-auto bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl shadow-sm">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50/80 dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400">
+              <tr>
+                <th class="py-3 px-4 font-semibold">Container</th>
+                <th class="py-3 px-3 font-semibold">Node & IP</th>
+                <th class="py-3 px-3 font-semibold">Status</th>
+                <th class="py-3 px-3 font-semibold">CPU %</th>
+                <th class="py-3 px-3 font-semibold">Memory Usage</th>
+                <th class="py-3 px-3 font-semibold">Cache</th>
+                <th class="py-3 px-3 font-semibold">Network I/O</th>
+                <th class="py-3 px-3 font-semibold">Block I/O</th>
+                <th class="py-3 px-4 font-semibold">Container ID</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-[#161c2d]">
+              <tr
+                v-for="c in paginatedTableContainers"
+                :key="c.id"
+                class="hover:bg-slate-50/60 dark:hover:bg-[#161c2d]/40 transition"
+              >
+                <!-- Container Name & Image -->
+                <td class="py-3 px-4">
+                  <div class="font-bold text-slate-900 dark:text-white truncate max-w-[200px]" :title="c.containerName">
+                    {{ c.containerName }}
+                  </div>
+                  <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
+                    {{ c.imageName }}
+                  </div>
+                </td>
+
+                <!-- Node & IP -->
+                <td class="py-3 px-3">
+                  <div class="font-semibold text-slate-800 dark:text-slate-200">{{ c.hostname }}</div>
+                  <div class="text-[10px] text-slate-400 font-mono">{{ c.ipAddress }}</div>
+                </td>
+
+                <!-- Status -->
+                <td class="py-3 px-3">
+                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span>Online</span>
+                  </span>
+                </td>
+
+                <!-- CPU % -->
+                <td class="py-3 px-3 min-w-[120px]">
+                  <div class="flex items-center justify-between text-[11px] mb-1">
+                    <span class="font-bold text-slate-900 dark:text-white">{{ c.cpuPct != null ? `${c.cpuPct.toFixed(1)}%` : '0%' }}</span>
+                  </div>
+                  <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-all duration-300"
+                      :class="getBarColor(c.cpuPct)"
+                      :style="{ width: `${Math.min(100, Math.max(0, c.cpuPct ?? 0))}%` }"
+                    ></div>
+                  </div>
+                </td>
+
+                <!-- Memory Usage -->
+                <td class="py-3 px-3 min-w-[140px]">
+                  <div class="flex items-center justify-between text-[11px] mb-1">
+                    <span class="font-bold text-slate-900 dark:text-white">{{ c.memPct != null ? `${c.memPct.toFixed(1)}%` : '0%' }}</span>
+                    <span class="text-[10px] text-slate-400">{{ formatBytesHuman(c.memUsageBytes) }}</span>
+                  </div>
+                  <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-all duration-300"
+                      :class="getBarColor(c.memPct)"
+                      :style="{ width: `${Math.min(100, Math.max(0, c.memPct ?? 0))}%` }"
+                    ></div>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Limit: {{ formatBytesHuman(c.memLimitBytes) }}</div>
+                </td>
+
+                <!-- Cache -->
+                <td class="py-3 px-3 text-slate-600 dark:text-slate-300">
+                  {{ formatBytesHuman(c.memCacheBytes) }}
+                </td>
+
+                <!-- Network I/O -->
+                <td class="py-3 px-3">
+                  <div class="text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                    <span class="text-slate-400 text-[10px]">RX:</span> {{ formatRateMB(c.netRxRateMb) }}
+                  </div>
+                  <div class="text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                    <span class="text-slate-400 text-[10px]">TX:</span> {{ formatRateMB(c.netTxRateMb) }}
+                  </div>
+                </td>
+
+                <!-- Block I/O -->
+                <td class="py-3 px-3">
+                  <div class="text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                    <span class="text-slate-400 text-[10px]">R:</span> {{ formatRateMB(c.blockReadRateMb) }}
+                  </div>
+                  <div class="text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                    <span class="text-slate-400 text-[10px]">W:</span> {{ formatRateMB(c.blockWriteRateMb) }}
+                  </div>
+                </td>
+
+                <!-- Container ID -->
+                <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-400 text-[11px]">
+                  {{ c.containerHostname || (c.containerId ? c.containerId.substring(0, 12) : 'N/A') }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Container Table Pagination -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-xl text-xs">
+          <div class="text-slate-500 dark:text-slate-400">
+            Showing <strong class="text-slate-800 dark:text-slate-200">{{ (containerTablePage - 1) * CONTAINER_TABLE_PAGE_SIZE + 1 }}</strong> to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(containerTablePage * CONTAINER_TABLE_PAGE_SIZE, filteredContainers.length) }}</strong> of
+            <strong class="text-slate-800 dark:text-slate-200">{{ filteredContainers.length }}</strong> containers
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="containerTablePage--"
+              :disabled="containerTablePage <= 1"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+              <span>Prev</span>
+            </button>
+
+            <div class="flex items-center gap-1">
+              <template v-for="(p, idx) in getVisiblePages(containerTablePage, containerTableTotalPages)" :key="idx">
+                <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+                <button
+                  v-else
+                  type="button"
+                  @click="containerTablePage = p"
+                  :class="[
+                    containerTablePage === p
+                      ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                      : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                    'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                  ]"
+                >
+                  {{ p }}
+                </button>
+              </template>
+            </div>
+
+            <button
+              type="button"
+              @click="containerTablePage++"
+              :disabled="containerTablePage >= containerTableTotalPages"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <span>Next</span>
+              <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

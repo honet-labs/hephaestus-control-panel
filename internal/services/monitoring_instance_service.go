@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,11 @@ type MonitoringInstanceService struct {
 	pollInterval    time.Duration
 	stopChan        chan struct{}
 	pollTriggerChan chan struct{}
+
+	// Docker Containers Cache
+	dockerCacheMu    sync.RWMutex
+	dockerCache      []*domain.DockerContainerMetric
+	dockerLastPolled time.Time
 }
 
 func NewMonitoringInstanceService(
@@ -44,6 +50,7 @@ func NewMonitoringInstanceService(
 		promService:     promService,
 		workerPool:      workerPool,
 		metricsCache:    make(map[string]*domain.InstanceLiveMetrics),
+		dockerCache:     make([]*domain.DockerContainerMetric, 0),
 		pollInterval:    30 * time.Second, // default 30s as requested
 		stopChan:        make(chan struct{}),
 		pollTriggerChan: make(chan struct{}, 1),
@@ -118,13 +125,24 @@ func (s *MonitoringInstanceService) SetPollInterval(d time.Duration) {
 
 func (s *MonitoringInstanceService) GetEngineStatus() map[string]interface{} {
 	s.cacheMu.RLock()
-	defer s.cacheMu.RUnlock()
+	lastPolledAt := s.lastPolledAt
+	intervalSec := int(s.pollInterval.Seconds())
+	isPolling := s.isPolling
+	cachedInstances := len(s.metricsCache)
+	s.cacheMu.RUnlock()
+
+	s.dockerCacheMu.RLock()
+	cachedContainers := len(s.dockerCache)
+	dockerLastPolled := s.dockerLastPolled
+	s.dockerCacheMu.RUnlock()
 
 	return map[string]interface{}{
-		"lastPolledAt":        s.lastPolledAt,
-		"pollIntervalSeconds": int(s.pollInterval.Seconds()),
-		"isPolling":           s.isPolling,
-		"cachedInstances":     len(s.metricsCache),
+		"lastPolledAt":        lastPolledAt,
+		"pollIntervalSeconds": intervalSec,
+		"isPolling":           isPolling,
+		"cachedInstances":     cachedInstances,
+		"cachedContainers":    cachedContainers,
+		"dockerLastPolledAt":  dockerLastPolled,
 	}
 }
 
@@ -144,28 +162,439 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 		s.cacheMu.Unlock()
 	}()
 
-	// Query all instances across the system with a 12-second timeout context to prevent any hang
-	pollCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// Query with 15-second timeout context to prevent any hang
+	pollCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	instances, err := s.instRepo.List(pollCtx, 0, "ADMIN", "", "")
-	if err != nil || len(instances) == 0 {
-		return
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// 1. Poll Docker Containers concurrently
+	go func() {
+		defer wg.Done()
+		s.pollDockerContainersOnce(pollCtx)
+	}()
+
+	// 2. Poll Server Instances concurrently
+	go func() {
+		defer wg.Done()
+		instances, err := s.instRepo.List(pollCtx, 0, "ADMIN", "", "")
+		if err != nil || len(instances) == 0 {
+			return
+		}
+
+		start := time.Now()
+		s.BatchGetLiveMetrics(pollCtx, instances)
+
+		s.cacheMu.Lock()
+		for _, inst := range instances {
+			if inst.LiveMetrics != nil {
+				s.metricsCache[inst.ID] = inst.LiveMetrics
+			}
+		}
+		s.lastPolledAt = time.Now()
+		s.cacheMu.Unlock()
+
+		logger.Info("MonitoringEngine", fmt.Sprintf("Polled metrics for %d instances in %v", len(instances), time.Since(start)))
+	}()
+
+	wg.Wait()
+}
+
+func (s *MonitoringInstanceService) pollDockerContainersOnce(ctx context.Context) {
+	start := time.Now()
+
+	type qJob struct {
+		key string
+		q   string
 	}
 
-	start := time.Now()
-	s.BatchGetLiveMetrics(pollCtx, instances)
+	jobs := []qJob{
+		{"cpu_util", "container_cpu_utilization_ratio"},
+		{"cpu_ns", "container_cpu_usage_nanoseconds_total"},
+		{"cpu_kernel_ns", "container_cpu_usage_kernelmode_nanoseconds_total"},
+		{"cpu_user_ns", "container_cpu_usage_usermode_nanoseconds_total"},
+		{"mem_pct", "container_memory_percent_ratio"},
+		{"mem_usage", "container_memory_usage_total_bytes"},
+		{"mem_limit", "container_memory_usage_limit_bytes"},
+		{"mem_file", "container_memory_file_bytes"},
+		{"net_rx", "container_network_io_usage_rx_bytes_total"},
+		{"net_tx", "container_network_io_usage_tx_bytes_total"},
+		{"net_rx_rate", "rate(container_network_io_usage_rx_bytes_total[2m])"},
+		{"net_tx_rate", "rate(container_network_io_usage_tx_bytes_total[2m])"},
+		{"net_rx_dropped", "container_network_io_usage_rx_dropped_total"},
+		{"net_tx_dropped", "container_network_io_usage_tx_dropped_total"},
+		{"block_io", "container_blockio_io_service_bytes_recursive_total"},
+		{"block_io_rate", "rate(container_blockio_io_service_bytes_recursive_total[2m])"},
+	}
 
-	s.cacheMu.Lock()
-	for _, inst := range instances {
-		if inst.LiveMetrics != nil {
-			s.metricsCache[inst.ID] = inst.LiveMetrics
+	results := make(map[string]*promVectorResponse)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j qJob) {
+			defer wg.Done()
+			res, err := s.executeInstantQuery(ctx, j.q)
+			if err == nil && res != nil && res.Status == "success" {
+				mu.Lock()
+				results[j.key] = res
+				mu.Unlock()
+			}
+		}(job)
+	}
+
+	wg.Wait()
+
+	containersMap := make(map[string]*domain.DockerContainerMetric)
+
+	getOrCreate := func(labels map[string]string) *domain.DockerContainerMetric {
+		cid := strings.TrimSpace(labels["container_id"])
+		cname := strings.TrimSpace(labels["container_name"])
+		host := strings.TrimSpace(labels["hostname"])
+		ip := strings.TrimSpace(labels["ip_address"])
+
+		key := cid
+		if key == "" {
+			key = host + ":" + cname
+		}
+		if key == ":" || key == "" {
+			return nil
+		}
+
+		c, exists := containersMap[key]
+		if !exists {
+			c = &domain.DockerContainerMetric{
+				ID:                key,
+				ContainerID:       cid,
+				ContainerName:     cname,
+				ContainerHostname: labels["container_hostname"],
+				ImageName:         labels["container_image_name"],
+				Runtime:           labels["container_runtime"],
+				Hostname:          host,
+				IPAddress:         ip,
+				Environment:       labels["environment"],
+				IsOnline:          true,
+				LastUpdated:       time.Now(),
+			}
+			if c.Runtime == "" {
+				c.Runtime = "docker"
+			}
+			containersMap[key] = c
+		} else {
+			if c.ContainerName == "" && cname != "" {
+				c.ContainerName = cname
+			}
+			if c.ImageName == "" && labels["container_image_name"] != "" {
+				c.ImageName = labels["container_image_name"]
+			}
+			if c.Hostname == "" && host != "" {
+				c.Hostname = host
+			}
+			if c.IPAddress == "" && ip != "" {
+				c.IPAddress = ip
+			}
+			if c.ContainerHostname == "" && labels["container_hostname"] != "" {
+				c.ContainerHostname = labels["container_hostname"]
+			}
+		}
+		return c
+	}
+
+	// 1. Process CPU Util
+	if res, ok := results["cpu_util"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					pct := math.Round(math.Max(0, v)*100) / 100
+					c.CPUPct = &pct
+				}
+			}
 		}
 	}
-	s.lastPolledAt = time.Now()
-	s.cacheMu.Unlock()
 
-	logger.Info("MonitoringEngine", fmt.Sprintf("Polled metrics for %d instances in %v", len(instances), time.Since(start)))
+	// 2. Process Mem Pct
+	if res, ok := results["mem_pct"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					pct := math.Round(math.Max(0, math.Min(100, v))*100) / 100
+					c.MemPct = &pct
+				}
+			}
+		}
+	}
+
+	// 3. Process Mem Usage
+	if res, ok := results["mem_usage"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.MemUsageBytes = v
+				}
+			}
+		}
+	}
+
+	// 4. Process Mem Limit
+	if res, ok := results["mem_limit"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.MemLimitBytes = v
+				}
+			}
+		}
+	}
+
+	// 5. Process Mem File (Cache)
+	if res, ok := results["mem_file"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.MemCacheBytes = v
+				}
+			}
+		}
+	}
+
+	// 6. Process Net Rx & Tx Total
+	if res, ok := results["net_rx"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.NetRxBytes += v
+				}
+			}
+		}
+	}
+	if res, ok := results["net_tx"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.NetTxBytes += v
+				}
+			}
+		}
+	}
+
+	// 7. Process Net Rx & Tx Rate
+	if res, ok := results["net_rx_rate"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					c.NetRxRateMB += math.Round((v/(1024*1024))*100) / 100
+				}
+			}
+		}
+	}
+	if res, ok := results["net_tx_rate"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					c.NetTxRateMB += math.Round((v/(1024*1024))*100) / 100
+				}
+			}
+		}
+	}
+
+	// 8. Process Net Dropped
+	if res, ok := results["net_rx_dropped"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.NetRxDropped += v
+				}
+			}
+		}
+	}
+	if res, ok := results["net_tx_dropped"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.NetTxDropped += v
+				}
+			}
+		}
+	}
+
+	// 9. Process Block I/O Total
+	if res, ok := results["block_io"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			op := strings.ToLower(item.Metric["operation"])
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					if op == "read" {
+						c.BlockReadBytes += v
+					} else if op == "write" {
+						c.BlockWriteBytes += v
+					}
+				}
+			}
+		}
+	}
+
+	// 10. Process Block I/O Rate
+	if res, ok := results["block_io_rate"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			op := strings.ToLower(item.Metric["operation"])
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					mb := math.Round((v/(1024*1024))*100) / 100
+					if op == "read" {
+						c.BlockReadRateMB += mb
+					} else if op == "write" {
+						c.BlockWriteRateMB += mb
+					}
+				}
+			}
+		}
+	}
+
+	// 11. Process CPU nanoseconds
+	if res, ok := results["cpu_ns"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.CPUTotalNs = v
+				}
+			}
+		}
+	}
+	if res, ok := results["cpu_kernel_ns"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.CPUKernelNs = v
+				}
+			}
+		}
+	}
+	if res, ok := results["cpu_user_ns"]; ok {
+		for _, item := range res.Data.Result {
+			c := getOrCreate(item.Metric)
+			if c == nil {
+				continue
+			}
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok {
+					c.CPUUserNs = v
+				}
+			}
+		}
+	}
+
+	// Convert map to slice and sort
+	var list []*domain.DockerContainerMetric
+	for _, c := range containersMap {
+		list = append(list, c)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Hostname != list[j].Hostname {
+			return list[i].Hostname < list[j].Hostname
+		}
+		return strings.ToLower(list[i].ContainerName) < strings.ToLower(list[j].ContainerName)
+	})
+
+	s.dockerCacheMu.Lock()
+	s.dockerCache = list
+	s.dockerLastPolled = time.Now()
+	s.dockerCacheMu.Unlock()
+
+	logger.Info("MonitoringEngine", fmt.Sprintf("Polled metrics for %d docker containers in %v", len(list), time.Since(start)))
+}
+
+func (s *MonitoringInstanceService) ListDockerContainers(ctx context.Context, hostFilter string) ([]*domain.DockerContainerMetric, error) {
+	s.dockerCacheMu.RLock()
+	cacheLen := len(s.dockerCache)
+	var result []*domain.DockerContainerMetric
+	for _, c := range s.dockerCache {
+		if hostFilter != "" && !strings.EqualFold(c.Hostname, hostFilter) && !strings.EqualFold(c.IPAddress, hostFilter) {
+			continue
+		}
+		result = append(result, c)
+	}
+	s.dockerCacheMu.RUnlock()
+
+	if cacheLen == 0 {
+		pollCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		defer cancel()
+		s.pollDockerContainersOnce(pollCtx)
+
+		s.dockerCacheMu.RLock()
+		result = nil
+		for _, c := range s.dockerCache {
+			if hostFilter != "" && !strings.EqualFold(c.Hostname, hostFilter) && !strings.EqualFold(c.IPAddress, hostFilter) {
+				continue
+			}
+			result = append(result, c)
+		}
+		s.dockerCacheMu.RUnlock()
+	}
+
+	return result, nil
 }
 
 // Prometheus API response structures

@@ -1127,6 +1127,38 @@ type InstanceHistoryResponse struct {
 	NetOut     []MetricHistoryPoint `json:"netOut"`
 }
 
+type DockerContainerMetric struct {
+	ID                string    `json:"id"`
+	ContainerID       string    `json:"containerId"`
+	ContainerName     string    `json:"containerName"`
+	ContainerHostname string    `json:"containerHostname"`
+	ImageName         string    `json:"imageName"`
+	Runtime           string    `json:"runtime"`
+	Hostname          string    `json:"hostname"`
+	IPAddress         string    `json:"ipAddress"`
+	Environment       string    `json:"environment"`
+	IsOnline          bool      `json:"isOnline"`
+	CPUPct            *float64  `json:"cpuPct"`
+	CPUTotalNs        float64   `json:"cpuTotalNs"`
+	CPUKernelNs       float64   `json:"cpuKernelNs"`
+	CPUUserNs         float64   `json:"cpuUserNs"`
+	MemPct            *float64  `json:"memPct"`
+	MemUsageBytes     float64   `json:"memUsageBytes"`
+	MemLimitBytes     float64   `json:"memLimitBytes"`
+	MemCacheBytes     float64   `json:"memCacheBytes"`
+	NetRxBytes        float64   `json:"netRxBytes"`
+	NetTxBytes        float64   `json:"netTxBytes"`
+	NetRxRateMB       float64   `json:"netRxRateMb"`
+	NetTxRateMB       float64   `json:"netTxRateMb"`
+	NetRxDropped      float64   `json:"netRxDropped"`
+	NetTxDropped      float64   `json:"netTxDropped"`
+	BlockReadBytes    float64   `json:"blockReadBytes"`
+	BlockWriteBytes   float64   `json:"blockWriteBytes"`
+	BlockReadRateMB   float64   `json:"blockReadRateMb"`
+	BlockWriteRateMB  float64   `json:"blockWriteRateMb"`
+	LastUpdated       time.Time `json:"lastUpdated"`
+}
+
 type CreateMonitoringInstanceRequest struct {
 	Name             string   `json:"name" binding:"required"`
 	Host             string   `json:"host" binding:"required"`

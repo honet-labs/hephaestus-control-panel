@@ -355,3 +355,23 @@ func (h *MonitoringInstanceHandler) PollNow(c *gin.Context) {
 	})
 }
 
+// ListContainers handles GET /api/v1/monitoring/containers
+func (h *MonitoringInstanceHandler) ListContainers(c *gin.Context) {
+	host := c.Query("host")
+	containers, err := h.service.ListDockerContainers(c.Request.Context(), host)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to list docker containers",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    containers,
+	})
+}
+
+
