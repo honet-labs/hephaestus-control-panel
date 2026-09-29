@@ -1611,6 +1611,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      </div>
 
       <!-- Grid View Pagination Bar (Only when instances exceed 9) -->
       <div
