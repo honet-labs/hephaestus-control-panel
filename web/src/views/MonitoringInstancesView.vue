@@ -188,6 +188,21 @@ const refreshing = ref(false);
 const searchQuery = ref('');
 const selectedGroup = ref('all');
 const selectedTag = ref('all');
+const loadSavedAutoRefresh = (): number => {
+  try {
+    const raw = localStorage.getItem('hcp_monitoring_auto_refresh');
+    if (raw !== null) {
+      const parsed = Number(raw);
+      if (!isNaN(parsed) && [0, 15, 30, 60, 300].includes(parsed)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 30; // 30s default
+};
+
 const viewMode = ref<'grid' | 'list'>('grid');
 const autoRefreshInterval = ref<number>(loadSavedAutoRefresh());
 const activeDropdownId = ref<string | null>(null);
@@ -351,21 +366,6 @@ const filteredInstances = computed(() => {
 // -----------------------------------------------------------------------------
 const DEFAULT_WARNING_THRESHOLD = 80;
 const DEFAULT_CRITICAL_THRESHOLD = 90;
-
-const loadSavedAutoRefresh = (): number => {
-  try {
-    const raw = localStorage.getItem('hcp_monitoring_auto_refresh');
-    if (raw !== null) {
-      const parsed = Number(raw);
-      if (!isNaN(parsed) && [0, 15, 30, 60, 300].includes(parsed)) {
-        return parsed;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return 30; // 30s default
-};
 
 const loadSavedThresholds = () => {
   try {
