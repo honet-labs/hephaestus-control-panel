@@ -10,7 +10,6 @@ import {
   HardDrive,
   Network,
   Monitor,
-  Thermometer,
   Radio,
   Bell,
   BellOff,
@@ -143,7 +142,8 @@ const selectedGroup = ref('all');
 const selectedTag = ref('all');
 const viewMode = ref<'grid' | 'list'>('grid');
 const autoRefreshInterval = ref<number>(30); // 30s default
-const expandedDisks = ref<Record<string, boolean>>({});
+const showDisksModal = ref(false);
+const selectedDisksInstance = ref<MonitoringInstance | null>(null);
 const activeDropdownId = ref<string | null>(null);
 const engineStatus = ref<{
   lastPolledAt: string;
@@ -767,9 +767,15 @@ const executeDelete = async () => {
   }
 };
 
-// Toggle all mounted disks view for card
-const toggleDisks = (id: string) => {
-  expandedDisks.value[id] = !expandedDisks.value[id];
+// Disks modal handlers
+const openDisksModal = (inst: MonitoringInstance) => {
+  selectedDisksInstance.value = inst;
+  showDisksModal.value = true;
+};
+
+const closeDisksModal = () => {
+  showDisksModal.value = false;
+  selectedDisksInstance.value = null;
 };
 
 // Auto refresh interval handler (30s, 1m, 5m, 0/pause)
@@ -1184,23 +1190,15 @@ onUnmounted(() => {
                 :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
               ></div>
             </div>
-          </div>
-
-          <!-- Expandable Multiple Disks if any -->
-          <div v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1" class="pt-0.5">
+            <!-- Disks Count Badge -->
             <button
-              @click="toggleDisks(inst.id)"
-              class="text-[11px] text-blue-600 dark:text-[#95CCDD] hover:underline flex items-center gap-1 cursor-pointer"
+              v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
+              @click="openDisksModal(inst)"
+              class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#182136] dark:hover:bg-[#202c46] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42] transition cursor-pointer shrink-0"
+              :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
             >
-              <span>{{ expandedDisks[inst.id] ? 'Hide' : 'Show' }} all mounted disks ({{ inst.liveMetrics.disks.length }})</span>
-              <component :is="expandedDisks[inst.id] ? ChevronDown : ChevronRight" class="w-3 h-3" />
+              {{ inst.liveMetrics.disks.length }} disks
             </button>
-            <div v-if="expandedDisks[inst.id]" class="mt-1.5 p-2 bg-slate-50 dark:bg-[#0e1422] rounded-lg space-y-1.5 border border-slate-200/60 dark:border-[#1c2438]">
-              <div v-for="d in inst.liveMetrics.disks" :key="d.mountpoint" class="flex items-center justify-between text-[11px]">
-                <span class="font-mono text-slate-600 dark:text-slate-400 truncate max-w-[120px]" :title="d.mountpoint">{{ d.mountpoint }}</span>
-                <span class="text-slate-700 dark:text-slate-300 font-semibold">{{ d.usagePct }}% ({{ d.usageHuman }})</span>
-              </div>
-            </div>
           </div>
 
           <!-- GPU Row -->
@@ -1241,17 +1239,6 @@ onUnmounted(() => {
             </div>
             <div class="font-semibold font-mono text-xs text-slate-800 dark:text-slate-200">
               {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
-            </div>
-          </div>
-
-          <!-- Temp Row -->
-          <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
-              <Thermometer class="w-3.5 h-3.5 text-slate-400" />
-              <span>Temp:</span>
-            </div>
-            <div class="font-semibold text-slate-800 dark:text-slate-200">
-              {{ inst.liveMetrics?.temperature !== null && inst.liveMetrics?.temperature !== undefined ? `${inst.liveMetrics.temperature}°C` : 'N/A' }}
             </div>
           </div>
 
@@ -1412,6 +1399,14 @@ onUnmounted(() => {
                       :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
                     ></div>
                   </div>
+                  <button
+                    v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
+                    @click="openDisksModal(inst)"
+                    class="px-1 py-0.5 rounded text-[9px] font-mono text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] border border-slate-200 dark:border-[#222c42] transition cursor-pointer"
+                    :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
+                  >
+                    {{ inst.liveMetrics.disks.length }}d
+                  </button>
                 </div>
               </td>
 
@@ -1940,6 +1935,74 @@ onUnmounted(() => {
             class="px-4 py-1.5 bg-slate-200 dark:bg-[#1a2337] text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
           >
             Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 4: MOUNTED DISKS DETAILS                                         -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showDisksModal && selectedDisksInstance"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              Mounted Disks ({{ selectedDisksInstance.name }})
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Host: {{ selectedDisksInstance.host }}
+            </p>
+          </div>
+          <button
+            @click="closeDisksModal"
+            class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#192236] transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Disks List -->
+        <div class="space-y-2.5 max-h-80 overflow-y-auto pr-0.5">
+          <div
+            v-for="d in (selectedDisksInstance.liveMetrics?.disks || [])"
+            :key="d.mountpoint"
+            class="p-3 bg-slate-50 dark:bg-[#0c101c] rounded-xl border border-slate-200/70 dark:border-[#1c2438] space-y-2"
+          >
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[240px]" :title="d.mountpoint">
+                {{ d.mountpoint }}
+              </span>
+              <span class="font-bold text-slate-900 dark:text-white">
+                {{ d.usagePct }}%
+              </span>
+            </div>
+            <!-- Progress Bar -->
+            <div class="w-full bg-slate-200 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-500"
+                :class="getBarColor(d.usagePct)"
+                :style="{ width: `${Math.min(100, Math.max(0, d.usagePct || 0))}%` }"
+              ></div>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              <span>Used: {{ (d.usedBytes / 1073741824).toFixed(1) }} GB</span>
+              <span>Total: {{ (d.totalBytes / 1073741824).toFixed(1) }} GB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+          <button
+            @click="closeDisksModal"
+            class="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+          >
+            Close
           </button>
         </div>
       </div>
