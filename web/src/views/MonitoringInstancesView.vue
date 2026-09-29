@@ -50,6 +50,10 @@ interface LiveMetrics {
   hasOtel: boolean;
   cpuPct: number | null;
   cpuCount: number;
+  cpuPhysicalCount?: number;
+  cpuLoad1m?: number | null;
+  cpuLoad5m?: number | null;
+  cpuLoad15m?: number | null;
   memPct: number | null;
   memUsedBytes: number;
   memFreeBytes: number;
@@ -59,6 +63,9 @@ interface LiveMetrics {
   netDownloadMb: number;
   netUploadMb: number;
   netTotalMb: number;
+  uptimeSeconds?: number | null;
+  uptimeHuman?: string;
+  osVersion?: string;
   temperature?: number | null;
   gpuUsagePct?: number | null;
   lastUpdated: string;
@@ -806,6 +813,39 @@ const getBarColor = (val: number | null | undefined) => {
   return 'bg-emerald-500';
 };
 
+// Expandable rows state & helpers
+const expandedRows = ref<Record<string, boolean>>({});
+
+const toggleRowExpand = (id: string) => {
+  expandedRows.value[id] = !expandedRows.value[id];
+};
+
+const isAllExpanded = computed(() => {
+  if (filteredInstances.value.length === 0) return false;
+  return filteredInstances.value.every((i) => !!expandedRows.value[i.id]);
+});
+
+const toggleExpandAll = () => {
+  const next = !isAllExpanded.value;
+  filteredInstances.value.forEach((i) => {
+    expandedRows.value[i.id] = next;
+  });
+};
+
+const formatBytesGB = (bytes: number | null | undefined): string => {
+  if (!bytes || bytes <= 0) return '0 GB';
+  const gb = bytes / 1073741824;
+  if (gb >= 1000) {
+    return `${(gb / 1024).toFixed(2)} TB`;
+  }
+  return `${gb.toFixed(2)} GB`;
+};
+
+const getMemFreePct = (memPct: number | null | undefined): string => {
+  if (memPct === null || memPct === undefined) return 'N/A';
+  return `${Math.max(0, Math.min(100, +(100 - memPct).toFixed(1)))}%`;
+};
+
 // Close dropdown on outside click
 const handleClickOutside = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
@@ -1245,14 +1285,26 @@ onUnmounted(() => {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- VIEW 2: TABLE / LIST VIEW (Replicating User Screenshot 2)              -->
-    <!-- ===================================================================== -->
     <div v-else class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-sm">
       <div class="overflow-x-auto min-h-[340px]">
         <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
           <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
-              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[150px]">System Name</th>
+              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[160px]">
+                <div class="flex items-center gap-1.5">
+                  <button
+                    @click="toggleExpandAll"
+                    class="p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+                    :title="isAllExpanded ? 'Collapse all rows' : 'Expand all rows'"
+                  >
+                    <ChevronRight
+                      class="w-3.5 h-3.5 transition-transform duration-200"
+                      :class="{ 'rotate-90': isAllExpanded }"
+                    />
+                  </button>
+                  <span>System Name</span>
+                </div>
+              </th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[95px]">Group / Tags</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[95px]">Hostname</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[95px]">IP Address</th>
@@ -1265,217 +1317,516 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
-            <tr
+            <template
               v-for="(inst, index) in filteredInstances"
               :key="inst.id"
-              class="hover:bg-slate-50/60 dark:hover:bg-[#141b2c] transition"
             >
-              <!-- System Name Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex items-center gap-2">
-                  <span
-                    class="w-2 h-2 rounded-full shrink-0"
-                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50' : 'bg-slate-400'"
-                    :title="inst.liveMetrics?.isOnline ? 'Online (Telemetry Active)' : 'Offline / Telemetry Inactive'"
-                  ></span>
-                  <span class="font-bold text-slate-900 dark:text-white">{{ inst.name }}</span>
-                </div>
-              </td>
-
-              <!-- Group / Tags Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span
-                    v-if="inst.groupName"
-                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42]"
-                  >
-                    {{ inst.groupName }}
-                  </span>
-                  <span
-                    v-for="t in (inst.tags || [])"
-                    :key="t"
-                    class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                  >
-                    {{ t }}
-                  </span>
-                  <span
-                    v-if="!inst.groupName && (!inst.tags || inst.tags.length === 0)"
-                    class="text-xs text-slate-400 font-mono"
-                  >
-                    N/A
-                  </span>
-                </div>
-              </td>
-
-              <!-- Hostname Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <span
-                  class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200"
-                  :title="inst.liveMetrics?.detectedHostname || inst.hostname || inst.host"
-                >
-                  {{ inst.liveMetrics?.detectedHostname || inst.hostname || (inst.host !== inst.ipAddress ? inst.host : '-') }}
-                </span>
-              </td>
-
-              <!-- IP Address Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <span class="font-mono text-xs text-slate-600 dark:text-slate-300">
-                  {{ inst.ipAddress || inst.host }}
-                </span>
-              </td>
-
-              <!-- CPU Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-9 font-semibold">
-                    {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
-                  </span>
-                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all duration-500"
-                      :class="getBarColor(inst.liveMetrics?.cpuPct)"
-                      :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.cpuPct || 0))}%` }"
-                    ></div>
-                  </div>
-                  <span
-                    v-if="inst.liveMetrics?.cpuCount"
-                    class="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
-                    title="Logical vCPU Cores"
-                  >
-                    {{ inst.liveMetrics.cpuCount }}c
-                  </span>
-                </div>
-              </td>
-
-              <!-- Memory Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-9 font-semibold">
-                    {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
-                  </span>
-                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all duration-500"
-                      :class="getBarColor(inst.liveMetrics?.memPct)"
-                      :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.memPct || 0))}%` }"
-                    ></div>
-                  </div>
-                </div>
-                <div
-                  v-if="inst.liveMetrics?.memTotalBytes"
-                  class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-mono"
-                >
-                  {{ (inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1) }} / {{ (inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1) }} GB
-                </div>
-              </td>
-
-              <!-- Disk Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-9 font-semibold">
-                    {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
-                  </span>
-                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all duration-500"
-                      :class="getBarColor(inst.liveMetrics?.diskPct)"
-                      :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
-                    ></div>
-                  </div>
-                  <button
-                    v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
-                    @click="openDisksModal(inst)"
-                    class="px-1 py-0.5 rounded text-[9px] font-mono text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] border border-slate-200 dark:border-[#222c42] transition cursor-pointer"
-                    :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
-                  >
-                    {{ inst.liveMetrics.disks.length }}d
-                  </button>
-                </div>
-              </td>
-
-              <!-- Net Download Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
-                <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
-                  <ArrowDown class="w-3 h-3 text-slate-400 shrink-0" />
-                  <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
-                </div>
-              </td>
-
-              <!-- Net Upload Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
-                <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
-                  <ArrowUp class="w-3 h-3 text-slate-400 shrink-0" />
-                  <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
-                </div>
-              </td>
-
-              <!-- Actions Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 text-right whitespace-nowrap">
-                <div class="flex items-center justify-end gap-1 dropdown-container">
-                  <button
-                    @click="toggleAlert(inst)"
-                    class="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1a2337] cursor-pointer"
-                    :title="inst.alertEnabled ? 'Alerts active' : 'Alerts muted'"
-                  >
-                    <Bell
-                      v-if="inst.alertEnabled"
-                      class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
-                    />
-                    <BellOff
-                      v-else
-                      class="w-3.5 h-3.5 text-slate-400 dark:text-slate-600"
-                    />
-                  </button>
-
-                  <div class="relative" :class="{ 'z-40': activeDropdownId === inst.id }">
+              <tr
+                class="hover:bg-slate-50/60 dark:hover:bg-[#141b2c] transition"
+                :class="{ 'bg-slate-50/50 dark:bg-[#131929]': expandedRows[inst.id] }"
+              >
+                <!-- System Name Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
                     <button
-                      @click="activeDropdownId = activeDropdownId === inst.id ? null : inst.id"
-                      class="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1a2337] cursor-pointer"
+                      @click="toggleRowExpand(inst.id)"
+                      class="p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+                      :title="expandedRows[inst.id] ? 'Collapse row details' : 'Expand row details'"
                     >
-                      <MoreHorizontal class="w-4 h-4 text-slate-400 hover:text-slate-700 dark:hover:text-white" />
+                      <ChevronRight
+                        class="w-3.5 h-3.5 transition-transform duration-200"
+                        :class="{ 'rotate-90': expandedRows[inst.id] }"
+                      />
+                    </button>
+                    <span
+                      class="w-2 h-2 rounded-full shrink-0"
+                      :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50' : 'bg-slate-400'"
+                      :title="inst.liveMetrics?.isOnline ? 'Online (Telemetry Active)' : 'Offline / Telemetry Inactive'"
+                    ></span>
+                    <span
+                      class="font-bold text-slate-900 dark:text-white cursor-pointer select-none"
+                      @click="toggleRowExpand(inst.id)"
+                    >
+                      {{ inst.name }}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Group / Tags Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span
+                      v-if="inst.groupName"
+                      class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42]"
+                    >
+                      {{ inst.groupName }}
+                    </span>
+                    <span
+                      v-for="t in (inst.tags || [])"
+                      :key="t"
+                      class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                    >
+                      {{ t }}
+                    </span>
+                    <span
+                      v-if="!inst.groupName && (!inst.tags || inst.tags.length === 0)"
+                      class="text-xs text-slate-400 font-mono"
+                    >
+                      N/A
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Hostname Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <span
+                    class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200"
+                    :title="inst.liveMetrics?.detectedHostname || inst.hostname || inst.host"
+                  >
+                    {{ inst.liveMetrics?.detectedHostname || inst.hostname || (inst.host !== inst.ipAddress ? inst.host : '-') }}
+                  </span>
+                </td>
+
+                <!-- IP Address Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <span class="font-mono text-xs text-slate-600 dark:text-slate-300">
+                    {{ inst.ipAddress || inst.host }}
+                  </span>
+                </td>
+
+                <!-- CPU Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-9 font-semibold">
+                      {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
+                    </span>
+                    <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all duration-500"
+                        :class="getBarColor(inst.liveMetrics?.cpuPct)"
+                        :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.cpuPct || 0))}%` }"
+                      ></div>
+                    </div>
+                    <span
+                      v-if="inst.liveMetrics?.cpuCount"
+                      class="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
+                      title="Logical vCPU Cores"
+                    >
+                      {{ inst.liveMetrics.cpuCount }}c
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Memory Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-9 font-semibold">
+                      {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
+                    </span>
+                    <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all duration-500"
+                        :class="getBarColor(inst.liveMetrics?.memPct)"
+                        :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.memPct || 0))}%` }"
+                      ></div>
+                    </div>
+                  </div>
+                  <div
+                    v-if="inst.liveMetrics?.memTotalBytes"
+                    class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-mono"
+                  >
+                    {{ (inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1) }} / {{ (inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1) }} GB
+                  </div>
+                </td>
+
+                <!-- Disk Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-9 font-semibold">
+                      {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
+                    </span>
+                    <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all duration-500"
+                        :class="getBarColor(inst.liveMetrics?.diskPct)"
+                        :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
+                      ></div>
+                    </div>
+                    <button
+                      v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
+                      @click="openDisksModal(inst)"
+                      class="px-1 py-0.5 rounded text-[9px] font-mono text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] border border-slate-200 dark:border-[#222c42] transition cursor-pointer"
+                      :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
+                    >
+                      {{ inst.liveMetrics.disks.length }}d
+                    </button>
+                  </div>
+                </td>
+
+                <!-- Net Download Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
+                  <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
+                    <ArrowDown class="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
+                  </div>
+                </td>
+
+                <!-- Net Upload Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
+                  <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
+                    <ArrowUp class="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
+                  </div>
+                </td>
+
+                <!-- Actions Column -->
+                <td class="py-3 px-2.5 2xl:px-3.5 text-right whitespace-nowrap">
+                  <div class="flex items-center justify-end gap-1 dropdown-container">
+                    <button
+                      @click="toggleAlert(inst)"
+                      class="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1a2337] cursor-pointer"
+                      :title="inst.alertEnabled ? 'Alerts active' : 'Alerts muted'"
+                    >
+                      <Bell
+                        v-if="inst.alertEnabled"
+                        class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
+                      />
+                      <BellOff
+                        v-else
+                        class="w-3.5 h-3.5 text-slate-400 dark:text-slate-600"
+                      />
                     </button>
 
-                    <div
-                      v-if="activeDropdownId === inst.id"
-                      class="absolute right-0 z-50 w-44 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-xl shadow-2xl py-1 text-xs text-left animate-in fade-in"
-                      :class="(filteredInstances.length >= 4 && index >= Math.floor(filteredInstances.length / 2)) ? 'bottom-full mb-1.5' : 'top-6'"
-                    >
+                    <div class="relative" :class="{ 'z-40': activeDropdownId === inst.id }">
+                      <button
+                        @click="activeDropdownId = activeDropdownId === inst.id ? null : inst.id"
+                        class="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1a2337] cursor-pointer"
+                      >
+                        <MoreHorizontal class="w-4 h-4 text-slate-400 hover:text-slate-700 dark:hover:text-white" />
+                      </button>
+
+                      <div
+                        v-if="activeDropdownId === inst.id"
+                        class="absolute right-0 z-50 w-44 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-xl shadow-2xl py-1 text-xs text-left animate-in fade-in"
+                        :class="(filteredInstances.length >= 4 && index >= Math.floor(filteredInstances.length / 2)) ? 'bottom-full mb-1.5' : 'top-6'"
+                      >
+                        <button
+                          @click="openHistoryModal(inst)"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
+                        >
+                          <History class="w-3.5 h-3.5 text-slate-400" />
+                          <span>View History</span>
+                        </button>
+                        <button
+                          v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
+                          @click="openShareModal(inst)"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
+                        >
+                          <Share2 class="w-3.5 h-3.5 text-slate-400" />
+                          <span>Manage Shares ({{ inst.sharesCount }})</span>
+                        </button>
+                        <button
+                          v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
+                          @click="openEditModal(inst)"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
+                        >
+                          <Edit2 class="w-3.5 h-3.5 text-slate-400" />
+                          <span>Edit Instance</span>
+                        </button>
+                        <button
+                          v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
+                          @click="confirmDeleteInstance(inst)"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 cursor-pointer"
+                        >
+                          <Trash2 class="w-3.5 h-3.5 text-rose-500" />
+                          <span>Delete Instance</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- ============================================================= -->
+              <!-- EXPANDED DETAIL SUB-ROW                                        -->
+              <!-- ============================================================= -->
+              <tr
+                v-if="expandedRows[inst.id]"
+                class="bg-slate-50/80 dark:bg-[#0c101b] border-y border-slate-200/80 dark:border-[#1e273d]"
+              >
+                <td colspan="10" class="p-4 sm:p-5 space-y-4">
+                  <!-- 1. Metadata Strip -->
+                  <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#1b2336] text-xs">
+                    <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                      <!-- Hostname Badge -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Hostname:</span>
+                        <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                          {{ inst.liveMetrics?.detectedHostname || inst.hostname || inst.host }}
+                        </span>
+                      </div>
+
+                      <!-- IP Address Badge -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">IP:</span>
+                        <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                          {{ inst.ipAddress || inst.host }}
+                        </span>
+                      </div>
+
+                      <!-- OS Version -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">OS:</span>
+                        <span class="font-semibold text-slate-800 dark:text-slate-200">
+                          {{ inst.liveMetrics?.osVersion || 'Linux' }}
+                        </span>
+                      </div>
+
+                      <!-- Uptime -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Uptime:</span>
+                        <span class="font-semibold font-mono text-slate-800 dark:text-slate-200">
+                          {{ inst.liveMetrics?.uptimeHuman || 'N/A' }}
+                        </span>
+                      </div>
+
+                      <!-- Target Exporter Port -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Target:</span>
+                        <span class="font-mono text-slate-700 dark:text-slate-300">
+                          {{ inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port}` }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
                       <button
                         @click="openHistoryModal(inst)"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
+                        class="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-[#141b2a] hover:bg-slate-100 dark:hover:bg-[#1d273d] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#222c42] rounded-lg font-medium text-xs transition cursor-pointer"
                       >
                         <History class="w-3.5 h-3.5 text-slate-400" />
                         <span>View History</span>
                       </button>
-                      <button
-                        v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
-                        @click="openShareModal(inst)"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
-                      >
-                        <Share2 class="w-3.5 h-3.5 text-slate-400" />
-                        <span>Manage Shares ({{ inst.sharesCount }})</span>
-                      </button>
-                      <button
-                        v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
-                        @click="openEditModal(inst)"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
-                      >
-                        <Edit2 class="w-3.5 h-3.5 text-slate-400" />
-                        <span>Edit Instance</span>
-                      </button>
-                      <button
-                        v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
-                        @click="confirmDelete(inst)"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 cursor-pointer"
-                      >
-                        <Trash2 class="w-3.5 h-3.5 text-rose-500" />
-                        <span>Delete Instance</span>
-                      </button>
                     </div>
                   </div>
-                </div>
-              </td>
-            </tr>
+
+                  <!-- 2. Metric Summary Cards (3 Columns) -->
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    <!-- Card 1: CPU & Load Averages -->
+                    <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2 text-slate-700 dark:text-slate-200 font-bold text-xs">
+                          <Cpu class="w-4 h-4 text-slate-400" />
+                          <span>CPU & System Load</span>
+                        </div>
+                        <span class="text-xs font-mono font-bold" :class="inst.liveMetrics?.cpuPct && inst.liveMetrics.cpuPct >= 80 ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'">
+                          {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
+                        </span>
+                      </div>
+
+                      <!-- CPU Progress Bar -->
+                      <div class="w-full bg-slate-100 dark:bg-[#192236] h-2 rounded-full overflow-hidden">
+                        <div
+                          class="h-full rounded-full transition-all duration-500"
+                          :class="getBarColor(inst.liveMetrics?.cpuPct)"
+                          :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.cpuPct || 0))}%` }"
+                        ></div>
+                      </div>
+
+                      <div class="space-y-1.5 pt-1 text-xs">
+                        <div class="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                          <span>CPU Cores:</span>
+                          <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            {{ inst.liveMetrics?.cpuCount || 'N/A' }} Logical vCPU
+                            <template v-if="inst.liveMetrics?.cpuPhysicalCount && inst.liveMetrics.cpuPhysicalCount !== inst.liveMetrics.cpuCount">
+                              ({{ inst.liveMetrics.cpuPhysicalCount }} Physical)
+                            </template>
+                          </span>
+                        </div>
+
+                        <div class="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                          <span>Load Avg (1m, 5m, 15m):</span>
+                          <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            <template v-if="inst.liveMetrics?.cpuLoad1m !== undefined && inst.liveMetrics?.cpuLoad1m !== null">
+                              {{ inst.liveMetrics.cpuLoad1m }} / {{ inst.liveMetrics.cpuLoad5m ?? '-' }} / {{ inst.liveMetrics.cpuLoad15m ?? '-' }}
+                            </template>
+                            <template v-else>
+                              N/A
+                            </template>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Card 2: Memory Breakdown (GB and %) -->
+                    <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2 text-slate-700 dark:text-slate-200 font-bold text-xs">
+                          <Layers class="w-4 h-4 text-slate-400" />
+                          <span>Memory Breakdown</span>
+                        </div>
+                        <span class="text-xs font-mono font-bold" :class="inst.liveMetrics?.memPct && inst.liveMetrics.memPct >= 85 ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'">
+                          {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
+                        </span>
+                      </div>
+
+                      <!-- Mem Progress Bar -->
+                      <div class="w-full bg-slate-100 dark:bg-[#192236] h-2 rounded-full overflow-hidden">
+                        <div
+                          class="h-full rounded-full transition-all duration-500"
+                          :class="getBarColor(inst.liveMetrics?.memPct)"
+                          :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.memPct || 0))}%` }"
+                        ></div>
+                      </div>
+
+                      <div class="space-y-1.5 pt-1 text-xs">
+                        <div class="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                          <span>Total Memory:</span>
+                          <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            {{ formatBytesGB(inst.liveMetrics?.memTotalBytes) }} (100%)
+                          </span>
+                        </div>
+
+                        <div class="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                          <span>Used Memory:</span>
+                          <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            {{ formatBytesGB(inst.liveMetrics?.memUsedBytes) }} ({{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }})
+                          </span>
+                        </div>
+
+                        <div class="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                          <span>Free Memory:</span>
+                          <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            {{ formatBytesGB(inst.liveMetrics?.memFreeBytes) }} ({{ getMemFreePct(inst.liveMetrics?.memPct) }})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Card 3: Network Throughput -->
+                    <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2 text-slate-700 dark:text-slate-200 font-bold text-xs">
+                          <Network class="w-4 h-4 text-slate-400" />
+                          <span>Network Activity</span>
+                        </div>
+                        <span class="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {{ ((inst.liveMetrics?.netDownloadMb || 0) + (inst.liveMetrics?.netUploadMb || 0)).toFixed(2) }} MB/s
+                        </span>
+                      </div>
+
+                      <div class="space-y-2 pt-1 text-xs">
+                        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-[#141b2a] border border-slate-100 dark:border-[#1e273d]">
+                          <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                            <ArrowDown class="w-3.5 h-3.5 text-slate-400" />
+                            <span>Download (Rx):</span>
+                          </div>
+                          <div class="text-right">
+                            <div class="font-mono font-semibold text-slate-900 dark:text-white">
+                              {{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s
+                            </div>
+                            <div class="text-[10px] font-mono text-slate-400">
+                              {{ ((inst.liveMetrics?.netDownloadMb || 0) * 8).toFixed(2) }} Mbps
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-[#141b2a] border border-slate-100 dark:border-[#1e273d]">
+                          <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                            <ArrowUp class="w-3.5 h-3.5 text-slate-400" />
+                            <span>Upload (Tx):</span>
+                          </div>
+                          <div class="text-right">
+                            <div class="font-mono font-semibold text-slate-900 dark:text-white">
+                              {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
+                            </div>
+                            <div class="text-[10px] font-mono text-slate-400">
+                              {{ ((inst.liveMetrics?.netUploadMb || 0) * 8).toFixed(2) }} Mbps
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 3. All Disk Mountpoints Table -->
+                  <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl overflow-hidden shadow-2xs">
+                    <div class="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d]">
+                      <div class="flex items-center gap-2 font-bold text-xs text-slate-800 dark:text-slate-200">
+                        <HardDrive class="w-4 h-4 text-slate-400" />
+                        <span>All Mounted Disks & Partitions ({{ inst.liveMetrics?.disks?.length || 0 }})</span>
+                      </div>
+                      <span class="text-[11px] text-slate-400 font-mono">
+                        Root & Storage Mountpoints
+                      </span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                      <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50/40 dark:bg-[#131928] text-[11px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-[#1a2336]">
+                          <tr>
+                            <th class="py-2.5 px-3.5">Mountpoint</th>
+                            <th class="py-2.5 px-3.5">Device</th>
+                            <th class="py-2.5 px-3.5">Filesystem</th>
+                            <th class="py-2.5 px-3.5">Total</th>
+                            <th class="py-2.5 px-3.5">Used</th>
+                            <th class="py-2.5 px-3.5">Free</th>
+                            <th class="py-2.5 px-3.5 min-w-[130px]">Usage (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-[#182133]">
+                          <tr
+                            v-for="d in (inst.liveMetrics?.disks || [])"
+                            :key="d.mountpoint"
+                            class="hover:bg-slate-50/50 dark:hover:bg-[#141c2e] transition"
+                          >
+                            <td class="py-2 px-3.5 font-mono font-bold text-slate-900 dark:text-white">
+                              {{ d.mountpoint }}
+                            </td>
+                            <td class="py-2 px-3.5 font-mono text-slate-600 dark:text-slate-300">
+                              {{ d.device || 'N/A' }}
+                            </td>
+                            <td class="py-2 px-3.5 font-mono text-slate-600 dark:text-slate-300">
+                              <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-[#192236] border border-slate-200 dark:border-[#222c42]">
+                                {{ d.fsType || 'auto' }}
+                              </span>
+                            </td>
+                            <td class="py-2 px-3.5 font-mono text-slate-700 dark:text-slate-300">
+                              {{ formatBytesGB(d.totalBytes) }}
+                            </td>
+                            <td class="py-2 px-3.5 font-mono font-semibold text-slate-800 dark:text-slate-200">
+                              {{ formatBytesGB(d.usedBytes) }}
+                            </td>
+                            <td class="py-2 px-3.5 font-mono text-slate-700 dark:text-slate-300">
+                              {{ formatBytesGB(d.freeBytes) }}
+                            </td>
+                            <td class="py-2 px-3.5 whitespace-nowrap">
+                              <div class="flex items-center gap-2">
+                                <span class="w-10 font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                  {{ d.usagePct }}%
+                                </span>
+                                <div class="w-20 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
+                                  <div
+                                    class="h-full rounded-full transition-all duration-500"
+                                    :class="getBarColor(d.usagePct)"
+                                    :style="{ width: `${Math.min(100, Math.max(0, d.usagePct || 0))}%` }"
+                                  ></div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                          <tr v-if="!inst.liveMetrics?.disks || inst.liveMetrics.disks.length === 0">
+                            <td colspan="7" class="py-4 text-center text-xs text-slate-400 font-sans">
+                              No mounted filesystem metrics available for this instance.
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
 
             <!-- Empty State -->
             <tr v-if="filteredInstances.length === 0">

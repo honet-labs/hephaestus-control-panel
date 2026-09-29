@@ -1080,20 +1080,27 @@ type InstanceLiveMetrics struct {
 	DetectedHostname string               `json:"detectedHostname,omitempty"` // Real hostname from OpenTelemetry
 	AgentVersion     string               `json:"agentVersion"`               // e.g. "0.159.0" or "N/A"
 	HasOTel          bool                 `json:"hasOtel"`                    // true if OpenTelemetry data reported
-	CPUPct        *float64             `json:"cpuPct"`       // nil or float
-	CPUCount      int                  `json:"cpuCount"`     // vCPU count
-	MemPct        *float64             `json:"memPct"`
-	MemUsedBytes  float64              `json:"memUsedBytes"`
-	MemFreeBytes  float64              `json:"memFreeBytes"`
-	MemTotalBytes float64              `json:"memTotalBytes"`
-	DiskPct       *float64             `json:"diskPct"` // overall/root disk %
-	Disks         []InstanceDiskMetric `json:"disks"`
-	NetDownloadMB float64              `json:"netDownloadMb"` // MB/s
-	NetUploadMB   float64              `json:"netUploadMb"`   // MB/s
-	NetTotalMB    float64              `json:"netTotalMb"`    // MB/s
-	Temperature   *float64             `json:"temperature,omitempty"`
-	GPUUsagePct   *float64             `json:"gpuUsagePct,omitempty"`
-	LastUpdated   time.Time            `json:"lastUpdated"`
+	CPUPct           *float64             `json:"cpuPct"`                     // nil or float
+	CPUCount         int                  `json:"cpuCount"`                   // vCPU count
+	CPUPhysicalCount int                  `json:"cpuPhysicalCount,omitempty"` // physical cores count
+	CPULoad1m        *float64             `json:"cpuLoad1m,omitempty"`        // 1m load avg
+	CPULoad5m        *float64             `json:"cpuLoad5m,omitempty"`        // 5m load avg
+	CPULoad15m       *float64             `json:"cpuLoad15m,omitempty"`       // 15m load avg
+	MemPct           *float64             `json:"memPct"`
+	MemUsedBytes     float64              `json:"memUsedBytes"`
+	MemFreeBytes     float64              `json:"memFreeBytes"`
+	MemTotalBytes    float64              `json:"memTotalBytes"`
+	DiskPct          *float64             `json:"diskPct"` // overall/root disk %
+	Disks            []InstanceDiskMetric `json:"disks"`
+	NetDownloadMB    float64              `json:"netDownloadMb"` // MB/s
+	NetUploadMB      float64              `json:"netUploadMb"`   // MB/s
+	NetTotalMB       float64              `json:"netTotalMb"`    // MB/s
+	UptimeSeconds    *float64             `json:"uptimeSeconds,omitempty"`
+	UptimeHuman      string               `json:"uptimeHuman,omitempty"`
+	OSVersion        string               `json:"osVersion,omitempty"`
+	Temperature      *float64             `json:"temperature,omitempty"`
+	GPUUsagePct      *float64             `json:"gpuUsagePct,omitempty"`
+	LastUpdated      time.Time            `json:"lastUpdated"`
 }
 
 type MetricHistoryPoint struct {

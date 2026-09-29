@@ -584,21 +584,27 @@ func newHostMetricCollector() *hostMetricCollector {
 }
 
 type hostMetricData struct {
-	ipAddress      string
-	hostname       string
-	instanceTarget string
-	agentVersion   string
-	isOnline       bool
-	hasOTel        bool
-	cpuPct         *float64
-	cpuCount       int
-	memPct         *float64
-	memUsed        float64
-	memFree        float64
-	memTotal       float64
-	disks          map[string]*domain.InstanceDiskMetric
-	netDown        float64
-	netUp          float64
+	ipAddress        string
+	hostname         string
+	instanceTarget   string
+	agentVersion     string
+	isOnline         bool
+	hasOTel          bool
+	cpuPct           *float64
+	cpuCount         int
+	cpuPhysicalCount int
+	cpuLoad1m        *float64
+	cpuLoad5m        *float64
+	cpuLoad15m       *float64
+	memPct           *float64
+	memUsed          float64
+	memFree          float64
+	memTotal         float64
+	disks            map[string]*domain.InstanceDiskMetric
+	netDown          float64
+	netUp            float64
+	uptimeSeconds    *float64
+	osVersion        string
 }
 
 func (c *hostMetricCollector) getOrCreate(labels map[string]string) *hostMetricData {
@@ -719,6 +725,79 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
 					h.cpuCount = int(v)
+					h.hasOTel = true
+					h.isOnline = true
+				}
+			}
+		}
+	}
+
+	// 3b. Query CPU Physical Count: host_system_cpu_physical_count
+	physRes, err := s.executeInstantQuery(ctx, `host_system_cpu_physical_count`)
+	if err != nil || physRes == nil || len(physRes.Data.Result) == 0 {
+		physRes, _ = s.executeInstantQuery(ctx, `system_cpu_physical_count`)
+	}
+	if physRes != nil && physRes.Status == "success" {
+		for _, item := range physRes.Data.Result {
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+					h := collector.getOrCreate(item.Metric)
+					h.cpuPhysicalCount = int(v)
+					h.hasOTel = true
+					h.isOnline = true
+				}
+			}
+		}
+	}
+
+	// 3c. Query CPU Load Averages (1m, 5m, 15m)
+	load1Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_1m`)
+	if load1Res == nil || len(load1Res.Data.Result) == 0 {
+		load1Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_1m`)
+	}
+	if load1Res != nil && load1Res.Status == "success" {
+		for _, item := range load1Res.Data.Result {
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+					val := math.Round(v*100) / 100
+					h := collector.getOrCreate(item.Metric)
+					h.cpuLoad1m = &val
+					h.hasOTel = true
+					h.isOnline = true
+				}
+			}
+		}
+	}
+
+	load5Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_5m`)
+	if load5Res == nil || len(load5Res.Data.Result) == 0 {
+		load5Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_5m`)
+	}
+	if load5Res != nil && load5Res.Status == "success" {
+		for _, item := range load5Res.Data.Result {
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+					val := math.Round(v*100) / 100
+					h := collector.getOrCreate(item.Metric)
+					h.cpuLoad5m = &val
+					h.hasOTel = true
+					h.isOnline = true
+				}
+			}
+		}
+	}
+
+	load15Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_15m`)
+	if load15Res == nil || len(load15Res.Data.Result) == 0 {
+		load15Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_15m`)
+	}
+	if load15Res != nil && load15Res.Status == "success" {
+		for _, item := range load15Res.Data.Result {
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+					val := math.Round(v*100) / 100
+					h := collector.getOrCreate(item.Metric)
+					h.cpuLoad15m = &val
 					h.hasOTel = true
 					h.isOnline = true
 				}
@@ -956,6 +1035,24 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		}
 	}
 
+	// 7. Query Uptime (seconds)
+	uptimeRes, _ := s.executeInstantQuery(ctx, `max by (ip_address, hostname, instance) (host_process_uptime_seconds)`)
+	if uptimeRes == nil || len(uptimeRes.Data.Result) == 0 {
+		uptimeRes, _ = s.executeInstantQuery(ctx, `max by (instance) (host_process_uptime_seconds)`)
+	}
+	if uptimeRes != nil && uptimeRes.Status == "success" {
+		for _, item := range uptimeRes.Data.Result {
+			if len(item.Value) > 1 {
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+					h := collector.getOrCreate(item.Metric)
+					h.uptimeSeconds = &v
+					h.hasOTel = true
+					h.isOnline = true
+				}
+			}
+		}
+	}
+
 	now := time.Now()
 
 	for _, inst := range instances {
@@ -1026,21 +1123,24 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 
 		if matched == nil || !matched.hasOTel {
 			inst.LiveMetrics = &domain.InstanceLiveMetrics{
-				IsOnline:      false,
-				AgentVersion:  "N/A",
-				HasOTel:       false,
-				CPUPct:        nil,
-				CPUCount:      0,
-				MemPct:        nil,
-				MemUsedBytes:  0,
-				MemFreeBytes:  0,
-				MemTotalBytes: 0,
-				DiskPct:       nil,
-				Disks:         []domain.InstanceDiskMetric{},
-				NetDownloadMB: 0,
-				NetUploadMB:   0,
-				NetTotalMB:    0,
-				LastUpdated:   now,
+				IsOnline:         false,
+				AgentVersion:     "N/A",
+				HasOTel:          false,
+				CPUPct:           nil,
+				CPUCount:         0,
+				CPUPhysicalCount: 0,
+				MemPct:           nil,
+				MemUsedBytes:     0,
+				MemFreeBytes:     0,
+				MemTotalBytes:    0,
+				DiskPct:          nil,
+				Disks:            []domain.InstanceDiskMetric{},
+				NetDownloadMB:    0,
+				NetUploadMB:      0,
+				NetTotalMB:       0,
+				UptimeHuman:      "N/A",
+				OSVersion:        "N/A",
+				LastUpdated:      now,
 			}
 			continue
 		}
@@ -1091,6 +1191,36 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			isOnline = true
 		}
 
+		// Format Uptime Human
+		uptimeHuman := "N/A"
+		if matched.uptimeSeconds != nil && *matched.uptimeSeconds > 0 {
+			uptimeHuman = formatUptimeHuman(*matched.uptimeSeconds)
+		}
+
+		// Detect OS Version / Platform
+		osVer := matched.osVersion
+		if osVer == "" {
+			isLinux := false
+			isWindows := false
+			for _, d := range matched.disks {
+				if d.FSType == "ext4" || d.FSType == "xfs" || strings.HasPrefix(d.Mountpoint, "/") {
+					isLinux = true
+				}
+				if d.FSType == "ntfs" || strings.HasPrefix(d.Mountpoint, "C:") {
+					isWindows = true
+				}
+			}
+			if isLinux {
+				osVer = "Linux"
+			} else if isWindows {
+				osVer = "Windows"
+			} else if matched.hasOTel {
+				osVer = "Linux"
+			} else {
+				osVer = "N/A"
+			}
+		}
+
 		inst.LiveMetrics = &domain.InstanceLiveMetrics{
 			IsOnline:         isOnline,
 			DetectedHostname: matched.hostname,
@@ -1098,6 +1228,10 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			HasOTel:          true,
 			CPUPct:           matched.cpuPct,
 			CPUCount:         cpuCount,
+			CPUPhysicalCount: matched.cpuPhysicalCount,
+			CPULoad1m:        matched.cpuLoad1m,
+			CPULoad5m:        matched.cpuLoad5m,
+			CPULoad15m:       matched.cpuLoad15m,
 			MemPct:           matched.memPct,
 			MemUsedBytes:     matched.memUsed,
 			MemFreeBytes:     matched.memFree,
@@ -1107,9 +1241,34 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			NetDownloadMB:    matched.netDown,
 			NetUploadMB:      matched.netUp,
 			NetTotalMB:       netTotal,
+			UptimeSeconds:    matched.uptimeSeconds,
+			UptimeHuman:      uptimeHuman,
+			OSVersion:        osVer,
 			LastUpdated:      now,
 		}
 	}
+}
+
+func formatUptimeHuman(seconds float64) string {
+	if seconds <= 0 {
+		return "N/A"
+	}
+	totalSec := int64(seconds)
+	days := totalSec / 86400
+	hours := (totalSec % 86400) / 3600
+	minutes := (totalSec % 3600) / 60
+	secs := totalSec % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, secs)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (s *MonitoringInstanceService) GetLiveMetrics(ctx context.Context, inst *domain.MonitoringInstance) (*domain.InstanceLiveMetrics, error) {
