@@ -1453,7 +1453,7 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <!-- TAB 1: SERVER (HOSTS) MONITORING                                      -->
     <!-- ===================================================================== -->
-    <div v-if="activeTab === 'servers'" class="space-y-6 animate-in fade-in duration-150">
+    <div v-if="activeTab === 'servers'" class="space-y-6 mt-6 animate-in fade-in duration-150">
       <!-- Toolbar: Queue engine status, Instant Search, Filters & View Switcher -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
       <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -2578,7 +2578,7 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <!-- TAB 2: CONTAINER DOCKER MONITORING                                   -->
     <!-- ===================================================================== -->
-    <div v-else-if="activeTab === 'containers'" class="space-y-6 animate-in fade-in duration-150">
+    <div v-if="activeTab === 'containers'" class="space-y-6 mt-6 animate-in fade-in duration-150">
       <!-- Container Toolbar: Queue engine status, Instant Search, Host Filter, Sort, View Switcher -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
         <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -2662,52 +2662,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Container Summary Cards -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Containers</div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ filteredContainers.length }}</div>
-            <div class="text-[11px] text-slate-400 mt-0.5">across {{ containerStats.hostsCount }} host nodes</div>
-          </div>
-          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
-            <Layers class="w-4 h-4" />
-          </div>
-        </div>
-
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak CPU</div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.maxCpu }}%</div>
-            <div class="text-[11px] text-slate-400 mt-0.5">highest container load</div>
-          </div>
-          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
-            <Cpu class="w-4 h-4" />
-          </div>
-        </div>
-
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Peak Memory</div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.maxMem }}%</div>
-            <div class="text-[11px] text-slate-400 mt-0.5">highest container ratio</div>
-          </div>
-          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
-            <HardDrive class="w-4 h-4" />
-          </div>
-        </div>
-
-        <div class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Memory</div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white mt-1">{{ containerStats.totalMemHuman }}</div>
-            <div class="text-[11px] text-slate-400 mt-0.5">excluding file cache</div>
-          </div>
-          <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center text-slate-500">
-            <HardDrive class="w-4 h-4" />
-          </div>
-        </div>
-      </div>
 
       <!-- Loading State -->
       <div v-if="loadingContainers" class="p-12 text-center bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl">
@@ -2726,17 +2680,18 @@ onUnmounted(() => {
 
       <!-- Container Grid View (Cards) -->
       <div v-else-if="containerViewMode === 'grid'" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" style="gap: 1.25rem;">
           <div
             v-for="c in paginatedGridContainers"
             :key="c.id"
-            class="bg-white dark:bg-[#111624] border border-slate-200/80 dark:border-[#1b2234] rounded-2xl p-5 space-y-4 shadow-xs hover:border-slate-300 dark:hover:border-[#2a3652] transition flex flex-col justify-between"
+            class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-4 shadow-sm hover:border-slate-300 dark:hover:border-[#2a3652] transition flex flex-col justify-between"
+            style="padding: 1.25rem;"
           >
             <!-- Card Header -->
             <div class="space-y-2 pb-3 border-b border-slate-100 dark:border-[#161c2d]">
               <div class="flex items-start justify-between gap-2">
                 <div class="flex items-center gap-2 min-w-0">
-                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-sm shadow-emerald-500/50"></span>
                   <div class="min-w-0">
                     <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate" :title="c.containerName">
                       {{ c.containerName }}
