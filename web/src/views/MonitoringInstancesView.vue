@@ -10,7 +10,6 @@ import {
   HardDrive,
   Network,
   Monitor,
-  Radio,
   Bell,
   BellOff,
   MoreHorizontal,
@@ -1241,21 +1240,6 @@ onUnmounted(() => {
               {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
             </div>
           </div>
-
-          <!-- Agent Row -->
-          <div class="flex items-center gap-2 pt-1">
-            <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
-              <Radio class="w-3.5 h-3.5 text-slate-400" />
-              <span>Agent:</span>
-            </div>
-            <div class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
-              <span
-                class="w-2 h-2 rounded-full shrink-0"
-                :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500' : 'bg-slate-400'"
-              ></span>
-              <span>{{ inst.liveMetrics?.agentVersion || 'N/A' }}</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -1277,7 +1261,6 @@ onUnmounted(() => {
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[95px]">Disk</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">Net Download</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">Net Upload</th>
-              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[80px]">Agent</th>
               <th class="py-3 px-2.5 2xl:px-3.5 text-right min-w-[65px]">Actions</th>
             </tr>
           </thead>
@@ -1426,17 +1409,6 @@ onUnmounted(() => {
                 </div>
               </td>
 
-              <!-- Agent Column -->
-              <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
-                <div class="flex items-center gap-1.5 font-semibold">
-                  <span
-                    class="w-1.5 h-1.5 rounded-full shrink-0"
-                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500' : 'bg-slate-400'"
-                  ></span>
-                  <span>{{ inst.liveMetrics?.agentVersion || 'N/A' }}</span>
-                </div>
-              </td>
-
               <!-- Actions Column -->
               <td class="py-3 px-2.5 2xl:px-3.5 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1 dropdown-container">
@@ -1507,7 +1479,7 @@ onUnmounted(() => {
 
             <!-- Empty State -->
             <tr v-if="filteredInstances.length === 0">
-              <td colspan="11" class="py-12 text-center text-slate-400 dark:text-slate-500">
+              <td colspan="10" class="py-12 text-center text-slate-400 dark:text-slate-500">
                 <Server class="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p class="font-semibold text-xs text-slate-600 dark:text-slate-300">No monitoring instances found</p>
                 <p class="text-[11px] text-slate-400 mt-0.5">Try adjusting your search or group filter.</p>
