@@ -203,7 +203,7 @@ func (r *MonitoringInstanceRepository) Create(ctx context.Context, inst *domain.
 		inst.InstanceType = "server"
 	}
 	if inst.Visibility == "" {
-		inst.Visibility = "public"
+		inst.Visibility = "private"
 	}
 	if inst.Port == 0 {
 		inst.Port = 8889
@@ -488,7 +488,7 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		PrometheusTarget: fmt.Sprintf("%s:8889", host.Host),
 		RemoteHostID:     &host.ID,
 		UserID:           &targetUserID,
-		Visibility:       "public",
+		Visibility:       "private",
 		AlertEnabled:     true,
 		Notes:            fmt.Sprintf("Synchronized from Remote Host: %s", host.Name),
 		UpdatedAt:        time.Now(),

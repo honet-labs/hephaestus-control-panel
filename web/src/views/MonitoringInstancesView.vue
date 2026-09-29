@@ -588,7 +588,7 @@ const instanceForm = ref({
   groupName: 'Default',
   tags: '',
   prometheusTarget: '',
-  visibility: 'public',
+  visibility: 'private',
   alertEnabled: true,
   notes: '',
 });
@@ -606,7 +606,7 @@ const openCreateModal = () => {
     groupName: 'Default',
     tags: '',
     prometheusTarget: '',
-    visibility: 'public',
+    visibility: 'private',
     alertEnabled: true,
     notes: '',
   };
@@ -627,7 +627,7 @@ const openEditModal = (inst: MonitoringInstance) => {
     groupName: inst.groupName || 'Default',
     tags: inst.tags ? inst.tags.join(', ') : '',
     prometheusTarget: inst.prometheusTarget || '',
-    visibility: inst.visibility || 'public',
+    visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
   };
@@ -1595,6 +1595,22 @@ onUnmounted(() => {
                         <span class="text-slate-400 font-mono text-[11px]">Target:</span>
                         <span class="font-mono text-slate-700 dark:text-slate-300">
                           {{ inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port}` }}
+                        </span>
+                      </div>
+
+                      <!-- Owner -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Owner:</span>
+                        <span class="font-semibold text-slate-800 dark:text-slate-200">
+                          {{ inst.ownerUsername || 'Admin' }}
+                        </span>
+                      </div>
+
+                      <!-- Visibility -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Visibility:</span>
+                        <span class="font-semibold" :class="inst.visibility === 'public' ? 'text-amber-500' : 'text-slate-600 dark:text-slate-400'">
+                          {{ inst.visibility === 'public' ? 'Public' : 'Private' }}
                         </span>
                       </div>
                     </div>

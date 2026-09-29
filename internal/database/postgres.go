@@ -694,7 +694,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			prometheus_target VARCHAR(255),
 			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
 			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-			visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+			visibility VARCHAR(20) NOT NULL DEFAULT 'private',
 			alert_enabled BOOLEAN DEFAULT true,
 			notes TEXT,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -704,6 +704,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_user_id ON monitoring_instances(user_id);
 		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_group ON monitoring_instances(group_name);
 		CREATE INDEX IF NOT EXISTS idx_monitoring_instances_remote_host ON monitoring_instances(remote_host_id);
+
+		-- Ensure monitoring_instances visibility defaults to private and existing public instances are converted to private
+		ALTER TABLE monitoring_instances ALTER COLUMN visibility SET DEFAULT 'private';
+		UPDATE monitoring_instances SET visibility = 'private' WHERE visibility = 'public';
 
 		CREATE TABLE IF NOT EXISTS monitoring_instance_shares (
 			id VARCHAR(50) PRIMARY KEY,
