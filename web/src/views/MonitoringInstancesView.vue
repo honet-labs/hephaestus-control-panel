@@ -26,6 +26,8 @@ import {
   History,
   ChevronDown,
   ChevronRight,
+  ArrowDown,
+  ArrowUp,
   X,
   Check,
   AlertCircle,
@@ -1220,17 +1222,25 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Net Row -->
+          <!-- Net Download Row -->
           <div class="flex items-center gap-2">
             <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
-              <Network class="w-3.5 h-3.5 text-slate-400" />
-              <span>Net:</span>
+              <ArrowDown class="w-3.5 h-3.5 text-slate-400" />
+              <span>Download:</span>
             </div>
-            <div class="font-semibold text-slate-800 dark:text-slate-200">
-              {{ (inst.liveMetrics?.netTotalMb || 0).toFixed(2) }} MB/s
-              <span class="text-[10px] text-slate-400 font-normal ml-1">
-                (↓{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }}  ↑{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }})
-              </span>
+            <div class="font-semibold font-mono text-xs text-slate-800 dark:text-slate-200">
+              {{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s
+            </div>
+          </div>
+
+          <!-- Net Upload Row -->
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
+              <ArrowUp class="w-3.5 h-3.5 text-slate-400" />
+              <span>Upload:</span>
+            </div>
+            <div class="font-semibold font-mono text-xs text-slate-800 dark:text-slate-200">
+              {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
             </div>
           </div>
 
@@ -1277,7 +1287,8 @@ onUnmounted(() => {
               <th class="py-3 px-4 min-w-[130px]">CPU</th>
               <th class="py-3 px-4 min-w-[140px]">Memory</th>
               <th class="py-3 px-4 min-w-[130px]">Disk</th>
-              <th class="py-3 px-4 min-w-[110px]">Net</th>
+              <th class="py-3 px-4 min-w-[120px]">Net Download</th>
+              <th class="py-3 px-4 min-w-[120px]">Net Upload</th>
               <th class="py-3 px-4 min-w-[90px]">Agent</th>
               <th class="py-3 px-4 text-right min-w-[80px]">Actions</th>
             </tr>
@@ -1386,11 +1397,19 @@ onUnmounted(() => {
                 </div>
               </td>
 
-              <!-- Net Column -->
+              <!-- Net Download Column -->
               <td class="py-3 px-4 font-semibold whitespace-nowrap">
-                <div>{{ (inst.liveMetrics?.netTotalMb || 0).toFixed(2) }} MB/s</div>
-                <div class="text-[10px] text-slate-400 font-normal">
-                  ↓{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} ↑{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }}
+                <div class="flex items-center gap-1.5 font-mono text-slate-800 dark:text-slate-200">
+                  <ArrowDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
+                </div>
+              </td>
+
+              <!-- Net Upload Column -->
+              <td class="py-3 px-4 font-semibold whitespace-nowrap">
+                <div class="flex items-center gap-1.5 font-mono text-slate-800 dark:text-slate-200">
+                  <ArrowUp class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
                 </div>
               </td>
 
@@ -1475,7 +1494,7 @@ onUnmounted(() => {
 
             <!-- Empty State -->
             <tr v-if="filteredInstances.length === 0">
-              <td colspan="9" class="py-12 text-center text-slate-400 dark:text-slate-500">
+              <td colspan="10" class="py-12 text-center text-slate-400 dark:text-slate-500">
                 <Server class="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p class="font-semibold text-xs text-slate-600 dark:text-slate-300">No monitoring instances found</p>
                 <p class="text-[11px] text-slate-400 mt-0.5">Try adjusting your search or group filter.</p>
