@@ -1281,7 +1281,8 @@ onUnmounted(() => {
         <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
           <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
-              <th class="py-3 px-4 min-w-[220px]">System Name</th>
+              <th class="py-3 px-4 min-w-[200px]">System Name</th>
+              <th class="py-3 px-4 min-w-[120px]">Group / Tags</th>
               <th class="py-3 px-4 min-w-[120px]">Hostname</th>
               <th class="py-3 px-4 min-w-[120px]">IP Address</th>
               <th class="py-3 px-4 min-w-[130px]">CPU</th>
@@ -1307,15 +1308,32 @@ onUnmounted(() => {
                     :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50' : 'bg-slate-400'"
                     :title="inst.liveMetrics?.isOnline ? 'Online (Telemetry Active)' : 'Offline / Telemetry Inactive'"
                   ></span>
-                  <div class="flex items-center gap-2">
-                    <span class="font-bold text-slate-900 dark:text-white">{{ inst.name }}</span>
-                    <span
-                      v-if="inst.groupName"
-                      class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-slate-100 dark:bg-[#192236] text-slate-500 dark:text-slate-400 shrink-0"
-                    >
-                      {{ inst.groupName }}
-                    </span>
-                  </div>
+                  <span class="font-bold text-slate-900 dark:text-white">{{ inst.name }}</span>
+                </div>
+              </td>
+
+              <!-- Group / Tags Column -->
+              <td class="py-3 px-4 whitespace-nowrap">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span
+                    v-if="inst.groupName"
+                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42]"
+                  >
+                    {{ inst.groupName }}
+                  </span>
+                  <span
+                    v-for="t in (inst.tags || [])"
+                    :key="t"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                  >
+                    {{ t }}
+                  </span>
+                  <span
+                    v-if="!inst.groupName && (!inst.tags || inst.tags.length === 0)"
+                    class="text-xs text-slate-400 font-mono"
+                  >
+                    N/A
+                  </span>
                 </div>
               </td>
 
@@ -1494,7 +1512,7 @@ onUnmounted(() => {
 
             <!-- Empty State -->
             <tr v-if="filteredInstances.length === 0">
-              <td colspan="10" class="py-12 text-center text-slate-400 dark:text-slate-500">
+              <td colspan="11" class="py-12 text-center text-slate-400 dark:text-slate-500">
                 <Server class="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p class="font-semibold text-xs text-slate-600 dark:text-slate-300">No monitoring instances found</p>
                 <p class="text-[11px] text-slate-400 mt-0.5">Try adjusting your search or group filter.</p>
