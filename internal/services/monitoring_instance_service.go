@@ -1155,27 +1155,21 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			ver = "0.159.0"
 		}
 
-		// Root/Primary disk calculation
-		var primaryDiskPct *float64
+		// Overall disk calculation across all storage partitions
+		var overallDiskPct *float64
 		var diskList []domain.InstanceDiskMetric
 		var sumUsed, sumTotal float64
 		for _, d := range matched.disks {
 			diskList = append(diskList, *d)
 			sumUsed += d.UsedBytes
 			sumTotal += d.TotalBytes
-			if d.Mountpoint == "/" || d.Mountpoint == "C:" || d.Mountpoint == "C:\\" {
-				pct := d.UsagePct
-				primaryDiskPct = &pct
-			}
 		}
-		if primaryDiskPct == nil && len(diskList) > 0 {
-			if sumTotal > 0 {
-				pct := math.Round((sumUsed/sumTotal)*1000) / 10
-				primaryDiskPct = &pct
-			} else {
-				pct := diskList[0].UsagePct
-				primaryDiskPct = &pct
-			}
+		if sumTotal > 0 {
+			pct := math.Round((sumUsed/sumTotal)*1000) / 10
+			overallDiskPct = &pct
+		} else if len(diskList) > 0 {
+			pct := diskList[0].UsagePct
+			overallDiskPct = &pct
 		}
 
 		cpuCount := matched.cpuCount
@@ -1236,7 +1230,10 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			MemUsedBytes:     matched.memUsed,
 			MemFreeBytes:     matched.memFree,
 			MemTotalBytes:    matched.memTotal,
-			DiskPct:          primaryDiskPct,
+			DiskPct:          overallDiskPct,
+			DiskUsedBytes:    sumUsed,
+			DiskFreeBytes:    math.Max(0, sumTotal-sumUsed),
+			DiskTotalBytes:   sumTotal,
 			Disks:            diskList,
 			NetDownloadMB:    matched.netDown,
 			NetUploadMB:      matched.netUp,

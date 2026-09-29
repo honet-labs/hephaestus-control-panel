@@ -61,6 +61,9 @@ interface LiveMetrics {
   memFreeBytes: number;
   memTotalBytes: number;
   diskPct: number | null;
+  diskUsedBytes?: number;
+  diskFreeBytes?: number;
+  diskTotalBytes?: number;
   disks: DiskMetric[];
   netDownloadMb: number;
   netUploadMb: number;
@@ -150,8 +153,6 @@ const selectedGroup = ref('all');
 const selectedTag = ref('all');
 const viewMode = ref<'grid' | 'list'>('grid');
 const autoRefreshInterval = ref<number>(30); // 30s default
-const showDisksModal = ref(false);
-const selectedDisksInstance = ref<MonitoringInstance | null>(null);
 const activeDropdownId = ref<string | null>(null);
 const engineStatus = ref<{
   lastPolledAt: string;
@@ -368,6 +369,50 @@ const applyPreset = (w: number, c: number) => {
 };
 
 // -----------------------------------------------------------------------------
+// Overall Host Storage Calculation
+// -----------------------------------------------------------------------------
+interface OverallDiskInfo {
+  pct: number | null;
+  usedBytes: number;
+  totalBytes: number;
+  freeBytes: number;
+}
+
+const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
+  if (inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 0) {
+    let sumUsed = 0;
+    let sumTotal = 0;
+    for (const d of inst.liveMetrics.disks) {
+      sumUsed += d.usedBytes || 0;
+      sumTotal += d.totalBytes || 0;
+    }
+    if (sumTotal > 0) {
+      const pct = Math.round((sumUsed / sumTotal) * 1000) / 10;
+      return {
+        pct,
+        usedBytes: sumUsed,
+        totalBytes: sumTotal,
+        freeBytes: Math.max(0, sumTotal - sumUsed),
+      };
+    }
+  }
+
+  const used = inst.liveMetrics?.diskUsedBytes || 0;
+  const total = inst.liveMetrics?.diskTotalBytes || 0;
+  const pct =
+    inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined
+      ? inst.liveMetrics.diskPct
+      : null;
+
+  return {
+    pct,
+    usedBytes: used,
+    totalBytes: total,
+    freeBytes: Math.max(0, total - used),
+  };
+};
+
+// -----------------------------------------------------------------------------
 // Resource Status & Smart Priority Sorting
 // -----------------------------------------------------------------------------
 interface InstanceStatus {
@@ -393,7 +438,8 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
 
   const cpu = typeof inst.liveMetrics.cpuPct === 'number' ? inst.liveMetrics.cpuPct : 0;
   const memory = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
-  let disk = typeof inst.liveMetrics.diskPct === 'number' ? inst.liveMetrics.diskPct : 0;
+  const overallDisk = getOverallDisk(inst);
+  let disk = typeof overallDisk.pct === 'number' ? overallDisk.pct : 0;
 
   if (Array.isArray(inst.liveMetrics.disks) && inst.liveMetrics.disks.length > 0) {
     for (const d of inst.liveMetrics.disks) {
@@ -493,7 +539,8 @@ const previewModalCounts = computed(() => {
     if (!inst.liveMetrics?.isOnline) continue;
     const cpu = inst.liveMetrics.cpuPct ?? 0;
     const mem = inst.liveMetrics.memPct ?? 0;
-    let disk = inst.liveMetrics.diskPct ?? 0;
+    const overallDisk = getOverallDisk(inst);
+    let disk = overallDisk.pct ?? 0;
     if (inst.liveMetrics.disks) {
       for (const d of inst.liveMetrics.disks) {
         if (d.usagePct > disk) disk = d.usagePct;
@@ -1038,17 +1085,6 @@ const executeDelete = async () => {
   }
 };
 
-// Disks modal handlers
-const openDisksModal = (inst: MonitoringInstance) => {
-  selectedDisksInstance.value = inst;
-  showDisksModal.value = true;
-};
-
-const closeDisksModal = () => {
-  showDisksModal.value = false;
-  selectedDisksInstance.value = null;
-};
-
 // Auto refresh interval handler (30s, 1m, 5m, 0/pause)
 const setAutoRefresh = async (sec: number) => {
   autoRefreshInterval.value = sec;
@@ -1514,32 +1550,23 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Disk Row -->
+          <!-- Disk Row (Overall Storage) -->
           <div class="flex items-center gap-2">
             <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
               <HardDrive class="w-3.5 h-3.5 text-slate-400" />
               <span>Disk:</span>
             </div>
             <div class="w-16 font-semibold text-slate-800 dark:text-slate-200">
-              {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
+              {{ getOverallDisk(inst).pct !== null ? `${getOverallDisk(inst).pct}%` : 'N/A' }}
             </div>
             <!-- Progress Bar -->
             <div class="flex-1 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full transition-all duration-500"
-                :class="getBarColor(inst.liveMetrics?.diskPct)"
-                :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
+                :class="getBarColor(getOverallDisk(inst).pct)"
+                :style="{ width: `${Math.min(100, Math.max(0, getOverallDisk(inst).pct || 0))}%` }"
               ></div>
             </div>
-            <!-- Disks Count Badge -->
-            <button
-              v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
-              @click="openDisksModal(inst)"
-              class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#182136] dark:hover:bg-[#202c46] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42] transition cursor-pointer shrink-0"
-              :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
-            >
-              {{ inst.liveMetrics.disks.length }} disks
-            </button>
           </div>
 
           <!-- GPU Row -->
@@ -1834,27 +1861,25 @@ onUnmounted(() => {
                   </div>
                 </td>
 
-                <!-- Disk Column -->
+                <!-- Disk Column (Overall Storage) -->
                 <td class="py-3 px-2.5 2xl:px-3.5 whitespace-nowrap">
                   <div class="flex items-center gap-1.5">
                     <span class="w-9 font-semibold">
-                      {{ inst.liveMetrics?.diskPct !== null && inst.liveMetrics?.diskPct !== undefined ? `${inst.liveMetrics.diskPct}%` : 'N/A' }}
+                      {{ getOverallDisk(inst).pct !== null ? `${getOverallDisk(inst).pct}%` : 'N/A' }}
                     </span>
                     <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                       <div
                         class="h-full rounded-full transition-all duration-500"
-                        :class="getBarColor(inst.liveMetrics?.diskPct)"
-                        :style="{ width: `${Math.min(100, Math.max(0, inst.liveMetrics?.diskPct || 0))}%` }"
+                        :class="getBarColor(getOverallDisk(inst).pct)"
+                        :style="{ width: `${Math.min(100, Math.max(0, getOverallDisk(inst).pct || 0))}%` }"
                       ></div>
                     </div>
-                    <button
-                      v-if="inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 1"
-                      @click="openDisksModal(inst)"
-                      class="px-1 py-0.5 rounded text-[9px] font-mono text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] border border-slate-200 dark:border-[#222c42] transition cursor-pointer"
-                      :title="inst.liveMetrics.disks.map(d => `${d.mountpoint}: ${d.usagePct}% (${d.usageHuman})`).join('\n')"
-                    >
-                      {{ inst.liveMetrics.disks.length }}d
-                    </button>
+                  </div>
+                  <div
+                    v-if="getOverallDisk(inst).totalBytes > 0"
+                    class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-mono"
+                  >
+                    {{ (getOverallDisk(inst).usedBytes / 1073741824).toFixed(1) }} / {{ (getOverallDisk(inst).totalBytes / 1073741824).toFixed(1) }} GB
                   </div>
                 </td>
 
@@ -2742,74 +2767,6 @@ onUnmounted(() => {
             class="px-4 py-1.5 bg-slate-200 dark:bg-[#1a2337] text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
           >
             Done
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===================================================================== -->
-    <!-- MODAL 4: MOUNTED DISKS DETAILS                                         -->
-    <!-- ===================================================================== -->
-    <div
-      v-if="showDisksModal && selectedDisksInstance"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
-    >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
-        <!-- Header -->
-        <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-          <div>
-            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-              Mounted Disks ({{ selectedDisksInstance.name }})
-            </h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Host: {{ selectedDisksInstance.host }}
-            </p>
-          </div>
-          <button
-            @click="closeDisksModal"
-            class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#192236] transition cursor-pointer"
-          >
-            <X class="w-4 h-4" />
-          </button>
-        </div>
-
-        <!-- Disks List -->
-        <div class="space-y-2.5 max-h-80 overflow-y-auto pr-0.5">
-          <div
-            v-for="d in (selectedDisksInstance.liveMetrics?.disks || [])"
-            :key="d.mountpoint"
-            class="p-3 bg-slate-50 dark:bg-[#0c101c] rounded-xl border border-slate-200/70 dark:border-[#1c2438] space-y-2"
-          >
-            <div class="flex items-center justify-between text-xs">
-              <span class="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[240px]" :title="d.mountpoint">
-                {{ d.mountpoint }}
-              </span>
-              <span class="font-bold text-slate-900 dark:text-white">
-                {{ d.usagePct }}%
-              </span>
-            </div>
-            <!-- Progress Bar -->
-            <div class="w-full bg-slate-200 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
-              <div
-                class="h-full rounded-full transition-all duration-500"
-                :class="getBarColor(d.usagePct)"
-                :style="{ width: `${Math.min(100, Math.max(0, d.usagePct || 0))}%` }"
-              ></div>
-            </div>
-            <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-              <span>Used: {{ (d.usedBytes / 1073741824).toFixed(1) }} GB</span>
-              <span>Total: {{ (d.totalBytes / 1073741824).toFixed(1) }} GB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="flex justify-end pt-2 border-t border-slate-100 dark:border-[#1b2234]">
-          <button
-            @click="closeDisksModal"
-            class="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2336] dark:hover:bg-[#222f49] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
-          >
-            Close
           </button>
         </div>
       </div>

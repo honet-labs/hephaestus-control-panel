@@ -1090,7 +1090,10 @@ type InstanceLiveMetrics struct {
 	MemUsedBytes     float64              `json:"memUsedBytes"`
 	MemFreeBytes     float64              `json:"memFreeBytes"`
 	MemTotalBytes    float64              `json:"memTotalBytes"`
-	DiskPct          *float64             `json:"diskPct"` // overall/root disk %
+	DiskPct          *float64             `json:"diskPct"` // overall disk %
+	DiskUsedBytes    float64              `json:"diskUsedBytes"`
+	DiskFreeBytes    float64              `json:"diskFreeBytes"`
+	DiskTotalBytes   float64              `json:"diskTotalBytes"`
 	Disks            []InstanceDiskMetric `json:"disks"`
 	NetDownloadMB    float64              `json:"netDownloadMb"` // MB/s
 	NetUploadMB      float64              `json:"netUploadMb"`   // MB/s
