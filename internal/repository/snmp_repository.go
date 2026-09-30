@@ -138,22 +138,131 @@ func (r *SnmpRepository) TranslateOid(ctx context.Context, numericOid string) (s
 		return displayName, &o
 	}
 
-	// Standard fallback prefix translations
-	standardPrefixes := map[string]string{
-		"1.3.6.1.2.1.1":  "system",
-		"1.3.6.1.2.1.2":  "interfaces",
-		"1.3.6.1.2.1.4":  "ip",
-		"1.3.6.1.2.1.5":  "icmp",
-		"1.3.6.1.2.1.6":  "tcp",
-		"1.3.6.1.2.1.7":  "udp",
-		"1.3.6.1.2.1.25": "hostResources",
-		"1.3.6.1.4.1":    "enterprises",
+	// Standard and vendor MIB prefix translations ordered from longest to shortest
+	type prefixEntry struct {
+		prefix string
+		name   string
+	}
+	standardPrefixes := []prefixEntry{
+		// IF-MIB (RFC 2863)
+		{"1.3.6.1.2.1.31.1.1.1.15", "ifHighSpeed"},
+		{"1.3.6.1.2.1.31.1.1.1.18", "ifAlias"},
+		{"1.3.6.1.2.1.31.1.1.1.1", "ifName"},
+		{"1.3.6.1.2.1.31.1.1.1.6", "ifHCInOctets"},
+		{"1.3.6.1.2.1.31.1.1.1.7", "ifHCInUcastPkts"},
+		{"1.3.6.1.2.1.31.1.1.1.8", "ifHCInMulticastPkts"},
+		{"1.3.6.1.2.1.31.1.1.1.9", "ifHCInBroadcastPkts"},
+		{"1.3.6.1.2.1.31.1.1.1.10", "ifHCOutOctets"},
+		{"1.3.6.1.2.1.31.1.1.1.11", "ifHCOutUcastPkts"},
+		{"1.3.6.1.2.1.31.1.1.1.12", "ifHCOutMulticastPkts"},
+		{"1.3.6.1.2.1.31.1.1.1.13", "ifHCOutBroadcastPkts"},
+		{"1.3.6.1.2.1.2.2.1.8", "ifOperStatus"},
+		{"1.3.6.1.2.1.2.2.1.7", "ifAdminStatus"},
+		{"1.3.6.1.2.1.2.2.1.10", "ifInOctets"},
+		{"1.3.6.1.2.1.2.2.1.16", "ifOutOctets"},
+		{"1.3.6.1.2.1.2.2.1.14", "ifInErrors"},
+		{"1.3.6.1.2.1.2.2.1.20", "ifOutErrors"},
+		{"1.3.6.1.2.1.2.2.1.13", "ifInDiscards"},
+		{"1.3.6.1.2.1.2.2.1.19", "ifOutDiscards"},
+		{"1.3.6.1.2.1.2.2.1.2", "ifDescr"},
+		{"1.3.6.1.2.1.2.2.1.3", "ifType"},
+		{"1.3.6.1.2.1.2.2.1.5", "ifSpeed"},
+		{"1.3.6.1.2.1.2.2.1.6", "ifPhysAddress"},
+		{"1.3.6.1.2.1.2.2.1.9", "ifLastChange"},
+
+		// HOST-RESOURCES-MIB (RFC 2790)
+		{"1.3.6.1.2.1.25.3.3.1.2", "hrProcessorLoad"},
+		{"1.3.6.1.2.1.25.3.3.1.1", "hrProcessorFrwID"},
+		{"1.3.6.1.2.1.25.2.3.1.6", "hrStorageUsed"},
+		{"1.3.6.1.2.1.25.2.3.1.5", "hrStorageSize"},
+		{"1.3.6.1.2.1.25.2.3.1.4", "hrStorageAllocationUnits"},
+		{"1.3.6.1.2.1.25.2.3.1.3", "hrStorageDescr"},
+		{"1.3.6.1.2.1.25.2.3.1.2", "hrStorageType"},
+		{"1.3.6.1.2.1.25.2.3.1.1", "hrStorageIndex"},
+		{"1.3.6.1.2.1.25.2.2", "hrMemorySize"},
+		{"1.3.6.1.2.1.25.1.1", "hrSystemUptime"},
+
+		// SNMPv2-MIB / System (RFC 3418)
+		{"1.3.6.1.2.1.1.1", "sysDescr"},
+		{"1.3.6.1.2.1.1.2", "sysObjectID"},
+		{"1.3.6.1.2.1.1.3", "sysUpTime"},
+		{"1.3.6.1.2.1.1.4", "sysContact"},
+		{"1.3.6.1.2.1.1.5", "sysName"},
+		{"1.3.6.1.2.1.1.6", "sysLocation"},
+
+		// UCD-SNMP-MIB (Linux)
+		{"1.3.6.1.4.1.2021.10.1.3", "laLoad"},
+		{"1.3.6.1.4.1.2021.4.5", "memTotalReal"},
+		{"1.3.6.1.4.1.2021.4.6", "memAvailReal"},
+		{"1.3.6.1.4.1.2021.4.11", "memTotalFree"},
+		{"1.3.6.1.4.1.2021.4.14", "memBuffer"},
+		{"1.3.6.1.4.1.2021.4.15", "memCached"},
+
+		// MikroTik MIB
+		{"1.3.6.1.4.1.14988.1.1.1.2.1.1", "mtxrOpticalRxPower"},
+		{"1.3.6.1.4.1.14988.1.1.1.2.1.2", "mtxrOpticalTxPower"},
+		{"1.3.6.1.4.1.14988.1.1.1.2.1.3", "mtxrOpticalTemp"},
+		{"1.3.6.1.4.1.14988.1.1.1.2.1.4", "mtxrOpticalVoltage"},
+		{"1.3.6.1.4.1.14988.1.1.1.2.1.5", "mtxrOpticalBiasCurrent"},
+		{"1.3.6.1.4.1.14988.1.1.3.10", "mtxrHealthTemperature"},
+		{"1.3.6.1.4.1.14988.1.1.3.11", "mtxrHealthProcessorTemperature"},
+		{"1.3.6.1.4.1.14988.1.1.3.8", "mtxrHealthVoltage"},
+		{"1.3.6.1.4.1.14988.1.1.3.14", "mtxrHealthCurrent"},
+
+		// Cisco MIBs
+		{"1.3.6.1.4.1.9.9.109.1.1.1.1.8", "cpmCPUTotal5minRev"},
+		{"1.3.6.1.4.1.9.9.109.1.1.1.1.5", "cpmCPUTotal5min"},
+		{"1.3.6.1.4.1.9.9.109.1.1.1.1.4", "cpmCPUTotal1min"},
+		{"1.3.6.1.4.1.9.9.109.1.1.1.1.3", "cpmCPUTotal5sec"},
+		{"1.3.6.1.4.1.9.9.48.1.1.1.5", "ciscoMemoryPoolUsed"},
+		{"1.3.6.1.4.1.9.9.48.1.1.1.6", "ciscoMemoryPoolFree"},
+		{"1.3.6.1.4.1.9.9.13.1.3.1.3", "ciscoEnvMonTemperatureValue"},
+		{"1.3.6.1.4.1.9.9.91.1.1.1.1.4", "entSensorValue"},
+
+		// Huawei MIBs
+		{"1.3.6.1.4.1.2011.6.3.4.1.2", "hwEntityOpticalRxPower"},
+		{"1.3.6.1.4.1.2011.6.3.4.1.3", "hwEntityOpticalTxPower"},
+		{"1.3.6.1.4.1.2011.6.3.4.1.4", "hwEntityOpticalTemp"},
+		{"1.3.6.1.4.1.2011.6.3.4.1.5", "hwEntityOpticalVoltage"},
+		{"1.3.6.1.4.1.2011.6.3.4.1.6", "hwEntityOpticalBiasCurrent"},
+		{"1.3.6.1.4.1.2011.6.128.1.1.2.23.1.4", "hwGponOntRxPower"},
+		{"1.3.6.1.4.1.2011.6.128.1.1.2.23.1.5", "hwGponOntTxPower"},
+		{"1.3.6.1.4.1.2011.6.128.1.1.2.23.1.6", "hwGponOntVoltage"},
+		{"1.3.6.1.4.1.2011.6.128.1.1.2.23.1.7", "hwGponOntBiasCurrent"},
+		{"1.3.6.1.4.1.2011.6.128.1.1.2.23.1.8", "hwGponOntTemperature"},
+		{"1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5", "hwEntityCpuUsage"},
+		{"1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7", "hwEntityMemUsage"},
+		{"1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11", "hwEntityTemperature"},
+
+		// ZTE GPON
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.2", "zteGponOntRxPower"},
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.3", "zteGponOntTxPower"},
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.4", "zteGponOntVoltage"},
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.5", "zteGponOntCurrent"},
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.6", "zteGponOntTemperature"},
+		{"1.3.6.1.4.1.3902.1082.500.1.2.3.1.7", "zteGponOntOLTRxPower"},
+
+		// Broad fallbacks
+		{"1.3.6.1.2.1.1", "system"},
+		{"1.3.6.1.2.1.2", "interfaces"},
+		{"1.3.6.1.2.1.4", "ip"},
+		{"1.3.6.1.2.1.5", "icmp"},
+		{"1.3.6.1.2.1.6", "tcp"},
+		{"1.3.6.1.2.1.7", "udp"},
+		{"1.3.6.1.2.1.25", "hostResources"},
+		{"1.3.6.1.4.1", "enterprises"},
 	}
 
-	for prefix, name := range standardPrefixes {
-		if strings.HasPrefix(cleanOid, prefix) {
-			suffix := strings.TrimPrefix(cleanOid, prefix)
-			return name + suffix, nil
+	for _, entry := range standardPrefixes {
+		if strings.HasPrefix(cleanOid, entry.prefix) {
+			suffix := strings.TrimPrefix(cleanOid, entry.prefix)
+			if suffix == "" {
+				return entry.name, nil
+			}
+			if strings.HasPrefix(suffix, ".") {
+				return entry.name + suffix, nil
+			}
+			return entry.name + "." + suffix, nil
 		}
 	}
 

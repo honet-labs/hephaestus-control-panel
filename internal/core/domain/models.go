@@ -264,6 +264,7 @@ type SnmpDiscoveredSensor struct {
 	InterfaceName   string                 `json:"interfaceName,omitempty"`
 	EntityIndex     *int                   `json:"entityIndex,omitempty"`
 	OID             string                 `json:"oid"`
+	OidName         string                 `json:"oidName,omitempty"`
 	RawValue        string                 `json:"rawValue"`
 	NormalizedValue *float64               `json:"normalizedValue,omitempty"`
 	Unit            string                 `json:"unit"`

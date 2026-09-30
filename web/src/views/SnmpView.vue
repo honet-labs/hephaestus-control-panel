@@ -184,6 +184,7 @@ const filteredSensors = computed(() => {
     list = list.filter((s: any) =>
       (s.sensorName && s.sensorName.toLowerCase().includes(q)) ||
       (s.oid && s.oid.toLowerCase().includes(q)) ||
+      (s.oidName && s.oidName.toLowerCase().includes(q)) ||
       (s.interfaceName && s.interfaceName.toLowerCase().includes(q)) ||
       (s.sensorType && s.sensorType.toLowerCase().includes(q)) ||
       (s.rawValue && String(s.rawValue).toLowerCase().includes(q))
@@ -210,7 +211,7 @@ const exportDiscovery = (format: 'json' | 'csv') => {
     dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(discoveryResult.value, null, 2));
     filename += '.json';
   } else {
-    const headers = ['Sensor Class', 'Sensor Name', 'Sensor Type', 'Interface', 'Reading / Value', 'OID', 'Raw Value'];
+    const headers = ['Sensor Class', 'Sensor Name', 'Sensor Type', 'Interface', 'Reading / Value', 'SNMP OID', 'OID Translate', 'Raw Value'];
     const rows = (discoveryResult.value.sensors || []).map((s: any) => {
       const valStr = s.metadata?.display || (s.normalizedValue !== undefined ? `${s.normalizedValue}${s.unit ? ' ' + s.unit : ''}` : `${s.rawValue || ''}${s.unit ? ' ' + s.unit : ''}`);
       return [
@@ -220,6 +221,7 @@ const exportDiscovery = (format: 'json' | 'csv') => {
         `"${s.interfaceName || ''}"`,
         `"${valStr}"`,
         `"${s.oid || ''}"`,
+        `"${s.oidName || ''}"`,
         `"${s.rawValue || ''}"`
       ];
     });
@@ -844,6 +846,7 @@ onMounted(() => {
                   <th class="py-2.5 px-3">Sensor Component / Metric</th>
                   <th class="py-2.5 px-3">Reading / Value</th>
                   <th class="py-2.5 px-3">SNMP OID</th>
+                  <th class="py-2.5 px-3">OID Translate</th>
                   <th class="py-2.5 px-3 text-right">Raw Value</th>
                 </tr>
               </thead>
@@ -909,6 +912,22 @@ onMounted(() => {
                         title="Copy OID"
                       >
                         <Check v-if="copiedOid === sensor.oid" class="w-3 h-3 text-emerald-500" />
+                        <Copy v-else class="w-3 h-3" />
+                      </button>
+                    </div>
+                  </td>
+
+                  <!-- OID Translate with Quick Copy -->
+                  <td class="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-semibold text-blue-600 dark:text-blue-400">{{ sensor.oidName || '-' }}</span>
+                      <button
+                        v-if="sensor.oidName"
+                        @click="copyToClipboard(sensor.oidName)"
+                        class="p-1 hover:bg-slate-100 dark:hover:bg-[#1a2233] rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                        title="Copy Translated OID"
+                      >
+                        <Check v-if="copiedOid === sensor.oidName" class="w-3 h-3 text-emerald-500" />
                         <Copy v-else class="w-3 h-3" />
                       </button>
                     </div>

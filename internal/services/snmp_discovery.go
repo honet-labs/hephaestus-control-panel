@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -215,6 +216,17 @@ func (e *SnmpDiscoveryEngine) Discover(host string, port uint16, version string,
 	// 10. Module: Rectifier & Power Systems
 	if shouldRunModule(modulesToRun, "rectifier") {
 		sensors = append(sensors, discoverRectifier(walker)...)
+	}
+
+	// Populate translated OID symbol for all discovered sensors
+	ctx := context.Background()
+	for i := range sensors {
+		if sensors[i].OidName == "" && sensors[i].OID != "" {
+			if e.snmpService != nil && e.snmpService.snmpRepo != nil {
+				translated, _ := e.snmpService.snmpRepo.TranslateOid(ctx, sensors[i].OID)
+				sensors[i].OidName = translated
+			}
+		}
 	}
 
 	durationSec := math.Round(time.Since(startedAt).Seconds()*1000) / 1000
