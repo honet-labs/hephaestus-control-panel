@@ -475,9 +475,9 @@ onMounted(() => {
     <!-- Header (Strictly adhering to AGENTS.md: pure text title, no icon, no emoji) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">SNMP Bridge & Explorer</h1>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">SNMP Browser</h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          High-performance multi-vendor SNMP discovery, optical DOM telemetry, interface analytics, and MIB registry.
+          Multi-vendor SNMP telemetry discovery, optical DOM transceiver analytics, interface counters, and MIB registry.
         </p>
       </div>
       <div class="flex items-center gap-2 shrink-0">
