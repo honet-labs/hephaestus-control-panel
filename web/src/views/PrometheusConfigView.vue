@@ -507,16 +507,6 @@ interface ValidationResultItem {
 }
 
 const lastValidatedTime = ref('Sep 30, 2026 10:19 PM');
-
-// ==================== VALIDATION ENGINE ====================
-interface ValidationResultItem {
-  type: 'error' | 'warning' | 'info';
-  message: string;
-  jobName?: string;
-  line?: number;
-}
-
-const lastValidatedTime = ref('Sep 30, 2026 10:19 PM');
 const serverValidationIssues = ref<ValidationResultItem[]>([]);
 const isValidating = ref(false);
 
