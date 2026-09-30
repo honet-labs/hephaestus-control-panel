@@ -33,7 +33,7 @@ const handleLogin = async () => {
       neverExpire: neverExpire.value,
     });
     if (res.data.success) {
-      authStore.setAuth(res.data.data.user, res.data.data.token);
+      authStore.setAuth(res.data.data.user);
       const redirectTarget = (route.query.redirect as string) || '/';
       router.push(redirectTarget);
     }

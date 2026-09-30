@@ -18,8 +18,8 @@ const handleSetup = async () => {
     error.value = 'Passwords do not match';
     return;
   }
-  if (password.value.length < 6) {
-    error.value = 'Password must be at least 6 characters';
+  if (password.value.length < 10) {
+    error.value = 'Password must be at least 10 characters';
     return;
   }
 
@@ -31,7 +31,7 @@ const handleSetup = async () => {
       password: password.value,
     });
     if (res.data.success) {
-      authStore.setAuth(res.data.data.user, res.data.data.token);
+      authStore.setAuth(res.data.data.user);
       router.push('/');
     }
   } catch (err: any) {

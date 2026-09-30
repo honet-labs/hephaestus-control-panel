@@ -149,8 +149,8 @@ func handleResetPassword(args []string) {
 		fmt.Printf("[INFO] No password provided. Generated secure password: %s\n", password)
 	}
 
-	if len(password) < 6 {
-		fmt.Fprintln(os.Stderr, "[ERROR] Password must be at least 6 characters long.")
+	if len(password) < 10 {
+		fmt.Fprintln(os.Stderr, "[ERROR] Password must be at least 10 characters long.")
 		os.Exit(1)
 	}
 

@@ -86,8 +86,8 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Username cannot be empty"})
 		return
 	}
-	if len(req.Password) < 6 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Password must be at least 6 characters"})
+	if len(req.Password) < 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Password must be at least 10 characters"})
 		return
 	}
 	if req.Role == "" {
@@ -156,8 +156,8 @@ func (h *SettingsHandler) UpdateUser(c *gin.Context) {
 
 	var passwordHash string
 	if req.Password != "" {
-		if len(req.Password) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Password must be at least 6 characters"})
+		if len(req.Password) < 10 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Password must be at least 10 characters"})
 			return
 		}
 		hash, err := config.HashPassword(req.Password)

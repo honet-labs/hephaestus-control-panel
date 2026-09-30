@@ -631,8 +631,8 @@ const createUser = async () => {
     userErrorMsg.value = 'Username and password are required.';
     return;
   }
-  if (newUserForm.value.password.length < 6) {
-    userErrorMsg.value = 'Password must be at least 6 characters.';
+  if (newUserForm.value.password.length < 10) {
+    userErrorMsg.value = 'Password must be at least 10 characters.';
     return;
   }
   userActionLoading.value = true;
@@ -674,8 +674,8 @@ const saveEditUser = async () => {
     return;
   }
   if (editUserForm.value.password) {
-    if (editUserForm.value.password.length < 6) {
-      editUserErrorMsg.value = 'Password must be at least 6 characters.';
+    if (editUserForm.value.password.length < 10) {
+      editUserErrorMsg.value = 'Password must be at least 10 characters.';
       return;
     }
     if (editUserForm.value.password !== editUserForm.value.confirmPassword) {

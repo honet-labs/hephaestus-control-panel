@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"go-hephaestus/internal/config"
@@ -17,6 +19,7 @@ import (
 type AuthService struct {
 	userRepo   *repository.UserRepository
 	configRepo *repository.ConfigRepository
+	setupMu    sync.Mutex
 }
 
 func NewAuthService(userRepo *repository.UserRepository, configRepo *repository.ConfigRepository) *AuthService {
@@ -48,10 +51,10 @@ func (s *AuthService) Login(ctx context.Context, username, password string, neve
 	rawToken := hex.EncodeToString(tokenBytes)
 	tokenHash := config.HashToken(rawToken)
 
-	// Session duration: 10 years if neverExpire, otherwise 24 hours (sliding window)
+	// Session duration (HCP-SEC-007): max 30 days if rememberMe/neverExpire, otherwise 24 hours
 	duration := 24 * time.Hour
 	if neverExpire {
-		duration = 10 * 365 * 24 * time.Hour
+		duration = 30 * 24 * time.Hour
 	}
 	_, err = s.userRepo.CreateSession(ctx, user.ID, tokenHash, duration)
 	if err != nil {
@@ -93,8 +96,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPasswor
 		return errors.New("current password is incorrect")
 	}
 
-	if len(newPassword) < 6 {
-		return errors.New("new password must be at least 6 characters")
+	if len(newPassword) < 10 {
+		return errors.New("new password must be at least 10 characters")
 	}
 
 	newHash, err := config.HashPassword(newPassword)
@@ -119,12 +122,22 @@ func (s *AuthService) IsSetupCompleted(ctx context.Context) bool {
 }
 
 func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPassword string) (*domain.User, string, error) {
+	// Atomic lock to eliminate setup race conditions (HCP-SEC-011)
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+
 	if s.IsSetupCompleted(ctx) {
 		return nil, "", errors.New("setup has already been completed")
 	}
 
+	adminUsername = strings.TrimSpace(adminUsername)
+	adminPassword = strings.TrimSpace(adminPassword)
 	if adminUsername == "" || adminPassword == "" {
 		return nil, "", errors.New("admin username and password are required")
+	}
+
+	if len(adminPassword) < 10 {
+		return nil, "", errors.New("admin password must be at least 10 characters")
 	}
 
 	hash, err := config.HashPassword(adminPassword)
@@ -141,7 +154,7 @@ func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPas
 	logger.Info("Setup", fmt.Sprintf("Initial setup completed. Master admin '%s' initialized", adminUsername))
 	_ = s.userRepo.LogActivity(ctx, "Setup", "Initial Setup Completed", fmt.Sprintf("Admin user '%s' created", adminUsername), "SUCCESS", &user.ID)
 
-	// Auto-login newly created admin
+	// Auto-login newly created admin with standard 24h session
 	tokenBytes := make([]byte, 32)
 	_, _ = rand.Read(tokenBytes)
 	rawToken := hex.EncodeToString(tokenBytes)

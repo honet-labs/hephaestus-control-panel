@@ -52,16 +52,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	cookieMaxAge := 86400 * 7 // default 7 days
+	cookieMaxAge := 86400 // 24 hours default
 	if neverExpire {
-		cookieMaxAge = 86400 * 365 * 10 // 10 years (never expire)
+		cookieMaxAge = 86400 * 30 // 30 days max for remember-me (HCP-SEC-007)
 	}
 	h.setSessionCookie(c, token, cookieMaxAge)
 
+	// HCP-SEC-008: Do not return raw session token in JSON response.
+	// Session is transported exclusively via HttpOnly; Secure; SameSite=Strict cookie.
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"token": token,
 			"user": gin.H{
 				"id":                  user.ID,
 				"username":            user.Username,
@@ -160,8 +161,7 @@ func (h *SetupHandler) CompleteSetup(c *gin.Context) {
 		"success": true,
 		"message": "Initial setup completed successfully.",
 		"data": gin.H{
-			"token": token,
-			"user":  user,
+			"user": user,
 		},
 	})
 }
