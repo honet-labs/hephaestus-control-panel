@@ -134,7 +134,6 @@ const discoveryForm = ref({
 const discoveryLoading = ref(false);
 const discoveryError = ref<string | null>(null);
 const discoveryResult = ref<any | null>(null);
-const showDiscoveryAdvanced = ref(false);
 const sensorFilterSearch = ref('');
 const selectedSensorClass = ref<string>('all');
 
@@ -585,9 +584,10 @@ onMounted(() => {
     <div v-if="activeTab === 'discovery'" class="space-y-6">
       <!-- Target Configuration Card -->
       <div class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <!-- Row 1: Host & SNMP Connection Credentials -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3.5">
           <!-- Target Host -->
-          <div class="md:col-span-4">
+          <div class="md:col-span-5">
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Target IP / Hostname
             </label>
@@ -598,8 +598,49 @@ onMounted(() => {
             />
           </div>
 
+          <!-- Port -->
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Port
+            </label>
+            <input
+              v-model.number="discoveryForm.port"
+              type="number"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <!-- SNMP Version -->
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              SNMP Version
+            </label>
+            <select
+              v-model="discoveryForm.version"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-medium focus:outline-none focus:border-blue-500"
+            >
+              <option value="2c">SNMP v2c</option>
+              <option value="v1">SNMP v1</option>
+            </select>
+          </div>
+
+          <!-- Community String -->
+          <div class="md:col-span-3">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Community String
+            </label>
+            <input
+              v-model="discoveryForm.community"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              placeholder="public"
+            />
+          </div>
+        </div>
+
+        <!-- Row 2: Profile, Timeout, Retries & Action Button -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3.5 pt-1">
           <!-- Discovery Profile -->
-          <div class="md:col-span-4">
+          <div class="md:col-span-6">
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Discovery Profile
             </label>
@@ -613,87 +654,53 @@ onMounted(() => {
             </select>
           </div>
 
-          <!-- Community -->
+          <!-- Timeout -->
           <div class="md:col-span-2">
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Community
+              Timeout (Sec)
             </label>
             <input
-              v-model="discoveryForm.community"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 focus:outline-none focus:border-blue-500"
-              placeholder="public"
+              v-model.number="discoveryForm.timeout"
+              type="number"
+              min="2"
+              max="30"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Retries -->
+          <div class="md:col-span-1">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Retries
+            </label>
+            <input
+              v-model.number="discoveryForm.retries"
+              type="number"
+              min="1"
+              max="5"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
             />
           </div>
 
           <!-- Execute Button -->
-          <div class="md:col-span-2 flex items-end">
+          <div class="md:col-span-3 flex items-end">
             <button
               @click="runDiscovery"
               :disabled="discoveryLoading"
               class="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Play class="w-3.5 h-3.5" />
-              <span>{{ discoveryLoading ? 'Scanning...' : 'Run Discovery' }}</span>
+              <span>{{ discoveryLoading ? 'Scanning Telemetry...' : 'Run Discovery Scan' }}</span>
             </button>
           </div>
         </div>
 
-        <!-- Profile Description & Advanced Settings Toggle -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]/80 text-xs">
+        <!-- Profile Scope Note -->
+        <div class="pt-2 border-t border-slate-100 dark:border-[#1b2234]/80 text-xs">
           <p class="text-[11px] text-slate-500 dark:text-slate-400">
             <span class="font-bold text-slate-700 dark:text-slate-300">Profile Scope:</span>
             {{ selectedProfileInfo?.description }}
           </p>
-
-          <button
-            @click="showDiscoveryAdvanced = !showDiscoveryAdvanced"
-            class="text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 cursor-pointer shrink-0"
-          >
-            <Sliders class="w-3 h-3 text-slate-400" />
-            <span>{{ showDiscoveryAdvanced ? 'Hide Advanced Settings' : 'Advanced Settings (Port, Version, Timeout)' }}</span>
-          </button>
-        </div>
-
-        <!-- Advanced Panel -->
-        <div v-if="showDiscoveryAdvanced" class="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-100 dark:border-[#1b2234]/80 text-xs">
-          <div>
-            <label class="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Port</label>
-            <input
-              v-model.number="discoveryForm.port"
-              type="number"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 font-mono text-xs"
-            />
-          </div>
-          <div>
-            <label class="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">SNMP Version</label>
-            <select
-              v-model="discoveryForm.version"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs font-medium"
-            >
-              <option value="2c">SNMP v2c</option>
-              <option value="v1">SNMP v1</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Timeout (Sec)</label>
-            <input
-              v-model.number="discoveryForm.timeout"
-              type="number"
-              min="2"
-              max="30"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 font-mono text-xs"
-            />
-          </div>
-          <div>
-            <label class="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Retries</label>
-            <input
-              v-model.number="discoveryForm.retries"
-              type="number"
-              min="1"
-              max="5"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 font-mono text-xs"
-            />
-          </div>
         </div>
       </div>
 
@@ -938,9 +945,9 @@ onMounted(() => {
     <!-- ==================== TAB 2: SUBNET IP SCANNER ==================== -->
     <div v-if="activeTab === 'subnet'" class="space-y-6">
       <div class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3.5">
           <!-- CIDR Input -->
-          <div class="md:col-span-5">
+          <div class="md:col-span-4">
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               CIDR Subnet or IP Range
             </label>
@@ -952,18 +959,6 @@ onMounted(() => {
             <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
               Supports CIDR (e.g. <code class="font-mono">192.168.1.0/24</code>), Range (<code class="font-mono">10.0.0.1-10.0.0.50</code>), or comma-separated IPs. Capped at 512 IPs per scan.
             </p>
-          </div>
-
-          <!-- Community -->
-          <div class="md:col-span-3">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Community String
-            </label>
-            <input
-              v-model="subnetForm.community"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 focus:outline-none focus:border-blue-500"
-              placeholder="public"
-            />
           </div>
 
           <!-- Port -->
@@ -978,15 +973,41 @@ onMounted(() => {
             />
           </div>
 
+          <!-- SNMP Version -->
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              SNMP Version
+            </label>
+            <select
+              v-model="subnetForm.version"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-medium focus:outline-none focus:border-blue-500"
+            >
+              <option value="2c">SNMP v2c</option>
+              <option value="v1">SNMP v1</option>
+            </select>
+          </div>
+
+          <!-- Community -->
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Community String
+            </label>
+            <input
+              v-model="subnetForm.community"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              placeholder="public"
+            />
+          </div>
+
           <!-- Scan Button -->
-          <div class="md:col-span-2 flex items-end">
+          <div class="md:col-span-2 flex items-start pt-6">
             <button
               @click="runSubnetScan"
               :disabled="subnetLoading"
               class="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Search class="w-3.5 h-3.5" />
-              <span>{{ subnetLoading ? 'Scanning Subnet...' : 'Scan Network' }}</span>
+              <span>{{ subnetLoading ? 'Scanning...' : 'Scan Network' }}</span>
             </button>
           </div>
         </div>
