@@ -1240,11 +1240,19 @@ const executeDelete = async () => {
 // Auto refresh interval handler (30s, 1m, 5m, 0/pause)
 const setAutoRefresh = async (sec: number) => {
   autoRefreshInterval.value = sec;
-  clearInterval(refreshTimer);
-  if (sec > 0) {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+  if (sec > 0 && !document.hidden) {
     refreshTimer = setInterval(() => {
-      fetchInstances(true);
-      fetchDockerContainers(false);
+      if (document.hidden) return;
+      // Smart tab-aware refresh: only poll the currently visible tab
+      if (activeTab.value === 'servers') {
+        fetchInstances(true);
+      } else {
+        fetchDockerContainers(false);
+      }
       fetchEngineStatus();
     }, sec * 1000);
 
@@ -1440,8 +1448,37 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 };
 
+// Visibility change listener: pause polling when browser tab is inactive/hidden, resume on return
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  } else {
+    // When tab becomes visible again, refresh active tab and resume polling
+    if (activeTab.value === 'servers') {
+      fetchInstances(true);
+    } else {
+      fetchDockerContainers(false);
+    }
+    fetchEngineStatus();
+    setAutoRefresh(autoRefreshInterval.value);
+  }
+};
+
+// Immediate fetch when user switches tabs (if transitioning between servers/containers)
+watch(activeTab, (newTab) => {
+  if (newTab === 'servers') {
+    fetchInstances(true);
+  } else if (newTab === 'containers') {
+    fetchDockerContainers(false);
+  }
+});
+
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   await Promise.all([
     fetchInstances(),
     fetchDockerContainers(true),
@@ -1453,6 +1490,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (refreshTimer) clearInterval(refreshTimer);
   if (historyChartInstance) historyChartInstance.dispose();
 });

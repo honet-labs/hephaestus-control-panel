@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,23 +19,72 @@ import (
 )
 
 type PrometheusService struct {
-	configRepo    *repository.ConfigRepository
-	sshService    *SSHService
-	httpClient    *http.Client
-	promMu        sync.RWMutex
-	cachedBaseURL string
+	configRepo      *repository.ConfigRepository
+	sshService      *SSHService
+	httpClient      *http.Client
+	promMu          sync.RWMutex
+	cachedBaseURL   string
+	cachedActiveCfg *domain.PrometheusConfig
+	cachedActiveAt  time.Time
 }
 
 func NewPrometheusService(configRepo *repository.ConfigRepository, sshService *SSHService) *PrometheusService {
+	// Custom HTTP transport with persistent keep-alive connection pool
+	// Prevents constant TCP connection churn during high concurrency metric polling
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   50,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
 	return &PrometheusService{
 		configRepo: configRepo,
 		sshService: sshService,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Transport: transport,
+			Timeout:   10 * time.Second,
+		},
 	}
 }
 
+// InvalidateCache clears the active config and resolved base URL cache
+func (s *PrometheusService) InvalidateCache() {
+	s.promMu.Lock()
+	s.cachedActiveCfg = nil
+	s.cachedBaseURL = ""
+	s.promMu.Unlock()
+}
+
+// GetActiveConfig returns the active Prometheus configuration with a 30-second in-memory TTL
+// This eliminates dozens of redundant PostgreSQL roundtrips during concurrent metric queries
 func (s *PrometheusService) GetActiveConfig(ctx context.Context) (*domain.PrometheusConfig, error) {
-	return s.configRepo.GetActivePrometheus(ctx)
+	s.promMu.RLock()
+	if s.cachedActiveCfg != nil && time.Since(s.cachedActiveAt) < 30*time.Second {
+		cfg := s.cachedActiveCfg
+		s.promMu.RUnlock()
+		return cfg, nil
+	}
+	s.promMu.RUnlock()
+
+	cfg, err := s.configRepo.GetActivePrometheus(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	s.promMu.Lock()
+	s.cachedActiveCfg = cfg
+	s.cachedActiveAt = time.Now()
+	s.promMu.Unlock()
+
+	return cfg, nil
 }
 
 func (s *PrometheusService) resolveBaseURL(ctx context.Context, promCfg *domain.PrometheusConfig) string {
@@ -115,7 +165,7 @@ func (s *PrometheusService) QueryPromQL(ctx context.Context, promQL string) (int
 }
 
 func (s *PrometheusService) QueryPromQLRaw(ctx context.Context, promQL string) ([]byte, error) {
-	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
+	promCfg, err := s.GetActiveConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("no active Prometheus server found: %w", err)
 	}
@@ -143,7 +193,7 @@ func (s *PrometheusService) QueryPromQLRaw(ctx context.Context, promQL string) (
 }
 
 func (s *PrometheusService) QueryRangePromQL(ctx context.Context, promQL string, start, end time.Time, step string) ([]byte, error) {
-	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
+	promCfg, err := s.GetActiveConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("no active Prometheus server found: %w", err)
 	}
@@ -172,7 +222,8 @@ func (s *PrometheusService) QueryRangePromQL(ctx context.Context, promQL string,
 }
 
 func (s *PrometheusService) ReloadConfig(ctx context.Context) error {
-	promCfg, err := s.configRepo.GetActivePrometheus(ctx)
+	s.InvalidateCache()
+	promCfg, err := s.GetActiveConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("no active Prometheus server found: %w", err)
 	}
@@ -318,7 +369,7 @@ func (s *PrometheusService) GetConfigFile(ctx context.Context, instanceID string
 	if instanceID != "" {
 		promCfg, err = s.configRepo.GetPrometheusByID(ctx, instanceID)
 	} else {
-		promCfg, err = s.configRepo.GetActivePrometheus(ctx)
+		promCfg, err = s.GetActiveConfig(ctx)
 	}
 	if err != nil {
 		return "", nil, fmt.Errorf("Prometheus configuration not found: %w", err)
@@ -514,11 +565,12 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 	if instanceID != "" {
 		promCfg, err = s.configRepo.GetPrometheusByID(ctx, instanceID)
 	} else {
-		promCfg, err = s.configRepo.GetActivePrometheus(ctx)
+		promCfg, err = s.GetActiveConfig(ctx)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("Prometheus configuration not found: %w", err)
 	}
+	defer s.InvalidateCache()
 
 	nameLowerSave := strings.ToLower(promCfg.Name)
 	pathLowerSave := strings.ToLower(promCfg.Path)

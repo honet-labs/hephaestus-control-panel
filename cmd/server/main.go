@@ -135,6 +135,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware())
+	r.Use(middleware.GzipMiddleware())
 
 	// Set Trusted Proxies to prevent X-Forwarded-For IP spoofing (C-01)
 	// Trust Docker internal bridge, localhost, and RFC1918 private subnets
