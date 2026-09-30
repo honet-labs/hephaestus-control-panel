@@ -400,3 +400,22 @@ func (h *PrometheusHandler) SaveConfig(c *gin.Context) {
 		"data":    saveRes,
 	})
 }
+
+func (h *PrometheusHandler) ValidateConfig(c *gin.Context) {
+	var req struct {
+		InstanceID string `json:"instanceId"`
+		YAML       string `json:"yaml"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	valid, issues := h.promService.ValidateYAML(c.Request.Context(), req.YAML, req.InstanceID)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"valid":   valid,
+		"issues":  issues,
+	})
+}
+

@@ -10,12 +10,15 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
+
+	"gopkg.in/yaml.v3"
 )
 
 type PrometheusService struct {
@@ -649,4 +652,251 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 		res.Message = fmt.Sprintf("Prometheus configuration saved to '%s'.", filePath)
 	}
 	return res, nil
+}
+
+// PrometheusValidationIssue represents a problem found during YAML and schema validation
+type PrometheusValidationIssue struct {
+	Type    string `json:"type"` // "error", "warning", "info"
+	Message string `json:"message"`
+	Line    int    `json:"line,omitempty"`
+}
+
+// ValidateYAML performs deep structural, syntax, and Prometheus schema validation
+func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, instanceID string) (bool, []PrometheusValidationIssue) {
+	var issues []PrometheusValidationIssue
+
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		issues = append(issues, PrometheusValidationIssue{
+			Type:    "error",
+			Message: "Configuration YAML is empty.",
+		})
+		return false, issues
+	}
+
+	// 1. Core YAML Parser Validation using yaml.v3
+	var body interface{}
+	if err := yaml.Unmarshal([]byte(content), &body); err != nil {
+		issues = append(issues, PrometheusValidationIssue{
+			Type:    "error",
+			Message: fmt.Sprintf("YAML syntax error: %v", err),
+		})
+		return false, issues
+	}
+
+	// Parse as top-level map to validate Prometheus sections
+	var rawMap map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &rawMap); err != nil || rawMap == nil {
+		issues = append(issues, PrometheusValidationIssue{
+			Type:    "error",
+			Message: "Configuration must be a valid YAML mapping at the root level.",
+		})
+		return false, issues
+	}
+
+	// 2. Validate Prometheus top-level keys
+	validTopKeys := map[string]bool{
+		"global":         true,
+		"alerting":       true,
+		"rule_files":     true,
+		"scrape_configs": true,
+		"storage":        true,
+		"tracing":        true,
+		"remote_write":   true,
+		"remote_read":    true,
+		"runtime":        true,
+	}
+
+	for k := range rawMap {
+		if !validTopKeys[k] {
+			issues = append(issues, PrometheusValidationIssue{
+				Type:    "warning",
+				Message: fmt.Sprintf("Unrecognized root directive '%s'. Ensure it is a valid Prometheus top-level key.", k),
+			})
+		}
+	}
+
+	// 3. Validate global section
+	if globalRaw, ok := rawMap["global"]; ok {
+		if globalMap, ok := globalRaw.(map[string]interface{}); ok {
+			durationKeys := []string{"scrape_interval", "evaluation_interval", "scrape_timeout"}
+			for _, dk := range durationKeys {
+				if val, exists := globalMap[dk]; exists {
+					valStr := fmt.Sprintf("%v", val)
+					if !isValidPrometheusDuration(valStr) {
+						issues = append(issues, PrometheusValidationIssue{
+							Type:    "error",
+							Message: fmt.Sprintf("global.%s: '%s' is not a valid Prometheus duration (expected e.g. '15s', '1m', '500ms').", dk, valStr),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Validate scrape_configs
+	if scRaw, ok := rawMap["scrape_configs"]; ok {
+		if scList, ok := scRaw.([]interface{}); ok {
+			jobNames := make(map[string]bool)
+			for idx, item := range scList {
+				jobMap, ok := item.(map[string]interface{})
+				if !ok {
+					issues = append(issues, PrometheusValidationIssue{
+						Type:    "error",
+						Message: fmt.Sprintf("scrape_configs[%d]: entry is not a valid job mapping.", idx),
+					})
+					continue
+				}
+
+				nameVal, ok := jobMap["job_name"]
+				if !ok || strings.TrimSpace(fmt.Sprintf("%v", nameVal)) == "" {
+					issues = append(issues, PrometheusValidationIssue{
+						Type:    "error",
+						Message: fmt.Sprintf("scrape_configs[%d]: missing required 'job_name' field.", idx),
+					})
+					continue
+				}
+
+				jobName := fmt.Sprintf("%v", nameVal)
+				if jobNames[jobName] {
+					issues = append(issues, PrometheusValidationIssue{
+						Type:    "error",
+						Message: fmt.Sprintf("Duplicate job_name '%s' detected. Each scrape job must have a unique name.", jobName),
+					})
+				}
+				jobNames[jobName] = true
+
+				for _, dk := range []string{"scrape_interval", "scrape_timeout"} {
+					if val, exists := jobMap[dk]; exists {
+						valStr := fmt.Sprintf("%v", val)
+						if !isValidPrometheusDuration(valStr) {
+							issues = append(issues, PrometheusValidationIssue{
+								Type:    "error",
+								Message: fmt.Sprintf("Job '%s': '%s' has invalid duration '%s'. Expected unit (e.g. '15s').", jobName, dk, valStr),
+							})
+						}
+					}
+				}
+
+				if stRaw, ok := jobMap["static_configs"]; ok {
+					if stList, ok := stRaw.([]interface{}); ok {
+						targetsSeen := make(map[string]bool)
+						totalTargets := 0
+						for _, stItem := range stList {
+							if stMap, ok := stItem.(map[string]interface{}); ok {
+								if tRaw, ok := stMap["targets"]; ok {
+									if tList, ok := tRaw.([]interface{}); ok {
+										for _, tItem := range tList {
+											totalTargets++
+											tStr := strings.TrimSpace(fmt.Sprintf("%v", tItem))
+											if targetsSeen[tStr] {
+												issues = append(issues, PrometheusValidationIssue{
+													Type:    "error",
+													Message: fmt.Sprintf("Job '%s': duplicate target endpoint '%s' found.", jobName, tStr),
+												})
+											}
+											targetsSeen[tStr] = true
+										}
+									}
+								}
+							}
+						}
+						if totalTargets == 0 {
+							issues = append(issues, PrometheusValidationIssue{
+								Type:    "warning",
+								Message: fmt.Sprintf("Job '%s' has 0 static targets configured.", jobName),
+							})
+						}
+					}
+				}
+			}
+		} else {
+			issues = append(issues, PrometheusValidationIssue{
+				Type:    "error",
+				Message: "scrape_configs must be a list of scrape jobs.",
+			})
+		}
+	}
+
+	// 5. If host has promtool installed, run official promtool verification
+	if instanceID != "" {
+		cfg, err := s.configRepo.GetPrometheusConfigByID(ctx, instanceID)
+		if err == nil && cfg != nil {
+			mode := strings.ToLower(cfg.Mode)
+			if mode == "ssh" && cfg.SSHHost != nil && *cfg.SSHHost != "" {
+				port := 22
+				if cfg.SSHPort != nil && *cfg.SSHPort > 0 {
+					port = *cfg.SSHPort
+				}
+				user := "root"
+				if cfg.SSHUser != nil && *cfg.SSHUser != "" {
+					user = *cfg.SSHUser
+				}
+				auth := "password"
+				if cfg.SSHAuth != nil && *cfg.SSHAuth != "" {
+					auth = *cfg.SSHAuth
+				}
+				remoteCfg := &domain.RemoteHostConfig{
+					Host:     *cfg.SSHHost,
+					Port:     port,
+					Username: user,
+					AuthType: auth,
+					Password: cfg.SSHPassword,
+					SSHKey:   cfg.SSHKey,
+				}
+
+				checkToolCmd := "which promtool 2>/dev/null || which /usr/local/bin/promtool 2>/dev/null"
+				toolOut, err := s.sshService.ExecuteCommand(remoteCfg, checkToolCmd)
+				toolPath := strings.TrimSpace(toolOut)
+				if err == nil && toolPath != "" {
+					tmpFile := fmt.Sprintf("/tmp/prom_check_%d.yml", time.Now().UnixNano())
+					if writeErr := s.sshService.WriteFile(remoteCfg, tmpFile, content); writeErr == nil {
+						cmd := fmt.Sprintf("%s check config %s", toolPath, tmpFile)
+						checkOut, checkErr := s.sshService.ExecuteCommand(remoteCfg, cmd)
+						_ = s.sshService.DeleteFile(remoteCfg, tmpFile)
+
+						if checkErr != nil || strings.Contains(strings.ToLower(checkOut), "failed") {
+							issues = append(issues, PrometheusValidationIssue{
+								Type:    "error",
+								Message: fmt.Sprintf("promtool check error: %s", strings.TrimSpace(checkOut)),
+							})
+						} else {
+							issues = append(issues, PrometheusValidationIssue{
+								Type:    "info",
+								Message: "promtool compiler verified: configuration structure is 100% compliant with Prometheus specifications.",
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	hasErrors := false
+	for _, it := range issues {
+		if it.Type == "error" {
+			hasErrors = true
+			break
+		}
+	}
+
+	if !hasErrors {
+		issues = append([]PrometheusValidationIssue{
+			{
+				Type:    "info",
+				Message: "YAML syntax structure verified and compliant.",
+			},
+		}, issues...)
+	}
+
+	return !hasErrors, issues
+}
+
+func isValidPrometheusDuration(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return false
+	}
+	re := regexp.MustCompile(`^[0-9]+(\.[0-9]+)?(ms|s|m|h|d|w|y)$`)
+	return re.MatchString(v)
 }

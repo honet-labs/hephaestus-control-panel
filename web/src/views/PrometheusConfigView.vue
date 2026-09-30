@@ -24,7 +24,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Code
+  Code,
+  RotateCw
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -507,74 +508,261 @@ interface ValidationResultItem {
 
 const lastValidatedTime = ref('Sep 30, 2026 10:19 PM');
 
-const validationItems = computed<ValidationResultItem[]>(() => {
+// ==================== VALIDATION ENGINE ====================
+interface ValidationResultItem {
+  type: 'error' | 'warning' | 'info';
+  message: string;
+  jobName?: string;
+  line?: number;
+}
+
+const lastValidatedTime = ref('Sep 30, 2026 10:19 PM');
+const serverValidationIssues = ref<ValidationResultItem[]>([]);
+const isValidating = ref(false);
+
+const activeYamlContent = computed(() => {
+  return viewMode.value === 'raw' ? rawEditorYaml.value : currentGeneratedYaml.value;
+});
+
+// Client-side real-time syntax and structural validation
+const clientValidationItems = computed<ValidationResultItem[]>(() => {
   const items: ValidationResultItem[] = [];
+  const text = activeYamlContent.value;
+  if (!text || !text.trim()) {
+    items.push({
+      type: 'error',
+      message: 'Configuration YAML is completely empty.'
+    });
+    return items;
+  }
 
-  // 1. Basic syntax check
-  items.push({
-    type: 'info',
-    message: 'YAML syntax structure verified and compliant.'
-  });
+  const lines = text.split('\n');
+  let currentJobName = '';
+  let inTargets = false;
+  const seenTargets = new Map<string, string>(); // endpoint -> jobName
+  const seenJobNames = new Set<string>();
 
-  // 2. Duplicate target checks
-  scrapeJobs.value.forEach(job => {
-    const seen = new Set<string>();
-    job.targets.forEach(t => {
-      const ep = t.endpoint.trim();
-      if (!ep) return;
-      if (seen.has(ep)) {
+  const validTopLevelDirectives = new Set([
+    'global', 'alerting', 'rule_files', 'scrape_configs',
+    'storage', 'tracing', 'remote_write', 'remote_read', 'runtime'
+  ]);
+
+  lines.forEach((line, idx) => {
+    const lineNum = idx + 1;
+    const trimmed = line.trim();
+
+    // Skip empty lines & comments
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    // 1. Forbid tab characters (Strict YAML syntax requirement)
+    if (line.includes('\t')) {
+      items.push({
+        type: 'error',
+        line: lineNum,
+        message: `Line ${lineNum}: YAML forbids tab characters for indentation. Please use spaces.`
+      });
+    }
+
+    const indent = line.length - line.trimStart().length;
+
+    // 2. Top-level directive check (0 leading spaces)
+    if (indent === 0) {
+      inTargets = false;
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx === -1) {
         items.push({
           type: 'error',
-          message: `Duplicate target found: ${ep} (${job.job_name})`,
-          jobName: job.job_name
+          line: lineNum,
+          message: `Line ${lineNum}: Syntax error on '${trimmed}'. Top-level directives must end with a colon ':'.`
         });
+      } else {
+        const directive = trimmed.slice(0, colonIdx).trim();
+        if (!validTopLevelDirectives.has(directive)) {
+          items.push({
+            type: 'warning',
+            line: lineNum,
+            message: `Line ${lineNum}: Unrecognized root directive '${directive}:'.`
+          });
+        }
       }
-      seen.add(ep);
-    });
-
-    // 3. Timeout check
-    const intVal = parseInt(job.scrape_interval) || 15;
-    const timeoutVal = parseInt(job.scrape_timeout) || 10;
-    if (timeoutVal >= intVal) {
-      items.push({
-        type: 'warning',
-        message: `Job '${job.job_name}': scrape_timeout (${job.scrape_timeout}) should be less than scrape_interval (${job.scrape_interval}).`,
-        jobName: job.job_name
-      });
+      return;
     }
 
-    // 4. Empty targets check
-    if (job.targets.length === 0) {
-      items.push({
-        type: 'warning',
-        message: `Job '${job.job_name}' has 0 static targets configured.`,
-        jobName: job.job_name
-      });
+    // 3. Mapping lines (not starting with '-') MUST contain a colon ':'
+    if (!trimmed.startsWith('-')) {
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx === -1) {
+        items.push({
+          type: 'error',
+          line: lineNum,
+          message: `Line ${lineNum}: Syntax error on '${trimmed}'. Missing colon ':' separating key and value.`
+        });
+        return;
+      }
+
+      const key = trimmed.slice(0, colonIdx).trim();
+      const val = trimmed.slice(colonIdx + 1).trim();
+
+      // Check Prometheus duration syntax (e.g. scrape_interval, evaluation_interval, scrape_timeout)
+      if (['scrape_interval', 'evaluation_interval', 'scrape_timeout'].includes(key)) {
+        if (!val) {
+          items.push({
+            type: 'error',
+            line: lineNum,
+            message: `Line ${lineNum}: Missing duration value for '${key}'.`
+          });
+        } else if (/^\d+$/.test(val)) {
+          items.push({
+            type: 'error',
+            line: lineNum,
+            message: `Line ${lineNum}: Invalid duration '${val}' for '${key}'. Prometheus requires a unit (e.g. '${val}s', '1m', '500ms').`
+          });
+        } else if (!/^\d+(\.\d+)?(ms|s|m|h|d|w|y)$/.test(val)) {
+          items.push({
+            type: 'error',
+            line: lineNum,
+            message: `Line ${lineNum}: Invalid duration unit '${val}' for '${key}'. Must end in ms, s, m, h, d, w, or y.`
+          });
+        }
+      }
+
+      if (key === 'targets') {
+        inTargets = true;
+        const inlineMatch = val.match(/\[(.*)\]/);
+        if (inlineMatch && inlineMatch[1]) {
+          const endpoints = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+          endpoints.forEach(ep => {
+            if (seenTargets.has(ep)) {
+              items.push({
+                type: 'error',
+                line: lineNum,
+                message: `Line ${lineNum}: Duplicate target endpoint '${ep}' (already defined in job '${seenTargets.get(ep)}').`
+              });
+            } else {
+              seenTargets.set(ep, currentJobName || 'scrape');
+            }
+          });
+        }
+      } else {
+        inTargets = false;
+      }
+    } else {
+      // List items starting with '-'
+      if (trimmed.startsWith('- job_name:')) {
+        inTargets = false;
+        const jName = trimmed.replace('- job_name:', '').trim().replace(/['"]/g, '');
+        if (!jName) {
+          items.push({
+            type: 'error',
+            line: lineNum,
+            message: `Line ${lineNum}: Scrape job has empty job_name.`
+          });
+        } else if (seenJobNames.has(jName)) {
+          items.push({
+            type: 'error',
+            line: lineNum,
+            message: `Line ${lineNum}: Duplicate job_name '${jName}' detected.`
+          });
+        } else {
+          seenJobNames.add(jName);
+          currentJobName = jName;
+        }
+      } else if (trimmed.startsWith('- targets:')) {
+        inTargets = true;
+        const inlineMatch = trimmed.match(/\[(.*)\]/);
+        if (inlineMatch && inlineMatch[1]) {
+          const endpoints = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+          endpoints.forEach(ep => {
+            if (seenTargets.has(ep)) {
+              items.push({
+                type: 'error',
+                line: lineNum,
+                message: `Line ${lineNum}: Duplicate target endpoint '${ep}' (already defined in job '${seenTargets.get(ep)}').`
+              });
+            } else {
+              seenTargets.set(ep, currentJobName || 'scrape');
+            }
+          });
+        }
+      } else if (inTargets) {
+        const ep = trimmed.replace(/^-/, '').trim().replace(/['"]/g, '').split('#')[0].trim();
+        if (ep) {
+          if (seenTargets.has(ep)) {
+            items.push({
+              type: 'error',
+              line: lineNum,
+              message: `Line ${lineNum}: Duplicate target endpoint '${ep}' (already defined in job '${seenTargets.get(ep)}').`
+            });
+          } else {
+            seenTargets.set(ep, currentJobName || 'scrape');
+          }
+        }
+      }
     }
   });
 
-  // 5. Rule files loaded info
-  if (ruleFiles.value.length > 0) {
-    items.push({
+  return items;
+});
+
+// Merged validation items (Client-side real-time checks + Backend compiler issues)
+const validationItems = computed<ValidationResultItem[]>(() => {
+  const list = [...clientValidationItems.value];
+
+  // Merge in server validation issues
+  serverValidationIssues.value.forEach(sItem => {
+    if (!list.some(cItem => cItem.message === sItem.message)) {
+      list.push(sItem);
+    }
+  });
+
+  // If completely error-free, add compliant message
+  if (list.filter(i => i.type === 'error').length === 0) {
+    list.unshift({
       type: 'info',
-      message: `${ruleFiles.value.length} rule files loaded and referenced.`
+      message: 'YAML syntax structure verified and compliant.'
     });
   }
 
-  return items;
+  return list;
 });
 
 const errorCount = computed(() => validationItems.value.filter(v => v.type === 'error').length);
 const warningCount = computed(() => validationItems.value.filter(v => v.type === 'warning').length);
 const infoCount = computed(() => validationItems.value.filter(v => v.type === 'info').length);
 
-const runValidation = () => {
+const runValidation = async () => {
   const d = new Date();
   lastValidatedTime.value = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  isValidating.value = true;
+  serverValidationIssues.value = [];
+
+  const textToValidate = activeYamlContent.value;
+
+  try {
+    const res = await axios.post('/api/v1/prometheus/validate', {
+      instanceId: selectedInstanceId.value,
+      yaml: textToValidate
+    });
+
+    if (res.data?.issues && Array.isArray(res.data.issues)) {
+      serverValidationIssues.value = res.data.issues;
+    }
+  } catch (err: any) {
+    const msg = err.response?.data?.error || err.message;
+    if (msg) {
+      serverValidationIssues.value.push({
+        type: 'error',
+        message: `Compiler check: ${msg}`
+      });
+    }
+  } finally {
+    isValidating.value = false;
+  }
+
   if (errorCount.value === 0) {
     showNotification('success', 'Validation passed! No critical configuration errors found.');
   } else {
-    showNotification('warning', `Validation completed with ${errorCount.value} errors and ${warningCount.value} warnings.`);
+    showNotification('warning', `Validation completed with ${errorCount.value} critical error(s) and ${warningCount.value} warning(s).`);
   }
 };
 
@@ -591,9 +779,18 @@ const isTargetDuplicateInCurrentJob = (idx: number, endpoint: string): boolean =
 // Line numbered code viewer with error highlighting
 const formattedLines = computed(() => {
   const text = currentGeneratedYaml.value;
+  const errorLines = new Set<number>();
+  validationItems.value.forEach(item => {
+    if (item.type === 'error' && item.line) {
+      errorLines.add(item.line);
+    }
+  });
+
   return text.split('\n').map((line, idx) => {
     const lineNum = idx + 1;
-    const isError = line.includes('# Duplicate target') || (line.includes('static_configs:') && line.includes('error'));
+    const isError = errorLines.has(lineNum) ||
+                    line.includes('# Duplicate target') ||
+                    (line.includes('static_configs:') && line.includes('error'));
     return {
       num: lineNum,
       content: line,
@@ -1028,10 +1225,12 @@ onMounted(() => {
       <div class="flex flex-wrap items-center gap-2 shrink-0">
         <button
           @click="runValidation"
-          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#222d42] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-800"
+          :disabled="isValidating"
+          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#222d42] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-800 disabled:opacity-50"
         >
-          <Check class="w-3.5 h-3.5 text-slate-400" />
-          <span>Validate</span>
+          <RotateCw v-if="isValidating" class="w-3.5 h-3.5 text-blue-500 animate-spin" />
+          <Check v-else class="w-3.5 h-3.5 text-slate-400" />
+          <span>{{ isValidating ? 'Validating...' : 'Validate' }}</span>
         </button>
 
         <button
@@ -1843,9 +2042,11 @@ onMounted(() => {
               <span class="text-[10px] text-slate-400">Last validated: {{ lastValidatedTime }}</span>
               <button
                 @click="runValidation"
-                class="px-2.5 py-1 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded text-[10px] font-bold transition hover:bg-blue-100 cursor-pointer"
+                :disabled="isValidating"
+                class="px-2.5 py-1 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded text-[10px] font-bold transition hover:bg-blue-100 cursor-pointer disabled:opacity-50 flex items-center gap-1"
               >
-                Validate Again
+                <RotateCw v-if="isValidating" class="w-3 h-3 animate-spin" />
+                <span>{{ isValidating ? 'Validating...' : 'Validate Again' }}</span>
               </button>
             </div>
           </div>

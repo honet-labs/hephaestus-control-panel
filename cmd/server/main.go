@@ -311,6 +311,7 @@ func main() {
 		api.POST("/prometheus/reload", middleware.RequirePermission("prometheus_config", "manage"), promHandler.Reload)
 		api.GET("/prometheus/config", middleware.RequirePermission("prometheus_config", "read"), promHandler.GetConfig)
 		api.POST("/prometheus/config", middleware.RequirePermission("prometheus_config", "manage"), promHandler.SaveConfig)
+		api.POST("/prometheus/validate", middleware.RequirePermission("prometheus_config", "read"), promHandler.ValidateConfig)
 
 		// Monitoring Instances (Feature: monitoring_instances)
 		api.GET("/monitoring/instances", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.ListInstances)
