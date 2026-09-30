@@ -290,12 +290,13 @@ func discoverInterfaces(w *SnmpTableWalker, ifNames map[string]string, ifAliases
 			InterfaceName:  ifName,
 			OID:            "1.3.6.1.2.1.2.2.1.8." + idx,
 			RawValue:       operVal,
-			Unit:           "status",
+			Unit:           "",
 			Status:         statusState,
 			Metadata: map[string]interface{}{
 				"alias":        alias,
 				"admin_status": adminLabel,
 				"oper_status":  statusLabel,
+				"display":      strings.ToUpper(statusLabel),
 			},
 		})
 

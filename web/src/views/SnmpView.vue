@@ -211,18 +211,19 @@ const exportDiscovery = (format: 'json' | 'csv') => {
     dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(discoveryResult.value, null, 2));
     filename += '.json';
   } else {
-    const headers = ['Sensor Class', 'Sensor Name', 'Sensor Type', 'Interface', 'Value', 'Unit', 'Status', 'OID', 'Raw Value'];
-    const rows = (discoveryResult.value.sensors || []).map((s: any) => [
-      `"${s.sensorClass || ''}"`,
-      `"${s.sensorName || ''}"`,
-      `"${s.sensorType || ''}"`,
-      `"${s.interfaceName || ''}"`,
-      `"${s.normalizedValue !== undefined ? s.normalizedValue : s.rawValue || ''}"`,
-      `"${s.unit || ''}"`,
-      `"${s.status || ''}"`,
-      `"${s.oid || ''}"`,
-      `"${s.rawValue || ''}"`
-    ]);
+    const headers = ['Sensor Class', 'Sensor Name', 'Sensor Type', 'Interface', 'Reading / Value', 'OID', 'Raw Value'];
+    const rows = (discoveryResult.value.sensors || []).map((s: any) => {
+      const valStr = s.metadata?.display || (s.normalizedValue !== undefined ? `${s.normalizedValue}${s.unit ? ' ' + s.unit : ''}` : `${s.rawValue || ''}${s.unit ? ' ' + s.unit : ''}`);
+      return [
+        `"${s.sensorClass || ''}"`,
+        `"${s.sensorName || ''}"`,
+        `"${s.sensorType || ''}"`,
+        `"${s.interfaceName || ''}"`,
+        `"${valStr}"`,
+        `"${s.oid || ''}"`,
+        `"${s.rawValue || ''}"`
+      ];
+    });
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
     filename += '.csv';
@@ -834,8 +835,7 @@ onMounted(() => {
                 <tr>
                   <th class="py-2.5 px-3">Class</th>
                   <th class="py-2.5 px-3">Sensor Component / Metric</th>
-                  <th class="py-2.5 px-3">Calibrated Reading</th>
-                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3">Reading / Value</th>
                   <th class="py-2.5 px-3">SNMP OID</th>
                   <th class="py-2.5 px-3 text-right">Raw Value</th>
                 </tr>
@@ -863,40 +863,33 @@ onMounted(() => {
                     </div>
                   </td>
 
-                  <!-- Calibrated Value -->
+                  <!-- Calibrated Value / State -->
                   <td class="py-2.5 px-3 whitespace-nowrap">
-                    <div class="font-mono font-bold text-slate-900 dark:text-white">
-                      {{ sensor.normalizedValue !== undefined ? sensor.normalizedValue : sensor.rawValue }}
-                      <span class="text-[10px] font-medium text-slate-500 dark:text-slate-400 ml-0.5">{{ sensor.unit }}</span>
-                    </div>
-                  </td>
+                    <!-- Case 1: Oper status UP / DOWN badge -->
+                    <span
+                      v-if="sensor.sensorType === 'oper_status' || (sensor.metadata && sensor.metadata.oper_status)"
+                      :class="[
+                        'px-2.5 py-0.5 rounded-full text-[10px] font-bold border',
+                        (sensor.rawValue === '1' || sensor.metadata?.oper_status === 'up')
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30'
+                          : (sensor.rawValue === '2' || sensor.metadata?.oper_status === 'down')
+                            ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30'
+                            : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30'
+                      ]"
+                    >
+                      {{ sensor.metadata?.display || (sensor.rawValue === '1' ? 'UP' : sensor.rawValue === '2' ? 'DOWN' : sensor.rawValue) }}
+                    </span>
 
-                  <!-- Status -->
-                  <td class="py-2.5 px-3 whitespace-nowrap">
-                    <span
-                      v-if="sensor.status === 'ok'"
-                      class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30"
-                    >
-                      OK
-                    </span>
-                    <span
-                      v-else-if="sensor.status === 'warning'"
-                      class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30"
-                    >
-                      WARN
-                    </span>
-                    <span
-                      v-else-if="sensor.status === 'critical'"
-                      class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30"
-                    >
-                      CRIT
-                    </span>
-                    <span
-                      v-else
-                      class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                    >
-                      {{ sensor.status }}
-                    </span>
+                    <!-- Case 2: Display string if available (e.g. speed formatted, memory formatted) -->
+                    <div v-else-if="sensor.metadata && sensor.metadata.display" class="font-mono font-bold text-slate-900 dark:text-white">
+                      {{ sensor.metadata.display }}
+                    </div>
+
+                    <!-- Case 3: Standard reading with unit -->
+                    <div v-else class="font-mono font-bold text-slate-900 dark:text-white">
+                      {{ sensor.normalizedValue !== undefined ? sensor.normalizedValue : sensor.rawValue }}
+                      <span v-if="sensor.unit" class="text-[10px] font-medium text-slate-500 dark:text-slate-400 ml-0.5">{{ sensor.unit }}</span>
+                    </div>
                   </td>
 
                   <!-- OID with Quick Copy -->
