@@ -552,6 +552,64 @@ const formattedLines = computed(() => {
   });
 });
 
+// Tokenize YAML line for crisp, high-contrast syntax highlighting in Light & Dark Mode
+const formatYamlTokens = (line: string) => {
+  const trimmed = line.trimStart();
+  const indent = line.slice(0, line.length - trimmed.length);
+
+  // 1. Comment
+  if (trimmed.startsWith('#')) {
+    return [
+      { text: indent, cls: '' },
+      { text: trimmed, cls: 'text-amber-700 dark:text-amber-400/90 italic' }
+    ];
+  }
+
+  // 2. YAML Mapping Key: must have ': ' or end with ':'
+  let colonIdx = -1;
+  const spaceColonIdx = trimmed.indexOf(': ');
+  if (spaceColonIdx !== -1) {
+    colonIdx = spaceColonIdx;
+  } else if (trimmed.endsWith(':')) {
+    colonIdx = trimmed.length - 1;
+  }
+
+  if (colonIdx !== -1) {
+    const key = trimmed.slice(0, colonIdx + 1);
+    const val = trimmed.slice(colonIdx + 1);
+
+    // If key starts with '- ', split the list marker
+    if (key.startsWith('- ')) {
+      return [
+        { text: indent, cls: '' },
+        { text: '- ', cls: 'text-slate-400 dark:text-slate-500 font-bold' },
+        { text: key.slice(2), cls: 'text-blue-700 dark:text-sky-400 font-semibold' },
+        { text: val, cls: 'text-slate-800 dark:text-slate-200' }
+      ];
+    }
+
+    return [
+      { text: indent, cls: '' },
+      { text: key, cls: 'text-blue-700 dark:text-sky-400 font-semibold' },
+      { text: val, cls: 'text-slate-800 dark:text-slate-200' }
+    ];
+  }
+
+  // 3. List item with hyphen '- '
+  if (trimmed.startsWith('- ')) {
+    return [
+      { text: indent, cls: '' },
+      { text: '- ', cls: 'text-slate-400 dark:text-slate-500 font-bold' },
+      { text: trimmed.slice(2), cls: 'text-slate-800 dark:text-slate-200' }
+    ];
+  }
+
+  // 4. Default plain text
+  return [
+    { text: line, cls: 'text-slate-800 dark:text-slate-200' }
+  ];
+};
+
 // ==================== DIFF PREVIEW ENGINE ====================
 interface DiffLine {
   type: 'added' | 'removed' | 'unchanged';
@@ -1454,12 +1512,12 @@ onMounted(() => {
             </div>
 
             <!-- Right: Generated YAML (this job only) -->
-            <div class="md:col-span-5 bg-slate-900 rounded-xl p-3.5 text-slate-200 font-mono text-[11px] space-y-2 border border-slate-800 shadow-inner">
-              <div class="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800 pb-1.5">
+            <div class="md:col-span-5 bg-slate-50 dark:bg-[#060911] rounded-xl p-3.5 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800/80 pb-1.5">
                 <span>Generated YAML (this job)</span>
-                <span class="text-blue-400">Reactive</span>
+                <span class="text-blue-600 dark:text-blue-400 font-semibold">Reactive</span>
               </div>
-              <pre class="overflow-x-auto text-[11px] leading-relaxed text-slate-300 font-mono">{{ generateYaml(currentJob) }}</pre>
+              <pre class="overflow-x-auto text-[11px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono">{{ generateYaml(currentJob) }}</pre>
             </div>
           </div>
 
@@ -1539,9 +1597,10 @@ onMounted(() => {
           </div>
 
           <!-- Tab 1: Live Line-Numbered YAML Code Block -->
-          <div v-if="activeRightTab === 'preview'" class="p-3 bg-slate-950 font-mono text-xs overflow-x-auto max-h-[520px] select-text">
-            <div class="text-[10px] text-slate-500 uppercase font-bold pb-2 border-b border-slate-900 mb-2">
-              prometheus.yml (generated)
+          <div v-if="activeRightTab === 'preview'" class="p-3 bg-slate-50/70 dark:bg-[#060911] border-t border-slate-200 dark:border-[#1b2234] font-mono text-xs overflow-x-auto max-h-[520px] select-text">
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold pb-2 border-b border-slate-200 dark:border-slate-800/80 mb-2 flex items-center justify-between">
+              <span>prometheus.yml (generated)</span>
+              <span class="text-[10px] font-normal text-slate-400 dark:text-slate-500 lowercase">{{ formattedLines.length }} lines</span>
             </div>
 
             <div class="space-y-0.5">
@@ -1549,47 +1608,47 @@ onMounted(() => {
                 v-for="line in formattedLines"
                 :key="line.num"
                 :class="[
-                  'flex items-start gap-3 px-1 py-0.5 rounded transition font-mono text-[11px]',
+                  'flex items-start gap-2.5 px-1.5 py-0.5 rounded transition font-mono text-[11px]',
                   line.isError
-                    ? 'bg-rose-950/60 border-l-2 border-rose-500 text-rose-200'
-                    : 'hover:bg-slate-900/60 text-slate-300'
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-l-2 border-rose-500 text-rose-800 dark:text-rose-200'
+                    : 'hover:bg-slate-200/50 dark:hover:bg-slate-900/60'
                 ]"
               >
-                <!-- Line Number -->
-                <span class="w-6 text-right text-slate-600 select-none text-[10px] shrink-0 font-mono pt-0.5">
+                <!-- Line Number with vertical divider -->
+                <span class="w-7 text-right text-slate-400 dark:text-slate-600 select-none text-[10px] shrink-0 font-mono pt-0.5 border-r border-slate-200 dark:border-slate-800/60 pr-2">
                   {{ line.num }}
                 </span>
 
                 <!-- Line Marker if Error -->
-                <span v-if="line.isError" class="text-rose-400 font-bold shrink-0">!</span>
+                <span v-if="line.isError" class="text-rose-500 font-bold shrink-0">!</span>
 
                 <!-- Line Content with Color Coding -->
-                <span :class="[
-                  'whitespace-pre flex-1',
-                  line.content.trim().startsWith('#') ? 'text-amber-400/80 italic' :
-                  line.content.includes(':') ? 'text-slate-200' : 'text-slate-300'
-                ]">
-                  {{ line.content }}
+                <span class="whitespace-pre flex-1 select-text">
+                  <span
+                    v-for="(token, tIdx) in formatYamlTokens(line.content)"
+                    :key="tIdx"
+                    :class="token.cls"
+                  >{{ token.text }}</span>
                 </span>
               </div>
             </div>
           </div>
 
           <!-- Tab 2: Diff Preview -->
-          <div v-if="activeRightTab === 'diff'" class="p-3 bg-slate-950 font-mono text-xs overflow-x-auto max-h-[520px] select-text space-y-0.5">
-            <div class="text-[10px] text-slate-400 uppercase font-bold pb-2 border-b border-slate-900 mb-2 flex items-center justify-between">
+          <div v-if="activeRightTab === 'diff'" class="p-3 bg-slate-50/70 dark:bg-[#060911] border-t border-slate-200 dark:border-[#1b2234] font-mono text-xs overflow-x-auto max-h-[520px] select-text space-y-0.5">
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold pb-2 border-b border-slate-200 dark:border-slate-800/80 mb-2 flex items-center justify-between">
               <span>Diff vs Original Server Config</span>
-              <span class="text-emerald-400">+ Additions / <span class="text-rose-400">- Deletions</span></span>
+              <span class="text-emerald-600 dark:text-emerald-400 font-semibold">+ Additions / <span class="text-rose-600 dark:text-rose-400">- Deletions</span></span>
             </div>
 
             <div
               v-for="(d, idx) in diffLines"
               :key="idx"
               :class="[
-                'px-2 py-0.5 font-mono text-[11px] whitespace-pre',
-                d.type === 'added' ? 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500' :
-                d.type === 'removed' ? 'bg-rose-950/40 text-rose-300 border-l-2 border-rose-500 line-through opacity-75' :
-                'text-slate-500'
+                'px-2 py-0.5 font-mono text-[11px] whitespace-pre rounded-sm',
+                d.type === 'added' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-l-2 border-emerald-500 font-medium' :
+                d.type === 'removed' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-l-2 border-rose-500 line-through opacity-80' :
+                'text-slate-600 dark:text-slate-400'
               ]"
             >
               <span class="inline-block w-4 font-bold select-none">{{ d.type === 'added' ? '+' : d.type === 'removed' ? '-' : ' ' }}</span>
