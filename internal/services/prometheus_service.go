@@ -820,7 +820,7 @@ func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, in
 
 	// 5. If host has promtool installed, run official promtool verification
 	if instanceID != "" {
-		cfg, err := s.configRepo.GetPrometheusConfigByID(ctx, instanceID)
+		cfg, err := s.configRepo.GetPrometheusByID(ctx, instanceID)
 		if err == nil && cfg != nil {
 			mode := strings.ToLower(cfg.Mode)
 			if mode == "ssh" && cfg.SSHHost != nil && *cfg.SSHHost != "" {
@@ -846,19 +846,20 @@ func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, in
 				}
 
 				checkToolCmd := "which promtool 2>/dev/null || which /usr/local/bin/promtool 2>/dev/null"
-				toolOut, err := s.sshService.ExecuteCommand(remoteCfg, checkToolCmd)
+				toolOut, _, _, err := s.sshService.ExecuteCommand(remoteCfg, checkToolCmd)
 				toolPath := strings.TrimSpace(toolOut)
 				if err == nil && toolPath != "" {
 					tmpFile := fmt.Sprintf("/tmp/prom_check_%d.yml", time.Now().UnixNano())
 					if writeErr := s.sshService.WriteFile(remoteCfg, tmpFile, content); writeErr == nil {
 						cmd := fmt.Sprintf("%s check config %s", toolPath, tmpFile)
-						checkOut, checkErr := s.sshService.ExecuteCommand(remoteCfg, cmd)
+						checkOut, checkErrOut, _, checkErr := s.sshService.ExecuteCommand(remoteCfg, cmd)
 						_ = s.sshService.DeleteFile(remoteCfg, tmpFile)
 
-						if checkErr != nil || strings.Contains(strings.ToLower(checkOut), "failed") {
+						combinedOutput := strings.TrimSpace(checkOut + "\n" + checkErrOut)
+						if checkErr != nil || strings.Contains(strings.ToLower(combinedOutput), "failed") {
 							issues = append(issues, PrometheusValidationIssue{
 								Type:    "error",
-								Message: fmt.Sprintf("promtool check error: %s", strings.TrimSpace(checkOut)),
+								Message: fmt.Sprintf("promtool check error: %s", combinedOutput),
 							})
 						} else {
 							issues = append(issues, PrometheusValidationIssue{
