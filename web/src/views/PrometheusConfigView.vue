@@ -23,6 +23,7 @@ import {
   Sliders,
   X,
   ChevronDown,
+  ChevronRight,
   Code
 } from 'lucide-vue-next';
 
@@ -211,10 +212,51 @@ const currentJob = computed(() => {
   return scrapeJobs.value.find(j => j.id === selectedJobId.value) || scrapeJobs.value[0] || null;
 });
 
+// Expandable Scrape Jobs rows
+const expandedJobIds = ref<Set<string>>(new Set());
+
+const toggleExpandJob = (jobId: string) => {
+  if (expandedJobIds.value.has(jobId)) {
+    expandedJobIds.value.delete(jobId);
+  } else {
+    expandedJobIds.value.add(jobId);
+  }
+};
+
+const isJobExpanded = (jobId: string) => expandedJobIds.value.has(jobId);
+
+const expandAllJobs = () => {
+  if (expandedJobIds.value.size === scrapeJobs.value.length) {
+    expandedJobIds.value.clear();
+  } else {
+    expandedJobIds.value = new Set(scrapeJobs.value.map(j => j.id));
+  }
+};
+
+const quickAddTargetToJob = (job: ScrapeJob) => {
+  const newTarget: TargetItem = {
+    id: `t-${Date.now()}-${Math.random()}`,
+    endpoint: '127.0.0.1:9090',
+    labels: {}
+  };
+  job.targets.push(newTarget);
+  expandedJobIds.value.add(job.id);
+  selectedJobId.value = job.id;
+  showNotification('success', `Added target to '${job.job_name}'. Edit IP as needed.`);
+};
+
+const scrollToJobEditor = () => {
+  const el = document.getElementById('job-details-editor');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth' });
+  }
+};
+
 // Set default selected job
 onMounted(() => {
   if (scrapeJobs.value.length > 0 && !selectedJobId.value) {
-    selectedJobId.value = scrapeJobs.value[1]?.id || scrapeJobs.value[0].id;
+    selectedJobId.value = scrapeJobs.value[0].id;
+    expandedJobIds.value.add(selectedJobId.value);
   }
 });
 
@@ -390,10 +432,10 @@ const parseYamlIntoModel = (content: string) => {
           activeParsedJob.scrape_interval = trimmed.replace('scrape_interval:', '').trim();
         } else if (trimmed.startsWith('scrape_timeout:')) {
           activeParsedJob.scrape_timeout = trimmed.replace('scrape_timeout:', '').trim();
-        } else if (trimmed.startsWith('targets:')) {
+        } else if (trimmed.startsWith('targets:') || trimmed.startsWith('- targets:')) {
           inTargets = true;
           inLabels = false;
-          // Check inline targets format: targets: ['a:9090', 'b:9090']
+          // Check inline targets format: targets: ['a:9090', 'b:9090'] or - targets: ['a:9090']
           const inlineMatch = trimmed.match(/\[(.*)\]/);
           if (inlineMatch && inlineMatch[1]) {
             const splitted = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
@@ -409,8 +451,8 @@ const parseYamlIntoModel = (content: string) => {
         } else if (trimmed.startsWith('labels:')) {
           inLabels = true;
           inTargets = false;
-        } else if (inTargets && trimmed.startsWith('-')) {
-          const ep = trimmed.replace('-', '').trim().replace(/['"]/g, '').split('#')[0].trim();
+        } else if (inTargets && trimmed.startsWith('-') && !trimmed.startsWith('- targets:') && !trimmed.startsWith('- job_name:')) {
+          const ep = trimmed.replace(/^-/, '').trim().replace(/['"]/g, '').split('#')[0].trim();
           if (ep) {
             activeParsedJob.targets!.push({
               id: `t-${Date.now()}-${Math.random()}`,
@@ -425,6 +467,9 @@ const parseYamlIntoModel = (content: string) => {
           if (k) {
             activeParsedJob.labels![k] = v;
           }
+        } else if (!trimmed.startsWith('-') && !trimmed.startsWith('#')) {
+          inTargets = false;
+          inLabels = false;
         }
       }
     });
@@ -445,6 +490,7 @@ const parseYamlIntoModel = (content: string) => {
     if (parsedJobs.length > 0) {
       scrapeJobs.value = parsedJobs;
       selectedJobId.value = parsedJobs[0].id;
+      expandedJobIds.value.add(parsedJobs[0].id);
     }
   } catch (err) {
     console.error('Failed to parse YAML model', err);
@@ -532,10 +578,14 @@ const runValidation = () => {
   }
 };
 
-// Check if a target in the current job is duplicate
+// Check if a target in a job is duplicate
+const isTargetDuplicate = (job: ScrapeJob | null, idx: number, endpoint: string): boolean => {
+  if (!job || !endpoint.trim()) return false;
+  return job.targets.some((t, i) => i < idx && t.endpoint.trim() === endpoint.trim());
+};
+
 const isTargetDuplicateInCurrentJob = (idx: number, endpoint: string): boolean => {
-  if (!currentJob.value || !endpoint.trim()) return false;
-  return currentJob.value.targets.some((t, i) => i < idx && t.endpoint.trim() === endpoint.trim());
+  return isTargetDuplicate(currentJob.value, idx, endpoint);
 };
 
 // Line numbered code viewer with error highlighting
@@ -1209,7 +1259,15 @@ onMounted(() => {
             <table class="w-full text-left text-xs">
               <thead class="bg-slate-50 dark:bg-[#121826] border-y border-slate-200 dark:border-[#1b2234] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 <tr>
-                  <th class="py-2.5 px-3 w-8"></th>
+                  <th class="py-2.5 px-3 w-10 text-center">
+                    <button
+                      @click="expandAllJobs"
+                      class="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                      :title="expandedJobIds.size === scrapeJobs.length ? 'Collapse All Jobs' : 'Expand All Jobs'"
+                    >
+                      <ChevronDown :class="['w-3.5 h-3.5 transition-transform duration-200', expandedJobIds.size === scrapeJobs.length ? 'rotate-180 text-blue-600 dark:text-blue-400' : '']" />
+                    </button>
+                  </th>
                   <th class="py-2.5 px-3">Job Name</th>
                   <th class="py-2.5 px-3">Metrics Path</th>
                   <th class="py-2.5 px-3">Scrape Interval</th>
@@ -1220,96 +1278,211 @@ onMounted(() => {
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]/60">
-                <tr
-                  v-for="job in filteredScrapeJobs"
-                  :key="job.id"
-                  @click="selectedJobId = job.id"
-                  :class="[
-                    'transition cursor-pointer',
-                    selectedJobId === job.id
-                      ? 'bg-blue-50/50 dark:bg-blue-950/20'
-                      : 'hover:bg-slate-50/60 dark:hover:bg-[#151c2d]'
-                  ]"
-                >
-                  <!-- Radio / Selection Indicator -->
-                  <td class="py-2.5 px-3">
-                    <input
-                      type="radio"
-                      :checked="selectedJobId === job.id"
-                      name="selected_job"
-                      class="text-blue-600 focus:ring-0 cursor-pointer"
-                    />
-                  </td>
+                <template v-for="job in filteredScrapeJobs" :key="job.id">
+                  <tr
+                    @click="toggleExpandJob(job.id); selectedJobId = job.id"
+                    :class="[
+                      'transition cursor-pointer select-none',
+                      selectedJobId === job.id
+                        ? 'bg-blue-50/50 dark:bg-blue-950/20'
+                        : 'hover:bg-slate-50/60 dark:hover:bg-[#151c2d]'
+                    ]"
+                  >
+                    <!-- Expand Chevron + Radio Indicator -->
+                    <td class="py-2.5 px-3 text-center whitespace-nowrap" @click.stop>
+                      <div class="flex items-center gap-1 justify-center">
+                        <button
+                          @click="toggleExpandJob(job.id)"
+                          class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
+                          :title="isJobExpanded(job.id) ? 'Collapse targets' : 'Expand targets'"
+                        >
+                          <ChevronRight
+                            :class="[
+                              'w-3.5 h-3.5 transition-transform duration-200',
+                              isJobExpanded(job.id) ? 'rotate-90 text-blue-600 dark:text-blue-400' : ''
+                            ]"
+                          />
+                        </button>
+                        <input
+                          type="radio"
+                          :checked="selectedJobId === job.id"
+                          @change="selectedJobId = job.id"
+                          name="selected_job"
+                          class="text-blue-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
+                          title="Select job to edit"
+                        />
+                      </div>
+                    </td>
 
-                  <!-- Job Name -->
-                  <td class="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                    {{ job.job_name }}
-                  </td>
+                    <!-- Job Name -->
+                    <td class="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                      <div class="flex items-center gap-2">
+                        <span>{{ job.job_name }}</span>
+                        <span v-if="isJobExpanded(job.id)" class="text-[10px] text-blue-600 dark:text-blue-400 font-normal">
+                          (expanded)
+                        </span>
+                      </div>
+                    </td>
 
-                  <!-- Path -->
-                  <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                    {{ job.metrics_path }}
-                  </td>
+                    <!-- Path -->
+                    <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                      {{ job.metrics_path }}
+                    </td>
 
-                  <!-- Interval -->
-                  <td class="py-2.5 px-3 text-slate-700 dark:text-slate-300">
-                    {{ job.scrape_interval }}
-                  </td>
+                    <!-- Interval -->
+                    <td class="py-2.5 px-3 text-slate-700 dark:text-slate-300">
+                      {{ job.scrape_interval }}
+                    </td>
 
-                  <!-- Targets Count -->
-                  <td class="py-2.5 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                    {{ job.targets.length }}
-                  </td>
-
-                  <!-- Labels -->
-                  <td class="py-2.5 px-3">
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-for="(val, key) in job.labels"
-                        :key="key"
-                        class="px-1.5 py-0.2 rounded text-[10px] bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 font-mono"
+                    <!-- Targets Count Badge (Clickable to expand) -->
+                    <td class="py-2.5 px-3">
+                      <button
+                        @click.stop="toggleExpandJob(job.id)"
+                        :class="[
+                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold transition cursor-pointer border',
+                          job.targets.length > 0
+                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100'
+                            : 'bg-slate-100 dark:bg-[#1a2233] text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-200'
+                        ]"
+                        title="Click to view scraped target IPs"
                       >
-                        {{ key }}: {{ val }}
+                        <span>{{ job.targets.length }}</span>
+                        <span class="text-[10px] font-sans font-medium text-slate-500 dark:text-slate-400">target{{ job.targets.length !== 1 ? 's' : '' }}</span>
+                      </button>
+                    </td>
+
+                    <!-- Labels -->
+                    <td class="py-2.5 px-3">
+                      <div class="flex flex-wrap gap-1">
+                        <span
+                          v-for="(val, key) in job.labels"
+                          :key="key"
+                          class="px-1.5 py-0.2 rounded text-[10px] bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 font-mono"
+                        >
+                          {{ key }}: {{ val }}
+                        </span>
+                        <span v-if="Object.keys(job.labels).length === 0" class="text-slate-400 text-[10px]">-</span>
+                      </div>
+                    </td>
+
+                    <!-- Status -->
+                    <td class="py-2.5 px-3 whitespace-nowrap">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span>Healthy</span>
                       </span>
-                      <span v-if="Object.keys(job.labels).length === 0" class="text-slate-400 text-[10px]">-</span>
-                    </div>
-                  </td>
+                    </td>
 
-                  <!-- Status -->
-                  <td class="py-2.5 px-3 whitespace-nowrap">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      <span>Healthy</span>
-                    </span>
-                  </td>
+                    <!-- Actions -->
+                    <td class="py-2.5 px-3 text-right whitespace-nowrap" @click.stop>
+                      <div class="flex items-center justify-end gap-1">
+                        <button
+                          @click="selectedJobId = job.id; scrollToJobEditor()"
+                          class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                          title="Edit Job Details"
+                        >
+                          <Sliders class="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          @click="confirmDeleteJob(job)"
+                          class="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                          title="Delete Job"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
 
-                  <!-- Actions -->
-                  <td class="py-2.5 px-3 text-right whitespace-nowrap" @click.stop>
-                    <div class="flex items-center justify-end gap-1">
-                      <button
-                        @click="selectedJobId = job.id"
-                        class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                        title="Edit Job"
-                      >
-                        <Sliders class="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        @click="confirmDeleteJob(job)"
-                        class="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
-                        title="Delete Job"
-                      >
-                        <Trash2 class="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  <!-- EXPANDED SUB-ROW: Scraped IPs & Endpoints List -->
+                  <tr v-if="isJobExpanded(job.id)" class="bg-slate-50/80 dark:bg-[#070b14]/70 border-b border-slate-200 dark:border-[#1b2234]">
+                    <td colspan="8" class="p-3 sm:px-6">
+                      <div class="space-y-3 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-3.5 shadow-xs animate-in fade-in duration-150">
+                        <!-- Sub-row Header -->
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-[#1b2234] pb-2">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs font-bold text-slate-800 dark:text-slate-200">
+                              Scraped Target IPs for <strong class="font-mono text-blue-600 dark:text-blue-400">{{ job.job_name }}</strong>:
+                            </span>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-[#1a2233] text-slate-600 dark:text-slate-400">
+                              {{ (job.scheme || 'http').toUpperCase() }} &bull; path: {{ job.metrics_path || '/metrics' }}
+                            </span>
+                          </div>
+
+                          <div class="flex items-center gap-2">
+                            <button
+                              @click.stop="quickAddTargetToJob(job)"
+                              class="px-2.5 py-1 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus class="w-3 h-3" />
+                              <span>Add Target IP</span>
+                            </button>
+                            <button
+                              @click.stop="selectedJobId = job.id; scrollToJobEditor()"
+                              class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-semibold transition flex items-center gap-1 cursor-pointer"
+                            >
+                              <Sliders class="w-3 h-3 text-slate-400" />
+                              <span>Full Job Editor</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <!-- Target IPs Grid/List -->
+                        <div v-if="job.targets.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                          <div
+                            v-for="(t, tIdx) in job.targets"
+                            :key="t.id || tIdx"
+                            class="flex items-center justify-between p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#121826] hover:border-slate-300 dark:hover:border-slate-700 transition"
+                          >
+                            <div class="flex items-center gap-2 min-w-0 flex-1">
+                              <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                              <div class="min-w-0 flex-1 pr-1">
+                                <input
+                                  v-model="t.endpoint"
+                                  placeholder="e.g. 192.168.1.10:9100"
+                                  class="w-full bg-transparent font-mono text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:bg-white dark:focus:bg-[#0a0d14] px-1 py-0.5 rounded border border-transparent focus:border-blue-500 transition"
+                                />
+                                <div class="text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate pl-1 flex items-center gap-1">
+                                  <span>{{ job.scheme || 'http' }}://{{ t.endpoint || '...' }}{{ job.metrics_path }}</span>
+                                  <span v-if="isTargetDuplicate(job, tIdx, t.endpoint)" class="text-rose-500 font-bold text-[9px]">(Duplicate)</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              @click.stop="confirmDeleteTarget(job, t)"
+                              class="p-1 text-slate-400 hover:text-rose-500 rounded transition cursor-pointer shrink-0"
+                              title="Remove IP from Scrape"
+                            >
+                              <Trash2 class="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <!-- Empty targets state inside expanded sub-row -->
+                        <div v-else class="py-4 text-center bg-slate-50 dark:bg-[#070b14] border border-dashed border-slate-200 dark:border-slate-800 rounded-lg space-y-1.5">
+                          <p class="text-xs text-slate-500 dark:text-slate-400">
+                            No scrape targets configured for <strong>{{ job.job_name }}</strong>.
+                          </p>
+                          <button
+                            @click.stop="quickAddTargetToJob(job)"
+                            class="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold cursor-pointer shadow-xs"
+                          >
+                            <Plus class="w-3.5 h-3.5" />
+                            <span>Add Target IP</span>
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
         </div>
 
         <!-- Section: Edit Scrape Job Details (Card per selected job) -->
-        <div v-if="currentJob" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
+        <div v-if="currentJob" id="job-details-editor" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
           <!-- Job Details Header -->
           <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
             <div class="flex items-center gap-2">
