@@ -68,13 +68,28 @@ func (r *SnmpRepository) SaveOidBatch(ctx context.Context, oids []domain.OidRegi
 		return err
 	}
 
-	batchSize := 100
-	for i := 0; i < len(oids); i += batchSize {
-		end := i + batchSize
-		if end > len(oids) {
-			end = len(oids)
+	// Strictly deduplicate by OID to prevent PostgreSQL SQLSTATE 21000 (ON CONFLICT DO UPDATE cannot affect row a second time)
+	dedupMap := make(map[string]domain.OidRegistry)
+	for _, o := range oids {
+		cleanOid := strings.Trim(strings.TrimSpace(o.OID), ".")
+		if cleanOid != "" {
+			o.OID = cleanOid
+			dedupMap[cleanOid] = o
 		}
-		chunk := oids[i:end]
+	}
+
+	deduped := make([]domain.OidRegistry, 0, len(dedupMap))
+	for _, o := range dedupMap {
+		deduped = append(deduped, o)
+	}
+
+	batchSize := 100
+	for i := 0; i < len(deduped); i += batchSize {
+		end := i + batchSize
+		if end > len(deduped) {
+			end = len(deduped)
+		}
+		chunk := deduped[i:end]
 
 		var valueStrings []string
 		var valueArgs []interface{}

@@ -254,16 +254,25 @@ func (s *SnmpService) enrichSnmpError(err error, host string, port uint16, commu
 func (s *SnmpService) ImportMibText(ctx context.Context, mibName, content string) (*domain.ImportedMib, error) {
 	// Write file to disk
 	safeName := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(mibName, "")
+	if safeName == "" {
+		safeName = "CUSTOM-MIB"
+	}
 	filePath := filepath.Join(s.mibsDir, safeName+".mib")
 	_ = os.WriteFile(filePath, []byte(content), 0644)
 
-	// Parse MIB syntax
+	// Parse MIB syntax into OID definitions
 	parsedNodes := parseMibSyntax(content, safeName)
-	if err := s.snmpRepo.SaveOidBatch(ctx, parsedNodes); err != nil {
-		return nil, err
+
+	// 1. Foreign key constraint: imported_mibs MUST be saved before oid_registry references it!
+	if err := s.snmpRepo.SaveImportedMib(ctx, safeName, len(parsedNodes)); err != nil {
+		return nil, fmt.Errorf("failed to register MIB '%s': %w", safeName, err)
 	}
 
-	_ = s.snmpRepo.SaveImportedMib(ctx, safeName, len(parsedNodes))
+	// 2. Save OID batch (deduplicated)
+	if err := s.snmpRepo.SaveOidBatch(ctx, parsedNodes); err != nil {
+		return nil, fmt.Errorf("failed to save OID definitions: %w", err)
+	}
+
 	logger.Info("SNMP", fmt.Sprintf("Imported MIB '%s' with %d OID definitions", safeName, len(parsedNodes)))
 
 	return &domain.ImportedMib{
@@ -298,34 +307,170 @@ func (s *SnmpService) SyncMibsFromDisk(ctx context.Context) {
 	}
 }
 
+type rawMibEntry struct {
+	name        string
+	parent      string
+	index       string
+	description *string
+	syntax      *string
+	access      *string
+}
+
 func parseMibSyntax(text, mibName string) []domain.OidRegistry {
-	var oids []domain.OidRegistry
-	// Basic regex extractor for MIB OBJECT-TYPE statements
-	re := regexp.MustCompile(`(\w+)\s+(OBJECT-TYPE|OBJECT\s+IDENTIFIER|MODULE-IDENTITY)\s+(.*?)::=\s*\{\s*([\w-]+)\s+(\d+|\w+\(\d+\))\s*\}`)
+	// Base symbol table initialized with well-known standard root OIDs
+	symbols := map[string]string{
+		"ccitt":        "0",
+		"iso":          "1",
+		"org":          "1.3",
+		"dod":          "1.3.6",
+		"internet":     "1.3.6.1",
+		"directory":    "1.3.6.1.1",
+		"mgmt":         "1.3.6.1.2",
+		"mib-2":        "1.3.6.1.2.1",
+		"system":       "1.3.6.1.2.1.1",
+		"interfaces":   "1.3.6.1.2.1.2",
+		"at":           "1.3.6.1.2.1.3",
+		"ip":           "1.3.6.1.2.1.4",
+		"icmp":         "1.3.6.1.2.1.5",
+		"tcp":          "1.3.6.1.2.1.6",
+		"udp":          "1.3.6.1.2.1.7",
+		"egp":          "1.3.6.1.2.1.8",
+		"transmission": "1.3.6.1.2.1.10",
+		"snmp":         "1.3.6.1.2.1.11",
+		"experimental": "1.3.6.1.3",
+		"private":      "1.3.6.1.4",
+		"enterprises":  "1.3.6.1.4.1",
+		"security":     "1.3.6.1.5",
+		"snmpV2":       "1.3.6.1.6",
+		"snmpModules":  "1.3.6.1.6.3",
+		"host":         "1.3.6.1.2.1.25",
+	}
+
+	// Regex to match ASN.1 object definitions:
+	// Example: nodeName OBJECT-TYPE ... ::= { parent 1 }
+	re := regexp.MustCompile(`(?s)\b([a-zA-Z0-9_-]+)\s+(OBJECT-TYPE|OBJECT\s+IDENTIFIER|MODULE-IDENTITY|NOTIFICATION-TYPE|TRAP-TYPE|OBJECT-GROUP|NOTIFICATION-GROUP)\s+(.*?)::=\s*\{\s*([^}]+)\s*\}`)
 	matches := re.FindAllStringSubmatch(text, -1)
 
-	for _, m := range matches {
-		if len(m) >= 6 {
-			name := m[1]
-			idxStr := m[5]
-			idx, _ := strconv.Atoi(idxStr)
-			descRe := regexp.MustCompile(`DESCRIPTION\s+"([^"]+)"`)
-			descMatch := descRe.FindStringSubmatch(m[3])
-			var desc *string
-			if len(descMatch) > 1 {
-				desc = &descMatch[1]
-			}
+	var rawEntries []rawMibEntry
+	descRe := regexp.MustCompile(`(?s)DESCRIPTION\s+"([^"]*)"`)
+	syntaxRe := regexp.MustCompile(`(?i)SYNTAX\s+([a-zA-Z0-9_() -]+)`)
+	accessRe := regexp.MustCompile(`(?i)(?:MAX-ACCESS|ACCESS)\s+([a-zA-Z0-9_-]+)`)
 
-			oidStr := fmt.Sprintf("1.3.6.1.4.1.%d", idx) // Simplified OID anchor
-			oids = append(oids, domain.OidRegistry{
-				OID:         oidStr,
-				Name:        name,
-				MibName:     mibName,
-				Description: desc,
+	for _, m := range matches {
+		if len(m) < 5 {
+			continue
+		}
+		name := strings.TrimSpace(m[1])
+		body := m[3]
+		refTokens := strings.Fields(strings.TrimSpace(m[4]))
+		if len(refTokens) == 0 {
+			continue
+		}
+
+		// Extract metadata
+		var desc *string
+		if dm := descRe.FindStringSubmatch(body); len(dm) > 1 {
+			trimmedDesc := strings.TrimSpace(dm[1])
+			if trimmedDesc != "" {
+				desc = &trimmedDesc
+			}
+		}
+
+		var syntax *string
+		if sm := syntaxRe.FindStringSubmatch(body); len(sm) > 1 {
+			s := strings.TrimSpace(sm[1])
+			syntax = &s
+		}
+
+		var access *string
+		if am := accessRe.FindStringSubmatch(body); len(am) > 1 {
+			a := strings.TrimSpace(am[1])
+			access = &a
+		}
+
+		if len(refTokens) >= 2 {
+			parent := refTokens[0]
+			idxToken := refTokens[1]
+			idxStr := idxToken
+			if pIdx := strings.Index(idxToken, "("); pIdx != -1 {
+				idxStr = strings.Trim(idxToken[pIdx+1:], ")")
+			}
+			rawEntries = append(rawEntries, rawMibEntry{
+				name:        name,
+				parent:      parent,
+				index:       idxStr,
+				description: desc,
+				syntax:      syntax,
+				access:      access,
+			})
+		} else if len(refTokens) == 1 {
+			rawEntries = append(rawEntries, rawMibEntry{
+				name:        name,
+				parent:      refTokens[0],
+				index:       "0",
+				description: desc,
+				syntax:      syntax,
+				access:      access,
 			})
 		}
 	}
-	return oids
+
+	// Multi-pass resolution of parent-child hierarchy
+	unresolved := rawEntries
+	for pass := 0; pass < 20; pass++ {
+		var nextUnresolved []rawMibEntry
+		resolvedCount := 0
+
+		for _, item := range unresolved {
+			if parentOid, ok := symbols[item.parent]; ok {
+				var fullOid string
+				if item.index == "0" && strings.HasSuffix(parentOid, ".0") {
+					fullOid = parentOid
+				} else {
+					fullOid = parentOid + "." + item.index
+				}
+				symbols[item.name] = fullOid
+				resolvedCount++
+			} else {
+				nextUnresolved = append(nextUnresolved, item)
+			}
+		}
+
+		unresolved = nextUnresolved
+		if resolvedCount == 0 || len(unresolved) == 0 {
+			break
+		}
+	}
+
+	// For any remaining unresolved nodes, assign deterministic unique fallbacks
+	for i, item := range unresolved {
+		symbols[item.name] = fmt.Sprintf("1.3.6.1.4.1.0.%d.%s", i+1, item.index)
+	}
+
+	// Build deduplicated results
+	seenOids := make(map[string]domain.OidRegistry)
+	for _, item := range rawEntries {
+		oid, ok := symbols[item.name]
+		if !ok || oid == "" {
+			continue
+		}
+		cleanOid := strings.Trim(oid, ".")
+		seenOids[cleanOid] = domain.OidRegistry{
+			OID:         cleanOid,
+			Name:        item.name,
+			MibName:     mibName,
+			Syntax:      item.syntax,
+			Access:      item.access,
+			Description: item.description,
+		}
+	}
+
+	result := make([]domain.OidRegistry, 0, len(seenOids))
+	for _, o := range seenOids {
+		result = append(result, o)
+	}
+
+	return result
 }
 
 func formatVarbind(pdu gosnmp.SnmpPDU) (string, string) {
