@@ -74,8 +74,15 @@ if [ -f .env ]; then
     fi
 fi
 
-# Ensure performance and resource tuning environment variables exist in .env
+# Ensure security encryption key and performance tuning environment variables exist in .env
 if [ -f .env ]; then
+    if ! grep -q "APP_ENCRYPTION_KEY" .env; then
+        echo -e "${CYAN}[*] Generating secure 64-char hex APP_ENCRYPTION_KEY in .env...${NC}"
+        NEW_KEY=$(openssl rand -hex 32 2>/dev/null || cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 64)
+        echo "" >> .env
+        echo "# Security Key (64-character Hexadecimal for AES-256-GCM)" >> .env
+        echo "APP_ENCRYPTION_KEY=${NEW_KEY}" >> .env
+    fi
     if ! grep -q "GOMEMLIMIT" .env; then
         echo -e "${CYAN}[*] Applying recommended performance & resource tuning configurations to .env...${NC}"
         cat << 'EOF' >> .env

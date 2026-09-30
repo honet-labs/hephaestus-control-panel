@@ -48,7 +48,7 @@ services:
       - DB_HOST=database
       - DB_PORT=5432
       - DB_USER=${DB_USER:-hephaestus}
-      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be configured in .env}
+      - DB_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
       - DB_NAME=${DB_NAME:-hephaestus}
       - DB_SSL=false
       - DB_MAX_CONNS=${DB_MAX_CONNS:-10}
@@ -57,7 +57,7 @@ services:
       - DB_MAX_CONN_LIFETIME=${DB_MAX_CONN_LIFETIME:-3600}
       - GOMEMLIMIT=${GOMEMLIMIT:-256MiB}
       - GOGC=${GOGC:-80}
-      - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY must be configured in .env (generate with: openssl rand -hex 32)}
+      - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-}
       - LOGS_DIR=/app/logs
       - DATA_DIR=/app/data
     security_opt:
@@ -99,7 +99,7 @@ services:
       - "wal_buffers=${POSTGRES_WAL_BUFFERS:-4MB}"
     environment:
       - POSTGRES_USER=${DB_USER:-hephaestus}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be configured in .env}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
       - POSTGRES_DB=${DB_NAME:-hephaestus}
     ports:
       # Bind to localhost (127.0.0.1) only by default to prevent exposure to external network (HCP-SEC-002)
