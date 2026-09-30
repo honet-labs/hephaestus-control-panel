@@ -352,12 +352,14 @@ const fetchGraph = async () => {
 
     if (graphRes.data.success) {
       const nodes: Device[] = graphRes.data.data.nodes || [];
-      // Assign default positions if unset
+      // Assign default positions ONLY if unset (null, undefined, or NaN) - 0 is a valid coordinate!
       nodes.forEach((n, idx) => {
-        if (n.x === undefined || n.x === null || n.x === 0) {
+        const isXValid = typeof n.x === 'number' && !isNaN(n.x);
+        const isYValid = typeof n.y === 'number' && !isNaN(n.y);
+        if (!isXValid) {
           n.x = 220 + (idx % 4) * 200 + (Math.floor(idx / 4) % 2) * 50;
         }
-        if (n.y === undefined || n.y === null || n.y === 0) {
+        if (!isYValid) {
           n.y = 120 + Math.floor(idx / 4) * 160;
         }
       });
@@ -514,11 +516,12 @@ const handleRevokeSheetShare = async (targetUserId: number) => {
 // Toggle Device On Canvas
 const handleAddDeviceToCanvas = async (dev: Device) => {
   try {
+    const hasValidCoords = typeof dev.x === 'number' && !isNaN(dev.x) && typeof dev.y === 'number' && !isNaN(dev.y);
     const updated = {
       ...dev,
       sheetId: activeSheetId.value,
-      x: 300 + (activeNodes.value.length % 3) * 180,
-      y: 180 + Math.floor(activeNodes.value.length / 3) * 140,
+      x: hasValidCoords ? dev.x : (300 + (activeNodes.value.length % 3) * 180),
+      y: hasValidCoords ? dev.y : (180 + Math.floor(activeNodes.value.length / 3) * 140),
     };
     await axios.post('/api/v1/topology/devices', updated);
     await fetchGraph();
@@ -898,13 +901,16 @@ const handleSyncSelectedRemoteServers = async () => {
 
     for (let i = 0; i < targets.length; i++) {
       const h = targets[i];
-      // Match existing remote server node only, never overwrite manual devices
-      const existing = activeNodes.value.find(
+      // Match existing remote server node from global inventory or activeNodes
+      const existing = allDevices.value.find(
+        n => n.id === `remote-${h.id}` || n.labels?.remoteHostId === h.id
+      ) || activeNodes.value.find(
         n => n.id === `remote-${h.id}` || n.labels?.remoteHostId === h.id
       );
 
-      const x = existing?.x ?? (baseX + ((startIdx + i) % 4) * 200);
-      const y = existing?.y ?? (baseY + Math.floor((startIdx + i) / 4) * 160);
+      const hasValidCoords = typeof existing?.x === 'number' && !isNaN(existing.x) && typeof existing?.y === 'number' && !isNaN(existing.y);
+      const x = hasValidCoords ? existing!.x : (baseX + ((startIdx + i) % 4) * 200);
+      const y = hasValidCoords ? existing!.y : (baseY + Math.floor((startIdx + i) / 4) * 160);
 
       await axios.post('/api/v1/topology/devices', {
         id: existing?.id || `remote-${h.id}`,
@@ -948,21 +954,53 @@ const handleConnectSSHFromTopology = (node: Device) => {
   }
 };
 
-// Auto Flow Layout (Hierarchical Arrangement)
+// Auto Flow Layout (Hierarchical Network Arrangement)
 const handleToggleFlowLayout = () => {
   isFlowLayout.value = !isFlowLayout.value;
-  if (!isFlowLayout.value) return;
+  if (!isFlowLayout.value || activeNodes.value.length === 0) return;
 
-  const startX = 200;
-  const startY = 140;
-  const gapX = 220;
-  const gapY = 160;
+  // Categorize nodes by network hierarchy role
+  const routers: Device[] = [];
+  const switches: Device[] = [];
+  const servers: Device[] = [];
+  const endpoints: Device[] = [];
 
-  activeNodes.value.forEach((node, i) => {
-    node.x = startX + (i % 4) * gapX;
-    node.y = startY + Math.floor(i / 4) * gapY;
-    axios.put(`/api/v1/topology/devices/${node.id}/position`, { x: node.x, y: node.y }).catch(() => {});
+  activeNodes.value.forEach(node => {
+    const t = (node.deviceType || '').toLowerCase();
+    const name = (node.name || '').toLowerCase();
+    if (t === 'router' || t === 'firewall' || t === 'gateway' || name.includes('router') || name.includes('gateway') || name.startsWith('rc_')) {
+      routers.push(node);
+    } else if (t === 'switch' || t === 'bridge' || t === 'ap' || t === 'access_point' || name.includes('switch') || name.includes('access point')) {
+      switches.push(node);
+    } else if (t === 'server' || t === 'database' || t === 'vps' || t === 'storage' || name.includes('server') || name.includes('db')) {
+      servers.push(node);
+    } else {
+      endpoints.push(node);
+    }
   });
+
+  const layers = [routers, switches, servers, endpoints].filter(layer => layer.length > 0);
+  const startY = 130;
+  const gapY = 170;
+  const gapX = 220;
+  const centerX = 550;
+
+  layers.forEach((layer, layerIdx) => {
+    const layerY = startY + layerIdx * gapY;
+    const totalWidth = (layer.length - 1) * gapX;
+    const startX = Math.max(180, centerX - totalWidth / 2);
+
+    layer.forEach((node, nodeIdx) => {
+      node.x = Math.round(startX + nodeIdx * gapX);
+      node.y = Math.round(layerY);
+      axios.put(`/api/v1/topology/devices/${node.id}/position`, {
+        x: node.x,
+        y: node.y,
+        sheetId: activeSheetId.value,
+      }).catch(() => {});
+    });
+  });
+
   nodePositionVersion.value++;
 };
 
@@ -1019,7 +1057,13 @@ const handleWindowMouseUp = () => {
   if (draggingNodeId.value) {
     const node = activeNodes.value.find(n => String(n.id) === String(draggingNodeId.value));
     if (node && node.x !== undefined && node.y !== undefined) {
-      axios.put(`/api/v1/topology/devices/${node.id}/position`, { x: node.x, y: node.y }).catch(() => {});
+      axios.put(`/api/v1/topology/devices/${node.id}/position`, {
+        x: node.x,
+        y: node.y,
+        sheetId: activeSheetId.value,
+      }).catch(err => {
+        console.error('Failed to update node position:', err);
+      });
     }
     draggingNodeId.value = null;
     nodePositionVersion.value++;

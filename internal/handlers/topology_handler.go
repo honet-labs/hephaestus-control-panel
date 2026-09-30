@@ -282,15 +282,16 @@ func (h *TopologyHandler) SaveDevice(c *gin.Context) {
 func (h *TopologyHandler) UpdatePosition(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
+		X       float64 `json:"x"`
+		Y       float64 `json:"y"`
+		SheetID *int    `json:"sheetId"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
 		return
 	}
 
-	if err := h.topologyRepo.UpdatePosition(c.Request.Context(), id, req.X, req.Y); err != nil {
+	if err := h.topologyRepo.UpdatePosition(c.Request.Context(), id, req.X, req.Y, req.SheetID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}

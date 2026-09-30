@@ -252,23 +252,34 @@ func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *in
 		}
 	}
 
-	existingDevices, _ := s.topologyRepo.ListDevices(ctx, sheetID)
+	// Load ALL existing devices across all sheets to preserve existing coordinates
+	allExisting, _ := s.topologyRepo.ListDevices(ctx, nil)
 	existingMap := make(map[string]domain.TopologyDevice)
-	for _, ed := range existingDevices {
+	for _, ed := range allExisting {
 		existingMap[ed.ID] = ed
+	}
+
+	sheetDevices, _ := s.topologyRepo.ListDevices(ctx, sheetID)
+	sheetDeviceMap := make(map[string]domain.TopologyDevice)
+	for _, sd := range sheetDevices {
+		sheetDeviceMap[sd.ID] = sd
 	}
 
 	var synced []domain.TopologyDevice
 	baseX := 220.0
 	baseY := 130.0
-	idx := len(existingDevices)
+	idx := len(sheetDevices)
 
 	for _, host := range hosts {
 		devID := fmt.Sprintf("remote-%s", host.ID)
 
 		var posX, posY *float64
 		targetSheetID := sheetID
-		if ex, exists := existingMap[devID]; exists {
+		if onSheet, onThisSheet := sheetDeviceMap[devID]; onThisSheet {
+			posX = onSheet.X
+			posY = onSheet.Y
+			targetSheetID = sheetID
+		} else if ex, exists := existingMap[devID]; exists {
 			posX = ex.X
 			posY = ex.Y
 			if ex.SheetID != nil {

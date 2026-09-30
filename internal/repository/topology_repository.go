@@ -306,17 +306,37 @@ func (r *TopologyRepository) ListDevices(ctx context.Context, sheetID *int) ([]d
 		return nil, err
 	}
 
-	query := `SELECT id, name, ip_address, device_type, status, sources, labels, interfaces, sheet_id, x, y, created_at 
-              FROM topology_devices 
-              WHERE ($1::int IS NULL 
-                 OR sheet_id = $1 
-                 OR id IN (
-                     SELECT source_id FROM topology_edges WHERE sheet_id = $1 
-                     UNION 
-                     SELECT target_id FROM topology_edges WHERE sheet_id = $1
-                 )) 
-              ORDER BY name ASC`
-	rows, err := pool.Query(ctx, query, sheetID)
+	var rows pgx.Rows
+	if sheetID != nil {
+		query := `
+			SELECT d.id, d.name, d.ip_address, d.device_type, d.status, d.sources, d.labels, d.interfaces,
+			       $1::int AS sheet_id,
+			       COALESCE(sn.x, d.x, 220) AS x,
+			       COALESCE(sn.y, d.y, 130) AS y,
+			       d.created_at
+			FROM topology_devices d
+			LEFT JOIN topology_sheet_nodes sn ON sn.device_id = d.id AND sn.sheet_id = $1
+			WHERE (
+				sn.sheet_id = $1
+				OR d.sheet_id = $1
+				OR d.id IN (
+					SELECT source_id FROM topology_edges WHERE sheet_id = $1
+					UNION
+					SELECT target_id FROM topology_edges WHERE sheet_id = $1
+				)
+			)
+			ORDER BY d.name ASC
+		`
+		rows, err = pool.Query(ctx, query, *sheetID)
+	} else {
+		query := `
+			SELECT id, name, ip_address, device_type, status, sources, labels, interfaces, sheet_id, x, y, created_at
+			FROM topology_devices
+			ORDER BY name ASC
+		`
+		rows, err = pool.Query(ctx, query)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +352,9 @@ func (r *TopologyRepository) ListDevices(ctx context.Context, sheetID *int) ([]d
 		_ = json.Unmarshal(labelsRaw, &d.Labels)
 		_ = json.Unmarshal(ifacesRaw, &d.Interfaces)
 		devices = append(devices, d)
+	}
+	if devices == nil {
+		devices = []domain.TopologyDevice{}
 	}
 	return devices, nil
 }
@@ -356,18 +379,54 @@ func (r *TopologyRepository) SaveDevice(ctx context.Context, d domain.TopologyDe
               ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name, ip_address = EXCLUDED.ip_address, device_type = EXCLUDED.device_type,
                 status = EXCLUDED.status, sources = EXCLUDED.sources, labels = EXCLUDED.labels,
-                interfaces = EXCLUDED.interfaces, sheet_id = EXCLUDED.sheet_id, x = EXCLUDED.x, y = EXCLUDED.y`
+                interfaces = EXCLUDED.interfaces,
+                sheet_id = COALESCE(topology_devices.sheet_id, EXCLUDED.sheet_id),
+                x = COALESCE(EXCLUDED.x, topology_devices.x),
+                y = COALESCE(EXCLUDED.y, topology_devices.y)`
 	_, err = pool.Exec(ctx, query, d.ID, d.Name, d.IPAddress, d.DeviceType, d.Status, d.Sources, labelsJSON, ifacesJSON, d.SheetID, d.X, d.Y)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Persist per-sheet coordinate if sheetID and coordinates are provided
+	if d.SheetID != nil && *d.SheetID > 0 && d.X != nil && d.Y != nil {
+		snQuery := `
+			INSERT INTO topology_sheet_nodes (sheet_id, device_id, x, y, updated_at)
+			VALUES ($1, $2, $3, $4, NOW())
+			ON CONFLICT (sheet_id, device_id) DO UPDATE SET
+				x = EXCLUDED.x,
+				y = EXCLUDED.y,
+				updated_at = NOW()
+		`
+		_, _ = pool.Exec(ctx, snQuery, *d.SheetID, d.ID, *d.X, *d.Y)
+	}
+
+	return nil
 }
 
-func (r *TopologyRepository) UpdatePosition(ctx context.Context, id string, x, y float64) error {
+func (r *TopologyRepository) UpdatePosition(ctx context.Context, id string, x, y float64, sheetID *int) error {
 	pool, err := database.GetPool()
 	if err != nil {
 		return err
 	}
-	_, err = pool.Exec(ctx, `UPDATE topology_devices SET x = $1, y = $2 WHERE id = $3`, x, y, id)
-	return err
+
+	// Always keep global default position updated
+	_, _ = pool.Exec(ctx, `UPDATE topology_devices SET x = $1, y = $2 WHERE id = $3`, x, y, id)
+
+	// If sheet is specified, persist sheet-scoped coordinate
+	if sheetID != nil && *sheetID > 0 {
+		query := `
+			INSERT INTO topology_sheet_nodes (sheet_id, device_id, x, y, updated_at)
+			VALUES ($1, $2, $3, $4, NOW())
+			ON CONFLICT (sheet_id, device_id) DO UPDATE SET
+				x = EXCLUDED.x,
+				y = EXCLUDED.y,
+				updated_at = NOW()
+		`
+		_, err = pool.Exec(ctx, query, *sheetID, id, x, y)
+		return err
+	}
+	return nil
 }
 
 func (r *TopologyRepository) DeleteDevice(ctx context.Context, id string) error {
@@ -375,6 +434,8 @@ func (r *TopologyRepository) DeleteDevice(ctx context.Context, id string) error 
 	if err != nil {
 		return err
 	}
+	_, _ = pool.Exec(ctx, `DELETE FROM topology_sheet_nodes WHERE device_id = $1`, id)
+	_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE source_id = $1 OR target_id = $1`, id)
 	_, err = pool.Exec(ctx, `DELETE FROM topology_devices WHERE id = $1`, id)
 	return err
 }
@@ -385,19 +446,20 @@ func (r *TopologyRepository) RemoveDeviceFromCanvas(ctx context.Context, id stri
 		return err
 	}
 
-	// 1. Delete edges attached to this device on this sheet
-	if sheetID != nil {
+	if sheetID != nil && *sheetID > 0 {
+		// 1. Delete edges attached to this device on this sheet
 		_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE (source_id = $1 OR target_id = $1) AND (sheet_id = $2 OR sheet_id IS NULL)`, id, *sheetID)
-	} else {
-		_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE source_id = $1 OR target_id = $1`, id)
+		// 2. Remove node from sheet_nodes table
+		_, err = pool.Exec(ctx, `DELETE FROM topology_sheet_nodes WHERE sheet_id = $1 AND device_id = $2`, *sheetID, id)
+		// 3. Clear sheet_id from topology_devices if it was pinned to this sheet
+		_, _ = pool.Exec(ctx, `UPDATE topology_devices SET sheet_id = NULL WHERE id = $1 AND sheet_id = $2`, id, *sheetID)
+		return err
 	}
 
-	// 2. Set sheet_id to NULL, x to NULL, y to NULL (unplaced from canvas)
-	if sheetID != nil {
-		_, err = pool.Exec(ctx, `UPDATE topology_devices SET sheet_id = NULL, x = NULL, y = NULL WHERE id = $1 AND (sheet_id = $2 OR sheet_id IS NULL)`, id, *sheetID)
-	} else {
-		_, err = pool.Exec(ctx, `UPDATE topology_devices SET sheet_id = NULL, x = NULL, y = NULL WHERE id = $1`, id)
-	}
+	// If no sheetID, remove globally from canvas
+	_, _ = pool.Exec(ctx, `DELETE FROM topology_edges WHERE source_id = $1 OR target_id = $1`, id)
+	_, _ = pool.Exec(ctx, `DELETE FROM topology_sheet_nodes WHERE device_id = $1`, id)
+	_, err = pool.Exec(ctx, `UPDATE topology_devices SET sheet_id = NULL, x = NULL, y = NULL WHERE id = $1`, id)
 	return err
 }
 
@@ -447,7 +509,22 @@ func (r *TopologyRepository) SaveEdge(ctx context.Context, e domain.TopologyEdge
                 label = EXCLUDED.label, source_label = EXCLUDED.source_label,
                 target_label = EXCLUDED.target_label, edge_type = EXCLUDED.edge_type`
 	_, err = pool.Exec(ctx, query, e.SourceID, e.TargetID, e.Label, e.SourceLabel, e.TargetLabel, e.EdgeType, e.SheetID)
-	return err
+	if err != nil {
+		return err
+	}
+
+	if e.SheetID != nil && *e.SheetID > 0 {
+		// Ensure connected devices have an entry in topology_sheet_nodes so their position is pinned to this sheet
+		_, _ = pool.Exec(ctx, `
+			INSERT INTO topology_sheet_nodes (sheet_id, device_id, x, y)
+			SELECT $1, d.id, COALESCE(d.x, 220), COALESCE(d.y, 130)
+			FROM topology_devices d
+			WHERE d.id IN ($2, $3)
+			ON CONFLICT (sheet_id, device_id) DO NOTHING
+		`, *e.SheetID, e.SourceID, e.TargetID)
+	}
+
+	return nil
 }
 
 func (r *TopologyRepository) DeleteEdge(ctx context.Context, id int) error {
