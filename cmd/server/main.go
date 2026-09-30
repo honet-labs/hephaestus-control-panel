@@ -279,6 +279,9 @@ func main() {
 		api.DELETE("/backup/history/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteHistory)
 
 		// SNMP (Feature: snmp)
+		api.POST("/snmp/discover", middleware.RequirePermission("snmp", "read"), snmpHandler.Discover)
+		api.GET("/snmp/profiles", middleware.RequirePermission("snmp", "read"), snmpHandler.GetProfiles)
+		api.POST("/snmp/subnet-scan", middleware.RequirePermission("snmp", "read"), snmpHandler.ScanSubnet)
 		api.POST("/snmp/query", middleware.RequirePermission("snmp", "read"), snmpHandler.Query)
 		api.GET("/snmp/mibs", middleware.RequirePermission("snmp", "read"), snmpHandler.ListMibs)
 		api.POST("/snmp/mibs", middleware.RequirePermission("snmp", "manage"), snmpHandler.ImportMib)

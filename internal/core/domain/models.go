@@ -242,6 +242,81 @@ type SnmpQueryResult struct {
 	Type  string `json:"type"`
 }
 
+type SnmpDeviceIdentity struct {
+	IPAddress   string `json:"ipAddress"`
+	Hostname    string `json:"hostname"`
+	Vendor      string `json:"vendor"`
+	SysObjectID string `json:"sysObjectId"`
+	SysDescr    string `json:"sysDescr"`
+	SysUptime   string `json:"sysUptime"`
+	SysContact  string `json:"sysContact,omitempty"`
+	SysLocation string `json:"sysLocation,omitempty"`
+	Version     string `json:"version"`
+	Port        int    `json:"port"`
+	Status      string `json:"status"` // "online", "unreachable", "error"
+}
+
+type SnmpDiscoveredSensor struct {
+	SensorClass     string                 `json:"sensorClass"` // "system", "processor", "memory", "interface", "optical_dom", "temperature", "voltage", "fan", "power", "gpon", "storage", "printer", "rectifier", "misc"
+	SensorName      string                 `json:"sensorName"`  // Descriptive name e.g. "GigabitEthernet0/0/1 - RX Power (dBm)"
+	SensorType      string                 `json:"sensorType"`  // "rx_power", "tx_power", "temperature", "cpu_usage", "memory_usage", "oper_status", "in_octets", "out_octets", etc.
+	InterfaceIndex  *int                   `json:"interfaceIndex,omitempty"`
+	InterfaceName   string                 `json:"interfaceName,omitempty"`
+	EntityIndex     *int                   `json:"entityIndex,omitempty"`
+	OID             string                 `json:"oid"`
+	RawValue        string                 `json:"rawValue"`
+	NormalizedValue *float64               `json:"normalizedValue,omitempty"`
+	Unit            string                 `json:"unit"`
+	Status          string                 `json:"status"` // "ok", "warning", "critical", "up", "down"
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type SnmpDiscoveryResult struct {
+	Device      SnmpDeviceIdentity     `json:"device"`
+	Vendor      string                 `json:"vendor"`
+	Profile     string                 `json:"profile"`
+	Sensors     []SnmpDiscoveredSensor `json:"sensors"`
+	SensorCount int                    `json:"sensorCount"`
+	DurationSec float64                `json:"durationSec"`
+	Error       string                 `json:"error,omitempty"`
+}
+
+type SnmpDiscoveryProfileInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Modules     []string `json:"modules"`
+}
+
+type SnmpSubnetScanRequest struct {
+	Subnet    string `json:"subnet" binding:"required"` // CIDR (e.g. 192.168.1.0/24) or range (e.g. 10.0.0.1-10.0.0.25)
+	Community string `json:"community"`
+	Version   string `json:"version"`
+	Port      int    `json:"port"`
+	Timeout   int    `json:"timeout"` // Timeout per probe in seconds
+	Retries   int    `json:"retries"`
+}
+
+type SnmpSubnetHost struct {
+	IPAddress string  `json:"ipAddress"`
+	Reachable bool    `json:"reachable"`
+	Hostname  string  `json:"hostname"`
+	Vendor    string  `json:"vendor"`
+	SysDescr  string  `json:"sysDescr"`
+	SysUptime string  `json:"sysUptime"`
+	LatencyMs float64 `json:"latencyMs"`
+	Error     string  `json:"error,omitempty"`
+}
+
+type SnmpSubnetScanResult struct {
+	Subnet      string           `json:"subnet"`
+	TotalIPs    int              `json:"totalIps"`
+	ScannedIPs  int              `json:"scannedIps"`
+	ActiveHosts int              `json:"activeHosts"`
+	DurationSec float64          `json:"durationSec"`
+	Hosts       []SnmpSubnetHost `json:"hosts"`
+}
+
 // ==================== REMOTE HOST DOMAIN ====================
 
 type RemoteHostConfig struct {

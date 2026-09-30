@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 
+	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
 	"go-hephaestus/internal/services"
 
@@ -20,6 +21,51 @@ func NewSnmpHandler(snmpRepo *repository.SnmpRepository, snmpService *services.S
 		snmpRepo:    snmpRepo,
 		snmpService: snmpService,
 	}
+}
+
+func (h *SnmpHandler) Discover(c *gin.Context) {
+	var req struct {
+		Host      string `json:"host" binding:"required"`
+		Port      uint16 `json:"port"`
+		Version   string `json:"version"`
+		Community string `json:"community"`
+		Profile   string `json:"profile"`
+		Timeout   int    `json:"timeout"`
+		Retries   int    `json:"retries"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Target host is required for SNMP discovery"})
+		return
+	}
+
+	result, err := h.snmpService.DiscoverDevice(req.Host, req.Port, req.Version, req.Community, req.Profile, req.Timeout, req.Retries)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+func (h *SnmpHandler) GetProfiles(c *gin.Context) {
+	profiles := h.snmpService.GetProfiles()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": profiles})
+}
+
+func (h *SnmpHandler) ScanSubnet(c *gin.Context) {
+	var req domain.SnmpSubnetScanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Valid CIDR or IP range is required (e.g. 192.168.1.0/24 or 10.0.0.1-10.0.0.30)"})
+		return
+	}
+
+	result, err := h.snmpService.ScanSubnet(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
 func (h *SnmpHandler) Query(c *gin.Context) {

@@ -18,8 +18,10 @@ import (
 )
 
 type SnmpService struct {
-	snmpRepo *repository.SnmpRepository
-	mibsDir  string
+	snmpRepo        *repository.SnmpRepository
+	mibsDir         string
+	discoveryEngine *SnmpDiscoveryEngine
+	subnetScanner   *SnmpSubnetScanner
 }
 
 func NewSnmpService(snmpRepo *repository.SnmpRepository, dataDir string) *SnmpService {
@@ -30,9 +32,23 @@ func NewSnmpService(snmpRepo *repository.SnmpRepository, dataDir string) *SnmpSe
 		snmpRepo: snmpRepo,
 		mibsDir:  mibsDir,
 	}
+	s.discoveryEngine = NewSnmpDiscoveryEngine(s)
+	s.subnetScanner = NewSnmpSubnetScanner()
 
 	go s.SyncMibsFromDisk(context.Background())
 	return s
+}
+
+func (s *SnmpService) DiscoverDevice(host string, port uint16, version string, community string, profile string, timeoutSec int, retries int) (*domain.SnmpDiscoveryResult, error) {
+	return s.discoveryEngine.Discover(host, port, version, community, profile, timeoutSec, retries)
+}
+
+func (s *SnmpService) ScanSubnet(req domain.SnmpSubnetScanRequest) (*domain.SnmpSubnetScanResult, error) {
+	return s.subnetScanner.Scan(req)
+}
+
+func (s *SnmpService) GetProfiles() []domain.SnmpDiscoveryProfileInfo {
+	return AvailableProfiles()
 }
 
 func normalizeOid(rawOid string, operation string) (string, string) {
