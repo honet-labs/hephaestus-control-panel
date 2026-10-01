@@ -881,7 +881,12 @@ onUnmounted(() => {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Left: Index & Shards Breakdown -->
           <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6 shadow-xl">
-            <h3 class="text-xs font-bold text-white tracking-wide">Index & Shards Summary</h3>
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold text-white tracking-wide">Shards Allocation Summary</h3>
+              <span class="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
+                {{ formatNumber(totalIndicesCount) }} Total Indices
+              </span>
+            </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-y-6 text-xs font-sans">
               <div>
                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Shards</p>
