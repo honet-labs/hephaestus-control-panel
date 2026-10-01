@@ -212,6 +212,12 @@ const router = createRouter({
           path: 'monitoring-instances',
           redirect: '/monitoring-instance',
         },
+        {
+          path: 'ipam',
+          name: 'ipam',
+          component: () => import('../views/IpamView.vue'),
+          meta: { requiresAuth: true, feature: 'ipam' },
+        },
       ],
     },
     {

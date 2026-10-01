@@ -83,7 +83,7 @@ const isServerSubActive = computed(() =>
   route.path.startsWith('/remote-server') ||
   route.path.startsWith('/remote-host')
 );
-const isNetworkingActive = computed(() => route.path.startsWith('/network-topology'));
+const isNetworkingActive = computed(() => route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
 const isRemoteConfigActive = computed(() =>
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
@@ -125,6 +125,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/inventory-server') || route.path.startsWith('/inventory')) return 'Inventory Server';
   if (route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host')) return 'Remote Server';
   if (route.path.startsWith('/network-topology')) return 'Network Topology';
+  if (route.path.startsWith('/ipam')) return 'IP Address Management';
   if (route.path.startsWith('/infrastructure')) return 'Management Containers';
   if (route.path.startsWith('/dataprepper-config')) return 'Data Prepper Pipelines';
   if (route.path.startsWith('/prometheus-config')) return 'Prometheus Config';
@@ -158,7 +159,7 @@ watch(
     } else if (newPath.startsWith('/infrastructure')) {
       isInfrastructureOpen.value = true;
     }
-    if (newPath.startsWith('/network-topology')) {
+    if (newPath.startsWith('/network-topology') || newPath.startsWith('/ipam')) {
       isNetworkingOpen.value = true;
     }
     if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config')) {
@@ -403,7 +404,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 4. Networking (Accordion) -->
-          <div v-if="authStore.can('network_topology', 'read')">
+          <div v-if="authStore.can('network_topology', 'read') || authStore.can('ipam', 'read')">
             <button
               @click="isNetworkingOpen = !isNetworkingOpen"
               :class="[
@@ -436,6 +437,20 @@ onUnmounted(() => {
               >
                 <span>Network Topology</span>
               </a>
+
+              <router-link
+                v-if="authStore.can('ipam', 'read')"
+                to="/ipam"
+                @click="isMobileSidebarOpen = false"
+                :class="[
+                  route.path.startsWith('/ipam')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                ]"
+              >
+                <span>IP Address Management</span>
+              </router-link>
             </div>
           </div>
 

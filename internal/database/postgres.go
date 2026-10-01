@@ -207,8 +207,8 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
 		INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
 			('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "settings": "manage"}'::jsonb),
-			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "none", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "none", "infrastructure": "read", "reports": "read", "status_pages": "read", "settings": "none"}'::jsonb)
+			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "settings": "manage", "ipam": "manage"}'::jsonb),
+			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "none", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "none", "infrastructure": "read", "reports": "read", "status_pages": "read", "settings": "none", "ipam": "read"}'::jsonb)
 		ON CONFLICT (name) DO UPDATE SET 
 			permissions = EXCLUDED.permissions,
 			description = EXCLUDED.description;
@@ -732,6 +732,75 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 		UPDATE system_roles 
 		SET permissions = permissions || '{"monitoring_instances": "read"}'::jsonb 
+		WHERE name = 'VIEWER';
+
+		-- =========================================================================
+		-- IP Address Management (IPAM) Tables & Scan Engine
+		-- =========================================================================
+		CREATE TABLE IF NOT EXISTS ipam_subnets (
+			id VARCHAR(50) PRIMARY KEY,
+			name VARCHAR(150) NOT NULL,
+			cidr VARCHAR(50) NOT NULL UNIQUE,
+			gateway VARCHAR(45) DEFAULT '',
+			vlan_id INTEGER DEFAULT 0,
+			vrf VARCHAR(50) DEFAULT 'Default',
+			description TEXT DEFAULT '',
+			scan_interval VARCHAR(20) DEFAULT '6h',
+			last_scanned_at TIMESTAMP WITH TIME ZONE,
+			next_scan_at TIMESTAMP WITH TIME ZONE,
+			total_ips INTEGER DEFAULT 0,
+			total_used_ips INTEGER DEFAULT 0,
+			total_unused_ips INTEGER DEFAULT 0,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_ipam_subnets_cidr ON ipam_subnets(cidr);
+		CREATE INDEX IF NOT EXISTS idx_ipam_subnets_user_id ON ipam_subnets(user_id);
+
+		CREATE TABLE IF NOT EXISTS ipam_addresses (
+			id VARCHAR(50) PRIMARY KEY,
+			subnet_id VARCHAR(50) NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+			ip_address VARCHAR(45) NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'active',
+			hostname VARCHAR(150) DEFAULT '',
+			mac_address VARCHAR(50) DEFAULT '',
+			device_type VARCHAR(50) DEFAULT 'Server',
+			is_online BOOLEAN DEFAULT false,
+			response_time_ms INTEGER DEFAULT 0,
+			last_seen_at TIMESTAMP WITH TIME ZONE,
+			notes TEXT DEFAULT '',
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(subnet_id, ip_address)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_subnet_id ON ipam_addresses(subnet_id);
+		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_ip ON ipam_addresses(ip_address);
+		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_status ON ipam_addresses(status);
+
+		CREATE TABLE IF NOT EXISTS ipam_scan_logs (
+			id VARCHAR(50) PRIMARY KEY,
+			subnet_id VARCHAR(50) NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+			started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+			finished_at TIMESTAMP WITH TIME ZONE NOT NULL,
+			duration_ms INTEGER NOT NULL,
+			scanned_ips INTEGER NOT NULL,
+			found_active INTEGER NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'success',
+			error_message TEXT DEFAULT ''
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_ipam_scan_logs_subnet ON ipam_scan_logs(subnet_id);
+		CREATE INDEX IF NOT EXISTS idx_ipam_scan_logs_started ON ipam_scan_logs(started_at DESC);
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"ipam": "manage"}'::jsonb 
+		WHERE name IN ('ADMIN', 'OPERATOR');
+
+		UPDATE system_roles 
+		SET permissions = permissions || '{"ipam": "read"}'::jsonb 
 		WHERE name = 'VIEWER';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {

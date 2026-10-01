@@ -76,6 +76,7 @@ func main() {
 	reportRepo := repository.NewReportRepository()
 	statusPageRepo := repository.NewStatusPageRepository()
 	monitoringInstanceRepo := repository.NewMonitoringInstanceRepository()
+	ipamRepo := repository.NewIpamRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(5)
@@ -105,6 +106,8 @@ func main() {
 	statusPageService := services.NewStatusPageService(statusPageRepo, topologyRepo, remoteRepo, configRepo, openSearchService, promService, sshService)
 	monitoringInstanceService := services.NewMonitoringInstanceService(monitoringInstanceRepo, remoteRepo, promService, workerPool)
 	monitoringInstanceService.StartBackgroundEngine()
+	ipamService := services.NewIpamService(ipamRepo, workerPool)
+	ipamService.StartBackgroundEngine()
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -127,6 +130,7 @@ func main() {
 	reportHandler := handlers.NewReportHandler(reportService)
 	statusPageHandler := handlers.NewStatusPageHandler(statusPageService, authService)
 	monitoringInstanceHandler := handlers.NewMonitoringInstanceHandler(monitoringInstanceService)
+	ipamHandler := handlers.NewIpamHandler(ipamService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -260,6 +264,21 @@ func main() {
 		api.POST("/topology/sync/remote-server", middleware.RequirePermission("network_topology", "manage"), topologyHandler.SyncRemoteServers)
 		api.GET("/topology/sync/remote-server", middleware.RequirePermission("network_topology", "manage"), topologyHandler.SyncRemoteServers)
 		api.GET("/topology/ping", middleware.RequirePermission("network_topology", "read"), topologyHandler.PingDevice)
+
+		// IP Address Management (Feature: ipam)
+		api.GET("/ipam/stats", middleware.RequirePermission("ipam", "read"), ipamHandler.GetSummaryStats)
+		api.GET("/ipam/subnets", middleware.RequirePermission("ipam", "read"), ipamHandler.ListSubnets)
+		api.POST("/ipam/subnets", middleware.RequirePermission("ipam", "manage"), ipamHandler.CreateSubnet)
+		api.GET("/ipam/subnets/:id", middleware.RequirePermission("ipam", "read"), ipamHandler.GetSubnet)
+		api.PUT("/ipam/subnets/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.UpdateSubnet)
+		api.DELETE("/ipam/subnets/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.DeleteSubnet)
+		api.POST("/ipam/subnets/:id/scan", middleware.RequirePermission("ipam", "manage"), ipamHandler.TriggerScan)
+		api.GET("/ipam/subnets/:id/next-available", middleware.RequirePermission("ipam", "read"), ipamHandler.GetNextAvailableIP)
+		api.GET("/ipam/subnets/:id/logs", middleware.RequirePermission("ipam", "read"), ipamHandler.ListScanLogs)
+		api.POST("/ipam/addresses", middleware.RequirePermission("ipam", "manage"), ipamHandler.SaveAddress)
+		api.PUT("/ipam/addresses/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.UpdateAddress)
+		api.DELETE("/ipam/addresses/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.DeleteAddress)
+		api.POST("/ipam/addresses/ping", middleware.RequirePermission("ipam", "read"), ipamHandler.PingIP)
 
 		// Backups (Feature: backup)
 		api.GET("/backup/databases", middleware.RequirePermission("backup", "read"), backupHandler.ListDBConfigs)

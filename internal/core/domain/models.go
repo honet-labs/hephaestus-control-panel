@@ -1276,5 +1276,102 @@ type ShareMonitoringInstanceRequest struct {
 	Permission string `json:"permission" binding:"required"` // "read", "manage"
 }
 
+// =========================================================================
+// IPAM (IP Address Management) Domain Models
+// =========================================================================
+
+type IpamSubnet struct {
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	CIDR           string     `json:"cidr"`
+	Gateway        string     `json:"gateway"`
+	VlanID         int        `json:"vlanId"`
+	VRF            string     `json:"vrf"`
+	Description    string     `json:"description"`
+	ScanInterval   string     `json:"scanInterval"` // "manual", "6h", "12h", "1d", "3d"
+	LastScannedAt  *time.Time `json:"lastScannedAt"`
+	NextScanAt     *time.Time `json:"nextScanAt"`
+	TotalIPs       int        `json:"totalIps"`
+	TotalUsedIPs   int        `json:"totalUsedIps"`
+	TotalUnusedIPs int        `json:"totalUnusedIps"`
+	UserID         *int       `json:"userId"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+type IpamAddress struct {
+	ID             string     `json:"id"`
+	SubnetID       string     `json:"subnetId"`
+	IPAddress      string     `json:"ipAddress"`
+	Status         string     `json:"status"` // "active", "reserved", "discovered", "offline"
+	Hostname       string     `json:"hostname"`
+	MACAddress     string     `json:"macAddress"`
+	DeviceType     string     `json:"deviceType"` // "Server", "VM", "Router", "Switch", "Gateway", "Printer", "Unknown"
+	IsOnline       bool       `json:"isOnline"`
+	ResponseTimeMS int        `json:"responseTimeMs"`
+	LastSeenAt     *time.Time `json:"lastSeenAt"`
+	Notes          string     `json:"notes"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+}
+
+type IpamScanLog struct {
+	ID           string    `json:"id"`
+	SubnetID     string    `json:"subnetId"`
+	StartedAt    time.Time `json:"startedAt"`
+	FinishedAt   time.Time `json:"finishedAt"`
+	DurationMS   int       `json:"durationMs"`
+	ScannedIPs   int       `json:"scannedIps"`
+	FoundActive  int       `json:"foundActive"`
+	Status       string    `json:"status"` // "success", "failed"
+	ErrorMessage string    `json:"errorMessage"`
+}
+
+type CreateIpamSubnetRequest struct {
+	Name         string `json:"name" binding:"required"`
+	CIDR         string `json:"cidr" binding:"required"`
+	Gateway      string `json:"gateway"`
+	VlanID       int    `json:"vlanId"`
+	VRF          string `json:"vrf"`
+	Description  string `json:"description"`
+	ScanInterval string `json:"scanInterval"` // "manual", "6h", "12h", "1d", "3d"
+}
+
+type UpdateIpamSubnetRequest struct {
+	Name         string `json:"name" binding:"required"`
+	Gateway      string `json:"gateway"`
+	VlanID       int    `json:"vlanId"`
+	VRF          string `json:"vrf"`
+	Description  string `json:"description"`
+	ScanInterval string `json:"scanInterval"` // "manual", "6h", "12h", "1d", "3d"
+}
+
+type SaveIpamAddressRequest struct {
+	SubnetID   string `json:"subnetId" binding:"required"`
+	IPAddress  string `json:"ipAddress" binding:"required"`
+	Status     string `json:"status"` // "active", "reserved", "discovered"
+	Hostname   string `json:"hostname"`
+	MACAddress string `json:"macAddress"`
+	DeviceType string `json:"deviceType"`
+	Notes      string `json:"notes"`
+}
+
+type UpdateIpamAddressRequest struct {
+	Status     string `json:"status"` // "active", "reserved", "discovered"
+	Hostname   string `json:"hostname"`
+	MACAddress string `json:"macAddress"`
+	DeviceType string `json:"deviceType"`
+	Notes      string `json:"notes"`
+}
+
+type IpamSummaryStats struct {
+	TotalSubnets    int `json:"totalSubnets"`
+	TotalMonitored  int `json:"totalMonitored"`
+	TotalUsedIPs    int `json:"totalUsedIps"`
+	TotalUnusedIPs  int `json:"totalUnusedIps"`
+	TotalDiscovered int `json:"totalDiscovered"`
+	TotalOnline     int `json:"totalOnline"`
+}
+
 
 
