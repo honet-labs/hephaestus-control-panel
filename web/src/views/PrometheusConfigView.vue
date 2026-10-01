@@ -506,9 +506,10 @@ interface ValidationResultItem {
   line?: number;
 }
 
-const lastValidatedTime = ref('Sep 30, 2026 10:19 PM');
+const lastValidatedTime = ref('');
 const serverValidationIssues = ref<ValidationResultItem[]>([]);
 const isValidating = ref(false);
+const showValidationResults = ref(false);
 
 const activeYamlContent = computed(() => {
   return viewMode.value === 'raw' ? rawEditorYaml.value : currentGeneratedYaml.value;
@@ -747,6 +748,7 @@ const runValidation = async () => {
     }
   } finally {
     isValidating.value = false;
+    showValidationResults.value = true;
   }
 
   if (errorCount.value === 0) {
@@ -1043,6 +1045,8 @@ const fetchConfigContent = async (instanceId: string) => {
 };
 
 const handleInstanceChange = () => {
+  showValidationResults.value = false;
+  serverValidationIssues.value = [];
   const current = instances.value.find((i) => i.id === selectedInstanceId.value);
   if (current) {
     if (current.path) configFilePath.value = current.path;
@@ -1250,6 +1254,115 @@ onMounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- Pre-Flight Validation Results Panel (Appears at top after validation completes) -->
+    <transition
+      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0 -translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition duration-150 ease-in"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 -translate-y-2"
+    >
+      <div
+        v-if="showValidationResults"
+        :class="[
+          'p-4 rounded-xl border shadow-sm space-y-3 transition-all',
+          errorCount > 0
+            ? 'bg-rose-50/60 dark:bg-[#1a1215] border-rose-200 dark:border-rose-900/50'
+            : warningCount > 0
+            ? 'bg-amber-50/60 dark:bg-[#1c1811] border-amber-200 dark:border-amber-900/50'
+            : 'bg-emerald-50/60 dark:bg-[#0e1c16] border-emerald-200 dark:border-emerald-900/50'
+        ]"
+      >
+        <div class="flex items-center justify-between border-b border-slate-200/80 dark:border-[#1b2234] pb-2.5">
+          <div class="flex items-center gap-2">
+            <AlertCircle v-if="errorCount > 0" class="w-4 h-4 text-rose-500 shrink-0" />
+            <AlertTriangle v-else-if="warningCount > 0" class="w-4 h-4 text-amber-500 shrink-0" />
+            <CheckCircle2 v-else class="w-4 h-4 text-emerald-500 shrink-0" />
+
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Validation Results
+            </h3>
+
+            <span
+              v-if="errorCount === 0"
+              class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded-full"
+            >
+              Passed
+            </span>
+            <span
+              v-else
+              class="text-[10px] font-semibold text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-500/20 px-2 py-0.5 rounded-full"
+            >
+              {{ errorCount }} Error(s) Found
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <span v-if="lastValidatedTime" class="text-[10px] text-slate-500 dark:text-slate-400">
+              Last validated: {{ lastValidatedTime }}
+            </span>
+            <button
+              @click="runValidation"
+              :disabled="isValidating"
+              class="px-2.5 py-1 bg-white hover:bg-slate-50 dark:bg-[#161d2d] dark:hover:bg-[#1e273d] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/60 rounded text-[10px] font-bold transition cursor-pointer disabled:opacity-50 flex items-center gap-1 shadow-xs"
+            >
+              <RotateCw v-if="isValidating" class="w-3 h-3 animate-spin" />
+              <span>{{ isValidating ? 'Validating...' : 'Validate Again' }}</span>
+            </button>
+            <button
+              @click="showValidationResults = false"
+              title="Close validation results"
+              class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded transition cursor-pointer"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Counter Indicators on Left + List of Items -->
+        <div class="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
+          <!-- Counter Pills -->
+          <div class="flex sm:flex-col flex-wrap gap-1.5 shrink-0 pt-0.5">
+            <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+              <span>{{ errorCount }} Error</span>
+            </div>
+            <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+              <span>{{ warningCount }} Warn</span>
+            </div>
+            <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+              <span>{{ infoCount }} Info</span>
+            </div>
+          </div>
+
+          <!-- Itemized Messages -->
+          <div class="flex-1 space-y-1.5 text-xs max-h-48 overflow-y-auto pr-1">
+            <div
+              v-for="(item, idx) in validationItems"
+              :key="idx"
+              class="flex items-start gap-2 py-0.5"
+            >
+              <CheckCircle2 v-if="item.type === 'info'" class="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+              <AlertCircle v-else-if="item.type === 'error'" class="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+              <AlertTriangle v-else class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+
+              <span :class="[
+                'text-[11px] leading-tight font-mono',
+                item.type === 'error' ? 'text-rose-700 dark:text-rose-400 font-semibold' :
+                item.type === 'warning' ? 'text-amber-700 dark:text-amber-400' :
+                'text-slate-600 dark:text-slate-300'
+              ]">
+                {{ item.message }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- MAIN DUAL-PANE WORKSPACE (60% Form / 40% YAML Preview) -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2019,69 +2132,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Pre-Flight Validation Results Panel (Mockup bottom card) -->
-        <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-2.5">
-            <div class="flex items-center gap-2">
-              <AlertTriangle class="w-4 h-4 text-amber-500" />
-              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Validation Results
-              </h3>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-[10px] text-slate-400">Last validated: {{ lastValidatedTime }}</span>
-              <button
-                @click="runValidation"
-                :disabled="isValidating"
-                class="px-2.5 py-1 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded text-[10px] font-bold transition hover:bg-blue-100 cursor-pointer disabled:opacity-50 flex items-center gap-1"
-              >
-                <RotateCw v-if="isValidating" class="w-3 h-3 animate-spin" />
-                <span>{{ isValidating ? 'Validating...' : 'Validate Again' }}</span>
-              </button>
-            </div>
-          </div>
 
-          <!-- Counter Indicators on Left + List of Items -->
-          <div class="flex items-start gap-4">
-            <!-- Counter Pills -->
-            <div class="flex flex-col gap-1.5 shrink-0 pt-0.5">
-              <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30">
-                <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                <span>{{ errorCount }} Error</span>
-              </div>
-              <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                <span>{{ warningCount }} Warn</span>
-              </div>
-              <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
-                <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                <span>{{ infoCount }} Info</span>
-              </div>
-            </div>
-
-            <!-- Itemized Messages -->
-            <div class="flex-1 space-y-1.5 text-xs">
-              <div
-                v-for="(item, idx) in validationItems"
-                :key="idx"
-                class="flex items-start gap-2"
-              >
-                <CheckCircle2 v-if="item.type === 'info'" class="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                <AlertCircle v-else-if="item.type === 'error'" class="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                <AlertTriangle v-else class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-
-                <span :class="[
-                  'text-[11px] leading-tight',
-                  item.type === 'error' ? 'text-rose-700 dark:text-rose-400 font-semibold' :
-                  item.type === 'warning' ? 'text-amber-700 dark:text-amber-400' :
-                  'text-slate-600 dark:text-slate-300'
-                ]">
-                  {{ item.message }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
