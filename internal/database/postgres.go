@@ -740,8 +740,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE TABLE IF NOT EXISTS ipam_subnets (
 			id VARCHAR(50) PRIMARY KEY,
 			name VARCHAR(150) NOT NULL,
-			cidr VARCHAR(50) NOT NULL UNIQUE,
-			gateway VARCHAR(45) DEFAULT '',
+			cidr VARCHAR(100) NOT NULL UNIQUE,
+			ip_version VARCHAR(10) DEFAULT 'ipv4',
+			gateway VARCHAR(100) DEFAULT '',
 			vlan_id INTEGER DEFAULT 0,
 			vrf VARCHAR(50) DEFAULT 'Default',
 			description TEXT DEFAULT '',
@@ -762,10 +763,13 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE TABLE IF NOT EXISTS ipam_addresses (
 			id VARCHAR(50) PRIMARY KEY,
 			subnet_id VARCHAR(50) NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
-			ip_address VARCHAR(45) NOT NULL,
+			ip_address VARCHAR(100) NOT NULL,
+			ip_version VARCHAR(10) DEFAULT 'ipv4',
 			status VARCHAR(20) NOT NULL DEFAULT 'active',
 			hostname VARCHAR(150) DEFAULT '',
 			mac_address VARCHAR(50) DEFAULT '',
+			mac_vendor VARCHAR(100) DEFAULT '',
+			os_family VARCHAR(50) DEFAULT 'Unknown',
 			device_type VARCHAR(50) DEFAULT 'Server',
 			is_online BOOLEAN DEFAULT false,
 			response_time_ms INTEGER DEFAULT 0,
@@ -779,6 +783,16 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_subnet_id ON ipam_addresses(subnet_id);
 		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_ip ON ipam_addresses(ip_address);
 		CREATE INDEX IF NOT EXISTS idx_ipam_addresses_status ON ipam_addresses(status);
+
+		-- Incremental upgrades for IPAM
+		ALTER TABLE ipam_subnets ADD COLUMN IF NOT EXISTS ip_version VARCHAR(10) DEFAULT 'ipv4';
+		ALTER TABLE ipam_subnets ALTER COLUMN cidr TYPE VARCHAR(100);
+		ALTER TABLE ipam_subnets ALTER COLUMN gateway TYPE VARCHAR(100);
+
+		ALTER TABLE ipam_addresses ADD COLUMN IF NOT EXISTS ip_version VARCHAR(10) DEFAULT 'ipv4';
+		ALTER TABLE ipam_addresses ADD COLUMN IF NOT EXISTS os_family VARCHAR(50) DEFAULT 'Unknown';
+		ALTER TABLE ipam_addresses ADD COLUMN IF NOT EXISTS mac_vendor VARCHAR(100) DEFAULT '';
+		ALTER TABLE ipam_addresses ALTER COLUMN ip_address TYPE VARCHAR(100);
 
 		CREATE TABLE IF NOT EXISTS ipam_scan_logs (
 			id VARCHAR(50) PRIMARY KEY,

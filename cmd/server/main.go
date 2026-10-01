@@ -269,6 +269,7 @@ func main() {
 		api.GET("/ipam/stats", middleware.RequirePermission("ipam", "read"), ipamHandler.GetSummaryStats)
 		api.GET("/ipam/subnets", middleware.RequirePermission("ipam", "read"), ipamHandler.ListSubnets)
 		api.POST("/ipam/subnets", middleware.RequirePermission("ipam", "manage"), ipamHandler.CreateSubnet)
+		api.POST("/ipam/subnets/scan-all", middleware.RequirePermission("ipam", "manage"), ipamHandler.ScanAllSubnets)
 		api.GET("/ipam/subnets/:id", middleware.RequirePermission("ipam", "read"), ipamHandler.GetSubnet)
 		api.PUT("/ipam/subnets/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.UpdateSubnet)
 		api.DELETE("/ipam/subnets/:id", middleware.RequirePermission("ipam", "manage"), ipamHandler.DeleteSubnet)

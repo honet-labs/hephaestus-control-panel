@@ -156,6 +156,25 @@ func (h *IpamHandler) TriggerScan(c *gin.Context) {
 	})
 }
 
+// ScanAllSubnets handles POST /api/v1/ipam/subnets/scan-all
+func (h *IpamHandler) ScanAllSubnets(c *gin.Context) {
+	res, err := h.service.ScanAllSubnets(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Scan all subnets failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "All subnets scanned successfully",
+		"data":    res,
+	})
+}
+
 // GetNextAvailableIP handles GET /api/v1/ipam/subnets/:id/next-available
 func (h *IpamHandler) GetNextAvailableIP(c *gin.Context) {
 	id := c.Param("id")

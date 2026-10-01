@@ -1277,6 +1277,7 @@ type ShareMonitoringInstanceRequest struct {
 }
 
 // =========================================================================
+// =========================================================================
 // IPAM (IP Address Management) Domain Models
 // =========================================================================
 
@@ -1284,6 +1285,7 @@ type IpamSubnet struct {
 	ID             string     `json:"id"`
 	Name           string     `json:"name"`
 	CIDR           string     `json:"cidr"`
+	IPVersion      string     `json:"ipVersion"` // "ipv4", "ipv6"
 	Gateway        string     `json:"gateway"`
 	VlanID         int        `json:"vlanId"`
 	VRF            string     `json:"vrf"`
@@ -1303,10 +1305,13 @@ type IpamAddress struct {
 	ID             string     `json:"id"`
 	SubnetID       string     `json:"subnetId"`
 	IPAddress      string     `json:"ipAddress"`
-	Status         string     `json:"status"` // "active", "reserved", "discovered", "offline"
+	IPVersion      string     `json:"ipVersion"` // "ipv4", "ipv6"
+	Status         string     `json:"status"`    // "active", "reserved", "discovered", "offline"
 	Hostname       string     `json:"hostname"`
 	MACAddress     string     `json:"macAddress"`
-	DeviceType     string     `json:"deviceType"` // "Server", "VM", "Router", "Switch", "Gateway", "Printer", "Unknown"
+	MACVendor      string     `json:"macVendor"`
+	OSFamily       string     `json:"osFamily"`   // "Windows", "Linux", "Android", "Apple iOS/macOS", "Network Device", "Unknown"
+	DeviceType     string     `json:"deviceType"` // "Server", "Workstation", "Mobile", "Router", "Switch", "Gateway", "Printer", "VM", "IoT Device", "Unknown"
 	IsOnline       bool       `json:"isOnline"`
 	ResponseTimeMS int        `json:"responseTimeMs"`
 	LastSeenAt     *time.Time `json:"lastSeenAt"`
@@ -1330,6 +1335,7 @@ type IpamScanLog struct {
 type CreateIpamSubnetRequest struct {
 	Name         string `json:"name" binding:"required"`
 	CIDR         string `json:"cidr" binding:"required"`
+	IPVersion    string `json:"ipVersion"` // "ipv4", "ipv6"
 	Gateway      string `json:"gateway"`
 	VlanID       int    `json:"vlanId"`
 	VRF          string `json:"vrf"`
@@ -1349,9 +1355,12 @@ type UpdateIpamSubnetRequest struct {
 type SaveIpamAddressRequest struct {
 	SubnetID   string `json:"subnetId" binding:"required"`
 	IPAddress  string `json:"ipAddress" binding:"required"`
+	IPVersion  string `json:"ipVersion"`
 	Status     string `json:"status"` // "active", "reserved", "discovered"
 	Hostname   string `json:"hostname"`
 	MACAddress string `json:"macAddress"`
+	MACVendor  string `json:"macVendor"`
+	OSFamily   string `json:"osFamily"`
 	DeviceType string `json:"deviceType"`
 	Notes      string `json:"notes"`
 }
@@ -1360,6 +1369,8 @@ type UpdateIpamAddressRequest struct {
 	Status     string `json:"status"` // "active", "reserved", "discovered"
 	Hostname   string `json:"hostname"`
 	MACAddress string `json:"macAddress"`
+	MACVendor  string `json:"macVendor"`
+	OSFamily   string `json:"osFamily"`
 	DeviceType string `json:"deviceType"`
 	Notes      string `json:"notes"`
 }
@@ -1368,9 +1379,17 @@ type IpamSummaryStats struct {
 	TotalSubnets    int `json:"totalSubnets"`
 	TotalMonitored  int `json:"totalMonitored"`
 	TotalUsedIPs    int `json:"totalUsedIps"`
-	TotalUnusedIPs  int `json:"totalUnusedIps"`
+	TotalUnusedIPs  int `json:"totalUnusedIPs"`
 	TotalDiscovered int `json:"totalDiscovered"`
 	TotalOnline     int `json:"totalOnline"`
+}
+
+type IpamScanAllResponse struct {
+	TotalSubnets int           `json:"totalSubnets"`
+	ScannedCount int           `json:"scannedCount"`
+	TotalActive  int           `json:"totalActive"`
+	Results      []IpamScanLog `json:"results"`
+	Errors       []string      `json:"errors"`
 }
 
 

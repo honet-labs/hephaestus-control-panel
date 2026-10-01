@@ -22,7 +22,7 @@ func (r *IpamRepository) ListSubnets(ctx context.Context) ([]domain.IpamSubnet, 
 	}
 
 	query := `
-		SELECT id, name, cidr, gateway, vlan_id, vrf, description, scan_interval,
+		SELECT id, name, cidr, COALESCE(ip_version, 'ipv4'), gateway, vlan_id, vrf, description, scan_interval,
 		       last_scanned_at, next_scan_at, total_ips, total_used_ips, total_unused_ips,
 		       user_id, created_at, updated_at
 		FROM ipam_subnets
@@ -38,7 +38,7 @@ func (r *IpamRepository) ListSubnets(ctx context.Context) ([]domain.IpamSubnet, 
 	for rows.Next() {
 		var s domain.IpamSubnet
 		err := rows.Scan(
-			&s.ID, &s.Name, &s.CIDR, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
+			&s.ID, &s.Name, &s.CIDR, &s.IPVersion, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
 			&s.LastScannedAt, &s.NextScanAt, &s.TotalIPs, &s.TotalUsedIPs, &s.TotalUnusedIPs,
 			&s.UserID, &s.CreatedAt, &s.UpdatedAt,
 		)
@@ -59,7 +59,7 @@ func (r *IpamRepository) GetSubnetByID(ctx context.Context, id string) (*domain.
 	}
 
 	query := `
-		SELECT id, name, cidr, gateway, vlan_id, vrf, description, scan_interval,
+		SELECT id, name, cidr, COALESCE(ip_version, 'ipv4'), gateway, vlan_id, vrf, description, scan_interval,
 		       last_scanned_at, next_scan_at, total_ips, total_used_ips, total_unused_ips,
 		       user_id, created_at, updated_at
 		FROM ipam_subnets
@@ -67,7 +67,7 @@ func (r *IpamRepository) GetSubnetByID(ctx context.Context, id string) (*domain.
 	`
 	var s domain.IpamSubnet
 	err = pool.QueryRow(ctx, query, id).Scan(
-		&s.ID, &s.Name, &s.CIDR, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
+		&s.ID, &s.Name, &s.CIDR, &s.IPVersion, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
 		&s.LastScannedAt, &s.NextScanAt, &s.TotalIPs, &s.TotalUsedIPs, &s.TotalUnusedIPs,
 		&s.UserID, &s.CreatedAt, &s.UpdatedAt,
 	)
@@ -86,7 +86,7 @@ func (r *IpamRepository) GetSubnetByCIDR(ctx context.Context, cidr string) (*dom
 	}
 
 	query := `
-		SELECT id, name, cidr, gateway, vlan_id, vrf, description, scan_interval,
+		SELECT id, name, cidr, COALESCE(ip_version, 'ipv4'), gateway, vlan_id, vrf, description, scan_interval,
 		       last_scanned_at, next_scan_at, total_ips, total_used_ips, total_unused_ips,
 		       user_id, created_at, updated_at
 		FROM ipam_subnets
@@ -94,7 +94,7 @@ func (r *IpamRepository) GetSubnetByCIDR(ctx context.Context, cidr string) (*dom
 	`
 	var s domain.IpamSubnet
 	err = pool.QueryRow(ctx, query, cidr).Scan(
-		&s.ID, &s.Name, &s.CIDR, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
+		&s.ID, &s.Name, &s.CIDR, &s.IPVersion, &s.Gateway, &s.VlanID, &s.VRF, &s.Description, &s.ScanInterval,
 		&s.LastScannedAt, &s.NextScanAt, &s.TotalIPs, &s.TotalUsedIPs, &s.TotalUnusedIPs,
 		&s.UserID, &s.CreatedAt, &s.UpdatedAt,
 	)
@@ -114,15 +114,15 @@ func (r *IpamRepository) CreateSubnet(ctx context.Context, s *domain.IpamSubnet)
 
 	query := `
 		INSERT INTO ipam_subnets (
-			id, name, cidr, gateway, vlan_id, vrf, description, scan_interval,
+			id, name, cidr, ip_version, gateway, vlan_id, vrf, description, scan_interval,
 			last_scanned_at, next_scan_at, total_ips, total_used_ips, total_unused_ips,
 			user_id, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()
 		)
 	`
 	_, err = pool.Exec(ctx, query,
-		s.ID, s.Name, s.CIDR, s.Gateway, s.VlanID, s.VRF, s.Description, s.ScanInterval,
+		s.ID, s.Name, s.CIDR, s.IPVersion, s.Gateway, s.VlanID, s.VRF, s.Description, s.ScanInterval,
 		s.LastScannedAt, s.NextScanAt, s.TotalIPs, s.TotalUsedIPs, s.TotalUnusedIPs,
 		s.UserID,
 	)
@@ -223,8 +223,10 @@ func (r *IpamRepository) ListAddressesBySubnet(ctx context.Context, subnetID str
 	}
 
 	query := `
-		SELECT id, subnet_id, ip_address, status, hostname, mac_address, device_type,
-		       is_online, response_time_ms, last_seen_at, notes, created_at, updated_at
+		SELECT id, subnet_id, ip_address, COALESCE(ip_version, 'ipv4'), status, hostname,
+		       COALESCE(mac_address, ''), COALESCE(mac_vendor, ''), COALESCE(os_family, 'Unknown'),
+		       COALESCE(device_type, 'Server'), is_online, response_time_ms, last_seen_at, notes,
+		       created_at, updated_at
 		FROM ipam_addresses
 		WHERE subnet_id = $1
 		ORDER BY inet(ip_address) ASC
@@ -233,8 +235,10 @@ func (r *IpamRepository) ListAddressesBySubnet(ctx context.Context, subnetID str
 	if err != nil {
 		// Fallback to text sort if inet conversion fails
 		fallbackQuery := `
-			SELECT id, subnet_id, ip_address, status, hostname, mac_address, device_type,
-			       is_online, response_time_ms, last_seen_at, notes, created_at, updated_at
+			SELECT id, subnet_id, ip_address, COALESCE(ip_version, 'ipv4'), status, hostname,
+			       COALESCE(mac_address, ''), COALESCE(mac_vendor, ''), COALESCE(os_family, 'Unknown'),
+			       COALESCE(device_type, 'Server'), is_online, response_time_ms, last_seen_at, notes,
+			       created_at, updated_at
 			FROM ipam_addresses
 			WHERE subnet_id = $1
 			ORDER BY ip_address ASC
@@ -250,7 +254,8 @@ func (r *IpamRepository) ListAddressesBySubnet(ctx context.Context, subnetID str
 	for rows.Next() {
 		var a domain.IpamAddress
 		err := rows.Scan(
-			&a.ID, &a.SubnetID, &a.IPAddress, &a.Status, &a.Hostname, &a.MACAddress, &a.DeviceType,
+			&a.ID, &a.SubnetID, &a.IPAddress, &a.IPVersion, &a.Status, &a.Hostname,
+			&a.MACAddress, &a.MACVendor, &a.OSFamily, &a.DeviceType,
 			&a.IsOnline, &a.ResponseTimeMS, &a.LastSeenAt, &a.Notes, &a.CreatedAt, &a.UpdatedAt,
 		)
 		if err != nil {
@@ -270,14 +275,17 @@ func (r *IpamRepository) GetAddress(ctx context.Context, id string) (*domain.Ipa
 	}
 
 	query := `
-		SELECT id, subnet_id, ip_address, status, hostname, mac_address, device_type,
-		       is_online, response_time_ms, last_seen_at, notes, created_at, updated_at
+		SELECT id, subnet_id, ip_address, COALESCE(ip_version, 'ipv4'), status, hostname,
+		       COALESCE(mac_address, ''), COALESCE(mac_vendor, ''), COALESCE(os_family, 'Unknown'),
+		       COALESCE(device_type, 'Server'), is_online, response_time_ms, last_seen_at, notes,
+		       created_at, updated_at
 		FROM ipam_addresses
 		WHERE id = $1
 	`
 	var a domain.IpamAddress
 	err = pool.QueryRow(ctx, query, id).Scan(
-		&a.ID, &a.SubnetID, &a.IPAddress, &a.Status, &a.Hostname, &a.MACAddress, &a.DeviceType,
+		&a.ID, &a.SubnetID, &a.IPAddress, &a.IPVersion, &a.Status, &a.Hostname,
+		&a.MACAddress, &a.MACVendor, &a.OSFamily, &a.DeviceType,
 		&a.IsOnline, &a.ResponseTimeMS, &a.LastSeenAt, &a.Notes, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
@@ -295,14 +303,17 @@ func (r *IpamRepository) GetAddressByIP(ctx context.Context, subnetID, ip string
 	}
 
 	query := `
-		SELECT id, subnet_id, ip_address, status, hostname, mac_address, device_type,
-		       is_online, response_time_ms, last_seen_at, notes, created_at, updated_at
+		SELECT id, subnet_id, ip_address, COALESCE(ip_version, 'ipv4'), status, hostname,
+		       COALESCE(mac_address, ''), COALESCE(mac_vendor, ''), COALESCE(os_family, 'Unknown'),
+		       COALESCE(device_type, 'Server'), is_online, response_time_ms, last_seen_at, notes,
+		       created_at, updated_at
 		FROM ipam_addresses
 		WHERE subnet_id = $1 AND ip_address = $2
 	`
 	var a domain.IpamAddress
 	err = pool.QueryRow(ctx, query, subnetID, ip).Scan(
-		&a.ID, &a.SubnetID, &a.IPAddress, &a.Status, &a.Hostname, &a.MACAddress, &a.DeviceType,
+		&a.ID, &a.SubnetID, &a.IPAddress, &a.IPVersion, &a.Status, &a.Hostname,
+		&a.MACAddress, &a.MACVendor, &a.OSFamily, &a.DeviceType,
 		&a.IsOnline, &a.ResponseTimeMS, &a.LastSeenAt, &a.Notes, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
@@ -319,14 +330,23 @@ func (r *IpamRepository) UpsertAddress(ctx context.Context, a *domain.IpamAddres
 		return err
 	}
 
+	if a.IPVersion == "" {
+		a.IPVersion = "ipv4"
+	}
+	if a.OSFamily == "" {
+		a.OSFamily = "Unknown"
+	}
+
 	query := `
 		INSERT INTO ipam_addresses (
-			id, subnet_id, ip_address, status, hostname, mac_address, device_type,
-			is_online, response_time_ms, last_seen_at, notes, created_at, updated_at
+			id, subnet_id, ip_address, ip_version, status, hostname, mac_address, mac_vendor,
+			os_family, device_type, is_online, response_time_ms, last_seen_at, notes,
+			created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW()
 		)
 		ON CONFLICT (subnet_id, ip_address) DO UPDATE SET
+			ip_version = CASE WHEN EXCLUDED.ip_version != '' THEN EXCLUDED.ip_version ELSE ipam_addresses.ip_version END,
 			status = CASE 
 				WHEN EXCLUDED.status = 'discovered' AND ipam_addresses.status IN ('active', 'reserved') 
 				THEN ipam_addresses.status 
@@ -339,6 +359,14 @@ func (r *IpamRepository) UpsertAddress(ctx context.Context, a *domain.IpamAddres
 			mac_address = CASE 
 				WHEN EXCLUDED.mac_address != '' THEN EXCLUDED.mac_address 
 				ELSE ipam_addresses.mac_address 
+			END,
+			mac_vendor = CASE 
+				WHEN EXCLUDED.mac_vendor != '' THEN EXCLUDED.mac_vendor 
+				ELSE ipam_addresses.mac_vendor 
+			END,
+			os_family = CASE 
+				WHEN EXCLUDED.os_family != '' AND EXCLUDED.os_family != 'Unknown' THEN EXCLUDED.os_family 
+				ELSE ipam_addresses.os_family 
 			END,
 			device_type = CASE 
 				WHEN EXCLUDED.device_type != '' AND EXCLUDED.device_type != 'Unknown' THEN EXCLUDED.device_type 
@@ -354,8 +382,8 @@ func (r *IpamRepository) UpsertAddress(ctx context.Context, a *domain.IpamAddres
 			updated_at = NOW()
 	`
 	_, err = pool.Exec(ctx, query,
-		a.ID, a.SubnetID, a.IPAddress, a.Status, a.Hostname, a.MACAddress, a.DeviceType,
-		a.IsOnline, a.ResponseTimeMS, a.LastSeenAt, a.Notes,
+		a.ID, a.SubnetID, a.IPAddress, a.IPVersion, a.Status, a.Hostname, a.MACAddress, a.MACVendor,
+		a.OSFamily, a.DeviceType, a.IsOnline, a.ResponseTimeMS, a.LastSeenAt, a.Notes,
 	)
 	return err
 }
@@ -369,11 +397,11 @@ func (r *IpamRepository) UpdateAddress(ctx context.Context, id string, req *doma
 
 	query := `
 		UPDATE ipam_addresses SET
-			status = $2, hostname = $3, mac_address = $4, device_type = $5,
-			notes = $6, updated_at = NOW()
+			status = $2, hostname = $3, mac_address = $4, mac_vendor = $5,
+			os_family = $6, device_type = $7, notes = $8, updated_at = NOW()
 		WHERE id = $1
 	`
-	_, err = pool.Exec(ctx, query, id, req.Status, req.Hostname, req.MACAddress, req.DeviceType, req.Notes)
+	_, err = pool.Exec(ctx, query, id, req.Status, req.Hostname, req.MACAddress, req.MACVendor, req.OSFamily, req.DeviceType, req.Notes)
 	return err
 }
 

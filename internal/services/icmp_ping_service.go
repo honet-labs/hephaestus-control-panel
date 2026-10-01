@@ -100,43 +100,81 @@ func isSafeHostOrIP(target string) bool {
 	return true
 }
 
-func pingHost(ctx context.Context, ip string) (bool, *float64) {
+func pingHostWithDetails(ctx context.Context, ip string) (bool, *float64, int) {
 	if !isSafeHostOrIP(ip) {
-		return false, nil
+		return false, nil, 0
 	}
 
+	isIPv6 := strings.Contains(ip, ":")
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "ping", "-n", "1", "-w", "2000", ip)
+		if isIPv6 {
+			cmd = exec.CommandContext(ctx, "ping", "-6", "-n", "1", "-w", "2000", ip)
+		} else {
+			cmd = exec.CommandContext(ctx, "ping", "-n", "1", "-w", "2000", ip)
+		}
 	} else {
-		cmd = exec.CommandContext(ctx, "ping", "-c", "1", "-W", "2", ip)
+		if isIPv6 {
+			cmd = exec.CommandContext(ctx, "ping", "-6", "-c", "1", "-W", "2", ip)
+		} else {
+			cmd = exec.CommandContext(ctx, "ping", "-c", "1", "-W", "2", ip)
+		}
 	}
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
 
-	if err := cmd.Run(); err != nil {
-		return false, nil
+	_ = cmd.Run()
+	output := out.String()
+
+	// If Linux ping -6 returned nothing or failed, try ping6
+	if isIPv6 && runtime.GOOS != "windows" && strings.TrimSpace(output) == "" {
+		cmd6 := exec.CommandContext(ctx, "ping6", "-c", "1", "-W", "2", ip)
+		var out6 bytes.Buffer
+		cmd6.Stdout = &out6
+		if err := cmd6.Run(); err == nil {
+			output = out6.String()
+		}
 	}
 
-	output := out.String()
+	reachable := false
+	var latency *float64
+	ttl := 0
+
 	// Parse latency (e.g. "time=12.4 ms" or "time<1ms" or "time=12ms")
 	re := regexp.MustCompile(`time[=<](\d+\.?\d*)\s*ms`)
 	match := re.FindStringSubmatch(output)
 	if len(match) > 1 {
 		if val, err := strconv.ParseFloat(match[1], 64); err == nil {
-			return true, &val
+			latency = &val
+			reachable = true
 		}
-		zero := float64(0)
-		return true, &zero
 	}
 
-	if stringsContainsIgnoreCase(output, "ttl=") {
-		zero := float64(0)
-		return true, &zero
+	// Parse TTL / Hop Limit
+	reTTL := regexp.MustCompile(`(?i)\b(?:ttl|hlim)=(\d+)`)
+	matchTTL := reTTL.FindStringSubmatch(output)
+	if len(matchTTL) > 1 {
+		if val, err := strconv.Atoi(matchTTL[1]); err == nil {
+			ttl = val
+			reachable = true
+		}
 	}
 
-	return false, nil
+	if stringsContainsIgnoreCase(output, "ttl=") || stringsContainsIgnoreCase(output, "hlim=") || stringsContainsIgnoreCase(output, "bytes from") {
+		reachable = true
+		if latency == nil {
+			zero := float64(0)
+			latency = &zero
+		}
+	}
+
+	return reachable, latency, ttl
+}
+
+func pingHost(ctx context.Context, ip string) (bool, *float64) {
+	reachable, latency, _ := pingHostWithDetails(ctx, ip)
+	return reachable, latency
 }
 
 func (s *IcmpPingService) PingHostOutput(ctx context.Context, ip string, count int) string {
