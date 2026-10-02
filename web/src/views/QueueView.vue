@@ -205,6 +205,18 @@ const services = ref<ServiceItem[]>([
     moduleKey: 'DataPrepper',
     elapsedSec: 16,
   },
+  {
+    id: 'srv-ipam',
+    name: 'IPAM Network Scanner (Subnet & IP Discovery)',
+    status: 'running',
+    type: 'IPAM Network Scanner (Subnet & IP Discovery)',
+    icon: 'network',
+    updated: '2 seconds ago',
+    lastUpdated: new Date(Date.now() - 2000),
+    description: 'Automated subnet scanner, IP allocation tracker, OS fingerprinting, and scheduled network sweep',
+    moduleKey: 'IPAM',
+    elapsedSec: 2,
+  },
 ]);
 
 const authStore = useAuthStore();

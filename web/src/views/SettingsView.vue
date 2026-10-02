@@ -205,6 +205,18 @@ const services = ref<ServiceItem[]>([
     threads: 2,
     queued: 0,
   },
+  {
+    id: 'srv-ipam',
+    name: 'IPAM Network Scanner Daemon',
+    status: 'running',
+    type: 'IPAM Network Scanner (Subnet & IP Discovery)',
+    updated: '2 seconds ago',
+    description: 'Automated subnet scanner, IP allocation tracker, OS fingerprinting, and scheduled network sweep',
+    moduleKey: 'IPAM',
+    elapsedSec: 2,
+    threads: 30,
+    queued: 0,
+  },
 ]);
 
 const servicesSearch = ref('');

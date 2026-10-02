@@ -105,6 +105,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 	var totalBackups int
 	var totalTargets int
 	var totalSchedules int
+	var totalSubnets int
 
 	pool, err := database.GetPool()
 	if err == nil && pool != nil {
@@ -114,6 +115,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 		_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM backup_history`).Scan(&totalBackups)
 		_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM remote_hosts`).Scan(&totalTargets)
 		_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM backup_schedules WHERE is_active = true`).Scan(&totalSchedules)
+		_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM ipam_subnets`).Scan(&totalSubnets)
 	}
 
 	// Backup Server Dynamic Metrics
@@ -335,6 +337,22 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Description: "Data Prepper YAML configuration validator, buffer health check, and sink router",
 			ModuleKey:   "DataPrepper",
 		},
+		{
+			ID:          "srv-ipam-master",
+			Name:        "labs-hcp-master",
+			Status:      "running",
+			Type:        "IPAM Network Scanner (IP Allocation & Discovery)",
+			Icon:        "network",
+			Master:      true,
+			Version:     "2.0.0 (Go 1.23)",
+			Modules:     fmt.Sprintf("%d tracked subnets", totalSubnets),
+			Lag:         "-",
+			TQ:          "30 : 0",
+			Updated:     "2 seconds",
+			LastUpdated: now.Add(-2 * time.Second),
+			Description: "Automated subnet scanner, IP allocation tracker, OS fingerprinting, and scheduled network sweep",
+			ModuleKey:   "IPAM",
+		},
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -355,6 +373,8 @@ func (h *QueueHandler) RestartService(c *gin.Context) {
 		_, _ = wp.Enqueue("opensearch_poll", map[string]interface{}{}, 0)
 	} else if strings.Contains(id, "backup") {
 		_, _ = wp.Enqueue("database_backup", map[string]interface{}{"manual": true}, 1)
+	} else if strings.Contains(id, "ipam") {
+		_, _ = wp.Enqueue("ipam_scan", map[string]interface{}{"manual": true}, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
