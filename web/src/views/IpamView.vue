@@ -647,14 +647,6 @@ const getScanIntervalLabel = (val: string) => {
   }
 };
 
-const summaryTotalUsed = computed(() => {
-  return summaryStats.value.totalUsedIps ?? (summaryStats.value as any).totalUsedIPs ?? 0;
-});
-
-const summaryTotalUnused = computed(() => {
-  return summaryStats.value.totalUnusedIps ?? (summaryStats.value as any).totalUnusedIPs ?? 0;
-});
-
 const calculatedTotalUsed = computed(() => {
   if (!selectedSubnet.value) return 0;
   if (subnetAddresses.value.length > 0) {
@@ -766,64 +758,6 @@ onMounted(() => {
 
     <!-- ==================== VIEW 1: SUBNETS DASHBOARD ==================== -->
     <div v-if="!selectedSubnet" class="space-y-6">
-      <!-- 4 Top Stat Cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Stat 1: Subnets -->
-        <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-1">
-          <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            Total Subnets
-          </div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white">
-            {{ summaryStats.totalSubnets }}
-          </div>
-          <div class="text-[11px] text-slate-400">
-            Monitored network segments
-          </div>
-        </div>
-
-        <!-- Stat 2: Monitored Hosts -->
-        <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-1">
-          <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            Total Capacity
-          </div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white">
-            {{ summaryStats.totalMonitored }}
-          </div>
-          <div class="text-[11px] text-slate-400">
-            Total addressable host IPs
-          </div>
-        </div>
-
-        <!-- Stat 3: Used IPs -->
-        <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-1">
-          <div class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-            Total IP Used
-          </div>
-          <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-            <span>{{ summaryTotalUsed }}</span>
-            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-              {{ summaryStats.totalMonitored > 0 ? Math.round((summaryTotalUsed / summaryStats.totalMonitored) * 100) : 0 }}%
-            </span>
-          </div>
-          <div class="text-[11px] text-slate-400">
-            Allocated or online devices
-          </div>
-        </div>
-
-        <!-- Stat 4: Unused IPs -->
-        <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-1">
-          <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            Total IP Unused
-          </div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white">
-            {{ summaryTotalUnused }}
-          </div>
-          <div class="text-[11px] text-slate-400">
-            Available free addresses
-          </div>
-        </div>
-      </div>
-
       <!-- Subnet Filter & Search Bar -->
       <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm">
         <div class="relative w-full sm:w-80">
