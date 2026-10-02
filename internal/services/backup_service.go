@@ -137,7 +137,17 @@ func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *doma
 	var cmd *exec.Cmd
 	switch dbCfg.DBType {
 	case "postgresql":
-		cmd = exec.CommandContext(ctx, "pg_dump",
+		dumpBin := "pg_dump"
+		if p, err := exec.LookPath("pg_dump"); err == nil {
+			dumpBin = p
+		} else {
+			// pg_dump binary is not present in PATH, fallback to native PostgreSQL dump
+			_ = gw.Close()
+			_ = outFile.Close()
+			_ = os.Remove(targetFilePath)
+			return s.dumpPostgreSQLNativeToFile(ctx, dbCfg, targetFilePath)
+		}
+		cmd = exec.CommandContext(ctx, dumpBin,
 			"-h", dbCfg.Host,
 			"-p", fmt.Sprintf("%d", dbCfg.Port),
 			"-U", dbCfg.Username,
@@ -168,15 +178,28 @@ func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *doma
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		if dbCfg.DBType == "postgresql" {
-			_ = gw.Close()
-			_ = outFile.Close()
-			_ = os.Remove(targetFilePath)
-			return s.dumpPostgreSQLNativeToFile(ctx, dbCfg, targetFilePath)
-		}
 		errStr := strings.TrimSpace(stderr.String())
 		if errStr == "" {
 			errStr = err.Error()
+		}
+		if dbCfg.DBType == "postgresql" {
+			// If pg_dump failed with clear network/credential errors, report them directly without misleading fallback
+			if strings.Contains(errStr, "Connection refused") ||
+				strings.Contains(errStr, "connection refused") ||
+				strings.Contains(errStr, "authentication failed") ||
+				strings.Contains(errStr, "does not exist") ||
+				strings.Contains(errStr, "could not translate host name") {
+				return 0, fmt.Errorf("pg_dump failed: %s", errStr)
+			}
+			// Attempt native fallback in case of syntax or version mismatch
+			_ = gw.Close()
+			_ = outFile.Close()
+			_ = os.Remove(targetFilePath)
+			nSize, nErr := s.dumpPostgreSQLNativeToFile(ctx, dbCfg, targetFilePath)
+			if nErr == nil {
+				return nSize, nil
+			}
+			return 0, fmt.Errorf("pg_dump failed: %s (native fallback failed: %v)", errStr, nErr)
 		}
 		return 0, fmt.Errorf("database dump failed: %s", errStr)
 	}
@@ -200,7 +223,7 @@ func (s *BackupService) dumpPostgreSQLNativeToFile(ctx context.Context, dbCfg *d
 		dbCfg.Username, dbCfg.Password, dbCfg.Host, dbCfg.Port, dbCfg.DatabaseName)
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
-		return 0, fmt.Errorf("direct pg_dump CLI unavailable and native connection failed: %w", err)
+		return 0, fmt.Errorf("failed to connect via native PostgreSQL driver: %w", err)
 	}
 	defer conn.Close(ctx)
 
@@ -389,7 +412,14 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 	var cmd *exec.Cmd
 	switch dbCfg.DBType {
 	case "postgresql":
-		cmd = exec.CommandContext(ctx, "pg_dump",
+		dumpBin := "pg_dump"
+		if p, err := exec.LookPath("pg_dump"); err == nil {
+			dumpBin = p
+		} else {
+			// pg_dump binary is not present in PATH, fallback to native PostgreSQL dump
+			return s.dumpPostgreSQLNative(ctx, dbCfg)
+		}
+		cmd = exec.CommandContext(ctx, dumpBin,
 			"-h", dbCfg.Host,
 			"-p", fmt.Sprintf("%d", dbCfg.Port),
 			"-U", dbCfg.Username,
@@ -420,13 +450,23 @@ func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.Bac
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		if dbCfg.DBType == "postgresql" {
-			// Fallback to native pgx connection dump
-			return s.dumpPostgreSQLNative(ctx, dbCfg)
-		}
 		errStr := strings.TrimSpace(stderr.String())
 		if errStr == "" {
 			errStr = err.Error()
+		}
+		if dbCfg.DBType == "postgresql" {
+			if strings.Contains(errStr, "Connection refused") ||
+				strings.Contains(errStr, "connection refused") ||
+				strings.Contains(errStr, "authentication failed") ||
+				strings.Contains(errStr, "does not exist") ||
+				strings.Contains(errStr, "could not translate host name") {
+				return nil, fmt.Errorf("pg_dump failed: %s", errStr)
+			}
+			data, nErr := s.dumpPostgreSQLNative(ctx, dbCfg)
+			if nErr == nil {
+				return data, nil
+			}
+			return nil, fmt.Errorf("pg_dump failed: %s (native fallback failed: %v)", errStr, nErr)
 		}
 		return nil, fmt.Errorf("database dump failed: %s", errStr)
 	}
@@ -438,7 +478,7 @@ func (s *BackupService) dumpPostgreSQLNative(ctx context.Context, dbCfg *domain.
 		dbCfg.Username, dbCfg.Password, dbCfg.Host, dbCfg.Port, dbCfg.DatabaseName)
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
-		return nil, fmt.Errorf("direct pg_dump CLI unavailable and native connection failed: %w", err)
+		return nil, fmt.Errorf("failed to connect via native PostgreSQL driver: %w", err)
 	}
 	defer conn.Close(ctx)
 
@@ -1155,6 +1195,7 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 
 	switch dbCfg.DBType {
 	case "postgresql":
+		var lastErr error
 		connConfig, err := pgx.ParseConfig("")
 		if err == nil {
 			connConfig.Host = dbCfg.Host
@@ -1175,9 +1216,17 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 				}
 				return fmt.Sprintf("Connection successful! Connected to PostgreSQL database '%s'.", dbCfg.DatabaseName), nil
 			}
+			lastErr = connErr
 		}
 
-		cmd := exec.CommandContext(testCtx, "pg_dump", "--schema-only", "-h", dbCfg.Host, "-p", fmt.Sprintf("%d", dbCfg.Port), "-U", dbCfg.Username, "-d", dbCfg.DatabaseName)
+		dumpBin := "pg_dump"
+		if p, err := exec.LookPath("pg_dump"); err == nil {
+			dumpBin = p
+		} else if lastErr != nil {
+			return "", fmt.Errorf("PostgreSQL connection failed: %w", lastErr)
+		}
+
+		cmd := exec.CommandContext(testCtx, dumpBin, "--schema-only", "-h", dbCfg.Host, "-p", fmt.Sprintf("%d", dbCfg.Port), "-U", dbCfg.Username, "-d", dbCfg.DatabaseName)
 		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", dbCfg.Password))
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -1185,6 +1234,9 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 			errStr := strings.TrimSpace(stderr.String())
 			if errStr != "" {
 				return "", fmt.Errorf("%s", errStr)
+			}
+			if lastErr != nil {
+				return "", fmt.Errorf("PostgreSQL connection failed: %v (pgx: %v)", cliErr, lastErr)
 			}
 			return "", fmt.Errorf("PostgreSQL connection failed: %v", cliErr)
 		}
