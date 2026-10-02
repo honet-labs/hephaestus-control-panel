@@ -448,11 +448,43 @@ const getOSIcon = (os?: string) => {
   if (!os) return Monitor;
   const lower = os.toLowerCase();
   if (lower.includes('win')) return Monitor;
-  if (lower.includes('linux') || lower.includes('ubuntu') || lower.includes('debian') || lower.includes('centos')) return Terminal;
+  if (lower.includes('linux') || lower.includes('unix') || lower.includes('ubuntu') || lower.includes('debian') || lower.includes('centos') || lower.includes('alpine') || lower.includes('rhel')) return Terminal;
   if (lower.includes('android')) return Smartphone;
   if (lower.includes('apple') || lower.includes('ios') || lower.includes('mac')) return Laptop;
-  if (lower.includes('router') || lower.includes('cisco') || lower.includes('network') || lower.includes('switch')) return Cpu;
+  if (lower.includes('router') || lower.includes('cisco') || lower.includes('network') || lower.includes('switch') || lower.includes('gateway') || lower.includes('mikrotik')) return Cpu;
   return Monitor;
+};
+
+const getCardOS = (item: any): string => {
+  if (!item.addr) return '';
+  const os = item.addr.osFamily;
+  if (os && os !== 'Unknown') {
+    const lower = os.toLowerCase();
+    if (lower.includes('linux') || lower.includes('unix')) return 'Linux';
+    if (lower.includes('win')) return 'Windows';
+    if (lower.includes('android')) return 'Android';
+    if (lower.includes('apple') || lower.includes('ios') || lower.includes('mac')) return 'Apple';
+    if (lower.includes('router') || lower.includes('mikrotik') || lower.includes('cisco')) return 'Router';
+    return os;
+  }
+  if (item.addr.hostname) {
+    return item.addr.hostname;
+  }
+  if (item.addr.isOnline || item.status === 'active' || item.status === 'discovered') {
+    return 'Linux';
+  }
+  return '';
+};
+
+const getCardOSTitle = (item: any): string => {
+  if (!item.addr) return '';
+  const parts: string[] = [];
+  if (item.addr.osFamily && item.addr.osFamily !== 'Unknown') parts.push(`OS: ${item.addr.osFamily}`);
+  else if (item.addr.isOnline) parts.push('OS: Linux / Unix');
+  if (item.addr.hostname) parts.push(`Host: ${item.addr.hostname}`);
+  if (item.addr.deviceType) parts.push(`Type: ${item.addr.deviceType}`);
+  if (item.addr.macVendor) parts.push(`Vendor: ${item.addr.macVendor}`);
+  return parts.join(' | ') || 'Active Network Host';
 };
 
 const promptDeleteAddress = (addr: IpamAddress) => {
@@ -538,7 +570,7 @@ interface GridIPItem {
   ip: string;
   hostNum: number;
   addr?: IpamAddress;
-  status: 'active' | 'reserved' | 'discovered' | 'offline' | 'available';
+  status: 'active' | 'reserved' | 'offline' | 'available';
 }
 
 const gridIPList = computed<GridIPItem[]>(() => {
@@ -555,7 +587,7 @@ const gridIPList = computed<GridIPItem[]>(() => {
       ip: a.ipAddress,
       hostNum: idx + 1,
       addr: a,
-      status: a.isOnline ? (a.status as any) : (a.status === 'discovered' ? 'offline' : (a.status as any))
+      status: (a.isOnline || a.status === 'active' || a.status === 'discovered') ? 'active' : (a.status === 'reserved' ? 'reserved' : 'offline')
     }));
   }
 
@@ -586,10 +618,10 @@ const gridIPList = computed<GridIPItem[]>(() => {
     if (assigned) {
       if (assigned.status === 'reserved') {
         status = 'reserved';
-      } else if (assigned.status === 'discovered') {
-        status = assigned.isOnline ? 'discovered' : 'offline';
+      } else if (assigned.isOnline || assigned.status === 'active' || assigned.status === 'discovered') {
+        status = 'active';
       } else {
-        status = assigned.isOnline ? 'active' : 'offline';
+        status = 'offline';
       }
     }
 
@@ -619,9 +651,8 @@ const filteredTableAddresses = computed(() => {
     const matchStatus = st === 'all' ||
       (st === 'online' && a.isOnline) ||
       (st === 'offline' && !a.isOnline) ||
-      (st === 'active' && a.status === 'active') ||
-      (st === 'reserved' && a.status === 'reserved') ||
-      (st === 'discovered' && a.status === 'discovered');
+      (st === 'active' && (a.status === 'active' || a.status === 'discovered' || a.isOnline)) ||
+      (st === 'reserved' && a.status === 'reserved');
 
     return matchQuery && matchStatus;
   });
@@ -1033,11 +1064,9 @@ onMounted(() => {
             class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-blue-500"
           >
             <option value="all">All Status</option>
-            <option value="online">Online Only</option>
+            <option value="active">Active / Online</option>
+            <option value="reserved">Reserved / Gateway</option>
             <option value="offline">Offline Only</option>
-            <option value="active">Active (Assigned)</option>
-            <option value="reserved">Reserved</option>
-            <option value="discovered">Discovered</option>
           </select>
         </div>
 
@@ -1077,23 +1106,19 @@ onMounted(() => {
         <span class="font-bold text-slate-700 dark:text-slate-300">Legend:</span>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-emerald-500"></span>
-          <span class="text-slate-600 dark:text-slate-400">Active (Assigned)</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <span class="w-3 h-3 rounded bg-blue-500"></span>
-          <span class="text-slate-600 dark:text-slate-400">Discovered (Online)</span>
+          <span class="text-slate-600 dark:text-slate-400 font-medium">Active (Online / Assigned)</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-amber-500"></span>
-          <span class="text-slate-600 dark:text-slate-400">Reserved / Gateway</span>
+          <span class="text-slate-600 dark:text-slate-400 font-medium">Reserved / Gateway</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-rose-500"></span>
-          <span class="text-slate-600 dark:text-slate-400">Offline / No Reply</span>
+          <span class="text-slate-600 dark:text-slate-400 font-medium">Offline / No Reply</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-slate-200 dark:bg-[#1b2234]"></span>
-          <span class="text-slate-600 dark:text-slate-400">Available (Free)</span>
+          <span class="text-slate-600 dark:text-slate-400 font-medium">Available (Free)</span>
         </div>
       </div>
 
@@ -1106,9 +1131,8 @@ onMounted(() => {
             @click="item.addr ? openEditAddressModal(item.addr) : (canManage ? openAddAddressModal(item.ip) : null)"
             :class="[
               'group relative p-2.5 rounded-xl border text-center transition cursor-pointer select-none',
-              item.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
+              (item.status === 'active' || item.addr?.isOnline) ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
               item.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 hover:scale-105 shadow-xs' :
-              item.status === 'discovered' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/30 text-blue-800 dark:text-blue-300 hover:scale-105 shadow-xs' :
               item.status === 'offline' ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 hover:scale-105 shadow-xs' :
               'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1a2233]'
             ]"
@@ -1118,12 +1142,27 @@ onMounted(() => {
               {{ item.ip }}
             </div>
 
-            <!-- Hostname or OS if available -->
-            <div
-              v-if="item.addr?.hostname || (item.addr?.osFamily && item.addr.osFamily !== 'Unknown')"
-              class="text-[9px] truncate text-slate-500 dark:text-slate-400 mt-0.5 px-0.5"
-            >
-              {{ item.addr?.hostname || item.addr?.osFamily }}
+            <!-- OS / Hostname visible directly on card -->
+            <div class="h-4 flex items-center justify-center gap-1 px-0.5 mt-0.5">
+              <span
+                v-if="getCardOS(item)"
+                class="inline-flex items-center gap-1 text-[9px] font-semibold truncate max-w-full px-1.5 py-0.2 rounded-full"
+                :class="[
+                  item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' :
+                  item.status === 'reserved' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' :
+                  'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                ]"
+                :title="getCardOSTitle(item)"
+              >
+                <component :is="getOSIcon(getCardOS(item))" class="w-2.5 h-2.5 shrink-0" />
+                <span class="truncate">{{ getCardOS(item) }}</span>
+              </span>
+              <span v-else-if="item.status === 'reserved'" class="text-[9px] text-amber-600 dark:text-amber-400 font-medium">
+                Reserved
+              </span>
+              <span v-else class="text-[9px] text-slate-300 dark:text-slate-600">
+                —
+              </span>
             </div>
 
             <!-- Status Dot & Latency -->
@@ -1131,15 +1170,20 @@ onMounted(() => {
               <span
                 class="w-1.5 h-1.5 rounded-full"
                 :class="[
-                  item.status === 'active' ? 'bg-emerald-500' :
+                  item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500' :
                   item.status === 'reserved' ? 'bg-amber-500' :
-                  item.status === 'discovered' ? 'bg-blue-500' :
                   item.status === 'offline' ? 'bg-rose-500' :
                   'bg-slate-300 dark:bg-slate-700'
                 ]"
               ></span>
-              <span v-if="item.addr?.isOnline" class="font-mono text-[9px] text-slate-400">
+              <span v-if="item.addr?.isOnline" class="font-mono text-[9px] text-slate-500 dark:text-slate-400">
                 {{ item.addr.responseTimeMs }}ms
+              </span>
+              <span v-else-if="item.status === 'active' || item.status === 'reserved'" class="font-mono text-[9px] text-slate-400">
+                Allocated
+              </span>
+              <span v-else class="text-[9px] text-slate-300 dark:text-slate-600">
+                Free
               </span>
             </div>
 
@@ -1147,10 +1191,10 @@ onMounted(() => {
             <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-900 text-white dark:bg-black dark:text-slate-100 text-[11px] rounded-lg shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition duration-150 z-30 font-sans text-left space-y-1">
               <div class="font-mono font-bold text-white border-b border-slate-800 pb-1 flex items-center justify-between">
                 <span>{{ item.ip }}</span>
-                <span class="uppercase text-[9px] px-1 py-0.2 rounded font-bold"
-                  :class="item.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'discovered' ? 'bg-blue-500/20 text-blue-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : 'bg-amber-500/20 text-amber-400'"
+                <span class="uppercase text-[9px] px-1.5 py-0.5 rounded font-bold"
+                  :class="item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : item.status === 'reserved' ? 'bg-amber-500/20 text-amber-400' : 'bg-rose-500/20 text-rose-400'"
                 >
-                  {{ item.status }}
+                  {{ item.status === 'discovered' ? 'active' : item.status }}
                 </span>
               </div>
               <div v-if="item.addr?.hostname" class="truncate">
@@ -1159,7 +1203,7 @@ onMounted(() => {
               <div v-if="item.addr" class="truncate">
                 <span class="text-slate-400">OS:</span>
                 <span class="text-slate-200 font-medium ml-1">
-                  {{ (item.addr.osFamily && item.addr.osFamily !== 'Unknown') ? item.addr.osFamily : (item.addr.isOnline ? 'Linux / Unix (Probable)' : 'Unknown') }}
+                  {{ (item.addr.osFamily && item.addr.osFamily !== 'Unknown') ? item.addr.osFamily : (item.addr.isOnline ? 'Linux / Unix' : 'Unknown') }}
                 </span>
               </div>
               <div v-if="item.addr?.deviceType" class="text-slate-400">
@@ -1217,12 +1261,12 @@ onMounted(() => {
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded capitalize"
                       :class="[
-                        addr.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' :
+                        addr.status === 'active' || addr.status === 'discovered' || addr.isOnline ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' :
                         addr.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30' :
-                        'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30'
+                        'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30'
                       ]"
                     >
-                      {{ addr.status }}
+                      {{ (addr.status === 'discovered' || addr.isOnline) ? 'active' : addr.status }}
                     </span>
                   </div>
                 </td>
@@ -1243,20 +1287,11 @@ onMounted(() => {
                 <!-- OS / System -->
                 <td class="py-3 px-4">
                   <span
-                    v-if="addr.osFamily && addr.osFamily !== 'Unknown'"
                     class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-[#161d2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                   >
-                    <component :is="getOSIcon(addr.osFamily)" class="w-3 h-3 text-slate-400 shrink-0" />
-                    <span>{{ addr.osFamily }}</span>
+                    <component :is="getOSIcon(addr.osFamily || (addr.isOnline ? 'Linux' : 'Unknown'))" class="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>{{ (addr.osFamily && addr.osFamily !== 'Unknown') ? addr.osFamily : (addr.isOnline ? 'Linux / Unix' : 'Unknown') }}</span>
                   </span>
-                  <span
-                    v-else-if="addr.isOnline"
-                    class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-[#161d2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                  >
-                    <component :is="getOSIcon('Linux')" class="w-3 h-3 text-slate-400 shrink-0" />
-                    <span>Linux / Unix (Probable)</span>
-                  </span>
-                  <span v-else class="text-slate-400 text-xs">—</span>
                 </td>
 
                 <!-- Device Type -->

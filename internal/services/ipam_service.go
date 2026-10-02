@@ -933,6 +933,9 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 			if existing, ok := existingMap[res.ip]; ok {
 				// Update existing address
 				existing.IsOnline = true
+				if existing.Status == "discovered" || existing.Status == "offline" || existing.Status == "" {
+					existing.Status = "active"
+				}
 				existing.ResponseTimeMS = latencyMS
 				existing.LastSeenAt = &now
 				existing.IPVersion = ipVersion
@@ -961,7 +964,7 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 					SubnetID:       subnetID,
 					IPAddress:      res.ip,
 					IPVersion:      ipVersion,
-					Status:         "discovered",
+					Status:         "active",
 					Hostname:       detectedHostname,
 					MACAddress:     detectedMAC,
 					MACVendor:      vendor,
