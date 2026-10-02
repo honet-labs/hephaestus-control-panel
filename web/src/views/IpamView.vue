@@ -374,7 +374,6 @@ const selectedDetailItem = ref<{
   addr?: IpamAddress;
   status: string;
 } | null>(null);
-const isPingingModal = ref(false);
 
 const openGridItemDetail = (item: GridIPItem) => {
   selectedDetailItem.value = {
@@ -397,34 +396,6 @@ const openTableAddressDetail = (addr: IpamAddress) => {
 const copyToClipboard = (text: string) => {
   navigator.clipboard.writeText(text);
   showNotification('info', `Copied ${text} to clipboard.`);
-};
-
-const pingDetailModalIP = async () => {
-  if (!selectedDetailItem.value) return;
-  const targetIP = selectedDetailItem.value.ip;
-  isPingingModal.value = true;
-  try {
-    const res = await axios.post('/api/v1/ipam/addresses/ping', { ip: targetIP });
-    if (res.data?.success) {
-      const reachable = res.data.reachable;
-      const latency = res.data.latencyMs ?? 0;
-      if (selectedDetailItem.value.addr) {
-        selectedDetailItem.value.addr.isOnline = reachable;
-        selectedDetailItem.value.addr.responseTimeMs = latency;
-        selectedDetailItem.value.status = reachable ? 'active' : 'offline';
-      }
-      if (reachable) {
-        showNotification('success', `Ping ${targetIP}: ONLINE (${latency}ms)`);
-      } else {
-        showNotification('warning', `Ping ${targetIP}: OFFLINE (No reply)`);
-      }
-      await refreshCurrentSubnet();
-    }
-  } catch (err: any) {
-    showNotification('error', `Ping test failed: ${err.response?.data?.error || err.message}`);
-  } finally {
-    isPingingModal.value = false;
-  }
 };
 
 // Address Management
@@ -1759,51 +1730,31 @@ onMounted(() => {
         </div>
 
         <!-- Modal Footer Actions -->
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1f283d]">
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#1f283d]">
           <button
-            @click="pingDetailModalIP"
-            :disabled="isPingingModal"
-            class="w-full sm:w-auto px-3.5 py-2 bg-slate-100 dark:bg-[#161d2d] hover:bg-slate-200 dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            @click="showDetailModal = false"
+            class="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
-            <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isPingingModal }" />
-            <span>{{ isPingingModal ? 'Pinging...' : 'Test Ping Now' }}</span>
+            Close
           </button>
 
-          <div class="flex items-center justify-end gap-2 w-full sm:w-auto">
-            <button
-              @click="showDetailModal = false"
-              class="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-            >
-              Close
-            </button>
+          <button
+            v-if="canManage && selectedDetailItem.addr"
+            @click="showDetailModal = false; openEditAddressModal(selectedDetailItem.addr)"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <Edit2 class="w-3.5 h-3.5" />
+            <span>Edit Allocation</span>
+          </button>
 
-            <button
-              v-if="canManage && selectedDetailItem.addr"
-              @click="showDetailModal = false; promptDeleteAddress(selectedDetailItem.addr)"
-              class="px-3 py-2 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-              <span>Release IP</span>
-            </button>
-
-            <button
-              v-if="canManage && selectedDetailItem.addr"
-              @click="showDetailModal = false; openEditAddressModal(selectedDetailItem.addr)"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <Edit2 class="w-3.5 h-3.5" />
-              <span>Edit Allocation</span>
-            </button>
-
-            <button
-              v-if="canManage && !selectedDetailItem.addr"
-              @click="showDetailModal = false; openAddAddressModal(selectedDetailItem.ip)"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <Plus class="w-3.5 h-3.5" />
-              <span>Allocate This IP</span>
-            </button>
-          </div>
+          <button
+            v-if="canManage && !selectedDetailItem.addr"
+            @click="showDetailModal = false; openAddAddressModal(selectedDetailItem.ip)"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Allocate This IP</span>
+          </button>
         </div>
       </div>
     </div>
