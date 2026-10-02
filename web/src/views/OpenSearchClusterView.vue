@@ -884,7 +884,7 @@ onUnmounted(() => {
             <div class="flex items-center justify-between">
               <h3 class="text-xs font-bold text-white tracking-wide">Shards Allocation Summary</h3>
               <span class="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
-                {{ formatNumber(totalIndicesCount) }} Total Indices
+                {{ clusterHealth?.active_shards_percent_as_number != null ? Number(clusterHealth.active_shards_percent_as_number).toFixed(1) + '% Allocated' : '100% Allocated' }}
               </span>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-y-6 text-xs font-sans">
