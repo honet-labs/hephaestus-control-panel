@@ -8,6 +8,8 @@ import {
   RotateCw,
   Trash2,
   Edit2,
+  Eye,
+  Copy,
   ChevronLeft,
   Grid,
   List,
@@ -362,6 +364,66 @@ const findNextAvailableIP = async () => {
     }
   } catch (err: any) {
     showNotification('warning', `No free IP found: ${err.response?.data?.error || err.message}`);
+  }
+};
+
+// View IP Details Modal State
+const showDetailModal = ref(false);
+const selectedDetailItem = ref<{
+  ip: string;
+  addr?: IpamAddress;
+  status: string;
+} | null>(null);
+const isPingingModal = ref(false);
+
+const openGridItemDetail = (item: GridIPItem) => {
+  selectedDetailItem.value = {
+    ip: item.ip,
+    addr: item.addr,
+    status: item.status,
+  };
+  showDetailModal.value = true;
+};
+
+const openTableAddressDetail = (addr: IpamAddress) => {
+  selectedDetailItem.value = {
+    ip: addr.ipAddress,
+    addr: addr,
+    status: (addr.isOnline || addr.status === 'active' || addr.status === 'discovered') ? 'active' : (addr.status === 'reserved' ? 'reserved' : 'offline'),
+  };
+  showDetailModal.value = true;
+};
+
+const copyToClipboard = (text: string) => {
+  navigator.clipboard.writeText(text);
+  showNotification('info', `Copied ${text} to clipboard.`);
+};
+
+const pingDetailModalIP = async () => {
+  if (!selectedDetailItem.value) return;
+  const targetIP = selectedDetailItem.value.ip;
+  isPingingModal.value = true;
+  try {
+    const res = await axios.post('/api/v1/ipam/addresses/ping', { ip: targetIP });
+    if (res.data?.success) {
+      const reachable = res.data.reachable;
+      const latency = res.data.latencyMs ?? 0;
+      if (selectedDetailItem.value.addr) {
+        selectedDetailItem.value.addr.isOnline = reachable;
+        selectedDetailItem.value.addr.responseTimeMs = latency;
+        selectedDetailItem.value.status = reachable ? 'active' : 'offline';
+      }
+      if (reachable) {
+        showNotification('success', `Ping ${targetIP}: ONLINE (${latency}ms)`);
+      } else {
+        showNotification('warning', `Ping ${targetIP}: OFFLINE (No reply)`);
+      }
+      await refreshCurrentSubnet();
+    }
+  } catch (err: any) {
+    showNotification('error', `Ping test failed: ${err.response?.data?.error || err.message}`);
+  } finally {
+    isPingingModal.value = false;
   }
 };
 
@@ -1128,7 +1190,7 @@ onMounted(() => {
           <div
             v-for="item in gridIPList"
             :key="item.ip"
-            @click="item.addr ? openEditAddressModal(item.addr) : (canManage ? openAddAddressModal(item.ip) : null)"
+            @click="openGridItemDetail(item)"
             :class="[
               'group relative p-2.5 rounded-xl border text-center transition cursor-pointer select-none',
               (item.status === 'active' || item.addr?.isOnline) ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
@@ -1249,7 +1311,8 @@ onMounted(() => {
               <tr
                 v-for="addr in filteredTableAddresses"
                 :key="addr.id"
-                class="hover:bg-slate-50/50 dark:hover:bg-[#161d2d]/50 transition"
+                @click="openTableAddressDetail(addr)"
+                class="hover:bg-slate-50/50 dark:hover:bg-[#161d2d]/50 transition cursor-pointer"
               >
                 <!-- Status Badge -->
                 <td class="py-3 px-4 shrink-0">
@@ -1329,7 +1392,15 @@ onMounted(() => {
                 <td class="py-3 px-4 text-right">
                   <div class="flex items-center justify-end gap-1">
                     <button
-                      @click="pingSingleIP(addr.ipAddress)"
+                      @click.stop="openTableAddressDetail(addr)"
+                      title="View Details"
+                      class="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition cursor-pointer"
+                    >
+                      <Eye class="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      @click.stop="pingSingleIP(addr.ipAddress)"
                       title="Test Ping"
                       class="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition cursor-pointer"
                     >
@@ -1338,7 +1409,7 @@ onMounted(() => {
 
                     <button
                       v-if="canManage"
-                      @click="openEditAddressModal(addr)"
+                      @click.stop="openEditAddressModal(addr)"
                       title="Edit Allocation"
                       class="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1a2233] rounded-lg transition cursor-pointer"
                     >
@@ -1347,7 +1418,7 @@ onMounted(() => {
 
                     <button
                       v-if="canManage"
-                      @click="promptDeleteAddress(addr)"
+                      @click.stop="promptDeleteAddress(addr)"
                       title="Release IP"
                       class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
                     >
@@ -1494,6 +1565,245 @@ onMounted(() => {
           >
             {{ isEditingSubnet ? 'Update Subnet' : 'Create Subnet' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 1.5: View IP Address Information Details -->
+    <div
+      v-if="showDetailModal && selectedDetailItem"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1f283d] pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+              IP Address Details
+            </h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Network allocation specifications, telemetry, and system fingerprint
+            </p>
+          </div>
+          <button @click="showDetailModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Hero IP Banner -->
+        <div class="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+             :class="[
+               (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-50/60 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' :
+               selectedDetailItem.status === 'reserved' ? 'bg-amber-50/60 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' :
+               selectedDetailItem.status === 'offline' ? 'bg-rose-50/60 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' :
+               'bg-slate-50 dark:bg-[#161d2d] border-slate-200 dark:border-slate-800'
+             ]"
+        >
+          <div class="flex items-center gap-2.5">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                 :class="[
+                   (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-500 text-white' :
+                   selectedDetailItem.status === 'reserved' ? 'bg-amber-500 text-white' :
+                   selectedDetailItem.status === 'offline' ? 'bg-rose-500 text-white' :
+                   'bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                 ]"
+            >
+              <component :is="getOSIcon(selectedDetailItem.addr?.osFamily || (selectedDetailItem.addr?.isOnline ? 'Linux' : 'Unknown'))" class="w-5 h-5" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-base font-bold text-slate-900 dark:text-white">
+                  {{ selectedDetailItem.ip }}
+                </span>
+                <button
+                  @click="copyToClipboard(selectedDetailItem.ip)"
+                  title="Copy IP"
+                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                >
+                  <Copy class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400">
+                {{ selectedSubnet?.name }} ({{ selectedSubnet?.cidr }})
+              </div>
+            </div>
+          </div>
+
+          <!-- Status & Latency Badges -->
+          <div class="flex items-center gap-2 shrink-0">
+            <span
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold"
+              :class="[
+                (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30' :
+                selectedDetailItem.status === 'reserved' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30' :
+                selectedDetailItem.status === 'offline' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30' :
+                'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              ]"
+            >
+              <span
+                class="w-2 h-2 rounded-full"
+                :class="[
+                  (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-500 animate-pulse' :
+                  selectedDetailItem.status === 'reserved' ? 'bg-amber-500' :
+                  selectedDetailItem.status === 'offline' ? 'bg-rose-500' :
+                  'bg-slate-400'
+                ]"
+              ></span>
+              {{
+                (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'Active (Online)' :
+                selectedDetailItem.status === 'reserved' ? 'Reserved (Gateway)' :
+                selectedDetailItem.status === 'offline' ? 'Offline (Unreachable)' :
+                'Available (Free)'
+              }}
+            </span>
+
+            <span
+              v-if="selectedDetailItem.addr?.isOnline"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold bg-white dark:bg-[#1a2233] text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 shadow-xs"
+            >
+              <Activity class="w-3 h-3 text-emerald-500" />
+              {{ selectedDetailItem.addr.responseTimeMs }}ms
+            </span>
+          </div>
+        </div>
+
+        <!-- Specifications & Telemetry Details (2-Column Grid) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <!-- Card Left: Network Specifications -->
+          <div class="p-3 bg-slate-50 dark:bg-[#161d2d] rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+            <div class="font-bold text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-1 flex items-center justify-between">
+              <span>Network Properties</span>
+              <span class="font-mono lowercase">{{ selectedDetailItem.addr?.ipVersion || 'ipv4' }}</span>
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Subnet CIDR:</span>
+                <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{{ selectedSubnet?.cidr }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Gateway:</span>
+                <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{{ selectedSubnet?.gateway || '—' }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">VLAN ID / VRF:</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-200">
+                  {{ selectedSubnet?.vlanId ? `VLAN ${selectedSubnet.vlanId}` : 'None' }} ({{ selectedSubnet?.vrf || 'Default' }})
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Allocation Type:</span>
+                <span class="font-semibold capitalize text-slate-800 dark:text-slate-200">
+                  {{ selectedDetailItem.addr ? selectedDetailItem.addr.status : 'Unallocated (Free)' }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Last Seen:</span>
+                <span class="font-medium text-slate-700 dark:text-slate-300">
+                  {{ formatTimeAgo(selectedDetailItem.addr?.lastSeenAt || null) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Right: System & Hardware Identification -->
+          <div class="p-3 bg-slate-50 dark:bg-[#161d2d] rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+            <div class="font-bold text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-1">
+              Host Fingerprint
+            </div>
+
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Operating System:</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                  <component :is="getOSIcon(selectedDetailItem.addr?.osFamily || (selectedDetailItem.addr?.isOnline ? 'Linux' : 'Unknown'))" class="w-3 h-3 text-slate-400" />
+                  {{ (selectedDetailItem.addr?.osFamily && selectedDetailItem.addr.osFamily !== 'Unknown') ? selectedDetailItem.addr.osFamily : (selectedDetailItem.addr?.isOnline ? 'Linux / Unix' : 'Unknown') }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Hostname / Label:</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[150px]">
+                  {{ selectedDetailItem.addr?.hostname || '—' }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">Device Role:</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-200">
+                  {{ selectedDetailItem.addr?.deviceType || 'Server' }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">MAC Address:</span>
+                <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                  {{ selectedDetailItem.addr?.macAddress || '—' }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-slate-500 dark:text-slate-400">NIC Hardware Vendor:</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[150px]">
+                  {{ selectedDetailItem.addr?.macVendor || '—' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes / Annotation -->
+        <div v-if="selectedDetailItem.addr?.notes" class="p-3 bg-slate-50 dark:bg-[#161d2d] rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+          <div class="font-bold text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+            Notes / Description
+          </div>
+          <div class="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+            {{ selectedDetailItem.addr.notes }}
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1f283d]">
+          <button
+            @click="pingDetailModalIP"
+            :disabled="isPingingModal"
+            class="w-full sm:w-auto px-3.5 py-2 bg-slate-100 dark:bg-[#161d2d] hover:bg-slate-200 dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isPingingModal }" />
+            <span>{{ isPingingModal ? 'Pinging...' : 'Test Ping Now' }}</span>
+          </button>
+
+          <div class="flex items-center justify-end gap-2 w-full sm:w-auto">
+            <button
+              @click="showDetailModal = false"
+              class="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Close
+            </button>
+
+            <button
+              v-if="canManage && selectedDetailItem.addr"
+              @click="showDetailModal = false; promptDeleteAddress(selectedDetailItem.addr)"
+              class="px-3 py-2 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>Release IP</span>
+            </button>
+
+            <button
+              v-if="canManage && selectedDetailItem.addr"
+              @click="showDetailModal = false; openEditAddressModal(selectedDetailItem.addr)"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Edit2 class="w-3.5 h-3.5" />
+              <span>Edit Allocation</span>
+            </button>
+
+            <button
+              v-if="canManage && !selectedDetailItem.addr"
+              @click="showDetailModal = false; openAddAddressModal(selectedDetailItem.ip)"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              <span>Allocate This IP</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
