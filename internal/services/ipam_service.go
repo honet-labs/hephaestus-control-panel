@@ -423,10 +423,49 @@ func lookupMACVendor(mac string) string {
 		"9cb654": "HP",
 	}
 
+	if strings.Contains(strings.ToLower(mac), "wg") || strings.Contains(strings.ToLower(mac), "wireguard") {
+		return "WireGuard VPN Peer"
+	}
+
 	if vendor, ok := ouiMap[prefix]; ok {
 		return vendor
 	}
 	return ""
+}
+
+// readWireGuardPeers extracts active peer IPs and their public keys / interfaces from Linux kernel WireGuard
+func readWireGuardPeers() map[string]string {
+	peers := make(map[string]string)
+	if runtime.GOOS == "windows" {
+		return peers
+	}
+
+	cmd := exec.Command("wg", "show", "all", "dump")
+	out, err := cmd.Output()
+	if err != nil {
+		return peers
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 5 {
+			iface := fields[0]
+			pubKey := fields[1]
+			allowedIPs := strings.Split(fields[4], ",")
+			for _, aip := range allowedIPs {
+				ipOnly := strings.Split(strings.TrimSpace(aip), "/")[0]
+				if ipOnly != "" {
+					shortKey := pubKey
+					if len(shortKey) > 10 {
+						shortKey = shortKey[:10] + "..."
+					}
+					peers[ipOnly] = fmt.Sprintf("%s:%s", iface, shortKey)
+				}
+			}
+		}
+	}
+	return peers
 }
 
 // probeTCPPort quickly checks if a port is open and optionally grabs its banner
@@ -491,8 +530,8 @@ func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, exis
 	vendor := lookupMACVendor(detectedMAC)
 	lowerVendor := strings.ToLower(vendor)
 
-	// 3. Fast TCP signature probing (ports: 22, 135, 445, 3389, 5555, 80)
-	checkPorts := []int{22, 135, 445, 3389, 5555, 80}
+	// 3. Fast TCP signature probing (ports: 22, 135, 139, 445, 3389, 5357, 5555, 80, 443)
+	checkPorts := []int{22, 135, 139, 445, 3389, 5357, 5555, 80}
 	var wg sync.WaitGroup
 	var pResults sync.Map
 
@@ -500,7 +539,7 @@ func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, exis
 		wg.Add(1)
 		go func(port int) {
 			defer wg.Done()
-			open, banner := probeTCPPort(ip, port, 250*time.Millisecond)
+			open, banner := probeTCPPort(ip, port, 400*time.Millisecond)
 			if open {
 				pResults.Store(port, banner)
 			}
@@ -514,11 +553,13 @@ func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, exis
 		return "Android", "Mobile", detectedHostname, detectedMAC
 	}
 
-	// Windows MSRPC (135), SMB (445), RDP (3389)
+	// Windows MSRPC (135), NetBIOS (139), SMB (445), RDP (3389), WSDAPI (5357)
 	_, has135 := pResults.Load(135)
+	_, has139 := pResults.Load(139)
 	_, has445 := pResults.Load(445)
 	_, has3389 := pResults.Load(3389)
-	if has135 || has445 || has3389 {
+	_, has5357 := pResults.Load(5357)
+	if has135 || has139 || has445 || has3389 || has5357 {
 		devType = "Workstation"
 		if has3389 || (has445 && (strings.Contains(lowerHost, "srv") || strings.Contains(lowerHost, "server"))) {
 			devType = "Server"
@@ -608,6 +649,9 @@ func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, exis
 			if devType == "VM" {
 				return "Linux (VM)", "VM", detectedHostname, detectedMAC
 			}
+			if strings.Contains(strings.ToLower(subnetName), "wireguard") || strings.Contains(strings.ToLower(subnetName), "vpn") {
+				return "Linux / Android", "Mobile / Host", detectedHostname, detectedMAC
+			}
 			return "Linux", "Server", detectedHostname, detectedMAC
 		} else if ttl > 64 && ttl <= 128 {
 			return "Windows", "Workstation", detectedHostname, detectedMAC
@@ -616,15 +660,16 @@ func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, exis
 		}
 	}
 
-	// 7. Check if subnet is WireGuard or L3 VPN
+	// 7. Active Reachable fallback when TTL was not captured or filtered
 	if detectedMAC == "" && (strings.Contains(strings.ToLower(subnetName), "wireguard") || strings.Contains(strings.ToLower(subnetName), "vpn")) {
 		detectedMAC = "Virtual (WireGuard)"
 	}
 
-	if devType == "" {
-		devType = "Unknown"
+	if strings.Contains(strings.ToLower(subnetName), "wireguard") || strings.Contains(strings.ToLower(subnetName), "vpn") {
+		return "Linux / Android", "Mobile / Host", detectedHostname, detectedMAC
 	}
-	return "Unknown", devType, detectedHostname, detectedMAC
+
+	return "Linux / Unix", devType, detectedHostname, detectedMAC
 }
 
 // =========================================================================
@@ -817,7 +862,7 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			pingCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+			pingCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 			defer cancel()
 
 			reachable, latency, ttl := pingHostWithDetails(pingCtx, target)
@@ -833,8 +878,9 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 	wg.Wait()
 	close(resultsChan)
 
-	// Read system ARP/Neighbor table after pings populate kernel cache
+	// Read system ARP/Neighbor table and WireGuard VPN peers after pings populate kernel cache
 	arpTable := readSystemARPTable()
+	wgPeers := readWireGuardPeers()
 
 	// Fetch existing addresses map
 	existingList, err := s.ipamRepo.ListAddressesBySubnet(ctx, subnetID)
@@ -864,6 +910,11 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 			foundActive++
 
 			mac := arpTable[res.ip]
+			if mac == "" {
+				if wgMac, ok := wgPeers[res.ip]; ok {
+					mac = wgMac
+				}
+			}
 			existingHostname := ""
 			if existing, ok := existingMap[res.ip]; ok {
 				existingHostname = existing.Hostname

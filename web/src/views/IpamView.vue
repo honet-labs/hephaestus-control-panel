@@ -647,9 +647,47 @@ const getScanIntervalLabel = (val: string) => {
   }
 };
 
+const summaryTotalUsed = computed(() => {
+  return summaryStats.value.totalUsedIps ?? (summaryStats.value as any).totalUsedIPs ?? 0;
+});
+
+const summaryTotalUnused = computed(() => {
+  return summaryStats.value.totalUnusedIps ?? (summaryStats.value as any).totalUnusedIPs ?? 0;
+});
+
+const calculatedTotalUsed = computed(() => {
+  if (!selectedSubnet.value) return 0;
+  if (subnetAddresses.value.length > 0) {
+    return subnetAddresses.value.filter(a => a.status === 'active' || a.status === 'reserved' || a.status === 'discovered' || a.isOnline).length;
+  }
+  return selectedSubnet.value.totalUsedIps ?? (selectedSubnet.value as any).totalUsedIPs ?? 0;
+});
+
+const calculatedTotalUnused = computed(() => {
+  if (!selectedSubnet.value) return 0;
+  const total = selectedSubnet.value.totalIps || 0;
+  return Math.max(0, total - calculatedTotalUsed.value);
+});
+
+const calculatedUtilization = computed(() => {
+  if (!selectedSubnet.value || !selectedSubnet.value.totalIps) return 0;
+  return Math.min(100, Math.round((calculatedTotalUsed.value / selectedSubnet.value.totalIps) * 100));
+});
+
+const getSubnetUsedCount = (sub: IpamSubnet) => {
+  return sub.totalUsedIps ?? (sub as any).totalUsedIPs ?? 0;
+};
+
+const getSubnetUnusedCount = (sub: IpamSubnet) => {
+  const used = getSubnetUsedCount(sub);
+  return sub.totalUnusedIps ?? (sub as any).totalUnusedIPs ?? Math.max(0, (sub.totalIps || 0) - used);
+};
+
 const getUtilizationRate = (sub: IpamSubnet) => {
-  if (!sub.totalIps || sub.totalIps <= 0) return 0;
-  return Math.min(100, Math.round((sub.totalUsedIps / sub.totalIps) * 100));
+  const total = sub.totalIps || 0;
+  if (total <= 0) return 0;
+  const used = getSubnetUsedCount(sub);
+  return Math.min(100, Math.round((used / total) * 100));
 };
 
 onMounted(() => {
@@ -758,13 +796,13 @@ onMounted(() => {
 
         <!-- Stat 3: Used IPs -->
         <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-1">
-          <div class="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+          <div class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
             Total IP Used
           </div>
-          <div class="text-2xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
-            <span>{{ summaryStats.totalUsedIPs }}</span>
-            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
-              {{ summaryStats.totalMonitored > 0 ? Math.round((summaryStats.totalUsedIPs / summaryStats.totalMonitored) * 100) : 0 }}%
+          <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+            <span>{{ summaryTotalUsed }}</span>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+              {{ summaryStats.totalMonitored > 0 ? Math.round((summaryTotalUsed / summaryStats.totalMonitored) * 100) : 0 }}%
             </span>
           </div>
           <div class="text-[11px] text-slate-400">
@@ -778,7 +816,7 @@ onMounted(() => {
             Total IP Unused
           </div>
           <div class="text-2xl font-bold text-slate-900 dark:text-white">
-            {{ summaryStats.totalUnusedIPs }}
+            {{ summaryTotalUnused }}
           </div>
           <div class="text-[11px] text-slate-400">
             Available free addresses
@@ -870,13 +908,13 @@ onMounted(() => {
 
             <!-- Counters: Used vs Unused -->
             <div class="flex items-center justify-between text-[11px] pt-1">
-              <div class="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold">
-                <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                <span>{{ sub.totalUsedIPs }} Used</span>
+              <div class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>{{ getSubnetUsedCount(sub) }} Used</span>
               </div>
               <div class="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                 <span class="w-2 h-2 rounded-full bg-slate-400"></span>
-                <span>{{ sub.totalUnusedIPs }} Unused</span>
+                <span>{{ getSubnetUnusedCount(sub) }} Unused</span>
               </div>
               <div class="text-slate-400">
                 Total: {{ sub.totalIps }}
@@ -1027,18 +1065,18 @@ onMounted(() => {
           </div>
 
           <div class="p-3 bg-slate-50 dark:bg-[#121826] rounded-lg">
-            <span class="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Total IP Used</span>
-            <span class="text-xl font-bold text-blue-600 dark:text-blue-400 font-mono">{{ selectedSubnet.totalUsedIPs }}</span>
+            <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">Total IP Used</span>
+            <span class="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">{{ calculatedTotalUsed }}</span>
           </div>
 
           <div class="p-3 bg-slate-50 dark:bg-[#121826] rounded-lg">
             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total IP Unused</span>
-            <span class="text-xl font-bold text-slate-900 dark:text-white font-mono">{{ selectedSubnet.totalUnusedIPs }}</span>
+            <span class="text-xl font-bold text-slate-900 dark:text-white font-mono">{{ calculatedTotalUnused }}</span>
           </div>
 
           <div class="p-3 bg-slate-50 dark:bg-[#121826] rounded-lg">
             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Utilization</span>
-            <span class="text-xl font-bold text-slate-900 dark:text-white font-mono">{{ getUtilizationRate(selectedSubnet) }}%</span>
+            <span class="text-xl font-bold text-slate-900 dark:text-white font-mono">{{ calculatedUtilization }}%</span>
           </div>
         </div>
       </div>
@@ -1104,16 +1142,16 @@ onMounted(() => {
       <div class="flex flex-wrap items-center gap-4 px-3 py-2 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl text-xs">
         <span class="font-bold text-slate-700 dark:text-slate-300">Legend:</span>
         <div class="flex items-center gap-1.5">
+          <span class="w-3 h-3 rounded bg-emerald-500"></span>
+          <span class="text-slate-600 dark:text-slate-400">Active (Assigned)</span>
+        </div>
+        <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-blue-500"></span>
-          <span class="text-slate-600 dark:text-slate-400">Active / Online</span>
+          <span class="text-slate-600 dark:text-slate-400">Discovered (Online)</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-amber-500"></span>
           <span class="text-slate-600 dark:text-slate-400">Reserved / Gateway</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <span class="w-3 h-3 rounded bg-sky-400"></span>
-          <span class="text-slate-600 dark:text-slate-400">Discovered (Unassigned)</span>
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-3 h-3 rounded bg-rose-500"></span>
@@ -1127,45 +1165,56 @@ onMounted(() => {
 
       <!-- MODE 1: VISUAL IP MATRIX GRID -->
       <div v-if="ipViewMode === 'grid'" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm">
-        <div class="grid grid-cols-4 sm:grid-cols-8 md:grid-cols-12 lg:grid-cols-16 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5">
           <div
             v-for="item in gridIPList"
             :key="item.ip"
             @click="item.addr ? openEditAddressModal(item.addr) : (canManage ? openAddAddressModal(item.ip) : null)"
             :class="[
-              'group relative p-2 rounded-lg border text-center transition cursor-pointer select-none',
-              item.status === 'active' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 hover:scale-105 shadow-xs' :
+              'group relative p-2.5 rounded-xl border text-center transition cursor-pointer select-none',
+              item.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
               item.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 hover:scale-105 shadow-xs' :
-              item.status === 'discovered' ? 'bg-sky-50 dark:bg-sky-500/10 border-sky-300 dark:border-sky-500/30 text-sky-700 dark:text-sky-300 hover:scale-105 shadow-xs' :
+              item.status === 'discovered' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/30 text-blue-800 dark:text-blue-300 hover:scale-105 shadow-xs' :
               item.status === 'offline' ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 hover:scale-105 shadow-xs' :
               'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1a2233]'
             ]"
           >
-            <!-- Host number in grid -->
-            <div class="font-mono text-xs font-bold leading-tight">
-              .{{ item.hostNum }}
+            <!-- Full IP Address in grid -->
+            <div class="font-mono text-[11px] font-bold leading-tight tracking-tight truncate px-0.5" :title="item.ip">
+              {{ item.ip }}
             </div>
 
-            <!-- Dot Indicator -->
-            <div class="mt-1 flex items-center justify-center">
+            <!-- Hostname or OS if available -->
+            <div
+              v-if="item.addr?.hostname || (item.addr?.osFamily && item.addr.osFamily !== 'Unknown')"
+              class="text-[9px] truncate text-slate-500 dark:text-slate-400 mt-0.5 px-0.5"
+            >
+              {{ item.addr?.hostname || item.addr?.osFamily }}
+            </div>
+
+            <!-- Status Dot & Latency -->
+            <div class="mt-1 flex items-center justify-center gap-1">
               <span
                 class="w-1.5 h-1.5 rounded-full"
                 :class="[
-                  item.status === 'active' ? 'bg-blue-500' :
+                  item.status === 'active' ? 'bg-emerald-500' :
                   item.status === 'reserved' ? 'bg-amber-500' :
-                  item.status === 'discovered' ? 'bg-sky-400' :
+                  item.status === 'discovered' ? 'bg-blue-500' :
                   item.status === 'offline' ? 'bg-rose-500' :
                   'bg-slate-300 dark:bg-slate-700'
                 ]"
               ></span>
+              <span v-if="item.addr?.isOnline" class="font-mono text-[9px] text-slate-400">
+                {{ item.addr.responseTimeMs }}ms
+              </span>
             </div>
 
             <!-- Floating Tooltip on Hover -->
-            <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 bg-slate-900 text-white dark:bg-black dark:text-slate-100 text-[11px] rounded-lg shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition duration-150 z-30 font-sans text-left space-y-1">
+            <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-900 text-white dark:bg-black dark:text-slate-100 text-[11px] rounded-lg shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition duration-150 z-30 font-sans text-left space-y-1">
               <div class="font-mono font-bold text-white border-b border-slate-800 pb-1 flex items-center justify-between">
                 <span>{{ item.ip }}</span>
                 <span class="uppercase text-[9px] px-1 py-0.2 rounded font-bold"
-                  :class="item.status === 'active' ? 'bg-blue-500/20 text-blue-400' : item.status === 'discovered' ? 'bg-sky-500/20 text-sky-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : 'bg-amber-500/20 text-amber-400'"
+                  :class="item.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'discovered' ? 'bg-blue-500/20 text-blue-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : 'bg-amber-500/20 text-amber-400'"
                 >
                   {{ item.status }}
                 </span>
@@ -1173,8 +1222,11 @@ onMounted(() => {
               <div v-if="item.addr?.hostname" class="truncate">
                 <span class="text-slate-400">Host:</span> {{ item.addr.hostname }}
               </div>
-              <div v-if="item.addr?.osFamily && item.addr.osFamily !== 'Unknown'" class="truncate">
-                <span class="text-slate-400">OS:</span> {{ item.addr.osFamily }}
+              <div v-if="item.addr" class="truncate">
+                <span class="text-slate-400">OS:</span>
+                <span class="text-slate-200 font-medium ml-1">
+                  {{ (item.addr.osFamily && item.addr.osFamily !== 'Unknown') ? item.addr.osFamily : (item.addr.isOnline ? 'Linux / Unix (Probable)' : 'Unknown') }}
+                </span>
               </div>
               <div v-if="item.addr?.deviceType" class="text-slate-400">
                 <span>Type:</span> <span class="text-slate-200">{{ item.addr.deviceType }}</span>
@@ -1183,8 +1235,8 @@ onMounted(() => {
                 MAC: {{ item.addr.macAddress }}
                 <span v-if="item.addr?.macVendor" class="block font-sans text-slate-400">({{ item.addr.macVendor }})</span>
               </div>
-              <div v-if="item.addr?.isOnline" class="text-blue-400 flex items-center gap-1">
-                <Activity class="w-3 h-3 text-blue-400" />
+              <div v-if="item.addr?.isOnline" class="text-emerald-400 flex items-center gap-1">
+                <Activity class="w-3 h-3 text-emerald-400" />
                 <span>Online ({{ item.addr.responseTimeMs }}ms)</span>
               </div>
               <div v-else-if="item.addr" class="text-rose-400">
@@ -1226,14 +1278,14 @@ onMounted(() => {
                   <div class="flex items-center gap-1.5">
                     <span
                       class="w-2 h-2 rounded-full"
-                      :class="addr.isOnline ? 'bg-blue-500 animate-pulse' : 'bg-rose-500'"
+                      :class="addr.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"
                     ></span>
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded capitalize"
                       :class="[
-                        addr.status === 'active' ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30' :
+                        addr.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' :
                         addr.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30' :
-                        'bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-500/30'
+                        'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30'
                       ]"
                     >
                       {{ addr.status }}
@@ -1263,6 +1315,13 @@ onMounted(() => {
                     <component :is="getOSIcon(addr.osFamily)" class="w-3 h-3 text-slate-400 shrink-0" />
                     <span>{{ addr.osFamily }}</span>
                   </span>
+                  <span
+                    v-else-if="addr.isOnline"
+                    class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-[#161d2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                  >
+                    <component :is="getOSIcon('Linux')" class="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Linux / Unix (Probable)</span>
+                  </span>
                   <span v-else class="text-slate-400 text-xs">—</span>
                 </td>
 
@@ -1284,7 +1343,7 @@ onMounted(() => {
 
                 <!-- Latency -->
                 <td class="py-3 px-4 font-mono text-[11px]">
-                  <span v-if="addr.isOnline" class="text-blue-600 dark:text-blue-400 font-semibold">
+                  <span v-if="addr.isOnline" class="text-emerald-600 dark:text-emerald-400 font-semibold">
                     {{ addr.responseTimeMs }}ms
                   </span>
                   <span v-else class="text-slate-400">

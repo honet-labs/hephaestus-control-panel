@@ -122,10 +122,15 @@ func pingHostWithDetails(ctx context.Context, ip string) (bool, *float64, int) {
 	}
 
 	var out bytes.Buffer
+	var errOut bytes.Buffer
 	cmd.Stdout = &out
+	cmd.Stderr = &errOut
 
 	_ = cmd.Run()
 	output := out.String()
+	if strings.TrimSpace(output) == "" && errOut.Len() > 0 {
+		output = errOut.String()
+	}
 
 	// If Linux ping -6 returned nothing or failed, try ping6
 	if isIPv6 && runtime.GOOS != "windows" && strings.TrimSpace(output) == "" {
@@ -151,8 +156,8 @@ func pingHostWithDetails(ctx context.Context, ip string) (bool, *float64, int) {
 		}
 	}
 
-	// Parse TTL / Hop Limit
-	reTTL := regexp.MustCompile(`(?i)\b(?:ttl|hlim)=(\d+)`)
+	// Parse TTL / Hop Limit (supports "ttl=64", "TTL=128", "ttl: 64", "hlim=64")
+	reTTL := regexp.MustCompile(`(?i)\b(?:ttl|hlim)[=:]\s*(\d+)`)
 	matchTTL := reTTL.FindStringSubmatch(output)
 	if len(matchTTL) > 1 {
 		if val, err := strconv.Atoi(matchTTL[1]); err == nil {

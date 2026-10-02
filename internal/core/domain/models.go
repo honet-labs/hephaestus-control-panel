@@ -1379,7 +1379,7 @@ type IpamSummaryStats struct {
 	TotalSubnets    int `json:"totalSubnets"`
 	TotalMonitored  int `json:"totalMonitored"`
 	TotalUsedIPs    int `json:"totalUsedIps"`
-	TotalUnusedIPs  int `json:"totalUnusedIPs"`
+	TotalUnusedIPs  int `json:"totalUnusedIps"`
 	TotalDiscovered int `json:"totalDiscovered"`
 	TotalOnline     int `json:"totalOnline"`
 }
