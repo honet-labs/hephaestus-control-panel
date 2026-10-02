@@ -882,26 +882,23 @@ onUnmounted(() => {
           <!-- Left: Index & Shards Breakdown -->
           <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6 shadow-xl">
             <div class="flex items-center justify-between">
-              <h3 class="text-xs font-bold text-white tracking-wide">Shards Allocation Summary</h3>
-              <span class="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
-                {{ clusterHealth?.active_shards_percent_as_number != null ? Number(clusterHealth.active_shards_percent_as_number).toFixed(1) + '% Allocated' : '100% Allocated' }}
-              </span>
+              <h3 class="text-xs font-bold text-white tracking-wide">Indices Allocation Summary</h3>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-y-6 text-xs font-sans">
               <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Shards</p>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Indices</p>
                 <p class="text-xl font-bold text-emerald-400 font-mono">{{ clusterHealth?.active_primary_shards ?? 0 }}</p>
               </div>
               <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Replica Shards</p>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Replica Indices</p>
                 <p class="text-xl font-bold text-sky-400 font-mono">{{ clusterHealth ? (clusterHealth.active_shards - clusterHealth.active_primary_shards) : 0 }}</p>
               </div>
               <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Shards</p>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Indices</p>
                 <p class="text-xl font-bold text-white font-mono">{{ clusterHealth?.active_shards ?? 0 }}</p>
               </div>
               <div>
-                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned Shards</p>
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unassigned Indices</p>
                 <p class="text-xl font-bold font-mono" :class="(clusterHealth?.unassigned_shards > 0 || unassignedShards.length > 0) ? 'text-amber-400 font-black' : 'text-slate-400'">
                   {{ clusterHealth?.unassigned_shards ?? unassignedShards.length }}
                 </p>
