@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import {
@@ -11,12 +11,8 @@ import {
   Sun,
   Moon,
   Clock,
-  Layers,
-  AlertCircle,
-  Cpu,
-  HardDrive,
-  Network,
 } from 'lucide-vue-next';
+import { useThemeStore } from '../stores/theme';
 
 interface DiskMetric {
   mountpoint: string;
@@ -80,6 +76,14 @@ interface DockerContainerMetric {
 }
 
 const route = useRoute();
+const themeStore = useThemeStore();
+
+// Theme state linked directly to global theme store
+const isDarkMode = computed(() => themeStore.isDark);
+
+const toggleTheme = () => {
+  themeStore.toggleTheme();
+};
 
 // Query Parameters
 const viewType = computed<'servers' | 'containers'>(() => {
@@ -115,30 +119,30 @@ const containers = ref<DockerContainerMetric[]>([]);
 const loading = ref(true);
 const refreshing = ref(false);
 const lastUpdatedTime = ref<string>('-');
-const isDarkMode = ref(true);
 let pollTimer: any = null;
 
-// Theme Toggle
-const toggleTheme = () => {
-  isDarkMode.value = !isDarkMode.value;
-  if (isDarkMode.value) {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
-};
-
-// Check system or initial dark mode
+// Sync theme with URL query or default
 onMounted(() => {
   const themeParam = route.query.theme as string;
   if (themeParam === 'light') {
-    isDarkMode.value = false;
-    document.documentElement.classList.remove('dark');
+    themeStore.applyTheme('light');
+  } else if (themeParam === 'dark') {
+    themeStore.applyTheme('dark');
   } else {
-    isDarkMode.value = true;
-    document.documentElement.classList.add('dark');
+    themeStore.initTheme();
   }
 });
+
+watch(
+  () => route.query.theme,
+  (newTheme) => {
+    if (newTheme === 'light') {
+      themeStore.applyTheme('light');
+    } else if (newTheme === 'dark') {
+      themeStore.applyTheme('dark');
+    }
+  }
+);
 
 // Data Fetching
 const fetchServerData = async (silent = false) => {
@@ -189,17 +193,14 @@ const refreshData = async (silent = false) => {
 const displayedServers = computed(() => {
   let list = instances.value;
 
-  // Filter by selected IDs if specified
   if (filterIds.value.length > 0) {
     list = list.filter((inst) => filterIds.value.includes(inst.id));
   }
 
-  // Filter by group if specified
   if (filterGroup.value && filterGroup.value !== 'all') {
     list = list.filter((inst) => inst.groupName === filterGroup.value);
   }
 
-  // Filter by search query if specified
   if (searchQuery.value) {
     const q = searchQuery.value;
     list = list.filter(
@@ -217,17 +218,14 @@ const displayedServers = computed(() => {
 const displayedContainers = computed(() => {
   let list = containers.value;
 
-  // Filter by selected IDs if specified
   if (filterIds.value.length > 0) {
     list = list.filter((c) => filterIds.value.includes(c.id) || filterIds.value.includes(c.containerId));
   }
 
-  // Filter by host/group if specified
   if (filterGroup.value && filterGroup.value !== 'all') {
     list = list.filter((c) => c.hostname === filterGroup.value);
   }
 
-  // Filter by search query if specified
   if (searchQuery.value) {
     const q = searchQuery.value;
     list = list.filter(
@@ -270,11 +268,6 @@ const getBarColor = (val: number | null | undefined) => {
   return 'bg-emerald-500';
 };
 
-const formatBytesGB = (bytes: number | null | undefined): string => {
-  if (!bytes || bytes <= 0) return '0 GB';
-  return (bytes / 1073741824).toFixed(1) + ' GB';
-};
-
 const formatBytesHuman = (bytes: number | null | undefined): string => {
   if (!bytes || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -307,20 +300,20 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-900 text-slate-100 dark:bg-[#0b0f19] dark:text-slate-100 font-sans p-4 sm:p-6 transition-colors">
+  <div class="min-h-screen bg-slate-50 dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 font-sans p-4 sm:p-6 transition-colors">
     <!-- Top Bar: Title, Live Status, Controls -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-700/60 dark:border-[#1a2337]">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200 dark:border-[#1a2337]">
       <div class="flex items-center gap-3">
         <div>
-          <h1 class="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <span>{{ customTitle }}</span>
-            <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               {{ viewType === 'servers' ? `${displayedServers.length} Nodes` : `${displayedContainers.length} Containers` }}
             </span>
           </h1>
-          <p class="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
             <span class="inline-flex items-center gap-1">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>Live Auto-Refresh: {{ refreshIntervalSec }}s</span>
             </span>
             <span>•</span>
@@ -337,21 +330,21 @@ onUnmounted(() => {
         <button
           @click="refreshData(false)"
           :disabled="loading || refreshing"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer disabled:opacity-50"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#161c2d] hover:bg-slate-50 dark:hover:bg-[#1f283d] border border-slate-200 dark:border-[#1f283d] text-slate-700 dark:text-slate-200 text-xs font-medium transition cursor-pointer disabled:opacity-50 shadow-2xs"
           title="Refresh telemetry now"
         >
-          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading || refreshing }" />
+          <RefreshCw class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': loading || refreshing }" />
           <span class="hidden sm:inline">{{ refreshing ? 'Refreshing...' : 'Refresh' }}</span>
         </button>
 
         <!-- Theme Toggle Button -->
         <button
           @click="toggleTheme"
-          class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
+          class="p-1.5 rounded-lg bg-white dark:bg-[#161c2d] hover:bg-slate-50 dark:hover:bg-[#1f283d] border border-slate-200 dark:border-[#1f283d] text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-2xs"
           :title="isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'"
         >
-          <Sun v-if="isDarkMode" class="w-3.5 h-3.5 text-amber-400" />
-          <Moon v-else class="w-3.5 h-3.5 text-slate-300" />
+          <Sun v-if="isDarkMode" class="w-3.5 h-3.5 text-amber-500" />
+          <Moon v-else class="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
         </button>
       </div>
     </div>
@@ -359,16 +352,16 @@ onUnmounted(() => {
     <!-- Loading Skeleton -->
     <div v-if="loading && instances.length === 0 && containers.length === 0" class="py-20 text-center space-y-3">
       <RefreshCw class="w-8 h-8 animate-spin mx-auto text-slate-400" />
-      <div class="text-sm font-semibold text-slate-400">Loading Telemetry Stream...</div>
+      <div class="text-sm font-semibold text-slate-500 dark:text-slate-400">Loading Telemetry Stream...</div>
     </div>
 
     <!-- ===================================================================== -->
     <!-- VIEW 1: SERVERS / INSTANCES TABLE VIEW (Exact User Screenshot Style)   -->
     <!-- ===================================================================== -->
-    <div v-else-if="viewType === 'servers'" class="bg-slate-900/90 dark:bg-[#111624] border border-slate-700/60 dark:border-[#1f283d] rounded-2xl shadow-xl overflow-hidden">
+    <div v-else-if="viewType === 'servers'" class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl shadow-xs overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs text-slate-200">
-          <thead class="bg-slate-800/80 dark:bg-[#0c101a] border-b border-slate-700/60 dark:border-[#1f283d] text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50/75 dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
               <th class="py-3 px-3.5 min-w-[170px]">System Name</th>
               <th class="py-3 px-3 min-w-[100px]">Group / Tags</th>
@@ -381,34 +374,34 @@ onUnmounted(() => {
               <th class="py-3 px-3 min-w-[105px]">Net Upload</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800 dark:divide-[#1a2236]">
+          <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
             <tr
               v-for="inst in displayedServers"
               :key="inst.id"
-              class="hover:bg-slate-800/50 dark:hover:bg-[#151c2d] transition"
+              class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d] transition"
             >
               <!-- System Name Column -->
               <td class="py-3.5 px-3.5 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span
                     class="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
-                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-400 shadow-emerald-400/50' : 'bg-slate-500'"
+                    :class="inst.liveMetrics?.isOnline ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-slate-400'"
                     :title="inst.liveMetrics?.isOnline ? 'Online (Active)' : 'Offline'"
                   ></span>
-                  <span class="font-bold text-white text-xs tracking-tight">
+                  <span class="font-bold text-slate-900 dark:text-white text-xs tracking-tight">
                     {{ inst.name }}
                   </span>
 
                   <!-- Connection Badge (SSH vs Prometheus) -->
                   <span
                     v-if="isSshInstance(inst)"
-                    class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-950/80 text-sky-300 border border-sky-800/50 shrink-0"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border border-sky-300/50 dark:border-sky-800/50 shrink-0"
                   >
                     SSH
                   </span>
                   <span
                     v-else
-                    class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/50 shrink-0"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300/50 dark:border-emerald-800/50 shrink-0"
                   >
                     Prometheus
                   </span>
@@ -420,18 +413,18 @@ onUnmounted(() => {
                 <div class="flex flex-wrap items-center gap-1.5">
                   <span
                     v-if="inst.groupName"
-                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700"
+                    class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#222c42]"
                   >
                     {{ inst.groupName }}
                   </span>
                   <span
                     v-for="t in (inst.tags || [])"
                     :key="t"
-                    class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-blue-950/60 text-blue-300 border border-blue-800/40"
+                    class="px-1.5 py-0.5 rounded text-[9px] font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
                   >
                     {{ t }}
                   </span>
-                  <span v-if="!inst.groupName && (!inst.tags || inst.tags.length === 0)" class="text-slate-500 text-[11px] font-mono">
+                  <span v-if="!inst.groupName && (!inst.tags || inst.tags.length === 0)" class="text-slate-400 text-[11px] font-mono">
                     -
                   </span>
                 </div>
@@ -439,14 +432,14 @@ onUnmounted(() => {
 
               <!-- Hostname Column -->
               <td class="py-3.5 px-3 whitespace-nowrap">
-                <span class="font-mono text-xs font-semibold text-slate-300">
+                <span class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
                   {{ inst.liveMetrics?.detectedHostname || inst.hostname || (inst.host !== inst.ipAddress ? inst.host : '-') }}
                 </span>
               </td>
 
               <!-- IP Address Column -->
               <td class="py-3.5 px-3 whitespace-nowrap">
-                <span class="font-mono text-xs text-slate-300">
+                <span class="font-mono text-xs text-slate-600 dark:text-slate-400">
                   {{ inst.ipAddress || inst.host }}
                 </span>
               </td>
@@ -454,10 +447,10 @@ onUnmounted(() => {
               <!-- CPU Column -->
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <div class="flex items-center gap-2">
-                  <span class="w-10 font-bold font-mono text-white text-xs">
+                  <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
                     {{ inst.liveMetrics?.cpuPct != null ? `${inst.liveMetrics.cpuPct.toFixed(1)}%` : 'N/A' }}
                   </span>
-                  <div class="w-14 bg-slate-800 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(inst.liveMetrics?.cpuPct)"
@@ -466,7 +459,7 @@ onUnmounted(() => {
                   </div>
                   <span
                     v-if="inst.liveMetrics?.cpuCount"
-                    class="text-[10px] text-slate-400 font-mono"
+                    class="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
                     title="vCPU Cores"
                   >
                     {{ inst.liveMetrics.cpuCount }}c
@@ -477,10 +470,10 @@ onUnmounted(() => {
               <!-- Memory Column -->
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <div class="flex items-center gap-2">
-                  <span class="w-10 font-bold font-mono text-white text-xs">
+                  <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
                     {{ inst.liveMetrics?.memPct != null ? `${inst.liveMetrics.memPct.toFixed(1)}%` : 'N/A' }}
                   </span>
-                  <div class="w-14 bg-slate-800 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(inst.liveMetrics?.memPct)"
@@ -490,7 +483,7 @@ onUnmounted(() => {
                 </div>
                 <div
                   v-if="inst.liveMetrics?.memTotalBytes"
-                  class="text-[10px] text-slate-400 mt-0.5 font-mono"
+                  class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono"
                 >
                   {{ (inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1) }} / {{ (inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1) }} GB
                 </div>
@@ -499,10 +492,10 @@ onUnmounted(() => {
               <!-- Disk Column -->
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <div class="flex items-center gap-2">
-                  <span class="w-10 font-bold font-mono text-white text-xs">
+                  <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
                     {{ getOverallDisk(inst).pct != null ? `${getOverallDisk(inst).pct.toFixed(1)}%` : 'N/A' }}
                   </span>
-                  <div class="w-14 bg-slate-800 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
+                  <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-500"
                       :class="getBarColor(getOverallDisk(inst).pct)"
@@ -512,7 +505,7 @@ onUnmounted(() => {
                 </div>
                 <div
                   v-if="getOverallDisk(inst).totalBytes > 0"
-                  class="text-[10px] text-slate-400 mt-0.5 font-mono"
+                  class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono"
                 >
                   {{ (getOverallDisk(inst).usedBytes / 1073741824).toFixed(1) }} / {{ (getOverallDisk(inst).totalBytes / 1073741824).toFixed(1) }} GB
                 </div>
@@ -520,7 +513,7 @@ onUnmounted(() => {
 
               <!-- Net Download Column -->
               <td class="py-3.5 px-3 font-semibold whitespace-nowrap">
-                <div class="flex items-center gap-1 font-mono text-slate-200">
+                <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                   <ArrowDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
                 </div>
@@ -528,7 +521,7 @@ onUnmounted(() => {
 
               <!-- Net Upload Column -->
               <td class="py-3.5 px-3 font-semibold whitespace-nowrap">
-                <div class="flex items-center gap-1 font-mono text-slate-200">
+                <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                   <ArrowUp class="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
                 </div>
@@ -538,8 +531,8 @@ onUnmounted(() => {
             <!-- Empty State -->
             <tr v-if="displayedServers.length === 0">
               <td colspan="9" class="py-12 text-center text-slate-400">
-                <Server class="w-8 h-8 mx-auto text-slate-600 mb-2" />
-                <div class="font-bold text-sm text-slate-300">No Monitored Servers Match Criteria</div>
+                <Server class="w-8 h-8 mx-auto text-slate-400 mb-2" />
+                <div class="font-bold text-sm text-slate-700 dark:text-slate-300">No Monitored Servers Match Criteria</div>
                 <p class="text-xs text-slate-500 mt-1">Check your filter parameters or ensure servers are registered.</p>
               </td>
             </tr>
@@ -551,10 +544,10 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <!-- VIEW 2: DOCKER CONTAINERS TABLE VIEW                                  -->
     <!-- ===================================================================== -->
-    <div v-else class="bg-slate-900/90 dark:bg-[#111624] border border-slate-700/60 dark:border-[#1f283d] rounded-2xl shadow-xl overflow-hidden">
+    <div v-else class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl shadow-xs overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs text-slate-200">
-          <thead class="bg-slate-800/80 dark:bg-[#0c101a] border-b border-slate-700/60 dark:border-[#1f283d] text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50/75 dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
               <th class="py-3 px-3.5 min-w-[180px]">Container</th>
               <th class="py-3 px-3 min-w-[120px]">Node & IP</th>
@@ -566,32 +559,32 @@ onUnmounted(() => {
               <th class="py-3 px-3 min-w-[100px]">Container ID</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800 dark:divide-[#1a2236]">
+          <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
             <tr
               v-for="c in displayedContainers"
               :key="c.id"
-              class="hover:bg-slate-800/50 dark:hover:bg-[#151c2d] transition"
+              class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d] transition"
             >
               <!-- Container Name & Image -->
               <td class="py-3.5 px-3.5">
-                <div class="font-bold text-white text-xs truncate max-w-[200px]" :title="c.containerName">
+                <div class="font-bold text-slate-900 dark:text-white text-xs truncate max-w-[200px]" :title="c.containerName">
                   {{ c.containerName }}
                 </div>
-                <div class="text-[10px] font-mono text-slate-400 truncate max-w-[220px]">
+                <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
                   {{ c.imageName }}
                 </div>
               </td>
 
               <!-- Node & IP -->
               <td class="py-3.5 px-3">
-                <div class="font-semibold text-slate-300">{{ c.hostname }}</div>
-                <div class="text-[10px] text-slate-400 font-mono">{{ c.ipAddress }}</div>
+                <div class="font-semibold text-slate-800 dark:text-slate-200">{{ c.hostname }}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{{ c.ipAddress }}</div>
               </td>
 
               <!-- Status -->
               <td class="py-3.5 px-3">
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-500/30">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 border border-emerald-300/50 dark:border-emerald-500/30">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   <span>Online</span>
                 </span>
               </td>
@@ -599,10 +592,10 @@ onUnmounted(() => {
               <!-- CPU % -->
               <td class="py-3.5 px-3 min-w-[120px]">
                 <div class="flex items-center gap-2">
-                  <span class="w-10 font-bold font-mono text-white text-xs">
+                  <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
                     {{ c.cpuPct != null ? `${c.cpuPct.toFixed(1)}%` : '0%' }}
                   </span>
-                  <div class="w-16 bg-slate-800 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div class="w-16 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-300"
                       :class="getBarColor(c.cpuPct)"
@@ -615,10 +608,10 @@ onUnmounted(() => {
               <!-- Memory Usage -->
               <td class="py-3.5 px-3 min-w-[140px]">
                 <div class="flex items-center gap-2">
-                  <span class="w-10 font-bold font-mono text-white text-xs">
+                  <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
                     {{ c.memPct != null ? `${c.memPct.toFixed(1)}%` : '0%' }}
                   </span>
-                  <div class="w-16 bg-slate-800 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div class="w-16 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-full rounded-full transition-all duration-300"
                       :class="getBarColor(c.memPct)"
@@ -626,33 +619,33 @@ onUnmounted(() => {
                     ></div>
                   </div>
                 </div>
-                <div class="text-[10px] text-slate-400 mt-0.5 font-mono">
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
                   {{ formatBytesHuman(c.memUsageBytes) }} / {{ formatBytesHuman(c.memLimitBytes) }}
                 </div>
               </td>
 
               <!-- Network RX / TX -->
               <td class="py-3.5 px-3 font-mono text-[11px] whitespace-nowrap">
-                <div class="text-slate-300">
-                  <span class="text-slate-500 text-[10px]">RX:</span> {{ (c.netRxRateMb || 0).toFixed(2) }} MB/s
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">RX:</span> {{ (c.netRxRateMb || 0).toFixed(2) }} MB/s
                 </div>
-                <div class="text-slate-300">
-                  <span class="text-slate-500 text-[10px]">TX:</span> {{ (c.netTxRateMb || 0).toFixed(2) }} MB/s
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">TX:</span> {{ (c.netTxRateMb || 0).toFixed(2) }} MB/s
                 </div>
               </td>
 
               <!-- Block Read / Write -->
               <td class="py-3.5 px-3 font-mono text-[11px] whitespace-nowrap">
-                <div class="text-slate-300">
-                  <span class="text-slate-500 text-[10px]">R:</span> {{ (c.blockReadRateMb || 0).toFixed(2) }} MB/s
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">R:</span> {{ (c.blockReadRateMb || 0).toFixed(2) }} MB/s
                 </div>
-                <div class="text-slate-300">
-                  <span class="text-slate-500 text-[10px]">W:</span> {{ (c.blockWriteRateMb || 0).toFixed(2) }} MB/s
+                <div class="text-slate-700 dark:text-slate-300">
+                  <span class="text-slate-400 text-[10px]">W:</span> {{ (c.blockWriteRateMb || 0).toFixed(2) }} MB/s
                 </div>
               </td>
 
               <!-- Container ID -->
-              <td class="py-3.5 px-3 font-mono text-[10px] text-slate-400">
+              <td class="py-3.5 px-3 font-mono text-[10px] text-slate-500 dark:text-slate-400">
                 {{ c.containerId.substring(0, 12) }}
               </td>
             </tr>
@@ -660,8 +653,8 @@ onUnmounted(() => {
             <!-- Empty State -->
             <tr v-if="displayedContainers.length === 0">
               <td colspan="8" class="py-12 text-center text-slate-400">
-                <Box class="w-8 h-8 mx-auto text-slate-600 mb-2" />
-                <div class="font-bold text-sm text-slate-300">No Docker Containers Match Criteria</div>
+                <Box class="w-8 h-8 mx-auto text-slate-400 mb-2" />
+                <div class="font-bold text-sm text-slate-700 dark:text-slate-300">No Docker Containers Match Criteria</div>
                 <p class="text-xs text-slate-500 mt-1">Ensure Docker containers are running and OpenTelemetry/Docker stats are active.</p>
               </td>
             </tr>

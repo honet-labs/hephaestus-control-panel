@@ -1064,6 +1064,7 @@ const selectedShareServerIds = ref<string[]>([]);
 const selectedShareContainerIds = ref<string[]>([]);
 const shareGroup = ref<string>('all');
 const shareRefresh = ref<number>(10);
+const shareTheme = ref<'auto' | 'dark' | 'light'>('auto');
 const shareTitle = ref<string>('');
 const shareIncludeToken = ref<boolean>(true);
 const shareItemSearch = ref<string>('');
@@ -1077,6 +1078,7 @@ const openEmbedModal = () => {
   selectedShareContainerIds.value = dockerContainers.value.map((c) => c.id || c.containerId);
   shareGroup.value = 'all';
   shareRefresh.value = 10;
+  shareTheme.value = 'auto';
   shareTitle.value = activeTab.value === 'servers' ? 'Infrastructure Telemetry' : 'Container Fleet Telemetry';
   shareIncludeToken.value = true;
   shareItemSearch.value = '';
@@ -1101,6 +1103,10 @@ const generatedEmbedUrl = computed(() => {
 
   if (shareRefresh.value && shareRefresh.value !== 10) {
     params.set('refresh', shareRefresh.value.toString());
+  }
+
+  if (shareTheme.value && shareTheme.value !== 'auto') {
+    params.set('theme', shareTheme.value);
   }
 
   if (shareTitle.value.trim()) {
@@ -4520,8 +4526,8 @@ onUnmounted(() => {
             </select>
           </div>
 
-          <!-- Step 3: Settings (Title, Refresh, Token) -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+          <!-- Step 3: Settings (Title, Refresh, Theme, Token) -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
             <div class="space-y-1">
               <label class="font-semibold text-slate-700 dark:text-slate-300">Custom Title</label>
               <input
@@ -4543,6 +4549,18 @@ onUnmounted(() => {
                 <option :value="15">15 Seconds</option>
                 <option :value="30">30 Seconds</option>
                 <option :value="60">60 Seconds</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Default Color Theme</label>
+              <select
+                v-model="shareTheme"
+                class="w-full px-3 py-1.5 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
+              >
+                <option value="auto">Auto (Match Client Theme)</option>
+                <option value="dark">Dark Theme (Recommended)</option>
+                <option value="light">Light Theme</option>
               </select>
             </div>
           </div>
