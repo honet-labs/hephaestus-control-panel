@@ -1057,7 +1057,7 @@ const executeSync = async () => {
 // -----------------------------------------------------------------------------
 // Share Wallboard / Embed Modal Logic (for Slideshow & Wallboard Displays)
 // -----------------------------------------------------------------------------
-const showShareModal = ref(false);
+const showEmbedModal = ref(false);
 const shareType = ref<'servers' | 'containers'>('servers');
 const shareSelectionMode = ref<'all' | 'specific' | 'group'>('all');
 const selectedShareServerIds = ref<string[]>([]);
@@ -1070,7 +1070,7 @@ const shareItemSearch = ref<string>('');
 const addingToSlideShow = ref<boolean>(false);
 const copySuccess = ref<boolean>(false);
 
-const openShareModal = () => {
+const openEmbedModal = () => {
   shareType.value = activeTab.value;
   shareSelectionMode.value = 'all';
   selectedShareServerIds.value = instances.value.map((i) => i.id);
@@ -1080,7 +1080,7 @@ const openShareModal = () => {
   shareTitle.value = activeTab.value === 'servers' ? 'Infrastructure Telemetry' : 'Container Fleet Telemetry';
   shareIncludeToken.value = true;
   shareItemSearch.value = '';
-  showShareModal.value = true;
+  showEmbedModal.value = true;
 };
 
 const generatedEmbedUrl = computed(() => {
@@ -1174,7 +1174,7 @@ const addEmbedToSlideShow = async () => {
     const res = await axios.post('/api/v1/monitoring-views', payload);
     if (res.data?.success) {
       showNotice('Added to Slide Show successfully! You can view it in the Slide Show menu.', 'success');
-      showShareModal.value = false;
+      showEmbedModal.value = false;
     }
   } catch (err: any) {
     showNotice(err.response?.data?.error || 'Failed to add to Slide Show', 'error');
@@ -1826,7 +1826,7 @@ onUnmounted(() => {
 
         <!-- Share / Wallboard Embed URL -->
         <button
-          @click="openShareModal"
+          @click="openEmbedModal"
           class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#161c2d] text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer"
           title="Share customizable wallboard view or add to Slide Show"
         >
@@ -4326,7 +4326,7 @@ onUnmounted(() => {
     <!-- MODAL: SHARE WALLBOARD / EMBED URL (For Slideshow & Standalone View)   -->
     <!-- ===================================================================== -->
     <div
-      v-if="showShareModal"
+      v-if="showEmbedModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs animate-in fade-in"
     >
       <div
@@ -4338,7 +4338,7 @@ onUnmounted(() => {
             <Share2 class="w-4 h-4 text-slate-500 dark:text-slate-400" />
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">Share Telemetry Wallboard / Embed URL</h3>
           </div>
-          <button @click="showShareModal = false" class="text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button @click="showEmbedModal = false" class="text-slate-400 hover:text-slate-200 cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -4599,7 +4599,7 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <button
               type="button"
-              @click="showShareModal = false"
+              @click="showEmbedModal = false"
               class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               Close
