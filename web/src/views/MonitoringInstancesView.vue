@@ -752,12 +752,17 @@ let historyChartInstance: any = null;
 
 const openHistoryModal = async (inst: MonitoringInstance) => {
   activeDropdownId.value = null;
+  const isSsh = isSshInstance(inst);
+  const targetInfo = isSsh
+    ? `ssh://${inst.ipAddress || inst.host}:${inst.port || 22}`
+    : (inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port || 8889}`);
+
   historyTarget.value = {
     type: 'server',
     id: inst.id,
     name: inst.name,
     subtext: `Host: ${inst.host} | Group: ${inst.groupName || 'Default'}`,
-    targetInfo: inst.prometheusTarget || inst.host,
+    targetInfo: targetInfo,
     rawServer: inst,
   };
   showHistoryModal.value = true;
@@ -1081,11 +1086,12 @@ const onRemoteHostSelect = (hostId: string) => {
 // Determine whether an instance is collected via SSH or Prometheus
 const isSshInstance = (inst: any): boolean => {
   if (!inst) return false;
-  if (inst.metricSource === 'prometheus') return false;
+  if (inst.remoteHostId) return true;
   if (inst.metricSource === 'ssh') return true;
+  if (inst.metricSource === 'prometheus') return false;
   if (inst.port === 8889 || inst.port === 9100 || (inst.prometheusTarget && String(inst.prometheusTarget).trim() !== '')) return false;
   if (inst.port === 22) return true;
-  return !!inst.remoteHostId;
+  return false;
 };
 
 // -----------------------------------------------------------------------------
@@ -3421,7 +3427,7 @@ onUnmounted(() => {
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">Sync Remote Hosts</h3>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Import configured servers from Remote Host into Monitoring Instances with automatic SSH & Prometheus telemetry collection.
+              Import configured servers from Remote Host into Monitoring Instances with automatic SSH telemetry collection.
             </p>
           </div>
           <button @click="showSyncModal = false" class="text-slate-400 hover:text-slate-200 cursor-pointer">

@@ -222,7 +222,7 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 				if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && inst.Port == 22 && inst.RemoteHostID != nil && *inst.RemoteHostID != "") {
 					src = "ssh"
 				}
-				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, src)
+				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, inst.LiveMetrics.NetDownloadMB, inst.LiveMetrics.NetUploadMB, src)
 			}
 		}
 		s.lastPolledAt = time.Now()
@@ -1071,6 +1071,10 @@ func (s *MonitoringInstanceService) SyncFromRemoteHosts(
 			continue
 		}
 		synced = append(synced, inst)
+	}
+
+	if len(synced) > 0 {
+		s.TriggerImmediatePoll()
 	}
 
 	return synced, nil
@@ -1962,6 +1966,28 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 		step = "5m"
 	}
 
+	// For SSH instances, retrieve historical telemetry directly from PostgreSQL table (instance_metrics_history)
+	isSSH := inst.MetricSource == "ssh" || (inst.RemoteHostID != nil && *inst.RemoteHostID != "") || (inst.Port == 22 && (inst.PrometheusTarget == "" || inst.MetricSource != "prometheus"))
+	if isSSH {
+		dbHistory, err := s.instRepo.GetMetricsHistoryFromDB(ctx, inst.ID, startTime)
+		if err != nil {
+			return nil, err
+		}
+		if dbHistory != nil {
+			dbHistory.TimeRange = timeRange
+			return dbHistory, nil
+		}
+		return &domain.InstanceHistoryResponse{
+			InstanceID: inst.ID,
+			TimeRange:  timeRange,
+			CPU:        []domain.MetricHistoryPoint{},
+			Memory:     []domain.MetricHistoryPoint{},
+			Disk:       []domain.MetricHistoryPoint{},
+			NetIn:      []domain.MetricHistoryPoint{},
+			NetOut:     []domain.MetricHistoryPoint{},
+		}, nil
+	}
+
 	resp := &domain.InstanceHistoryResponse{
 		InstanceID: inst.ID,
 		TimeRange:  timeRange,
@@ -2478,7 +2504,7 @@ func (s *MonitoringInstanceService) FetchSSHMetricsNow(ctx context.Context, id s
 		diskVal = *metrics.DiskPct
 	}
 	netVal = metrics.NetTotalMB
-	_ = s.instRepo.SaveMetricsHistory(ctx, inst.ID, cpuVal, memVal, diskVal, netVal, "ssh")
+	_ = s.instRepo.SaveMetricsHistory(ctx, inst.ID, cpuVal, memVal, diskVal, netVal, metrics.NetDownloadMB, metrics.NetUploadMB, "ssh")
 
 	return metrics, nil
 }

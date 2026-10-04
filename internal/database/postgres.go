@@ -719,12 +719,17 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics JSONB;
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics_at TIMESTAMP WITH TIME ZONE;
 
-		-- Migrate existing auto or null instances to explicit ssh or prometheus
-		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NOT NULL;
-		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NULL;
-		-- Ensure instances targeting Prometheus/OTel ports (8889, 9100) or with prometheus_target are strictly prometheus
-		UPDATE monitoring_instances SET metric_source = 'prometheus', remote_host_id = NULL WHERE (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
-		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE port = 22;
+		-- Ensure instances linked to Remote Hosts are properly set to ssh and have correct port from remote_host_configs
+		UPDATE monitoring_instances m
+		SET metric_source = 'ssh',
+		    prometheus_target = '',
+		    port = COALESCE(r.port, 22)
+		FROM remote_host_configs r
+		WHERE m.remote_host_id = r.id;
+
+		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE remote_host_id IS NOT NULL;
+		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE remote_host_id IS NULL AND (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
+		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE metric_source IS NULL OR metric_source = '' OR metric_source = 'auto';
 
 		-- Metrics history table for lightweight persistence & trend graphs
 		CREATE TABLE IF NOT EXISTS instance_metrics_history (
@@ -734,9 +739,13 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			mem_pct REAL,
 			disk_pct REAL,
 			net_total_mb REAL,
+			net_rx_mb REAL,
+			net_tx_mb REAL,
 			source VARCHAR(20) DEFAULT 'ssh',
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
+		ALTER TABLE instance_metrics_history ADD COLUMN IF NOT EXISTS net_rx_mb REAL;
+		ALTER TABLE instance_metrics_history ADD COLUMN IF NOT EXISTS net_tx_mb REAL;
 		CREATE INDEX IF NOT EXISTS idx_inst_metrics_hist_time ON instance_metrics_history (instance_id, created_at DESC);
 
 		CREATE TABLE IF NOT EXISTS monitoring_instance_shares (

@@ -40,12 +40,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
-					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
 					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					ELSE 'prometheus'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
+					ELSE 'ssh'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -65,12 +65,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
-					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
 					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					ELSE 'prometheus'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
+					ELSE 'ssh'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -158,12 +158,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
-					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
 					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					ELSE 'prometheus'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
+					ELSE 'ssh'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -181,12 +181,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
-					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
 					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					ELSE 'prometheus'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
+					ELSE 'ssh'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -535,15 +535,20 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 	var existingID string
 	err = pool.QueryRow(ctx, "SELECT id FROM monitoring_instances WHERE remote_host_id = $1", host.ID).Scan(&existingID)
 
+	sshPort := host.Port
+	if sshPort <= 0 {
+		sshPort = 22
+	}
+
 	inst := &domain.MonitoringInstance{
 		Name:             host.Name,
 		Host:             host.Host,
 		IPAddress:        host.Host,
-		Port:             8889,
+		Port:             sshPort,
 		InstanceType:     "server",
 		GroupName:        host.GroupName,
 		Tags:             host.Tags,
-		PrometheusTarget: fmt.Sprintf("%s:8889", host.Host),
+		PrometheusTarget: "",
 		RemoteHostID:     &host.ID,
 		MetricSource:     "ssh",
 		UserID:           &targetUserID,
@@ -557,15 +562,15 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		inst.ID = existingID
 		updateQuery := `
 			UPDATE monitoring_instances SET
-				name = $1, host = $2, ip_address = $3, group_name = $4, tags = $5,
-				prometheus_target = $6, metric_source = COALESCE(NULLIF(metric_source, ''), 'ssh'),
+				name = $1, host = $2, ip_address = $3, port = $4, group_name = $5, tags = $6,
+				prometheus_target = '', metric_source = 'ssh',
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = $7
 			RETURNING created_at, updated_at
 		`
 		err = pool.QueryRow(ctx, updateQuery,
-			inst.Name, inst.Host, inst.IPAddress, inst.GroupName, inst.Tags,
-			inst.PrometheusTarget, inst.ID,
+			inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.GroupName, inst.Tags,
+			inst.ID,
 		).Scan(&inst.CreatedAt, &inst.UpdatedAt)
 		if err != nil {
 			return nil, err
@@ -623,7 +628,7 @@ func (r *MonitoringInstanceRepository) SaveLiveMetrics(ctx context.Context, id s
 }
 
 // SaveMetricsHistory appends a single metric record for trend graphs
-func (r *MonitoringInstanceRepository) SaveMetricsHistory(ctx context.Context, instanceID string, cpuPct, memPct, diskPct, netMB float64, source string) error {
+func (r *MonitoringInstanceRepository) SaveMetricsHistory(ctx context.Context, instanceID string, cpuPct, memPct, diskPct, netMB, netRxMB, netTxMB float64, source string) error {
 	pool, err := database.GetPool()
 	if err != nil {
 		return err
@@ -631,9 +636,9 @@ func (r *MonitoringInstanceRepository) SaveMetricsHistory(ctx context.Context, i
 	if source == "" {
 		source = "ssh"
 	}
-	query := `INSERT INTO instance_metrics_history (instance_id, cpu_pct, mem_pct, disk_pct, net_total_mb, source, created_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`
-	_, err = pool.Exec(ctx, query, instanceID, cpuPct, memPct, diskPct, netMB, source)
+	query := `INSERT INTO instance_metrics_history (instance_id, cpu_pct, mem_pct, disk_pct, net_total_mb, net_rx_mb, net_tx_mb, source, created_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`
+	_, err = pool.Exec(ctx, query, instanceID, cpuPct, memPct, diskPct, netMB, netRxMB, netTxMB, source)
 	return err
 }
 
@@ -648,7 +653,8 @@ func (r *MonitoringInstanceRepository) GetMetricsHistoryFromDB(ctx context.Conte
 			COALESCE(cpu_pct, 0),
 			COALESCE(mem_pct, 0),
 			COALESCE(disk_pct, 0),
-			COALESCE(net_total_mb, 0),
+			COALESCE(net_rx_mb, net_total_mb, 0),
+			COALESCE(net_tx_mb, 0),
 			EXTRACT(EPOCH FROM created_at)::BIGINT
 		FROM instance_metrics_history
 		WHERE instance_id = $1 AND created_at >= $2
@@ -670,13 +676,14 @@ func (r *MonitoringInstanceRepository) GetMetricsHistoryFromDB(ctx context.Conte
 	}
 
 	for rows.Next() {
-		var cpu, mem, disk, netVal float64
+		var cpu, mem, disk, netRx, netTx float64
 		var ts int64
-		if err := rows.Scan(&cpu, &mem, &disk, &netVal, &ts); err == nil {
+		if err := rows.Scan(&cpu, &mem, &disk, &netRx, &netTx, &ts); err == nil {
 			resp.CPU = append(resp.CPU, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(cpu*100) / 100})
 			resp.Memory = append(resp.Memory, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(mem*100) / 100})
 			resp.Disk = append(resp.Disk, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(disk*100) / 100})
-			resp.NetIn = append(resp.NetIn, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(netVal*100) / 100})
+			resp.NetIn = append(resp.NetIn, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(netRx*100) / 100})
+			resp.NetOut = append(resp.NetOut, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(netTx*100) / 100})
 		}
 	}
 	return resp, nil
