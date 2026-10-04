@@ -28,6 +28,7 @@ const authStore = useAuthStore();
 
 const items = [
   { name: 'Overview', icon: Activity, route: '/', feature: 'dashboard' },
+  { name: 'App Library', icon: Boxes, action: 'open_app_library', feature: 'dashboard' },
   { name: 'Connections', icon: Link2, route: '/connections', feature: 'connections' },
   { name: 'Inventory Server', icon: Server, route: '/inventory-server', feature: 'connections' },
   { name: 'Remote Server', icon: Terminal, route: '/remote-server', newTab: true, feature: 'remote_servers' },
@@ -66,6 +67,10 @@ const filteredItems = computed(() => {
 const navigate = (item: any) => {
   isOpen.value = false;
   searchQuery.value = '';
+  if (item.action === 'open_app_library') {
+    window.dispatchEvent(new CustomEvent('open-app-library'));
+    return;
+  }
   if (item.newTab) {
     window.open(item.route, '_blank');
   } else {

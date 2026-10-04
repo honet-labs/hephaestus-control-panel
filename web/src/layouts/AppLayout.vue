@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
+import AppLibraryModal from '../components/AppLibraryModal.vue';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import {
   LayoutDashboard,
@@ -200,13 +201,22 @@ const handleKeyDown = (e: KeyboardEvent) => {
   }
 };
 
+// App Library Modal State
+const isAppLibraryOpen = ref(false);
+
+const openAppLibraryHandler = () => {
+  isAppLibraryOpen.value = true;
+};
+
 onMounted(() => {
   authStore.fetchUser();
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('open-app-library', openAppLibraryHandler);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('open-app-library', openAppLibraryHandler);
 });
 </script>
 
@@ -214,6 +224,9 @@ onUnmounted(() => {
   <div class="flex h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans relative">
     <!-- Command Palette (Ctrl+K) -->
     <CommandPalette />
+
+    <!-- App Library Modal -->
+    <AppLibraryModal :is-open="isAppLibraryOpen" @close="isAppLibraryOpen = false" />
 
     <!-- Mobile Backdrop Overlay -->
     <Transition
@@ -824,6 +837,16 @@ onUnmounted(() => {
 
         <!-- Right Header Actions -->
         <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <!-- App Library Button -->
+          <button
+            @click="isAppLibraryOpen = true"
+            class="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-50 dark:bg-[#121826] hover:bg-slate-100 dark:hover:bg-[#1a2336] rounded-lg border border-slate-200 dark:border-[#1b2234] transition cursor-pointer"
+            title="App Library"
+          >
+            <Boxes class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            <span class="hidden sm:inline text-[11px]">App Library</span>
+          </button>
+
           <!-- Quick Search Button -->
           <button
             @click="triggerSearch"
