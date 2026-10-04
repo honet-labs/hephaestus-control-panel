@@ -714,9 +714,14 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		UPDATE monitoring_instances SET visibility = 'private' WHERE visibility = 'public';
 
 		-- Add metric source and last metrics cache columns
-		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS metric_source VARCHAR(20) DEFAULT 'auto';
+		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS metric_source VARCHAR(20) DEFAULT 'ssh';
+		ALTER TABLE monitoring_instances ALTER COLUMN metric_source SET DEFAULT 'ssh';
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics JSONB;
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics_at TIMESTAMP WITH TIME ZONE;
+
+		-- Migrate existing auto or null instances to explicit ssh or prometheus
+		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NOT NULL;
+		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NULL;
 
 		-- Metrics history table for lightweight persistence & trend graphs
 		CREATE TABLE IF NOT EXISTS instance_metrics_history (

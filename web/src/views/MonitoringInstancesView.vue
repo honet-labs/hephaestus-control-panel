@@ -1173,7 +1173,7 @@ const openEditModal = async (inst: MonitoringInstance) => {
     tags: inst.tags ? inst.tags.join(', ') : '',
     prometheusTarget: inst.prometheusTarget || '',
     remoteHostId: inst.remoteHostId || '',
-    metricSource: inst.metricSource === 'prometheus' ? 'prometheus' : 'ssh',
+    metricSource: (inst.remoteHostId || inst.metricSource === 'ssh') ? 'ssh' : 'prometheus',
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
@@ -1846,7 +1846,7 @@ onUnmounted(() => {
 
               <!-- SSH Agentless Badge -->
               <span
-                v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh'"
+                v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId"
                 class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
                 title="Telemetry collected via SSH connection (Agentless)"
               >
@@ -2219,7 +2219,7 @@ onUnmounted(() => {
 
                     <!-- SSH Agentless Badge -->
                     <span
-                      v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh'"
+                      v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId"
                       class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
                       title="Telemetry collected via SSH connection (Agentless)"
                     >
@@ -2480,11 +2480,11 @@ onUnmounted(() => {
                         </span>
                       </div>
 
-                      <!-- Target Exporter Port -->
+                      <!-- Target Exporter Port / SSH Endpoint -->
                       <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
                         <span class="text-slate-400 font-mono text-[11px]">Target:</span>
                         <span class="font-mono text-slate-700 dark:text-slate-300">
-                          {{ inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port}` }}
+                          {{ (inst.metricSource === 'ssh' || inst.remoteHostId) ? `ssh://${inst.ipAddress || inst.host}:${inst.port || 22}` : (inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port || 8889}`) }}
                         </span>
                       </div>
 
@@ -2492,7 +2492,7 @@ onUnmounted(() => {
                       <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
                         <span class="text-slate-400 font-mono text-[11px]">Source:</span>
                         <span class="font-semibold text-slate-800 dark:text-slate-200">
-                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' ? 'Direct SSH' : 'Prometheus / OTel' }}
+                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId ? 'Direct SSH' : 'Prometheus / OTel' }}
                         </span>
                       </div>
 

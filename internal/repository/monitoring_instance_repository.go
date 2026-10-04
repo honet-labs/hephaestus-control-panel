@@ -39,7 +39,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
-				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
+				CASE 
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					ELSE 'prometheus'
+				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1 OR m.user_id IS NULL) AS is_owner,
@@ -57,7 +62,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
-				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
+				CASE 
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					ELSE 'prometheus'
+				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1) AS is_owner,
@@ -143,7 +153,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
-				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
+				CASE 
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					ELSE 'prometheus'
+				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1 OR m.user_id IS NULL) AS is_owner,
@@ -159,7 +174,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
-				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
+				CASE 
+					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
+					ELSE 'prometheus'
+				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1) AS is_owner,

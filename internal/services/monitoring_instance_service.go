@@ -219,7 +219,7 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 				netVal = inst.LiveMetrics.NetTotalMB
 
 				src := "prometheus"
-				if inst.MetricSource == "ssh" || (inst.LiveMetrics.AgentVersion != "" && strings.Contains(inst.LiveMetrics.AgentVersion, "SSH")) {
+				if inst.MetricSource == "ssh" || (inst.RemoteHostID != nil && *inst.RemoteHostID != "") || (inst.LiveMetrics.AgentVersion != "" && strings.Contains(inst.LiveMetrics.AgentVersion, "SSH")) {
 					src = "ssh"
 				}
 				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, src)
@@ -1684,6 +1684,11 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 	now := time.Now()
 
 	for _, inst := range instances {
+		// Never query or match Prometheus metrics for instances designated for SSH
+		if inst.MetricSource == "ssh" || (inst.RemoteHostID != nil && *inst.RemoteHostID != "" && inst.MetricSource != "prometheus") {
+			continue
+		}
+
 		var matched *hostMetricData
 		instIP := strings.TrimSpace(inst.IPAddress)
 		if instIP == "" {
@@ -2362,8 +2367,8 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
 			continue
 		}
-		// If metric_source is "ssh", poll via SSH
-		if inst.MetricSource == "ssh" || inst.MetricSource == "" {
+		// If metric_source is not explicitly prometheus, poll via SSH
+		if inst.MetricSource != "prometheus" {
 			targets = append(targets, inst)
 		}
 	}
@@ -2394,6 +2399,8 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 			liveMetrics, err := s.fetchInstanceSSHMetrics(hostCtx, target)
 			if err == nil && liveMetrics != nil {
 				target.LiveMetrics = liveMetrics
+			} else if err != nil {
+				logger.Warn("MonitoringSSH", fmt.Sprintf("Failed to fetch SSH metrics for %s (%s): %v", target.Name, target.Host, err))
 			}
 		}(inst)
 	}
