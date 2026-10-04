@@ -312,11 +312,14 @@ router.beforeEach(async (to, from, next) => {
         }
         const accessibleRoutes = [
           { path: '/connections', feature: 'connections' },
+          { path: '/monitoring-instance', feature: 'monitoring_instances' },
           { path: '/infrastructure/containers', feature: 'infrastructure' },
           { path: '/remote-server', feature: 'remote_servers' },
           { path: '/network-topology', feature: 'network_topology' },
+          { path: '/ipam', feature: 'ipam' },
           { path: '/status-pages', feature: 'status_pages' },
           { path: '/slideshow', feature: 'slideshow' },
+          { path: '/backup', feature: 'backup' },
           { path: '/snmp', feature: 'snmp' },
           { path: '/reports', feature: 'reports' },
         ];

@@ -637,6 +637,7 @@ const SYSTEM_FEATURES = [
   { key: 'remote_servers', label: 'Remote Servers & SSH', desc: 'SSH Web Terminal, SFTP explorer, processes, and service manager', icon: Terminal },
   { key: 'infrastructure', label: 'Management Containers', desc: 'Docker Hosts, Containers, Images, Networks, and Deploy Wizard', icon: Boxes },
   { key: 'network_topology', label: 'Network Topology', desc: 'Interactive topology canvas, device nodes, links, and subnet discovery', icon: Network },
+  { key: 'ipam', label: 'IP Address Management (IPAM)', desc: 'Subnets, IP allocations, ICMP ping sweeps, ARP discovery, and scan history', icon: Network },
   { key: 'backup', label: 'Database Backups', desc: 'Automated database dumps (MySQL, PG, Mongo, ES) and S3 destinations', icon: HardDrive },
   { key: 'connections', label: 'Monitoring Profiles', desc: 'Grafana, Prometheus, OpenSearch, Uptime Kuma connection credentials', icon: Link2 },
   { key: 'security', label: 'Vaultwarden Credentials', desc: 'E2EE Secrets Vault, Passwords, API tokens, and secure notes', icon: Shield },

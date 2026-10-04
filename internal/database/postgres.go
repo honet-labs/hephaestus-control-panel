@@ -207,8 +207,8 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE system_roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}'::jsonb;
 		INSERT INTO system_roles (name, description, is_default, permissions) VALUES 
 			('ADMIN', 'Full system administrator with unrestricted access', true, '{"*": "manage"}'::jsonb),
-			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "network_topology": "manage", "backup": "manage", "connections": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "slideshow": "manage", "settings": "manage", "ipam": "manage"}'::jsonb),
-			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "network_topology": "read", "backup": "none", "connections": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "slideshow": "read", "security": "none", "infrastructure": "read", "reports": "read", "status_pages": "read", "settings": "none", "ipam": "read"}'::jsonb)
+			('OPERATOR', 'Operational user with read and manage access to monitoring, servers, and network', true, '{"dashboard": "manage", "remote_servers": "manage", "infrastructure": "manage", "network_topology": "manage", "ipam": "manage", "backup": "manage", "connections": "manage", "security": "manage", "status_pages": "manage", "reports": "manage", "snmp": "manage", "opensearch": "manage", "grok_debugger": "manage", "dataprepper_config": "manage", "prometheus_config": "manage", "opentelemetry_config": "manage", "monitoring_instances": "manage", "slideshow": "manage", "settings": "manage"}'::jsonb),
+			('VIEWER', 'Read-only observer access across all monitoring and telemetry views', true, '{"dashboard": "read", "remote_servers": "read", "infrastructure": "read", "network_topology": "read", "ipam": "read", "backup": "none", "connections": "read", "security": "none", "status_pages": "read", "reports": "read", "snmp": "read", "opensearch": "read", "grok_debugger": "read", "dataprepper_config": "read", "prometheus_config": "read", "opentelemetry_config": "read", "monitoring_instances": "read", "slideshow": "read", "settings": "none"}'::jsonb)
 		ON CONFLICT (name) DO UPDATE SET 
 			permissions = EXCLUDED.permissions,
 			description = EXCLUDED.description;
@@ -877,11 +877,11 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_ipam_scan_logs_started ON ipam_scan_logs(started_at DESC);
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"ipam": "manage"}'::jsonb 
+		SET permissions = permissions || '{"ipam": "manage", "monitoring_instances": "manage", "slideshow": "manage", "infrastructure": "manage", "status_pages": "manage", "reports": "manage", "security": "manage"}'::jsonb 
 		WHERE name IN ('ADMIN', 'OPERATOR');
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"ipam": "read"}'::jsonb 
+		SET permissions = permissions || '{"ipam": "read", "monitoring_instances": "read", "slideshow": "read", "infrastructure": "read", "status_pages": "read", "reports": "read"}'::jsonb 
 		WHERE name = 'VIEWER';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
