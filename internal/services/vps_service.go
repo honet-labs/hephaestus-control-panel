@@ -30,7 +30,7 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 		return nil, err
 	}
 
-	cmd := `nproc 2>/dev/null || echo 1; echo "===CPU==="; (top -bn1 2>/dev/null | grep -i "%Cpu" | head -1) || echo ""; echo "===SYS==="; (cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d= -f2- | tr -d '"') || uname -s; uname -r; uname -m; hostname; (uptime -p 2>/dev/null || uptime); echo "===LOAD==="; uptime 2>/dev/null; echo "===MEM==="; free -m 2>/dev/null; echo "===DF==="; df -hP -x tmpfs -x devtmpfs -x squashfs 2>/dev/null || df -hP 2>/dev/null`
+	cmd := `nproc 2>/dev/null || echo 1; echo "===CPU==="; (awk '/^cpu / {t=$2+$3+$4+$5+$6+$7+$8+$9; if(t>0){printf "%.1f id\n", ($5*100)/t}}' /proc/stat 2>/dev/null || (top -bn1 2>/dev/null | grep -i "%Cpu" | head -1)) || echo ""; echo "===SYS==="; (cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d= -f2- | tr -d '"') || uname -s; uname -r; uname -m; hostname; (uptime -p 2>/dev/null || uptime); echo "===LOAD==="; uptime 2>/dev/null; echo "===MEM==="; free -m 2>/dev/null; echo "===DF==="; df -hP -x tmpfs -x devtmpfs -x squashfs 2>/dev/null || df -hP 2>/dev/null`
 	stdout, _, _, err := s.sshService.ExecuteCommand(cfg, cmd)
 	if err != nil || strings.TrimSpace(stdout) == "" {
 		return map[string]interface{}{
