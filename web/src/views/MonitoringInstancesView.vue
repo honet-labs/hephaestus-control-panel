@@ -36,6 +36,8 @@ import {
   Settings,
   Eye,
   EyeOff,
+  Copy,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 interface DockerContainerMetric {
@@ -1053,6 +1055,151 @@ const executeSync = async () => {
 };
 
 // -----------------------------------------------------------------------------
+// Share Wallboard / Embed Modal Logic (for Slideshow & Wallboard Displays)
+// -----------------------------------------------------------------------------
+const showShareModal = ref(false);
+const shareType = ref<'servers' | 'containers'>('servers');
+const shareSelectionMode = ref<'all' | 'specific' | 'group'>('all');
+const selectedShareServerIds = ref<string[]>([]);
+const selectedShareContainerIds = ref<string[]>([]);
+const shareGroup = ref<string>('all');
+const shareRefresh = ref<number>(10);
+const shareTitle = ref<string>('');
+const shareIncludeToken = ref<boolean>(true);
+const shareItemSearch = ref<string>('');
+const addingToSlideShow = ref<boolean>(false);
+const copySuccess = ref<boolean>(false);
+
+const openShareModal = () => {
+  shareType.value = activeTab.value;
+  shareSelectionMode.value = 'all';
+  selectedShareServerIds.value = instances.value.map((i) => i.id);
+  selectedShareContainerIds.value = dockerContainers.value.map((c) => c.id || c.containerId);
+  shareGroup.value = 'all';
+  shareRefresh.value = 10;
+  shareTitle.value = activeTab.value === 'servers' ? 'Infrastructure Telemetry' : 'Container Fleet Telemetry';
+  shareIncludeToken.value = true;
+  shareItemSearch.value = '';
+  showShareModal.value = true;
+};
+
+const generatedEmbedUrl = computed(() => {
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+  const params = new URLSearchParams();
+
+  params.set('type', shareType.value);
+
+  if (shareSelectionMode.value === 'specific') {
+    const ids = shareType.value === 'servers' ? selectedShareServerIds.value : selectedShareContainerIds.value;
+    if (ids.length > 0) {
+      params.set('ids', ids.join(','));
+    }
+  } else if (shareSelectionMode.value === 'group' && shareGroup.value && shareGroup.value !== 'all') {
+    params.set('group', shareGroup.value);
+  }
+
+  if (shareRefresh.value && shareRefresh.value !== 10) {
+    params.set('refresh', shareRefresh.value.toString());
+  }
+
+  if (shareTitle.value.trim()) {
+    params.set('title', shareTitle.value.trim());
+  }
+
+  if (shareIncludeToken.value && authStore.token) {
+    params.set('token', authStore.token);
+  }
+
+  return `${origin}/monitoring-embed?${params.toString()}`;
+});
+
+const filteredShareServers = computed(() => {
+  if (!shareItemSearch.value.trim()) return instances.value;
+  const q = shareItemSearch.value.trim().toLowerCase();
+  return instances.value.filter(
+    (i) =>
+      i.name.toLowerCase().includes(q) ||
+      i.host.toLowerCase().includes(q) ||
+      (i.ipAddress && i.ipAddress.toLowerCase().includes(q)) ||
+      (i.groupName && i.groupName.toLowerCase().includes(q))
+  );
+});
+
+const filteredShareContainers = computed(() => {
+  if (!shareItemSearch.value.trim()) return dockerContainers.value;
+  const q = shareItemSearch.value.trim().toLowerCase();
+  return dockerContainers.value.filter(
+    (c) =>
+      c.containerName.toLowerCase().includes(q) ||
+      c.imageName.toLowerCase().includes(q) ||
+      c.hostname.toLowerCase().includes(q) ||
+      c.ipAddress.toLowerCase().includes(q)
+  );
+});
+
+const copyEmbedUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(generatedEmbedUrl.value);
+    copySuccess.value = true;
+    showNotice('Embed URL copied to clipboard!', 'success');
+    setTimeout(() => {
+      copySuccess.value = false;
+    }, 2500);
+  } catch {
+    showNotice('Failed to copy URL to clipboard', 'error');
+  }
+};
+
+const openEmbedPreview = () => {
+  window.open(generatedEmbedUrl.value, '_blank');
+};
+
+const addEmbedToSlideShow = async () => {
+  addingToSlideShow.value = true;
+  try {
+    const slideName = shareTitle.value.trim() || (shareType.value === 'servers' ? 'Server Telemetry' : 'Container Telemetry');
+    const payload = {
+      id: `embed-mon-${Date.now()}`,
+      name: slideName,
+      description: generatedEmbedUrl.value,
+      interval: shareRefresh.value > 0 ? shareRefresh.value : 15,
+      mode: 'embed',
+      panels: {
+        url: generatedEmbedUrl.value,
+        zoom: 100,
+        isActive: true,
+      },
+    };
+    const res = await axios.post('/api/v1/monitoring-views', payload);
+    if (res.data?.success) {
+      showNotice('Added to Slide Show successfully! You can view it in the Slide Show menu.', 'success');
+      showShareModal.value = false;
+    }
+  } catch (err: any) {
+    showNotice(err.response?.data?.error || 'Failed to add to Slide Show', 'error');
+  } finally {
+    addingToSlideShow.value = false;
+  }
+};
+
+const toggleSelectAllShareServers = () => {
+  if (selectedShareServerIds.value.length === instances.value.length) {
+    selectedShareServerIds.value = [];
+  } else {
+    selectedShareServerIds.value = instances.value.map((i) => i.id);
+  }
+};
+
+const toggleSelectAllShareContainers = () => {
+  if (selectedShareContainerIds.value.length === dockerContainers.value.length) {
+    selectedShareContainerIds.value = [];
+  } else {
+    selectedShareContainerIds.value = dockerContainers.value.map((c) => c.id || c.containerId);
+  }
+};
+
+// -----------------------------------------------------------------------------
 // Remote Host Auto-Fill on Selection
 // -----------------------------------------------------------------------------
 const onRemoteHostSelect = (hostId: string) => {
@@ -1675,6 +1822,16 @@ onUnmounted(() => {
         >
           <Server class="w-3.5 h-3.5 text-slate-400" />
           <span>Sync Remote Hosts</span>
+        </button>
+
+        <!-- Share / Wallboard Embed URL -->
+        <button
+          @click="openShareModal"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#161c2d] text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer"
+          title="Share customizable wallboard view or add to Slide Show"
+        >
+          <Share2 class="w-3.5 h-3.5 text-slate-400" />
+          <span>Share View</span>
         </button>
 
         <!-- Add Manual Host -->
@@ -4159,6 +4316,302 @@ onUnmounted(() => {
               class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
             >
               Save & Apply
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL: SHARE WALLBOARD / EMBED URL (For Slideshow & Standalone View)   -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showShareModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs animate-in fade-in"
+    >
+      <div
+        class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col"
+      >
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b2234]">
+          <div class="flex items-center gap-2">
+            <Share2 class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Share Telemetry Wallboard / Embed URL</h3>
+          </div>
+          <button @click="showShareModal = false" class="text-slate-400 hover:text-slate-200 cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto flex-1 pr-1 text-xs">
+          <!-- Step 1: Select Type -->
+          <div class="space-y-1.5">
+            <label class="font-bold text-slate-700 dark:text-slate-200">1. Target Telemetry Type</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="shareType = 'servers'"
+                :class="[
+                  shareType === 'servers'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold'
+                    : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#161c2d]',
+                  'p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition text-left'
+                ]"
+              >
+                <Server class="w-4 h-4 shrink-0" />
+                <div>
+                  <div class="font-semibold">Servers / Instances</div>
+                  <div class="text-[10px] opacity-75">CPU, RAM, Disk, Net I/O table</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                @click="shareType = 'containers'"
+                :class="[
+                  shareType === 'containers'
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold'
+                    : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-[#161c2d]',
+                  'p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition text-left'
+                ]"
+              >
+                <Box class="w-4 h-4 shrink-0" />
+                <div>
+                  <div class="font-semibold">Docker Containers</div>
+                  <div class="text-[10px] opacity-75">Container CPU, Memory, I/O table</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 2: Selection Mode -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="font-bold text-slate-700 dark:text-slate-200">2. Item Selection</label>
+              <span class="text-[11px] text-slate-400 font-mono">
+                {{ shareType === 'servers' ? `${selectedShareServerIds.length} of ${instances.length} selected` : `${selectedShareContainerIds.length} of ${dockerContainers.length} selected` }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                @click="shareSelectionMode = 'all'"
+                :class="[
+                  shareSelectionMode === 'all'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#202b44]',
+                  'px-3 py-1.5 rounded-lg transition cursor-pointer'
+                ]"
+              >
+                All {{ shareType === 'servers' ? 'Servers' : 'Containers' }}
+              </button>
+
+              <button
+                type="button"
+                @click="shareSelectionMode = 'specific'"
+                :class="[
+                  shareSelectionMode === 'specific'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#202b44]',
+                  'px-3 py-1.5 rounded-lg transition cursor-pointer'
+                ]"
+              >
+                Select Specific Items
+              </button>
+
+              <button
+                v-if="shareType === 'servers'"
+                type="button"
+                @click="shareSelectionMode = 'group'"
+                :class="[
+                  shareSelectionMode === 'group'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'bg-slate-100 dark:bg-[#192236] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#202b44]',
+                  'px-3 py-1.5 rounded-lg transition cursor-pointer'
+                ]"
+              >
+                Filter by Group
+              </button>
+            </div>
+          </div>
+
+          <!-- Specific Server / Container Checklist -->
+          <div v-if="shareSelectionMode === 'specific'" class="space-y-2 border border-slate-200 dark:border-[#1f283d] rounded-xl p-3 bg-slate-50/50 dark:bg-[#0c101a]">
+            <div class="flex items-center justify-between gap-2">
+              <div class="relative flex-1">
+                <Search class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  v-model="shareItemSearch"
+                  type="text"
+                  placeholder="Search items by name, host, ip..."
+                  class="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <button
+                type="button"
+                @click="shareType === 'servers' ? toggleSelectAllShareServers() : toggleSelectAllShareContainers()"
+                class="px-2.5 py-1.5 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-300 rounded-lg text-xs hover:bg-slate-50 dark:hover:bg-[#1f283d] cursor-pointer whitespace-nowrap"
+              >
+                Toggle Select All
+              </button>
+            </div>
+
+            <!-- Server items list -->
+            <div v-if="shareType === 'servers'" class="max-h-48 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-[#161c2d]">
+              <label
+                v-for="inst in filteredShareServers"
+                :key="inst.id"
+                class="flex items-center gap-2.5 py-1.5 px-2 hover:bg-white dark:hover:bg-[#141b2b] rounded-lg cursor-pointer transition select-none"
+              >
+                <input
+                  type="checkbox"
+                  :value="inst.id"
+                  v-model="selectedShareServerIds"
+                  class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                />
+                <div class="flex items-center justify-between flex-1 min-w-0">
+                  <div class="flex items-center gap-2 truncate">
+                    <span class="font-semibold text-slate-800 dark:text-slate-200 truncate">{{ inst.name }}</span>
+                    <span class="text-[10px] text-slate-400 font-mono">{{ inst.ipAddress || inst.host }}</span>
+                  </div>
+                  <span v-if="inst.groupName" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-[#1f283d] text-slate-600 dark:text-slate-400 shrink-0">
+                    {{ inst.groupName }}
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <!-- Container items list -->
+            <div v-else class="max-h-48 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-[#161c2d]">
+              <label
+                v-for="c in filteredShareContainers"
+                :key="c.id || c.containerId"
+                class="flex items-center gap-2.5 py-1.5 px-2 hover:bg-white dark:hover:bg-[#141b2b] rounded-lg cursor-pointer transition select-none"
+              >
+                <input
+                  type="checkbox"
+                  :value="c.id || c.containerId"
+                  v-model="selectedShareContainerIds"
+                  class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                />
+                <div class="flex items-center justify-between flex-1 min-w-0">
+                  <div class="flex items-center gap-2 truncate">
+                    <span class="font-semibold text-slate-800 dark:text-slate-200 truncate">{{ c.containerName }}</span>
+                    <span class="text-[10px] text-slate-400 font-mono truncate max-w-[140px]">{{ c.imageName }}</span>
+                  </div>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-[#1f283d] text-slate-600 dark:text-slate-400 shrink-0 font-mono">
+                    {{ c.hostname }}
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Group Select Dropdown -->
+          <div v-if="shareSelectionMode === 'group' && shareType === 'servers'" class="space-y-1">
+            <label class="text-xs text-slate-600 dark:text-slate-400">Select Group:</label>
+            <select
+              v-model="shareGroup"
+              class="w-full px-3 py-2 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
+            >
+              <option value="all">All Groups</option>
+              <option v-for="g in groups" :key="g.name" :value="g.name">{{ g.name }} ({{ g.count }})</option>
+            </select>
+          </div>
+
+          <!-- Step 3: Settings (Title, Refresh, Token) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Custom Title</label>
+              <input
+                v-model="shareTitle"
+                type="text"
+                placeholder="e.g. NOC Production Fleet"
+                class="w-full px-3 py-1.5 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
+              />
+            </div>
+
+            <div class="space-y-1">
+              <label class="font-semibold text-slate-700 dark:text-slate-300">Live Auto-Refresh Interval</label>
+              <select
+                v-model="shareRefresh"
+                class="w-full px-3 py-1.5 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
+              >
+                <option :value="5">5 Seconds (Ultra Realtime)</option>
+                <option :value="10">10 Seconds (Recommended)</option>
+                <option :value="15">15 Seconds</option>
+                <option :value="30">30 Seconds</option>
+                <option :value="60">60 Seconds</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Include Auth Token Checkbox -->
+          <div class="flex items-center gap-2 pt-1">
+            <input
+              id="includeTokenCheck"
+              type="checkbox"
+              v-model="shareIncludeToken"
+              class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+            />
+            <label for="includeTokenCheck" class="text-slate-600 dark:text-slate-300 text-xs cursor-pointer select-none">
+              Include session auth token in URL (Enables seamless direct embedding in Slide Show / TV Kiosk displays)
+            </label>
+          </div>
+
+          <!-- Step 4: Generated URL Box -->
+          <div class="space-y-1.5 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+            <label class="font-bold text-slate-700 dark:text-slate-200">3. Generated Shared Embed URL</label>
+            <div class="flex items-center gap-2">
+              <input
+                readonly
+                :value="generatedEmbedUrl"
+                class="flex-1 px-3 py-2 bg-slate-100 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1f283d] rounded-lg text-[11px] font-mono text-slate-700 dark:text-slate-300 select-all focus:outline-hidden"
+              />
+              <button
+                type="button"
+                @click="copyEmbedUrl"
+                class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+              >
+                <Check v-if="copySuccess" class="w-3.5 h-3.5 text-emerald-400" />
+                <Copy v-else class="w-3.5 h-3.5" />
+                <span>{{ copySuccess ? 'Copied!' : 'Copy URL' }}</span>
+              </button>
+              <button
+                type="button"
+                @click="openEmbedPreview"
+                class="px-3 py-2 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                title="Open in new window to preview"
+              >
+                <ExternalLink class="w-3.5 h-3.5" />
+                <span>Preview</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Action Footer -->
+        <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#1b2234]">
+          <div class="text-[11px] text-slate-400">
+            Paste this URL directly into <strong class="text-slate-300">Slide Show</strong> or use the quick action button.
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="showShareModal = false"
+              class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              @click="addEmbedToSlideShow"
+              :disabled="addingToSlideShow"
+              class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              <span>{{ addingToSlideShow ? 'Adding...' : '+ Add to Slide Show' }}</span>
             </button>
           </div>
         </div>

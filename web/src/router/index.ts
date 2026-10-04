@@ -72,6 +72,12 @@ const router = createRouter({
       meta: { requiresAuth: false },
     },
     {
+      path: '/monitoring-embed',
+      name: 'monitoring-embed',
+      component: () => import('../views/MonitoringEmbedView.vue'),
+      meta: { requiresAuth: true, feature: 'monitoring_instances' },
+    },
+    {
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
