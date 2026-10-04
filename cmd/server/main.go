@@ -79,7 +79,7 @@ func main() {
 	ipamRepo := repository.NewIpamRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
-	workerPool := queue.InitWorkerPool(5)
+	workerPool := queue.InitWorkerPool(10)
 	cronSched := scheduler.InitCronScheduler(backupRepo, userRepo)
 
 	// 6. Initialize Services

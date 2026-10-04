@@ -82,7 +82,7 @@ const services = ref<ServiceItem[]>([
     description: 'Periodic ICMP ping sweep, packet loss & device latency poller across subnets',
     moduleKey: 'Network',
     elapsedSec: 4,
-    threads: 4,
+    threads: 20,
     queued: 0,
   },
   {
@@ -94,8 +94,8 @@ const services = ref<ServiceItem[]>([
     description: 'Real-time OpenSearch cluster health, nodes performance stats, and shard telemetry',
     moduleKey: 'OpenSearch',
     elapsedSec: 5,
-    threads: 4,
-    queued: 1,
+    threads: 5,
+    queued: 0,
   },
   {
     id: 'srv-backup',
@@ -118,7 +118,7 @@ const services = ref<ServiceItem[]>([
     description: 'SNMP v1/v2c/v3 trap listener, OID real-time query engine, and MIB dictionary compiler',
     moduleKey: 'SNMP',
     elapsedSec: 12,
-    threads: 2,
+    threads: 4,
     queued: 0,
   },
   {
@@ -130,7 +130,7 @@ const services = ref<ServiceItem[]>([
     description: 'Automated network topology scanner, ARP lookup, and MAC address discovery daemon',
     moduleKey: 'Topology',
     elapsedSec: 6,
-    threads: 2,
+    threads: 5,
     queued: 0,
   },
   {
@@ -147,50 +147,62 @@ const services = ref<ServiceItem[]>([
   },
   {
     id: 'srv-alert',
-    name: 'Alert & Notification Dispatcher',
+    name: 'Alert & Notification Server',
     status: 'running',
-    type: 'Alert & Notification Dispatcher',
+    type: 'Alert & Notification Server',
     updated: '15 seconds ago',
-    description: 'Real-time notification engine for Slack, Discord, Telegram, and Email alerts',
+    description: 'Threshold breach evaluation, incident escalation rules, and multi-channel webhook dispatcher',
     moduleKey: 'Notification',
     elapsedSec: 15,
-    threads: 2,
-    queued: 0,
-  },
-  {
-    id: 'srv-prometheus',
-    name: 'Prometheus Metrics Scraper',
-    status: 'running',
-    type: 'Prometheus Metrics Scraper',
-    updated: '10 seconds ago',
-    description: 'Periodic time-series metrics scraper for node_exporter, vCPUs, and RAM utilization',
-    moduleKey: 'Prometheus',
-    elapsedSec: 10,
     threads: 4,
     queued: 0,
   },
   {
-    id: 'srv-worker',
-    name: 'In-Memory Async Worker Pool',
+    id: 'srv-prometheus',
+    name: 'Prometheus & PromQL Collector',
     status: 'running',
-    type: 'In-Memory Async Worker Pool',
+    type: 'Prometheus & PromQL Collector',
+    updated: '10 seconds ago',
+    description: 'High-frequency metric ingestion from Prometheus node exporters and PromQL bridge',
+    moduleKey: 'Prometheus',
+    elapsedSec: 10,
+    threads: 8,
+    queued: 0,
+  },
+  {
+    id: 'srv-ssh-telemetry',
+    name: 'SSH Telemetry Server (Agentless Poller)',
+    status: 'running',
+    type: 'SSH Telemetry Server (Agentless Poller)',
+    updated: '5 seconds ago',
+    description: 'Direct agentless SSH resource metric ingestion (/proc/stat, RAM, Disk, Net I/O) and time-series table archiver',
+    moduleKey: 'SSH',
+    elapsedSec: 5,
+    threads: 10,
+    queued: 0,
+  },
+  {
+    id: 'srv-worker',
+    name: 'Heavy Background Worker Pool',
+    status: 'running',
+    type: 'Heavy Background Worker Pool',
     updated: '3 seconds ago',
-    description: 'Go goroutine worker pool executing background asynchronous jobs and queue dispatch',
+    description: '10 Goroutine worker pool threads for async batch tasks, exports, and heavy jobs',
     moduleKey: 'Queue',
     elapsedSec: 3,
-    threads: 5,
+    threads: 10,
     queued: 0,
   },
   {
     id: 'srv-grok',
-    name: 'Grok Pattern Parser Daemon',
+    name: 'Grok Engine & Log Parser',
     status: 'running',
-    type: 'Grok Pattern Parser Daemon',
+    type: 'Grok Engine & Log Parser',
     updated: '22 seconds ago',
-    description: 'High-throughput regex log parser extracting structured telemetry from raw log streams',
+    description: 'Pattern matching, regex parser, and log structure transformation engine',
     moduleKey: 'Grok',
     elapsedSec: 22,
-    threads: 2,
+    threads: 4,
     queued: 0,
   },
   {
@@ -207,9 +219,9 @@ const services = ref<ServiceItem[]>([
   },
   {
     id: 'srv-ipam',
-    name: 'IPAM Network Scanner Daemon',
+    name: 'IPAM Network Scanner (IP Allocation & Discovery)',
     status: 'running',
-    type: 'IPAM Network Scanner (Subnet & IP Discovery)',
+    type: 'IPAM Network Scanner (IP Allocation & Discovery)',
     updated: '2 seconds ago',
     description: 'Automated subnet scanner, IP allocation tracker, OS fingerprinting, and scheduled network sweep',
     moduleKey: 'IPAM',
@@ -374,9 +386,9 @@ const dbConfig = ref({
   password: '',
   database: 'hephaestus_db',
   ssl: false,
-  maxConns: 10,
-  minConns: 2,
-  maxConnIdleTime: 300,
+  maxConns: 25,
+  minConns: 5,
+  maxConnIdleTime: 600,
   maxConnLifetime: 3600,
 });
 const dbStatus = ref<{ success: boolean; message: string } | null>(null);
@@ -392,9 +404,9 @@ const fetchDatabaseConfig = async () => {
       dbConfig.value.user = res.data.data.user || 'hephaestus';
       dbConfig.value.database = res.data.data.database || 'hephaestus_db';
       dbConfig.value.ssl = Boolean(res.data.data.ssl);
-      dbConfig.value.maxConns = res.data.data.maxConns || 10;
-      dbConfig.value.minConns = res.data.data.minConns ?? 2;
-      dbConfig.value.maxConnIdleTime = res.data.data.maxConnIdleTime || 300;
+      dbConfig.value.maxConns = res.data.data.maxConns || 25;
+      dbConfig.value.minConns = res.data.data.minConns ?? 5;
+      dbConfig.value.maxConnIdleTime = res.data.data.maxConnIdleTime || 600;
       dbConfig.value.maxConnLifetime = res.data.data.maxConnLifetime || 3600;
     }
   } catch (err) {
@@ -413,9 +425,9 @@ const testDbConnection = async () => {
       password: dbConfig.value.password,
       database: dbConfig.value.database,
       ssl: dbConfig.value.ssl,
-      maxConns: Number(dbConfig.value.maxConns) || 10,
-      minConns: Number(dbConfig.value.minConns) ?? 2,
-      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 300,
+      maxConns: Number(dbConfig.value.maxConns) || 25,
+      minConns: Number(dbConfig.value.minConns) ?? 5,
+      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 600,
       maxConnLifetime: Number(dbConfig.value.maxConnLifetime) || 3600,
     });
     if (res.data.success) {
@@ -444,9 +456,9 @@ const saveDbConfig = async () => {
       password: dbConfig.value.password,
       database: dbConfig.value.database,
       ssl: dbConfig.value.ssl,
-      maxConns: Number(dbConfig.value.maxConns) || 10,
-      minConns: Number(dbConfig.value.minConns) ?? 2,
-      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 300,
+      maxConns: Number(dbConfig.value.maxConns) || 25,
+      minConns: Number(dbConfig.value.minConns) ?? 5,
+      maxConnIdleTime: Number(dbConfig.value.maxConnIdleTime) || 600,
       maxConnLifetime: Number(dbConfig.value.maxConnLifetime) || 3600,
     });
     if (res.data.success) {
@@ -1431,10 +1443,10 @@ onUnmounted(() => {
                 type="number"
                 min="1"
                 max="1000"
-                placeholder="10"
+                placeholder="25"
                 class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
               />
-              <p class="text-[9px] text-slate-500 mt-0.5">Maximum concurrent connections in pool (Default: 10, Max: 1000)</p>
+              <p class="text-[9px] text-slate-500 mt-0.5">Maximum concurrent connections in pool (Default: 25, Max: 1000)</p>
             </div>
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Min Idle Connections</label>
@@ -1443,10 +1455,10 @@ onUnmounted(() => {
                 type="number"
                 min="0"
                 max="500"
-                placeholder="2"
+                placeholder="5"
                 class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
               />
-              <p class="text-[9px] text-slate-500 mt-0.5">Minimum warm connections kept open (Default: 2, Max: 500)</p>
+              <p class="text-[9px] text-slate-500 mt-0.5">Minimum warm connections kept open (Default: 5, Max: 500)</p>
             </div>
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Max Idle Duration (Seconds)</label>
@@ -1454,10 +1466,10 @@ onUnmounted(() => {
                 v-model.number="dbConfig.maxConnIdleTime"
                 type="number"
                 min="10"
-                placeholder="300"
+                placeholder="600"
                 class="w-full bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-xs"
               />
-              <p class="text-[9px] text-slate-500 mt-0.5">Timeout before closing inactive connections (Default: 300s)</p>
+              <p class="text-[9px] text-slate-500 mt-0.5">Timeout before closing inactive connections (Default: 600s)</p>
             </div>
             <div>
               <label class="block text-slate-400 mb-1 font-bold">Max Lifetime (Seconds)</label>

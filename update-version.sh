@@ -88,18 +88,29 @@ if [ -f .env ]; then
         cat << 'EOF' >> .env
 
 # Resource & Database Connection Pool Tuning
-DB_MAX_CONNS=10
-DB_MIN_CONNS=2
-DB_MAX_CONN_IDLE_TIME=300
+DB_MAX_CONNS=25
+DB_MIN_CONNS=5
+DB_MAX_CONN_IDLE_TIME=600
 DB_MAX_CONN_LIFETIME=3600
-POSTGRES_SHARED_BUFFERS=64MB
-POSTGRES_WORK_MEM=4MB
-POSTGRES_MAINTENANCE_WORK_MEM=16MB
-POSTGRES_MAX_CONNECTIONS=40
-POSTGRES_WAL_BUFFERS=4MB
-GOMEMLIMIT=256MiB
+POSTGRES_SHARED_BUFFERS=128MB
+POSTGRES_WORK_MEM=8MB
+POSTGRES_MAINTENANCE_WORK_MEM=32MB
+POSTGRES_MAX_CONNECTIONS=100
+POSTGRES_WAL_BUFFERS=8MB
+GOMEMLIMIT=512MiB
 GOGC=80
 EOF
+    else
+        # Auto-tune old defaults if found in existing .env
+        sed -i 's/^DB_MAX_CONNS=10$/DB_MAX_CONNS=25/' .env 2>/dev/null || true
+        sed -i 's/^DB_MIN_CONNS=2$/DB_MIN_CONNS=5/' .env 2>/dev/null || true
+        sed -i 's/^DB_MAX_CONN_IDLE_TIME=300$/DB_MAX_CONN_IDLE_TIME=600/' .env 2>/dev/null || true
+        sed -i 's/^POSTGRES_MAX_CONNECTIONS=40$/POSTGRES_MAX_CONNECTIONS=100/' .env 2>/dev/null || true
+        sed -i 's/^POSTGRES_SHARED_BUFFERS=64MB$/POSTGRES_SHARED_BUFFERS=128MB/' .env 2>/dev/null || true
+        sed -i 's/^POSTGRES_WORK_MEM=4MB$/POSTGRES_WORK_MEM=8MB/' .env 2>/dev/null || true
+        sed -i 's/^POSTGRES_MAINTENANCE_WORK_MEM=16MB$/POSTGRES_MAINTENANCE_WORK_MEM=32MB/' .env 2>/dev/null || true
+        sed -i 's/^POSTGRES_WAL_BUFFERS=4MB$/POSTGRES_WAL_BUFFERS=8MB/' .env 2>/dev/null || true
+        sed -i 's/^GOMEMLIMIT=256MiB$/GOMEMLIMIT=512MiB/' .env 2>/dev/null || true
     fi
 fi
 

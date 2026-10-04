@@ -27,9 +27,9 @@ type DBConfig struct {
 	Password        string `json:"password"`
 	Database        string `json:"database"`
 	SSL             bool   `json:"ssl"`
-	MaxConns        int    `json:"maxConns"`        // Maximum active connections in pool (default: 10)
-	MinConns        int    `json:"minConns"`        // Minimum idle connections in pool (default: 2)
-	MaxConnIdleTime int    `json:"maxConnIdleTime"` // Max idle duration before closing in seconds (default: 300)
+	MaxConns        int    `json:"maxConns"`        // Maximum active connections in pool (default: 25)
+	MinConns        int    `json:"minConns"`        // Minimum idle connections in pool (default: 5)
+	MaxConnIdleTime int    `json:"maxConnIdleTime"` // Max idle duration before closing in seconds (default: 600)
 	MaxConnLifetime int    `json:"maxConnLifetime"` // Max connection lifetime in seconds (default: 3600)
 }
 
@@ -82,17 +82,17 @@ func LoadConfig() *Config {
 		dbName := getEnv("DB_NAME", getEnv("PGDATABASE", "hephaestus"))
 		dbSSL := getEnv("DB_SSL", getEnv("PGSSL", "false")) == "true"
 
-		maxConns, _ := strconv.Atoi(getEnv("DB_MAX_CONNS", "10"))
+		maxConns, _ := strconv.Atoi(getEnv("DB_MAX_CONNS", "25"))
 		if maxConns <= 0 {
-			maxConns = 10
+			maxConns = 25
 		}
-		minConns, _ := strconv.Atoi(getEnv("DB_MIN_CONNS", "2"))
+		minConns, _ := strconv.Atoi(getEnv("DB_MIN_CONNS", "5"))
 		if minConns < 0 {
-			minConns = 2
+			minConns = 5
 		}
-		maxConnIdleTime, _ := strconv.Atoi(getEnv("DB_MAX_CONN_IDLE_TIME", "300"))
+		maxConnIdleTime, _ := strconv.Atoi(getEnv("DB_MAX_CONN_IDLE_TIME", "600"))
 		if maxConnIdleTime <= 0 {
-			maxConnIdleTime = 300
+			maxConnIdleTime = 600
 		}
 		maxConnLifetime, _ := strconv.Atoi(getEnv("DB_MAX_CONN_LIFETIME", "3600"))
 		if maxConnLifetime <= 0 {
@@ -199,13 +199,13 @@ func (c *Config) UpdateDBConfig(newDB DBConfig) error {
 	}
 
 	if newDB.MaxConns <= 0 {
-		newDB.MaxConns = 10
+		newDB.MaxConns = 25
 	}
 	if newDB.MinConns < 0 {
-		newDB.MinConns = 2
+		newDB.MinConns = 5
 	}
 	if newDB.MaxConnIdleTime <= 0 {
-		newDB.MaxConnIdleTime = 300
+		newDB.MaxConnIdleTime = 600
 	}
 	if newDB.MaxConnLifetime <= 0 {
 		newDB.MaxConnLifetime = 3600

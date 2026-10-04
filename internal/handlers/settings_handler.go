@@ -831,13 +831,13 @@ func (h *SettingsHandler) UpdateDatabaseConfig(c *gin.Context) {
 	}
 
 	if req.MaxConns <= 0 {
-		req.MaxConns = 10
+		req.MaxConns = 25
 	}
 	if req.MinConns < 0 {
-		req.MinConns = 2
+		req.MinConns = 5
 	}
 	if req.MaxConnIdleTime <= 0 {
-		req.MaxConnIdleTime = 300
+		req.MaxConnIdleTime = 600
 	}
 	if req.MaxConnLifetime <= 0 {
 		req.MaxConnLifetime = 3600

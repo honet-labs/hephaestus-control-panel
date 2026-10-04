@@ -2423,8 +2423,8 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 		return
 	}
 
-	// Concurrency limiter: max 5 concurrent SSH handshakes to protect local daemon and remote targets
-	sem := make(chan struct{}, 5)
+	// Concurrency limiter: max 10 concurrent SSH handshakes to protect local daemon and remote targets
+	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 
 	for _, inst := range targets {

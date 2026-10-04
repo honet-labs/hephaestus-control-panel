@@ -53,11 +53,11 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 
 	maxConns := cfg.DB.MaxConns
 	if maxConns <= 0 {
-		maxConns = 10
+		maxConns = 25
 	}
 	minConns := cfg.DB.MinConns
 	if minConns < 0 {
-		minConns = 2
+		minConns = 5
 	}
 	if minConns > maxConns {
 		minConns = maxConns
@@ -65,7 +65,7 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 
 	idleTime := time.Duration(cfg.DB.MaxConnIdleTime) * time.Second
 	if idleTime <= 0 {
-		idleTime = 5 * time.Minute
+		idleTime = 10 * time.Minute
 	}
 
 	lifetime := time.Duration(cfg.DB.MaxConnLifetime) * time.Second

@@ -57,7 +57,7 @@ func InitWorkerPool(workers int) *WorkerPool {
 // GetWorkerPool returns the global worker pool
 func GetWorkerPool() *WorkerPool {
 	if defaultPool == nil {
-		return InitWorkerPool(5)
+		return InitWorkerPool(10)
 	}
 	return defaultPool
 }
