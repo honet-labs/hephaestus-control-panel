@@ -1252,6 +1252,11 @@ type CreateMonitoringInstanceRequest struct {
 	Visibility       string   `json:"visibility"`
 	AlertEnabled     bool     `json:"alertEnabled"`
 	Notes            string   `json:"notes"`
+	SSHPort          int      `json:"sshPort,omitempty"`
+	SSHUsername      string   `json:"sshUsername,omitempty"`
+	SSHAuthType      string   `json:"sshAuthType,omitempty"`
+	SSHPassword      string   `json:"sshPassword,omitempty"`
+	SSHKey           string   `json:"sshKey,omitempty"`
 }
 
 type UpdateMonitoringInstanceRequest struct {
@@ -1269,6 +1274,11 @@ type UpdateMonitoringInstanceRequest struct {
 	Visibility       string   `json:"visibility"`
 	AlertEnabled     bool     `json:"alertEnabled"`
 	Notes            string   `json:"notes"`
+	SSHPort          int      `json:"sshPort,omitempty"`
+	SSHUsername      string   `json:"sshUsername,omitempty"`
+	SSHAuthType      string   `json:"sshAuthType,omitempty"`
+	SSHPassword      string   `json:"sshPassword,omitempty"`
+	SSHKey           string   `json:"sshKey,omitempty"`
 }
 
 type SyncRemoteHostsRequest struct {

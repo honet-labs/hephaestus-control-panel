@@ -34,6 +34,8 @@ import {
   Sliders,
   Box,
   Settings,
+  Eye,
+  EyeOff,
 } from 'lucide-vue-next';
 
 interface DockerContainerMetric {
@@ -1064,6 +1066,15 @@ const onRemoteHostSelect = (hostId: string) => {
     if ((!instanceForm.value.groupName || instanceForm.value.groupName === 'Default') && found.groupName) {
       instanceForm.value.groupName = found.groupName;
     }
+    if (found.port) {
+      instanceForm.value.sshPort = found.port;
+    }
+    if (found.username) {
+      instanceForm.value.sshUser = found.username;
+    }
+    if (found.authType) {
+      instanceForm.value.sshAuthType = (found.authType as any) || 'password';
+    }
   }
 };
 
@@ -1074,6 +1085,7 @@ const showInstanceModal = ref(false);
 const isEditing = ref(false);
 const currentInstanceId = ref('');
 const savingInstance = ref(false);
+const showSshPassword = ref(false);
 const instanceForm = ref({
   name: '',
   host: '',
@@ -1089,11 +1101,17 @@ const instanceForm = ref({
   visibility: 'private',
   alertEnabled: true,
   notes: '',
+  sshPort: 22,
+  sshUser: 'root',
+  sshAuthType: 'password' as 'password' | 'key',
+  sshPassword: '',
+  sshKey: '',
 });
 
 const openCreateModal = async () => {
   isEditing.value = false;
   currentInstanceId.value = '';
+  showSshPassword.value = false;
   instanceForm.value = {
     name: '',
     host: '',
@@ -1109,6 +1127,11 @@ const openCreateModal = async () => {
     visibility: 'private',
     alertEnabled: true,
     notes: '',
+    sshPort: 22,
+    sshUser: 'root',
+    sshAuthType: 'password',
+    sshPassword: '',
+    sshKey: '',
   };
   showInstanceModal.value = true;
   if (remoteHostsList.value.length === 0) {
@@ -1120,6 +1143,25 @@ const openEditModal = async (inst: MonitoringInstance) => {
   activeDropdownId.value = null;
   isEditing.value = true;
   currentInstanceId.value = inst.id;
+  showSshPassword.value = false;
+
+  let existingPort = inst.port || 22;
+  let existingUser = 'root';
+  let existingAuthType: 'password' | 'key' = 'password';
+
+  if (remoteHostsList.value.length === 0) {
+    await fetchRemoteHostsList();
+  }
+
+  if (inst.remoteHostId) {
+    const rh = remoteHostsList.value.find((h) => h.id === inst.remoteHostId);
+    if (rh) {
+      existingPort = rh.port || 22;
+      existingUser = rh.username || 'root';
+      existingAuthType = (rh.authType as any) || 'password';
+    }
+  }
+
   instanceForm.value = {
     name: inst.name,
     host: inst.host,
@@ -1135,18 +1177,16 @@ const openEditModal = async (inst: MonitoringInstance) => {
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
+    sshPort: existingPort,
+    sshUser: existingUser,
+    sshAuthType: existingAuthType,
+    sshPassword: '',
+    sshKey: '',
   };
   showInstanceModal.value = true;
-  if (remoteHostsList.value.length === 0) {
-    await fetchRemoteHostsList();
-  }
 };
 
 const saveInstance = async () => {
-  if (instanceForm.value.metricSource === 'ssh' && !instanceForm.value.remoteHostId) {
-    showNotice('Please select a Linked Remote Host for Direct SSH monitoring', 'error');
-    return;
-  }
   if (!instanceForm.value.host && instanceForm.value.ipAddress) {
     instanceForm.value.host = instanceForm.value.ipAddress.trim();
   }
@@ -1164,7 +1204,9 @@ const saveInstance = async () => {
       host: instanceForm.value.host.trim(),
       ipAddress: instanceForm.value.ipAddress.trim() || instanceForm.value.host.trim(),
       hostname: instanceForm.value.hostname.trim(),
-      port: Number(instanceForm.value.port) || 8889,
+      port: instanceForm.value.metricSource === 'ssh' 
+        ? (Number(instanceForm.value.sshPort) || 22) 
+        : (Number(instanceForm.value.port) || 8889),
       instanceType: instanceForm.value.instanceType,
       groupName: instanceForm.value.groupName.trim() || 'Default',
       tags: instanceForm.value.tags
@@ -1173,6 +1215,11 @@ const saveInstance = async () => {
       prometheusTarget: instanceForm.value.prometheusTarget.trim(),
       remoteHostId: instanceForm.value.remoteHostId || undefined,
       metricSource: instanceForm.value.metricSource,
+      sshPort: Number(instanceForm.value.sshPort) || 22,
+      sshUsername: instanceForm.value.sshUser?.trim() || '',
+      sshAuthType: instanceForm.value.sshAuthType || 'password',
+      sshPassword: instanceForm.value.sshPassword || '',
+      sshKey: instanceForm.value.sshKey || '',
       visibility: instanceForm.value.visibility,
       alertEnabled: instanceForm.value.alertEnabled,
       notes: instanceForm.value.notes.trim(),
@@ -3479,23 +3526,23 @@ onUnmounted(() => {
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <!-- Linked Remote Host (SSH) - ONLY shown for Direct SSH -->
+          <!-- Linked Remote Host (SSH) - Optional Link to Remote Server -->
           <div v-if="instanceForm.metricSource === 'ssh'" class="sm:col-span-2 bg-slate-50/50 dark:bg-[#0c101c]/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-[#1f283d]">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-              Linked Remote Host (SSH Connection) *
+              Linked Remote Host (Optional)
             </label>
             <select
               v-model="instanceForm.remoteHostId"
               @change="onRemoteHostSelect(instanceForm.remoteHostId)"
-              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 text-xs"
             >
-              <option value="">-- Select a Configured Remote Host --</option>
+              <option value="">-- None / Standalone SSH Host --</option>
               <option v-for="h in remoteHostsList" :key="h.id" :value="h.id">
                 {{ h.name }} ({{ h.host }}:{{ h.port }})
               </option>
             </select>
             <span class="text-[10px] text-slate-400 mt-1 block">
-              Select from your existing Remote Host SSH connections. Name and IP will auto-fill below.
+              Optional: Select an existing server from Remote Server to auto-fill details, or enter SSH credentials manually below.
             </span>
           </div>
 
@@ -3543,6 +3590,82 @@ onUnmounted(() => {
               placeholder="e.g. 10.20.3.29"
               class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
             />
+          </div>
+
+          <!-- SSH Connection Credentials (Port, Username, Auth Type, Password/Key) -->
+          <div v-if="instanceForm.metricSource === 'ssh'" class="sm:col-span-2 space-y-3 bg-slate-50/50 dark:bg-[#0c101c]/50 p-3 rounded-xl border border-slate-200/80 dark:border-[#1f283d]">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-800 dark:text-slate-200 text-xs">SSH Connection Credentials</span>
+              <span class="text-[10px] text-slate-400">Agentless SSH telemetry collection</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <!-- SSH Port -->
+              <div>
+                <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">SSH Port</label>
+                <input
+                  v-model.number="instanceForm.sshPort"
+                  type="number"
+                  placeholder="22"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
+                />
+              </div>
+
+              <!-- SSH Username -->
+              <div>
+                <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">SSH Username</label>
+                <input
+                  v-model="instanceForm.sshUser"
+                  type="text"
+                  placeholder="e.g. root"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
+                />
+              </div>
+
+              <!-- SSH Auth Type -->
+              <div>
+                <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Auth Method</label>
+                <select
+                  v-model="instanceForm.sshAuthType"
+                  class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 text-xs"
+                >
+                  <option value="password">Password</option>
+                  <option value="key">Private Key</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Password input (if authType === 'password') -->
+            <div v-if="instanceForm.sshAuthType === 'password'">
+              <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">SSH Password</label>
+              <div class="relative">
+                <input
+                  v-model="instanceForm.sshPassword"
+                  :type="showSshPassword ? 'text' : 'password'"
+                  :placeholder="instanceForm.remoteHostId ? 'Leave blank to use saved credentials, or enter new password' : 'Enter SSH password'"
+                  class="w-full pl-3 pr-9 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  @click="showSshPassword = !showSshPassword"
+                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <EyeOff v-if="showSshPassword" class="w-3.5 h-3.5" />
+                  <Eye v-else class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Key input (if authType === 'key') -->
+            <div v-else>
+              <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">SSH Private Key</label>
+              <textarea
+                v-model="instanceForm.sshKey"
+                rows="3"
+                :placeholder="instanceForm.remoteHostId ? 'Leave blank to use saved key, or paste new key' : '-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----'"
+                class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono text-xs resize-none"
+              ></textarea>
+            </div>
           </div>
 
           <!-- Port - ONLY shown for Prometheus -->

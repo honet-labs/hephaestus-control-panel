@@ -16,6 +16,8 @@ import (
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
 	"go-hephaestus/internal/repository"
+
+	"github.com/google/uuid"
 )
 
 type MonitoringInstanceService struct {
@@ -785,9 +787,77 @@ func (s *MonitoringInstanceService) CreateInstance(
 	if inst.IPAddress == "" {
 		inst.IPAddress = inst.Host
 	}
-	if inst.Port == 0 {
-		inst.Port = 8889
+
+	if inst.MetricSource == "ssh" {
+		if req.SSHPort > 0 {
+			inst.Port = req.SSHPort
+		} else if inst.Port == 0 || inst.Port == 8889 {
+			inst.Port = 22
+		}
+
+		// If no remote host linked, but user entered SSH credentials, auto-create and link a RemoteHostConfig
+		if (inst.RemoteHostID == nil || *inst.RemoteHostID == "") && req.SSHUsername != "" {
+			rhID := fmt.Sprintf("rhc-%s", uuid.New().String()[:8])
+			sshPort := req.SSHPort
+			if sshPort <= 0 {
+				sshPort = 22
+			}
+			authType := req.SSHAuthType
+			if authType == "" {
+				authType = "password"
+			}
+			var passPtr, keyPtr *string
+			if req.SSHPassword != "" {
+				passPtr = &req.SSHPassword
+			}
+			if req.SSHKey != "" {
+				keyPtr = &req.SSHKey
+			}
+			targetHost := inst.IPAddress
+			if targetHost == "" {
+				targetHost = inst.Host
+			}
+			rh := domain.RemoteHostConfig{
+				ID:        rhID,
+				Name:      inst.Name,
+				Host:      targetHost,
+				Port:      sshPort,
+				Username:  req.SSHUsername,
+				AuthType:  authType,
+				Password:  passPtr,
+				SSHKey:    keyPtr,
+				GroupName: inst.GroupName,
+				Tags:      inst.Tags,
+			}
+			if err := s.remoteHostRepo.Save(ctx, rh, userID, "ADMIN"); err == nil {
+				inst.RemoteHostID = &rhID
+			}
+		} else if inst.RemoteHostID != nil && *inst.RemoteHostID != "" && (req.SSHPassword != "" || req.SSHKey != "" || req.SSHUsername != "") {
+			if rh, err := s.remoteHostRepo.GetByID(ctx, *inst.RemoteHostID, userID, "ADMIN"); err == nil && rh != nil {
+				if req.SSHPort > 0 {
+					rh.Port = req.SSHPort
+				}
+				if req.SSHUsername != "" {
+					rh.Username = req.SSHUsername
+				}
+				if req.SSHAuthType != "" {
+					rh.AuthType = req.SSHAuthType
+				}
+				if req.SSHPassword != "" {
+					rh.Password = &req.SSHPassword
+				}
+				if req.SSHKey != "" {
+					rh.SSHKey = &req.SSHKey
+				}
+				_ = s.remoteHostRepo.Save(ctx, *rh, userID, "ADMIN")
+			}
+		}
+	} else {
+		if inst.Port == 0 {
+			inst.Port = 8889
+		}
 	}
+
 	if inst.PrometheusTarget == "" {
 		inst.PrometheusTarget = fmt.Sprintf("%s:%d", inst.IPAddress, inst.Port)
 	}
@@ -841,8 +911,74 @@ func (s *MonitoringInstanceService) UpdateInstance(
 	if inst.IPAddress == "" {
 		inst.IPAddress = inst.Host
 	}
-	if inst.Port == 0 {
-		inst.Port = 8889
+
+	if inst.MetricSource == "ssh" {
+		if req.SSHPort > 0 {
+			inst.Port = req.SSHPort
+		} else if inst.Port == 0 || inst.Port == 8889 {
+			inst.Port = 22
+		}
+
+		if (inst.RemoteHostID == nil || *inst.RemoteHostID == "") && req.SSHUsername != "" {
+			rhID := fmt.Sprintf("rhc-%s", uuid.New().String()[:8])
+			sshPort := req.SSHPort
+			if sshPort <= 0 {
+				sshPort = 22
+			}
+			authType := req.SSHAuthType
+			if authType == "" {
+				authType = "password"
+			}
+			var passPtr, keyPtr *string
+			if req.SSHPassword != "" {
+				passPtr = &req.SSHPassword
+			}
+			if req.SSHKey != "" {
+				keyPtr = &req.SSHKey
+			}
+			targetHost := inst.IPAddress
+			if targetHost == "" {
+				targetHost = inst.Host
+			}
+			rh := domain.RemoteHostConfig{
+				ID:        rhID,
+				Name:      inst.Name,
+				Host:      targetHost,
+				Port:      sshPort,
+				Username:  req.SSHUsername,
+				AuthType:  authType,
+				Password:  passPtr,
+				SSHKey:    keyPtr,
+				GroupName: inst.GroupName,
+				Tags:      inst.Tags,
+			}
+			if err := s.remoteHostRepo.Save(ctx, rh, userID, userRole); err == nil {
+				inst.RemoteHostID = &rhID
+			}
+		} else if inst.RemoteHostID != nil && *inst.RemoteHostID != "" && (req.SSHPassword != "" || req.SSHKey != "" || req.SSHUsername != "") {
+			if rh, err := s.remoteHostRepo.GetByID(ctx, *inst.RemoteHostID, userID, userRole); err == nil && rh != nil {
+				if req.SSHPort > 0 {
+					rh.Port = req.SSHPort
+				}
+				if req.SSHUsername != "" {
+					rh.Username = req.SSHUsername
+				}
+				if req.SSHAuthType != "" {
+					rh.AuthType = req.SSHAuthType
+				}
+				if req.SSHPassword != "" {
+					rh.Password = &req.SSHPassword
+				}
+				if req.SSHKey != "" {
+					rh.SSHKey = &req.SSHKey
+				}
+				_ = s.remoteHostRepo.Save(ctx, *rh, userID, userRole)
+			}
+		}
+	} else {
+		if inst.Port == 0 {
+			inst.Port = 8889
+		}
 	}
 
 	if err := s.instRepo.Update(ctx, inst); err != nil {
