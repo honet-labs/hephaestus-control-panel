@@ -866,7 +866,15 @@ func (s *MonitoringInstanceService) DeleteInstance(
 		return fmt.Errorf("permission denied: manage access required to delete instance")
 	}
 
-	return s.instRepo.Delete(ctx, id)
+	if err := s.instRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	delete(s.metricsCache, id)
+	s.cacheMu.Unlock()
+
+	return nil
 }
 
 func (s *MonitoringInstanceService) ToggleAlert(

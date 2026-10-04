@@ -366,7 +366,7 @@ func (r *MonitoringInstanceRepository) CheckAccess(ctx context.Context, id strin
 		return false, false, "", err
 	}
 
-	if ownerID != nil && *ownerID == userID {
+	if ownerID == nil || *ownerID == userID || strings.ToUpper(userRole) == "OPERATOR" {
 		return true, true, "manage", nil
 	}
 

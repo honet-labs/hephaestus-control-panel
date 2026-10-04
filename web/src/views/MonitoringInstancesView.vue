@@ -34,7 +34,6 @@ import {
   Sliders,
   Box,
   Settings,
-  Terminal,
 } from 'lucide-vue-next';
 
 interface DockerContainerMetric {
@@ -1047,23 +1046,24 @@ const executeSync = async () => {
 };
 
 // -----------------------------------------------------------------------------
-// Manual SSH Metrics Refresh Action
+// Remote Host Auto-Fill on Selection
 // -----------------------------------------------------------------------------
-const fetchingSshId = ref<string | null>(null);
-
-const fetchSshMetricsNow = async (inst: MonitoringInstance) => {
-  activeDropdownId.value = null;
-  fetchingSshId.value = inst.id;
-  try {
-    const res = await axios.post(`/api/v1/monitoring/instances/${inst.id}/fetch-ssh`);
-    if (res.data?.success && res.data?.data) {
-      inst.liveMetrics = res.data.data;
-      showNotice(`Live metrics updated via SSH for ${inst.name}`);
+const onRemoteHostSelect = (hostId: string) => {
+  if (!hostId) return;
+  const found = remoteHostsList.value.find((h) => h.id === hostId);
+  if (found) {
+    if (!instanceForm.value.name || !isEditing.value) {
+      instanceForm.value.name = found.name;
     }
-  } catch (err: any) {
-    showNotice(err.response?.data?.details || err.response?.data?.error || 'Failed to fetch metrics via SSH', 'error');
-  } finally {
-    fetchingSshId.value = null;
+    if (!instanceForm.value.ipAddress || !isEditing.value) {
+      instanceForm.value.ipAddress = found.host;
+    }
+    if (!instanceForm.value.host || !isEditing.value) {
+      instanceForm.value.host = found.host;
+    }
+    if ((!instanceForm.value.groupName || instanceForm.value.groupName === 'Default') && found.groupName) {
+      instanceForm.value.groupName = found.groupName;
+    }
   }
 };
 
@@ -1143,8 +1143,18 @@ const openEditModal = async (inst: MonitoringInstance) => {
 };
 
 const saveInstance = async () => {
+  if (instanceForm.value.metricSource === 'ssh' && !instanceForm.value.remoteHostId) {
+    showNotice('Please select a Linked Remote Host for Direct SSH monitoring', 'error');
+    return;
+  }
+  if (!instanceForm.value.host && instanceForm.value.ipAddress) {
+    instanceForm.value.host = instanceForm.value.ipAddress.trim();
+  }
+  if (!instanceForm.value.ipAddress && instanceForm.value.host) {
+    instanceForm.value.ipAddress = instanceForm.value.host.trim();
+  }
   if (!instanceForm.value.name.trim() || !instanceForm.value.host.trim()) {
-    showNotice('Name and Host are required', 'error');
+    showNotice('Name and Host / IP are required', 'error');
     return;
   }
   savingInstance.value = true;
@@ -1265,6 +1275,7 @@ const confirmDelete = (inst: MonitoringInstance) => {
   instanceToDelete.value = inst;
   showDeleteModal.value = true;
 };
+const confirmDeleteInstance = confirmDelete;
 
 const executeDelete = async () => {
   if (!instanceToDelete.value) return;
@@ -1861,17 +1872,6 @@ onUnmounted(() => {
                   <span>View History</span>
                 </button>
 
-                <!-- Fetch via SSH (if linked to Remote Host) -->
-                <button
-                  v-if="inst.remoteHostId"
-                  @click="fetchSshMetricsNow(inst)"
-                  :disabled="fetchingSshId === inst.id"
-                  class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] text-left cursor-pointer disabled:opacity-50"
-                >
-                  <Terminal class="w-3.5 h-3.5 text-slate-400" />
-                  <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
-                </button>
-
                 <!-- Manage Shares (Owner/Manager only) -->
                 <button
                   v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
@@ -2361,15 +2361,6 @@ onUnmounted(() => {
                           <span>View History</span>
                         </button>
                         <button
-                          v-if="inst.remoteHostId"
-                          @click="fetchSshMetricsNow(inst)"
-                          :disabled="fetchingSshId === inst.id"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer disabled:opacity-50"
-                        >
-                          <Terminal class="w-3.5 h-3.5 text-slate-400" />
-                          <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
-                        </button>
-                        <button
                           v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
                           @click="openShareModal(inst)"
                           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
@@ -2387,7 +2378,7 @@ onUnmounted(() => {
                         </button>
                         <button
                           v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
-                          @click="confirmDeleteInstance(inst)"
+                          @click="confirmDelete(inst)"
                           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 cursor-pointer"
                         >
                           <Trash2 class="w-3.5 h-3.5 text-rose-500" />
@@ -3441,7 +3432,91 @@ onUnmounted(() => {
           </button>
         </div>
 
+        <!-- Telemetry Method Selector at Top -->
+        <div class="bg-slate-50 dark:bg-[#0c101c] p-3 rounded-xl border border-slate-200 dark:border-[#1f283d] space-y-2">
+          <label class="block text-slate-800 dark:text-slate-200 font-bold text-xs">
+            Telemetry Collection Method
+          </label>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label
+              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
+              :class="instanceForm.metricSource === 'ssh' 
+                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
+                : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
+            >
+              <input
+                type="radio"
+                value="ssh"
+                v-model="instanceForm.metricSource"
+                class="text-blue-600 focus:ring-0"
+              />
+              <span>Direct SSH (Agentless)</span>
+            </label>
+
+            <label
+              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
+              :class="instanceForm.metricSource === 'prometheus' 
+                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
+                : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
+            >
+              <input
+                type="radio"
+                value="prometheus"
+                v-model="instanceForm.metricSource"
+                class="text-blue-600 focus:ring-0"
+              />
+              <span>Prometheus / OTel</span>
+            </label>
+
+            <label
+              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
+              :class="instanceForm.metricSource === 'auto' 
+                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
+                : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
+            >
+              <input
+                type="radio"
+                value="auto"
+                v-model="instanceForm.metricSource"
+                class="text-blue-600 focus:ring-0"
+              />
+              <span>Auto / Hybrid</span>
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">
+            <span v-if="instanceForm.metricSource === 'ssh'">
+              Collects CPU, RAM, Disk, and Load averages directly via SSH commands. No Prometheus agent needed.
+            </span>
+            <span v-else-if="instanceForm.metricSource === 'prometheus'">
+              Scrapes metrics from OpenTelemetry Collector or Prometheus Node Exporter endpoints.
+            </span>
+            <span v-else>
+              Attempts Prometheus scrape first, then automatically falls back to SSH if the target has no exporter.
+            </span>
+          </p>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <!-- Linked Remote Host (SSH) - Shown for SSH & Auto/Hybrid -->
+          <div v-if="instanceForm.metricSource !== 'prometheus'" class="sm:col-span-2 bg-slate-50/50 dark:bg-[#0c101c]/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-[#1f283d]">
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+              Linked Remote Host (SSH Connection) {{ instanceForm.metricSource === 'ssh' ? '*' : '(Optional Fallback)' }}
+            </label>
+            <select
+              v-model="instanceForm.remoteHostId"
+              @change="onRemoteHostSelect(instanceForm.remoteHostId)"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="">{{ instanceForm.metricSource === 'ssh' ? '-- Select a Configured Remote Host --' : 'None (No SSH Fallback)' }}</option>
+              <option v-for="h in remoteHostsList" :key="h.id" :value="h.id">
+                {{ h.name }} ({{ h.host }}:{{ h.port }})
+              </option>
+            </select>
+            <span class="text-[10px] text-slate-400 mt-1 block">
+              {{ instanceForm.metricSource === 'ssh' ? 'Select from your existing Remote Host SSH connections. Name and IP will auto-fill below.' : 'If Prometheus has no metrics, HCP will automatically fall back to this SSH host.' }}
+            </span>
+          </div>
+
           <!-- Name -->
           <div>
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Instance Name *</label>
@@ -3468,7 +3543,7 @@ onUnmounted(() => {
 
           <!-- Hostname -->
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Hostname</label>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Hostname (Optional)</label>
             <input
               v-model="instanceForm.hostname"
               type="text"
@@ -3479,7 +3554,7 @@ onUnmounted(() => {
 
           <!-- IP Address -->
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">IP Address *</label>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">IP Address / Host *</label>
             <input
               v-model="instanceForm.ipAddress"
               type="text"
@@ -3488,8 +3563,8 @@ onUnmounted(() => {
             />
           </div>
 
-          <!-- Port -->
-          <div>
+          <!-- Port - ONLY shown for Prometheus & Auto -->
+          <div v-if="instanceForm.metricSource !== 'ssh'">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">OTel Exporter Port</label>
             <input
               v-model.number="instanceForm.port"
@@ -3511,7 +3586,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Tags -->
-          <div>
+          <div :class="instanceForm.metricSource === 'ssh' ? 'sm:col-span-2' : ''">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Tags (comma-separated)</label>
             <input
               v-model="instanceForm.tags"
@@ -3521,38 +3596,8 @@ onUnmounted(() => {
             />
           </div>
 
-          <!-- Telemetry Method -->
-          <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Telemetry Method</label>
-            <select
-              v-model="instanceForm.metricSource"
-              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-            >
-              <option value="auto">Auto / Smart Hybrid (Prometheus + SSH)</option>
-              <option value="ssh">Direct SSH Connection (Agentless)</option>
-              <option value="prometheus">Prometheus / OpenTelemetry Only</option>
-            </select>
-          </div>
-
-          <!-- Linked Remote Host (SSH) -->
-          <div class="sm:col-span-2">
-            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Linked Remote Host (SSH Connection)</label>
-            <select
-              v-model="instanceForm.remoteHostId"
-              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-            >
-              <option value="">None (Standalone Target)</option>
-              <option v-for="h in remoteHostsList" :key="h.id" :value="h.id">
-                {{ h.name }} ({{ h.host }}:{{ h.port }})
-              </option>
-            </select>
-            <span class="text-[10px] text-slate-400 mt-1 block">
-              When linked to a Remote Host, HCP can collect CPU, Memory, Disk, and System metrics directly via SSH without requiring Prometheus or agent installation.
-            </span>
-          </div>
-
-          <!-- Prometheus Target Override -->
-          <div class="sm:col-span-2">
+          <!-- Prometheus Target Override - ONLY shown for Prometheus & Auto -->
+          <div v-if="instanceForm.metricSource !== 'ssh'" class="sm:col-span-2">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
               Prometheus Target Override (Optional)
             </label>
