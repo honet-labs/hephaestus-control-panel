@@ -267,7 +267,7 @@ flowchart TD
         end
 
         subgraph Evaluator["Health & Anomaly Evaluator"]
-            E1["Threshold State Machine: CPU > 85%, RAM > 90%, Disk > 90%"]
+            E1["Threshold State Machine: CPU 85%, RAM 90%, Disk 90%"]
             E2["Operational Status: HEALTHY | DEGRADED | DOWN"]
         end
     end
@@ -285,9 +285,10 @@ flowchart TD
     end
 
     %% Flows
-    A1 <-->|REST API / JSON| B1
-    A2 <-->|Auto-Refresh 10s-60s| B2
-    A3 -->|Switch Mode| B1
+    A1 -->|REST API Request| B1
+    B1 -->|JSON Response| A1
+    A2 -->|Auto-Refresh Polling| B2
+    A3 -->|Switch Telemetry Mode| B1
     B1 --> C1
     B1 --> D1
 
@@ -303,7 +304,8 @@ flowchart TD
     B2 --> Evaluator
     Evaluator --> S2
     Evaluator --> S3
-    B1 <--> S1
+    B1 --> S1
+    S1 --> B1
 ```
 
 ### 2. OpenSearch Monitor Cluster & Data Prepper Telemetry Pipeline
@@ -324,7 +326,7 @@ flowchart TD
 
     subgraph HCP["Hephaestus Control Panel Engine"]
         subgraph OS_Service["OpenSearch Monitoring Service"]
-            OS1["HTTP/HTTPS Client Pool (TLS / Basic Auth / Token)"]
+            OS1["HTTP HTTPS Client Pool (TLS, Basic Auth, Token)"]
             OS2["Cluster Health Ingestion: GET /_cluster/health"]
             OS3["Node Stats Ingestion: GET /_nodes/stats"]
             OS4["Shard Allocations Ingestion: GET /_cat/shards"]
@@ -338,7 +340,7 @@ flowchart TD
         end
 
         subgraph Aggregator["Cluster Metrics Aggregator"]
-            AG1["Health Classifier: GREEN (Optimal) | YELLOW (Relocating) | RED (Unassigned)"]
+            AG1["Health Classifier: GREEN, YELLOW, RED"]
             AG2["JVM Heap Pressure & GC Latency Analyzer"]
             AG3["Unassigned Shard & Storage Usage Detector"]
         end
@@ -357,19 +359,25 @@ flowchart TD
     end
 
     %% Flows
-    O1 <-->|REST API| OS_Service
-    O4 <-->|YAML Schema / REST API| Prepper_Service
-    OS1 <--> DB_OS
-    DP1 <--> DB_DP
+    O1 -->|REST API Queries| OS_Service
+    O4 -->|YAML Schema Deployment| Prepper_Service
+    OS1 --> DB_OS
+    DB_OS --> OS1
+    DP1 --> DB_DP
+    DB_DP --> DP1
 
-    OS2 & OS3 & OS4 & OS5 --> Aggregator
-    Aggregator --> O2 & O3
+    OS2 --> Aggregator
+    OS3 --> Aggregator
+    OS4 --> Aggregator
+    OS5 --> Aggregator
+    Aggregator --> O2
+    Aggregator --> O3
 
-    OS1 -->|HTTPS _cluster/health| M1
-    OS1 -->|HTTPS _nodes/stats| D1
-    OS1 -->|HTTPS _cat/shards| D2
+    OS1 -->|HTTPS cluster health| M1
+    OS1 -->|HTTPS nodes stats| D1
+    OS1 -->|HTTPS cat shards| D2
     DP2 -->|Deploy Pipeline Configuration| DP_Node
-    DP_Node -->|Bulk Ingestion / OpenSearch Sink| M1
+    DP_Node -->|Bulk Ingestion OpenSearch Sink| M1
 ```
 
 ### 3. Management Instances & Remote Host Execution Engine
@@ -424,18 +432,27 @@ flowchart TD
     end
 
     %% Flows
-    T_UI & SPLIT & BC <-->|Full-Duplex WebSocket| PTY1
-    SFTP_UI <-->|Multipart HTTP / Stream| SFTP_Engine
-    SVC_UI & FW_UI <-->|REST API| Host_Control
+    T_UI -->|Full-Duplex Terminal WebSocket| PTY1
+    SPLIT -->|Layout State| PTY1
+    BC -->|Input Broadcast| PTY1
+    SFTP_UI -->|Multipart HTTP Stream| SFTP_Engine
+    SVC_UI -->|REST API Service Control| Host_Control
+    FW_UI -->|REST API Firewall Rules| Host_Control
 
-    PTY1 <--> PTY2
-    PTY2 <--> CIPHER
-    SFTP_Engine <--> CIPHER
-    Host_Control <--> CIPHER
+    PTY1 --> PTY2
+    PTY2 --> PTY1
+    PTY2 --> CIPHER
+    CIPHER --> PTY2
+    SFTP_Engine --> CIPHER
+    CIPHER --> SFTP_Engine
+    Host_Control --> CIPHER
+    CIPHER --> Host_Control
 
-    CIPHER <-->|SSH Session (Interactive PTY Shell)| SRV1
-    CIPHER <-->|SFTP Subsystem Channel| SRV2
-    CIPHER <-->|Legacy Cipher Handshake (3des-cbc)| SRV3
+    CIPHER -->|Interactive PTY Shell Session| SRV1
+    SRV1 -->|Terminal Output Stream| CIPHER
+    CIPHER -->|SFTP Subsystem Channel| SRV2
+    SRV2 -->|File Stream Data| CIPHER
+    CIPHER -->|Legacy Cipher 3DES-CBC Handshake| SRV3
 ```
 
 ### 4. Background Service Daemons & Tuned Worker Pool Engine
@@ -486,13 +503,17 @@ flowchart TD
     end
 
     %% Flows
-    S_UI <-->|JSON Payload| S_REST
-    S_REST <--> S_CONF
-    S_CONF -->|Load Thread Counts at Boot & Runtime| Daemons
+    S_UI -->|Save Thread Changes| S_REST
+    S_REST -->|Persist JSON| S_CONF
+    S_CONF -->|Load Thread Counts at Boot| Daemons
     CRON --> Daemons
     Daemons --> DBPool
-    DBPool <--> PG
-    D1 & D2 & D3 & D4 --> FLEET
+    DBPool --> PG
+    PG --> DBPool
+    D1 --> FLEET
+    D2 --> FLEET
+    D3 --> FLEET
+    D4 --> FLEET
 ```
 
 ### 5. IPAM & Network Topology Auto-Discovery Pipeline
@@ -547,13 +568,19 @@ flowchart TD
     IPAM_VIEW -->|Trigger Subnet Scan| C_IN
     C_IN --> WORKERS
     WORKERS --> ICMP
-    ICMP -->|ICMP Echo / Ping| DEV1 & DEV2 & DEV3
+    ICMP -->|ICMP Echo Ping| DEV1
+    ICMP -->|ICMP Echo Ping| DEV2
+    ICMP -->|ICMP Echo Ping| DEV3
     ICMP --> Enricher
-    Enricher --> ARP & MAC & DNS
+    Enricher --> ARP
+    Enricher --> MAC
+    Enricher --> DNS
     Enricher --> STAGE
     STAGE --> PENDING
-    PENDING -->|Approve & Add to Canvas| T_CANVAS
-    T_CANVAS <--> T_SHEETS & T_DEVICES & T_EDGES
+    PENDING -->|Approve and Add to Canvas| T_CANVAS
+    T_CANVAS --> T_SHEETS
+    T_CANVAS --> T_DEVICES
+    T_CANVAS --> T_EDGES
     ICMP --> PING_LOG
 ```
 
