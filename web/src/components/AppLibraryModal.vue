@@ -35,6 +35,13 @@ interface DockerConnection {
   isDefault?: boolean;
 }
 
+interface SystemdInstall {
+  serviceName: string;
+  installCmd: string;
+  serviceUnit: string;
+  manageCmd: string;
+}
+
 interface AppItem {
   id: string;
   name: string;
@@ -52,6 +59,7 @@ interface AppItem {
     portsDesc: string;
     runCmd: string;
     composeYaml: string;
+    systemd: SystemdInstall;
     hcpSteps: string[];
   };
 }
@@ -71,6 +79,7 @@ const searchQuery = ref('');
 const selectedCategory = ref('all');
 const selectedApp = ref<AppItem | null>(null);
 const activeTab = ref<'docker' | 'manual'>('docker');
+const manualMethod = ref<'docker' | 'systemd'>('docker');
 
 // Docker connections & deployment state
 const dockerConnections = ref<DockerConnection[]>([]);
@@ -141,6 +150,46 @@ services:
 
 volumes:
   grafana-data:`,
+      systemd: {
+        serviceName: 'grafana-server.service',
+        installCmd: `# 1. Install prerequisites & official Grafana APT repository
+sudo apt-get install -y apt-transport-https software-properties-common wget
+sudo mkdir -p /etc/apt/keyrings/
+wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+
+# 2. Install Grafana Enterprise / OSS
+sudo apt-get update && sudo apt-get install -y grafana`,
+        serviceUnit: `[Unit]
+Description=Grafana instance
+Documentation=http://docs.grafana.org
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=grafana
+Group=grafana
+Type=simple
+Restart=on-failure
+WorkingDirectory=/usr/share/grafana
+RuntimeDirectory=grafana
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/grafana-server \\
+  --config=/etc/grafana/grafana.ini \\
+  --homepath=/usr/share/grafana \\
+  --packaging=deb \\
+  cfg:default.paths.logs=/var/log/grafana \\
+  cfg:default.paths.data=/var/lib/grafana \\
+  cfg:default.paths.plugins=/var/lib/grafana/plugins
+LimitNOFILE=10000
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now grafana-server
+sudo systemctl status grafana-server`,
+      },
       hcpSteps: [
         'Akses antarmuka Grafana di browser melalui http://<host-ip>:3000 dengan kredensial default admin / admin.',
         'Masuk ke menu Connections » Data Sources » Add new data source di dalam Grafana.',
@@ -189,11 +238,49 @@ services:
 
 volumes:
   dataprepper-pipelines:`,
+      systemd: {
+        serviceName: 'data-prepper.service',
+        installCmd: `# 1. Install Java 17 Runtime & prerequisites
+sudo apt-get update && sudo apt-get install -y openjdk-17-jre-headless curl tar
+
+# 2. Create system user and directory structure
+sudo useradd --system --no-create-home --shell /bin/false dataprepper
+sudo mkdir -p /opt/data-prepper /etc/data-prepper/pipelines /var/log/data-prepper
+
+# 3. Download & extract Data Prepper release
+DATA_PREPPER_VERSION="2.11.0"
+curl -fsSL "https://d2s0cvqjn7530p.cloudfront.net/tarball/data-prepper/data-prepper-\${DATA_PREPPER_VERSION}-linux-x64.tar.gz" -o /tmp/data-prepper.tar.gz
+sudo tar -xzf /tmp/data-prepper.tar.gz -C /opt/data-prepper --strip-components=1
+rm -f /tmp/data-prepper.tar.gz
+sudo chown -R dataprepper:dataprepper /opt/data-prepper /etc/data-prepper /var/log/data-prepper`,
+        serviceUnit: `[Unit]
+Description=OpenSearch Data Prepper Pipeline Ingestion Service
+Documentation=https://opensearch.org/docs/latest/data-prepper/
+After=network.target
+
+[Service]
+Type=simple
+User=dataprepper
+Group=dataprepper
+WorkingDirectory=/opt/data-prepper
+Environment="DATA_PREPPER_LOG_LEVEL=INFO"
+Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64"
+ExecStart=/opt/data-prepper/bin/data-prepper /etc/data-prepper/pipelines/pipelines.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now data-prepper
+sudo systemctl status data-prepper`,
+      },
       hcpSteps: [
         'Buka menu Data Prepper Pipelines pada sidebar Hephaestus Control Panel.',
         'Gunakan editor pipeline YAML terintegrasi untuk menyusun source buffer (OTLP, HTTP, Logstash) dan sink target ke OpenSearch.',
         'Hephaestus akan memvalidasi skema sintaksis pipeline Data Prepper secara otomatis.',
-        'Gunakan volume mount dataprepper-pipelines untuk menyinkronkan file konfigurasi pipeline ke container Data Prepper.',
+        'Gunakan volume mount dataprepper-pipelines atau direktori /etc/data-prepper/pipelines untuk menyinkronkan file konfigurasi pipeline ke container atau daemon Data Prepper.',
       ],
     },
   },
@@ -235,6 +322,35 @@ services:
 
 volumes:
   otel-collector-config:`,
+      systemd: {
+        serviceName: 'otelcol-contrib.service',
+        installCmd: `# 1. Download official OpenTelemetry Collector Contrib Debian package
+OTEL_VERSION="0.108.0"
+curl -fsSL -O "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v\${OTEL_VERSION}/otelcol-contrib_\${OTEL_VERSION}_linux_amd64.deb"
+
+# 2. Install package via dpkg (or rpm for RHEL/CentOS)
+sudo dpkg -i "otelcol-contrib_\${OTEL_VERSION}_linux_amd64.deb"
+rm -f "otelcol-contrib_\${OTEL_VERSION}_linux_amd64.deb"`,
+        serviceUnit: `[Unit]
+Description=OpenTelemetry Collector Contrib
+Documentation=https://opentelemetry.io/docs/collector/
+After=network.target
+
+[Service]
+User=otelcol-contrib
+Group=otelcol-contrib
+ExecStart=/usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
+Restart=always
+RestartSec=5
+KillMode=mixed
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now otelcol-contrib
+sudo systemctl status otelcol-contrib`,
+      },
       hcpSteps: [
         'Buka menu OpenTelemetry Config pada sidebar Hephaestus Control Panel.',
         'Sesuaikan konfigurasi receivers, processors, dan exporters yang dibutuhkan.',
@@ -282,6 +398,41 @@ services:
 
 volumes:
   vaultwarden-data:`,
+      systemd: {
+        serviceName: 'vaultwarden.service',
+        installCmd: `# 1. Create vaultwarden system user and data folders
+sudo useradd --system --shell /bin/false --no-create-home vaultwarden
+sudo mkdir -p /var/lib/vaultwarden/data /etc/vaultwarden
+
+# 2. Download precompiled Vaultwarden Linux binary release
+sudo curl -fsSL -o /usr/local/bin/vaultwarden https://github.com/dani-garcia/vaultwarden/releases/latest/download/vaultwarden-linux-x86_64
+sudo chmod +x /usr/local/bin/vaultwarden
+sudo chown -R vaultwarden:vaultwarden /var/lib/vaultwarden /etc/vaultwarden`,
+        serviceUnit: `[Unit]
+Description=Vaultwarden Password Manager Service
+Documentation=https://github.com/dani-garcia/vaultwarden
+After=network.target
+
+[Service]
+User=vaultwarden
+Group=vaultwarden
+WorkingDirectory=/var/lib/vaultwarden
+Environment="DATA_FOLDER=/var/lib/vaultwarden/data"
+Environment="ROCKET_PORT=8080"
+Environment="ROCKET_ADDRESS=0.0.0.0"
+Environment="SIGNUPS_ALLOWED=true"
+Environment="WEBSOCKET_ENABLED=true"
+ExecStart=/usr/local/bin/vaultwarden
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now vaultwarden
+sudo systemctl status vaultwarden`,
+      },
       hcpSteps: [
         'Buka web interface Vaultwarden di http://<host-ip>:8080 dan buat akun master administrator pertama Anda.',
         'Buka menu Vaultwarden di sidebar Hephaestus (di bawah grup Security).',
@@ -337,6 +488,49 @@ services:
 volumes:
   prometheus-data:
   prometheus-config:`,
+      systemd: {
+        serviceName: 'prometheus.service',
+        installCmd: `# 1. Create prometheus system user and directories
+sudo useradd --no-create-home --shell /bin/false prometheus
+sudo mkdir -p /etc/prometheus /var/lib/prometheus
+
+# 2. Download and unpack Prometheus official release
+PROM_VERSION="2.54.1"
+curl -fsSL -O "https://github.com/prometheus/prometheus/releases/download/v\${PROM_VERSION}/prometheus-\${PROM_VERSION}.linux-amd64.tar.gz"
+tar -xzf "prometheus-\${PROM_VERSION}.linux-amd64.tar.gz"
+sudo cp "prometheus-\${PROM_VERSION}.linux-amd64/prometheus" /usr/local/bin/
+sudo cp "prometheus-\${PROM_VERSION}.linux-amd64/promtool" /usr/local/bin/
+sudo cp -r "prometheus-\${PROM_VERSION}.linux-amd64/consoles" /etc/prometheus/
+sudo cp -r "prometheus-\${PROM_VERSION}.linux-amd64/console_libraries" /etc/prometheus/
+sudo cp "prometheus-\${PROM_VERSION}.linux-amd64/prometheus.yml" /etc/prometheus/prometheus.yml
+rm -rf "prometheus-\${PROM_VERSION}.linux-amd64"*
+sudo chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus /usr/local/bin/prometheus /usr/local/bin/promtool`,
+        serviceUnit: `[Unit]
+Description=Prometheus Time Series Monitoring Service
+Documentation=https://prometheus.io/docs/introduction/overview/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \\
+  --config.file=/etc/prometheus/prometheus.yml \\
+  --storage.tsdb.path=/var/lib/prometheus/ \\
+  --web.console.templates=/etc/prometheus/consoles \\
+  --web.console.libraries=/etc/prometheus/console_libraries \\
+  --web.enable-lifecycle
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now prometheus
+sudo systemctl status prometheus`,
+      },
       hcpSteps: [
         'Buka menu Prometheus Config di sidebar Hephaestus Control Panel.',
         'Konfigurasi file prometheus.yml untuk menentukan scrape interval dan scrape target (misal: node_exporter port 9100).',
@@ -392,6 +586,50 @@ services:
 
 volumes:
   opensearch-data:`,
+      systemd: {
+        serviceName: 'opensearch.service',
+        installCmd: `# 1. Configure system kernel limits required by OpenSearch
+sudo sysctl -w vm.max_map_count=262144
+echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.d/99-opensearch.conf
+
+# 2. Create opensearch system user and folders
+sudo useradd --system --shell /bin/false --no-create-home opensearch
+sudo mkdir -p /opt/opensearch /var/lib/opensearch /var/log/opensearch
+
+# 3. Download & extract OpenSearch release bundle
+OS_VERSION="2.16.0"
+curl -fsSL -O "https://artifacts.opensearch.org/releases/bundle/opensearch/\${OS_VERSION}/opensearch-\${OS_VERSION}-linux-x64.tar.gz"
+sudo tar -xzf "opensearch-\${OS_VERSION}-linux-x64.tar.gz" -C /opt/opensearch --strip-components=1
+rm -f "opensearch-\${OS_VERSION}-linux-x64.tar.gz"
+sudo chown -R opensearch:opensearch /opt/opensearch /var/lib/opensearch /var/log/opensearch`,
+        serviceUnit: `[Unit]
+Description=OpenSearch Distributed Search & Analytics Engine
+Documentation=https://opensearch.org/docs/latest/
+After=network.target
+
+[Service]
+Type=simple
+User=opensearch
+Group=opensearch
+WorkingDirectory=/opt/opensearch
+Environment="OPENSEARCH_HOME=/opt/opensearch"
+Environment="OPENSEARCH_PATH_CONF=/opt/opensearch/config"
+Environment="OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+ExecStart=/opt/opensearch/bin/opensearch
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+LimitNPROC=4096
+LimitMEMLOCK=infinity
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target`,
+        manageCmd: `sudo systemctl daemon-reload
+sudo systemctl enable --now opensearch
+sudo systemctl status opensearch`,
+      },
       hcpSteps: [
         'Buka menu OpenSearch Cluster pada sidebar Hephaestus Control Panel.',
         'Pantau status kesehatan cluster (Green/Yellow/Red), jumlah dokumen terindeks, dan alokasi shard memori secara real-time.',
@@ -459,6 +697,7 @@ const fetchDockerConnections = async () => {
 const openAppDetail = (app: AppItem) => {
   selectedApp.value = app;
   activeTab.value = 'docker';
+  manualMethod.value = 'docker';
   deploySuccess.value = false;
   deployError.value = '';
   deployResultId.value = '';
@@ -1178,91 +1417,258 @@ onUnmounted(() => {
 
             <!-- TAB 2: MANUAL INSTALLATION GUIDE -->
             <div v-else-if="activeTab === 'manual'" class="max-w-3xl mx-auto space-y-6">
-              <!-- Step 1: Requirements -->
+              <!-- Method Switcher: Docker vs Systemd -->
               <div
-                class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-[#1b2234]"
               >
-                <div class="flex items-center gap-2">
-                  <span
-                    class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
-                  >
-                    1
-                  </span>
-                  <h4 class="text-sm font-bold text-slate-900 dark:text-white">
-                    System & Port Requirements
+                <div>
+                  <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Deployment Runtime
                   </h4>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Select your preferred runtime: containerized Docker environment or native Linux Systemd daemon.
+                  </p>
                 </div>
-                <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Make sure Docker engine is running on your host and the necessary ports are available on your network firewall:
-                </p>
-                <div class="p-3 rounded-lg bg-slate-50 dark:bg-[#151d2f] border border-slate-200 dark:border-[#1e273e] text-xs font-mono text-slate-700 dark:text-slate-300">
-                  {{ selectedApp.manualInstall.portsDesc }}
+
+                <div class="flex items-center gap-1 bg-slate-100 dark:bg-[#141b2a] p-1 rounded-xl shrink-0">
+                  <button
+                    @click="manualMethod = 'docker'"
+                    :class="[
+                      'px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5',
+                      manualMethod === 'docker'
+                        ? 'bg-white dark:bg-[#1e283d] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white',
+                    ]"
+                  >
+                    <Boxes class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Docker & Compose</span>
+                  </button>
+                  <button
+                    @click="manualMethod = 'systemd'"
+                    :class="[
+                      'px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5',
+                      manualMethod === 'systemd'
+                        ? 'bg-white dark:bg-[#1e283d] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white',
+                    ]"
+                  >
+                    <Terminal class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Systemd Service</span>
+                  </button>
                 </div>
               </div>
 
-              <!-- Step 2: Run with Docker CLI -->
-              <div
-                class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
-              >
-                <div class="flex items-center justify-between">
+              <!-- DOCKER INSTALLATION FLOW -->
+              <template v-if="manualMethod === 'docker'">
+                <!-- Step 1: Requirements -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
                   <div class="flex items-center gap-2">
                     <span
                       class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
                     >
-                      2
+                      1
                     </span>
                     <h4 class="text-sm font-bold text-slate-900 dark:text-white">
-                      Run via Docker CLI
+                      System & Port Requirements
                     </h4>
                   </div>
-                  <button
-                    @click="copyCode(selectedApp.manualInstall.runCmd, 'cli')"
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
-                  >
-                    <Check v-if="copiedCodeType === 'cli'" class="w-3.5 h-3.5 text-emerald-500" />
-                    <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
-                    <span>{{ copiedCodeType === 'cli' ? 'Copied!' : 'Copy Command' }}</span>
-                  </button>
+                  <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Make sure Docker engine is running on your host and the necessary ports are available on your network firewall:
+                  </p>
+                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-[#151d2f] border border-slate-200 dark:border-[#1e273e] text-xs font-mono text-slate-700 dark:text-slate-300">
+                    {{ selectedApp.manualInstall.portsDesc }}
+                  </div>
                 </div>
-                <div class="relative">
-                  <pre
-                    class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
-                  >{{ selectedApp.manualInstall.runCmd }}</pre>
-                </div>
-              </div>
 
-              <!-- Step 3: Run with Docker Compose -->
-              <div
-                class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
-              >
-                <div class="flex items-center justify-between">
+                <!-- Step 2: Run with Docker CLI -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
+                      >
+                        2
+                      </span>
+                      <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                        Run via Docker CLI
+                      </h4>
+                    </div>
+                    <button
+                      @click="copyCode(selectedApp.manualInstall.runCmd, 'cli')"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
+                    >
+                      <Check v-if="copiedCodeType === 'cli'" class="w-3.5 h-3.5 text-emerald-500" />
+                      <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                      <span>{{ copiedCodeType === 'cli' ? 'Copied!' : 'Copy Command' }}</span>
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <pre
+                      class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
+                    >{{ selectedApp.manualInstall.runCmd }}</pre>
+                  </div>
+                </div>
+
+                <!-- Step 3: Run with Docker Compose -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
+                      >
+                        3
+                      </span>
+                      <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                        Or Run via Docker Compose (docker-compose.yml)
+                      </h4>
+                    </div>
+                    <button
+                      @click="copyCode(selectedApp.manualInstall.composeYaml, 'compose')"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
+                    >
+                      <Check v-if="copiedCodeType === 'compose'" class="w-3.5 h-3.5 text-emerald-500" />
+                      <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                      <span>{{ copiedCodeType === 'compose' ? 'Copied!' : 'Copy YAML' }}</span>
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <pre
+                      class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
+                    >{{ selectedApp.manualInstall.composeYaml }}</pre>
+                  </div>
+                </div>
+              </template>
+
+              <!-- SYSTEMD LINUX SERVICE FLOW -->
+              <template v-else-if="manualMethod === 'systemd'">
+                <!-- Step 1: Requirements -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
                   <div class="flex items-center gap-2">
                     <span
                       class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
                     >
-                      3
+                      1
                     </span>
                     <h4 class="text-sm font-bold text-slate-900 dark:text-white">
-                      Or Run via Docker Compose (docker-compose.yml)
+                      System & Port Requirements
                     </h4>
                   </div>
-                  <button
-                    @click="copyCode(selectedApp.manualInstall.composeYaml, 'compose')"
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
-                  >
-                    <Check v-if="copiedCodeType === 'compose'" class="w-3.5 h-3.5 text-emerald-500" />
-                    <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
-                    <span>{{ copiedCodeType === 'compose' ? 'Copied!' : 'Copy YAML' }}</span>
-                  </button>
+                  <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Make sure systemd is available on your Linux distribution (Ubuntu, Debian, RHEL, Rocky Linux, or CentOS) and open necessary incoming firewall ports:
+                  </p>
+                  <div class="p-3 rounded-lg bg-slate-50 dark:bg-[#151d2f] border border-slate-200 dark:border-[#1e273e] text-xs font-mono text-slate-700 dark:text-slate-300">
+                    {{ selectedApp.manualInstall.portsDesc }}
+                  </div>
                 </div>
-                <div class="relative">
-                  <pre
-                    class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
-                  >{{ selectedApp.manualInstall.composeYaml }}</pre>
-                </div>
-              </div>
 
-              <!-- Step 4: Connecting & Integrating with Hephaestus -->
+                <!-- Step 2: Binary / Package Setup -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
+                      >
+                        2
+                      </span>
+                      <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                        Install Packages & Prepare Directories
+                      </h4>
+                    </div>
+                    <button
+                      @click="copyCode(selectedApp.manualInstall.systemd.installCmd, 'sys-install')"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
+                    >
+                      <Check v-if="copiedCodeType === 'sys-install'" class="w-3.5 h-3.5 text-emerald-500" />
+                      <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                      <span>{{ copiedCodeType === 'sys-install' ? 'Copied!' : 'Copy Script' }}</span>
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <pre
+                      class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
+                    >{{ selectedApp.manualInstall.systemd.installCmd }}</pre>
+                  </div>
+                </div>
+
+                <!-- Step 3: Create Systemd Unit -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
+                      >
+                        3
+                      </span>
+                      <div>
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                          Create Systemd Service Unit
+                        </h4>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                          /etc/systemd/system/{{ selectedApp.manualInstall.systemd.serviceName }}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      @click="copyCode(selectedApp.manualInstall.systemd.serviceUnit, 'sys-unit')"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
+                    >
+                      <Check v-if="copiedCodeType === 'sys-unit'" class="w-3.5 h-3.5 text-emerald-500" />
+                      <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                      <span>{{ copiedCodeType === 'sys-unit' ? 'Copied!' : 'Copy Unit File' }}</span>
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <pre
+                      class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
+                    >{{ selectedApp.manualInstall.systemd.serviceUnit }}</pre>
+                  </div>
+                </div>
+
+                <!-- Step 4: Start & Enable Service -->
+                <div
+                  class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-3"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
+                      >
+                        4
+                      </span>
+                      <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                        Enable & Start Service Daemon
+                      </h4>
+                    </div>
+                    <button
+                      @click="copyCode(selectedApp.manualInstall.systemd.manageCmd, 'sys-manage')"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#182133] rounded-lg transition cursor-pointer border border-slate-200 dark:border-[#222e4a]"
+                    >
+                      <Check v-if="copiedCodeType === 'sys-manage'" class="w-3.5 h-3.5 text-emerald-500" />
+                      <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                      <span>{{ copiedCodeType === 'sys-manage' ? 'Copied!' : 'Copy Commands' }}</span>
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <pre
+                      class="p-4 rounded-xl bg-slate-900 text-slate-100 dark:bg-[#0a0e17] border border-slate-800 text-xs font-mono overflow-x-auto leading-relaxed"
+                    >{{ selectedApp.manualInstall.systemd.manageCmd }}</pre>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Final Step: Connecting to Hephaestus Control Panel -->
               <div
                 class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-4"
               >
@@ -1270,7 +1676,7 @@ onUnmounted(() => {
                   <span
                     class="w-6 h-6 rounded-full bg-slate-100 dark:bg-[#1c263c] text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center"
                   >
-                    4
+                    {{ manualMethod === 'docker' ? '4' : '5' }}
                   </span>
                   <h4 class="text-sm font-bold text-slate-900 dark:text-white">
                     Connecting to Hephaestus Control Panel
