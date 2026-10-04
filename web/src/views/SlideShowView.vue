@@ -376,6 +376,11 @@ const startRotationTimer = () => {
   }, stepMs);
 };
 
+const onFullscreenChange = () => {
+  isFullscreen.value = !!document.fullscreenElement;
+  showControls();
+};
+
 const toggleFullscreen = () => {
   const el = document.getElementById('embed-slideshow-container');
   if (!el) return;
@@ -435,6 +440,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('mousemove', onUserActivity);
   window.addEventListener('touchstart', onUserActivity);
+  document.addEventListener('fullscreenchange', onFullscreenChange);
   resetInactivityTimer();
 });
 
@@ -444,6 +450,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('mousemove', onUserActivity);
   window.removeEventListener('touchstart', onUserActivity);
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
 });
 </script>
 
@@ -607,15 +614,15 @@ onUnmounted(() => {
           <span class="hidden md:inline">Fix Browser Blocked</span>
         </button>
 
-        <!-- Fullscreen / Kiosk -->
+        <!-- Full Screen Button -->
         <button
           @click="toggleFullscreen"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow"
-          title="Toggle NOC Fullscreen (F11)"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow cursor-pointer"
+          :title="isFullscreen ? 'Exit Full Screen' : 'Toggle Full Screen (F11)'"
         >
           <Maximize2 v-if="!isFullscreen" class="w-3.5 h-3.5" />
           <Minimize2 v-else class="w-3.5 h-3.5" />
-          <span>{{ isFullscreen ? 'Exit' : 'Kiosk' }}</span>
+          <span>{{ isFullscreen ? 'Exit' : 'Full Screen' }}</span>
         </button>
       </div>
 
