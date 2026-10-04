@@ -146,6 +146,18 @@ const services = ref<ServiceItem[]>([
     elapsedSec: 9,
   },
   {
+    id: 'srv-ssh-telemetry',
+    name: 'SSH Telemetry Server (Agentless Poller)',
+    status: 'running',
+    type: 'SSH Telemetry Server (Agentless Poller)',
+    icon: 'server',
+    updated: '5 seconds ago',
+    lastUpdated: new Date(Date.now() - 5000),
+    description: 'Direct agentless SSH resource metric ingestion (/proc/stat, RAM, Disk, Net I/O) and time-series table archiver',
+    moduleKey: 'SSH',
+    elapsedSec: 5,
+  },
+  {
     id: 'srv-worker',
     name: 'Heavy Background Worker Pool (5 Threads)',
     status: 'running',
