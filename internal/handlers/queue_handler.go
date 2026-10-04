@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
@@ -160,6 +161,8 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 		cronModules = fmt.Sprintf("%d active schedules", totalSchedules)
 	}
 
+	threadsCfg := config.GetConfig().GetServiceThreads()
+
 	services := []ServiceStatusInfo{
 		{
 			ID:          "srv-icmp-master",
@@ -171,7 +174,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     icmpModules,
 			Lag:         "- / 0",
-			TQ:          "20 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.ICMPPing),
 			Updated:     "4 seconds",
 			LastUpdated: now.Add(-4 * time.Second),
 			Description: "Periodic ICMP ping sweep, packet loss & device latency poller across subnets",
@@ -187,7 +190,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "2797 of 2797 docs",
 			Lag:         "20 seconds / 41",
-			TQ:          "5 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.OpenSearch),
 			Updated:     "5 seconds",
 			LastUpdated: now.Add(-5 * time.Second),
 			Description: "Real-time OpenSearch cluster health, nodes performance stats, and shard telemetry",
@@ -203,7 +206,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     backupModules,
 			Lag:         "- / 0",
-			TQ:          fmt.Sprintf("2 : %d", totalBackupQueued),
+			TQ:          fmt.Sprintf("%d : %d", threadsCfg.Backup, totalBackupQueued),
 			Updated:     backupUpdated,
 			LastUpdated: backupLastUpdated,
 			Description: "Scheduled automated database dumps, gzip compression, and cloud S3 archiving",
@@ -219,7 +222,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "120 of 120 MIBs",
 			Lag:         "N/A",
-			TQ:          "4 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.SNMP),
 			Updated:     "12 seconds",
 			LastUpdated: now.Add(-12 * time.Second),
 			Description: "SNMP v1/v2c/v3 trap listener, OID real-time query engine, and MIB dictionary compiler",
@@ -235,7 +238,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "16 of 16 subnets",
 			Lag:         "-",
-			TQ:          "5 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.Discovery),
 			Updated:     "6 seconds",
 			LastUpdated: now.Add(-6 * time.Second),
 			Description: "Automated network topology scanner, ARP lookup, and MAC address discovery daemon",
@@ -251,7 +254,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     cronModules,
 			Lag:         "- / 0",
-			TQ:          "4 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.Cron),
 			Updated:     "8 seconds",
 			LastUpdated: now.Add(-8 * time.Second),
 			Description: "Robfig cron scheduler engine, periodic task dispatcher, and user session cleaner",
@@ -267,7 +270,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "15 of 15 webhooks",
 			Lag:         "- / 0",
-			TQ:          "4 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.Alert),
 			Updated:     "14 seconds",
 			LastUpdated: now.Add(-14 * time.Second),
 			Description: "Threshold breach evaluation, incident escalation rules, and multi-channel webhook dispatcher",
@@ -283,7 +286,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "500 of 500 metrics",
 			Lag:         "7 seconds / 5",
-			TQ:          "8 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.Prometheus),
 			Updated:     "9 seconds",
 			LastUpdated: now.Add(-9 * time.Second),
 			Description: "High-frequency metric ingestion from Prometheus node exporters and PromQL bridge",
@@ -299,7 +302,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "Agentless SSH telemetry",
 			Lag:         "- / 0",
-			TQ:          "10 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.SSHTelemetry),
 			Updated:     "5 seconds",
 			LastUpdated: now.Add(-5 * time.Second),
 			Description: "Direct agentless SSH resource metric ingestion (/proc/stat, RAM, Disk, Net I/O) and time-series table archiver",
@@ -315,10 +318,10 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     workerModules,
 			Lag:         "- / 0",
-			TQ:          fmt.Sprintf("%d : %d", wpStats.TotalWorkers, workerQueued),
+			TQ:          fmt.Sprintf("%d : %d", threadsCfg.WorkerPool, workerQueued),
 			Updated:     "3 seconds",
 			LastUpdated: now.Add(-3 * time.Second),
-			Description: "10 Goroutine worker pool threads for async batch tasks, exports, and heavy jobs",
+			Description: fmt.Sprintf("%d Goroutine worker pool threads for async batch tasks, exports, and heavy jobs", threadsCfg.WorkerPool),
 			ModuleKey:   "Queue",
 		},
 		{
@@ -331,7 +334,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "1200 logs/min",
 			Lag:         "- / 0",
-			TQ:          "4 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.Grok),
 			Updated:     "10 seconds",
 			LastUpdated: now.Add(-10 * time.Second),
 			Description: "Pattern matching, regex parser, and log structure transformation engine",
@@ -347,7 +350,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     "3 of 3 pipelines",
 			Lag:         "- / 0",
-			TQ:          "2 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.DataPrepper),
 			Updated:     "16 seconds",
 			LastUpdated: now.Add(-16 * time.Second),
 			Description: "Data Prepper YAML configuration validator, buffer health check, and sink router",
@@ -363,7 +366,7 @@ func (h *QueueHandler) ListServices(c *gin.Context) {
 			Version:     "2.0.0 (Go 1.23)",
 			Modules:     fmt.Sprintf("%d tracked subnets", totalSubnets),
 			Lag:         "-",
-			TQ:          "30 : 0",
+			TQ:          fmt.Sprintf("%d : 0", threadsCfg.IPAM),
 			Updated:     "2 seconds",
 			LastUpdated: now.Add(-2 * time.Second),
 			Description: "Automated subnet scanner, IP allocation tracker, OS fingerprinting, and scheduled network sweep",

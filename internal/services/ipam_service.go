@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
@@ -853,7 +854,11 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 	}
 
 	resultsChan := make(chan scanResult, totalHosts+1)
-	sem := make(chan struct{}, 30) // 30 concurrent ping workers
+	maxScanWorkers := config.GetConfig().GetServiceThreads().IPAM
+	if maxScanWorkers <= 0 {
+		maxScanWorkers = 30
+	}
+	sem := make(chan struct{}, maxScanWorkers)
 	var wg sync.WaitGroup
 
 	for _, ip := range hostIPs {

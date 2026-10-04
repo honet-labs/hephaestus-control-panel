@@ -42,6 +42,7 @@ import {
   Radio,
   Boxes,
   Server,
+  SlidersHorizontal,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -235,6 +236,90 @@ const servicesSearch = ref('');
 const loadingServices = ref(false);
 const tickerTimer = ref<any>(null);
 const servicesPollTimer = ref<any>(null);
+
+// Service Thread Tuning States
+interface ServiceThreadsConfig {
+  icmpPing: number;
+  openSearch: number;
+  backup: number;
+  snmp: number;
+  discovery: number;
+  cron: number;
+  alert: number;
+  prometheus: number;
+  sshTelemetry: number;
+  workerPool: number;
+  grok: number;
+  dataPrepper: number;
+  ipam: number;
+}
+
+const defaultThreadValues: ServiceThreadsConfig = {
+  icmpPing: 20,
+  openSearch: 5,
+  backup: 2,
+  snmp: 4,
+  discovery: 5,
+  cron: 4,
+  alert: 4,
+  prometheus: 8,
+  sshTelemetry: 10,
+  workerPool: 10,
+  grok: 4,
+  dataPrepper: 2,
+  ipam: 30,
+};
+
+const serviceThreads = ref<ServiceThreadsConfig>({ ...defaultThreadValues });
+const showThreadModal = ref(false);
+const savingThreads = ref(false);
+const threadNotification = ref<{ success: boolean; message: string } | null>(null);
+
+const fetchThreadConfig = async () => {
+  try {
+    const res = await axios.get('/api/v1/settings/threads');
+    if (res.data.success && res.data.data) {
+      serviceThreads.value = { ...defaultThreadValues, ...res.data.data };
+    }
+  } catch (err) {
+    console.warn('Could not fetch thread config:', err);
+  }
+};
+
+const openThreadModal = () => {
+  fetchThreadConfig();
+  threadNotification.value = null;
+  showThreadModal.value = true;
+};
+
+const resetThreadDefaults = () => {
+  serviceThreads.value = { ...defaultThreadValues };
+};
+
+const saveThreadConfig = async () => {
+  savingThreads.value = true;
+  threadNotification.value = null;
+  try {
+    const res = await axios.post('/api/v1/settings/threads', serviceThreads.value);
+    if (res.data.success) {
+      threadNotification.value = { success: true, message: 'Service thread configurations saved & applied successfully!' };
+      await fetchServices(true);
+      setTimeout(() => {
+        showThreadModal.value = false;
+        threadNotification.value = null;
+      }, 1200);
+    } else {
+      threadNotification.value = { success: false, message: res.data.error || 'Failed to save thread configuration' };
+    }
+  } catch (err: any) {
+    threadNotification.value = {
+      success: false,
+      message: err.response?.data?.error || err.message || 'Failed to save thread configuration',
+    };
+  } finally {
+    savingThreads.value = false;
+  }
+};
 
 // View Log Modal States
 const showLogModal = ref(false);
@@ -894,6 +979,7 @@ onMounted(() => {
   fetchAuditLogs();
   fetchSystemLogs();
   fetchDatabaseConfig();
+  fetchThreadConfig();
   fetchServices();
   startElapsedTicker();
 
@@ -1044,6 +1130,16 @@ onUnmounted(() => {
         </div>
 
         <div class="flex items-center gap-2">
+          <!-- Tune Threads Modal Button -->
+          <button
+            @click="openThreadModal"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-[#1b1e26] hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition shadow-sm text-xs font-semibold cursor-pointer"
+            title="Tune Worker Threads & Concurrency"
+          >
+            <SlidersHorizontal class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <span>Tune Threads</span>
+          </button>
+
           <!-- Refresh button -->
           <button
             @click="fetchServices(true)"
@@ -2121,6 +2217,314 @@ onUnmounted(() => {
             >
               <RotateCw v-if="roleActionLoading" class="w-3.5 h-3.5 animate-spin" />
               <span>Save Role & Permissions</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ============================================================= -->
+    <!-- SERVICE THREADS CONCURRENCY TUNING MODAL                      -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showThreadModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div
+        class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-5 text-left max-h-[90vh] flex flex-col"
+      >
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <SlidersHorizontal class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+              <span>Service Concurrency & Thread Tuning</span>
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Customize parallel goroutine worker threads for each background daemon to optimize performance.
+            </p>
+          </div>
+          <button
+            @click="showThreadModal = false"
+            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Notification Banner inside modal -->
+        <div
+          v-if="threadNotification"
+          :class="[
+            'p-3 rounded-lg text-xs font-mono border',
+            threadNotification.success
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+          ]"
+        >
+          {{ threadNotification.message }}
+        </div>
+
+        <!-- Service Threads Form Grid (Scrollable) -->
+        <div class="overflow-y-auto space-y-3 pr-1 flex-1">
+          <!-- Item 1: ICMP Ping Sweep -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Network Server (ICMP Ping Sweep)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Parallel ping workers across subnets & hosts (Recommended: 20, Range: 5–100)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.icmpPing"
+                type="number"
+                min="1"
+                max="100"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 2: SSH Telemetry Server -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">SSH Telemetry Server (Agentless Poller)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Concurrent SSH metrics handshakes per polling cycle (Recommended: 10, Range: 2–50)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.sshTelemetry"
+                type="number"
+                min="1"
+                max="50"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 3: Prometheus & PromQL Collector -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Prometheus & PromQL Collector</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Parallel HTTP metric scrapers for node exporters (Recommended: 8, Range: 2–30)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.prometheus"
+                type="number"
+                min="1"
+                max="30"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 4: Heavy Background Worker Pool -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Heavy Background Worker Pool</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Goroutine workers for async batch tasks, imports, & reports (Recommended: 10, Range: 2–50)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.workerPool"
+                type="number"
+                min="1"
+                max="50"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 5: IPAM Network Scanner -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">IPAM Network Scanner (IP Allocation & Discovery)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Parallel subnet IP allocation & ping scanner (Recommended: 30, Range: 5–100)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.ipam"
+                type="number"
+                min="5"
+                max="100"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 6: Discovery Server -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Discovery Server (ARP / Subnet)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Topology discovery and ARP scanner (Recommended: 5, Range: 2–20)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.discovery"
+                type="number"
+                min="1"
+                max="20"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 7: Alert & Notification Server -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Alert & Notification Server</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Concurrent webhook notification dispatchers (Recommended: 4, Range: 1–20)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.alert"
+                type="number"
+                min="1"
+                max="20"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 8: SNMP Trap & Poller Server -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">SNMP Trap & Poller Server</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">SNMP OID bulk queries & trap processor (Recommended: 4, Range: 1–20)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.snmp"
+                type="number"
+                min="1"
+                max="20"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 9: Event & Scheduler Server (Cron) -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Event & Scheduler Server (Cron)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Scheduled task dispatcher concurrency (Recommended: 4, Range: 1–10)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.cron"
+                type="number"
+                min="1"
+                max="10"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 10: Data Server (OpenSearch Poller) -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Data Server (OpenSearch Poller)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">OpenSearch cluster health & node metric pollers (Recommended: 5, Range: 1–20)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.openSearch"
+                type="number"
+                min="1"
+                max="20"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 11: Grok Engine & Log Parser -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Grok Engine & Log Parser</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Regex pattern matching and syslog parser (Recommended: 4, Range: 1–20)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.grok"
+                type="number"
+                min="1"
+                max="20"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 12: Backup Server -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Backup Server (PostgreSQL / MySQL)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Concurrent dump executions (Recommended: 2, Range: 1–5)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.backup"
+                type="number"
+                min="1"
+                max="5"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+
+          <!-- Item 13: Data Prepper Pipeline Validator -->
+          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
+            <div>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Data Prepper Pipeline Validator</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">YAML pipeline validator & sink router (Recommended: 2, Range: 1–5)</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="serviceThreads.dataPrepper"
+                type="number"
+                min="1"
+                max="5"
+                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
+              />
+              <span class="text-[11px] text-slate-400">threads</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
+          <button
+            type="button"
+            @click="resetThreadDefaults"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+          >
+            Reset Defaults
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="showThreadModal = false"
+              class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="saveThreadConfig"
+              :disabled="savingThreads"
+              class="px-4 py-1.5 bg-[#4274D9] hover:bg-[#3461c2] text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+            >
+              {{ savingThreads ? 'Saving...' : 'Save & Apply Threads' }}
             </button>
           </div>
         </div>

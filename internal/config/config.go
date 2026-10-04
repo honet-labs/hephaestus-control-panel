@@ -12,12 +12,47 @@ import (
 
 type Config struct {
 	Port           int      `json:"port"`
-	Env            string   `json:"env"`
-	DataDir        string   `json:"dataDir"`
-	LogsDir        string   `json:"logsDir"`
-	AllowedOrigins []string `json:"allowedOrigins"`
-	DB             DBConfig `json:"db"`
+	Env            string               `json:"env"`
+	DataDir        string               `json:"dataDir"`
+	LogsDir        string               `json:"logsDir"`
+	AllowedOrigins []string             `json:"allowedOrigins"`
+	DB             DBConfig             `json:"db"`
+	Threads        ServiceThreadsConfig `json:"threads"`
 	mu             sync.RWMutex
+}
+
+type ServiceThreadsConfig struct {
+	ICMPPing     int `json:"icmpPing"`     // Default: 20
+	OpenSearch   int `json:"openSearch"`   // Default: 5
+	Backup       int `json:"backup"`       // Default: 2
+	SNMP         int `json:"snmp"`         // Default: 4
+	Discovery    int `json:"discovery"`    // Default: 5
+	Cron         int `json:"cron"`         // Default: 4
+	Alert        int `json:"alert"`        // Default: 4
+	Prometheus   int `json:"prometheus"`   // Default: 8
+	SSHTelemetry int `json:"sshTelemetry"` // Default: 10
+	WorkerPool   int `json:"workerPool"`   // Default: 10
+	Grok         int `json:"grok"`         // Default: 4
+	DataPrepper  int `json:"dataPrepper"`  // Default: 2
+	IPAM         int `json:"ipam"`         // Default: 30
+}
+
+func DefaultServiceThreads() ServiceThreadsConfig {
+	return ServiceThreadsConfig{
+		ICMPPing:     20,
+		OpenSearch:   5,
+		Backup:       2,
+		SNMP:         4,
+		Discovery:    5,
+		Cron:         4,
+		Alert:        4,
+		Prometheus:   8,
+		SSHTelemetry: 10,
+		WorkerPool:   10,
+		Grok:         4,
+		DataPrepper:  2,
+		IPAM:         30,
+	}
 }
 
 type DBConfig struct {
@@ -156,6 +191,28 @@ func LoadConfig() *Config {
 			}
 		}
 
+		// Try loading saved service_threads.json if available
+		threadsCfg := DefaultServiceThreads()
+		threadsConfigFile := filepath.Join(dataDir, "service_threads.json")
+		if rawThreads, err := os.ReadFile(threadsConfigFile); err == nil {
+			_ = json.Unmarshal(rawThreads, &threadsCfg)
+		}
+		// Validate sane values
+		defaults := DefaultServiceThreads()
+		if threadsCfg.ICMPPing <= 0 { threadsCfg.ICMPPing = defaults.ICMPPing }
+		if threadsCfg.OpenSearch <= 0 { threadsCfg.OpenSearch = defaults.OpenSearch }
+		if threadsCfg.Backup <= 0 { threadsCfg.Backup = defaults.Backup }
+		if threadsCfg.SNMP <= 0 { threadsCfg.SNMP = defaults.SNMP }
+		if threadsCfg.Discovery <= 0 { threadsCfg.Discovery = defaults.Discovery }
+		if threadsCfg.Cron <= 0 { threadsCfg.Cron = defaults.Cron }
+		if threadsCfg.Alert <= 0 { threadsCfg.Alert = defaults.Alert }
+		if threadsCfg.Prometheus <= 0 { threadsCfg.Prometheus = defaults.Prometheus }
+		if threadsCfg.SSHTelemetry <= 0 { threadsCfg.SSHTelemetry = defaults.SSHTelemetry }
+		if threadsCfg.WorkerPool <= 0 { threadsCfg.WorkerPool = defaults.WorkerPool }
+		if threadsCfg.Grok <= 0 { threadsCfg.Grok = defaults.Grok }
+		if threadsCfg.DataPrepper <= 0 { threadsCfg.DataPrepper = defaults.DataPrepper }
+		if threadsCfg.IPAM <= 0 { threadsCfg.IPAM = defaults.IPAM }
+
 		originsStr := getEnv("ALLOWED_ORIGINS", "http://localhost:5000,http://localhost:5173,http://localhost:3000")
 		origins := strings.Split(originsStr, ",")
 		for i := range origins {
@@ -172,6 +229,7 @@ func LoadConfig() *Config {
 			LogsDir:        logsDir,
 			AllowedOrigins: origins,
 			DB:             dbCfg,
+			Threads:        threadsCfg,
 		}
 	})
 
@@ -184,6 +242,44 @@ func GetConfig() *Config {
 		return LoadConfig()
 	}
 	return globalConfig
+}
+
+// GetServiceThreads returns active thread concurrency configuration
+func (c *Config) GetServiceThreads() ServiceThreadsConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Threads
+}
+
+// UpdateServiceThreads updates the service threads config in-memory and saves to data/service_threads.json
+func (c *Config) UpdateServiceThreads(newThreads ServiceThreadsConfig) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	defaults := DefaultServiceThreads()
+	if newThreads.ICMPPing <= 0 { newThreads.ICMPPing = defaults.ICMPPing }
+	if newThreads.OpenSearch <= 0 { newThreads.OpenSearch = defaults.OpenSearch }
+	if newThreads.Backup <= 0 { newThreads.Backup = defaults.Backup }
+	if newThreads.SNMP <= 0 { newThreads.SNMP = defaults.SNMP }
+	if newThreads.Discovery <= 0 { newThreads.Discovery = defaults.Discovery }
+	if newThreads.Cron <= 0 { newThreads.Cron = defaults.Cron }
+	if newThreads.Alert <= 0 { newThreads.Alert = defaults.Alert }
+	if newThreads.Prometheus <= 0 { newThreads.Prometheus = defaults.Prometheus }
+	if newThreads.SSHTelemetry <= 0 { newThreads.SSHTelemetry = defaults.SSHTelemetry }
+	if newThreads.WorkerPool <= 0 { newThreads.WorkerPool = defaults.WorkerPool }
+	if newThreads.Grok <= 0 { newThreads.Grok = defaults.Grok }
+	if newThreads.DataPrepper <= 0 { newThreads.DataPrepper = defaults.DataPrepper }
+	if newThreads.IPAM <= 0 { newThreads.IPAM = defaults.IPAM }
+
+	c.Threads = newThreads
+
+	raw, err := json.MarshalIndent(newThreads, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	threadsConfigFile := filepath.Join(c.DataDir, "service_threads.json")
+	return os.WriteFile(threadsConfigFile, raw, 0644)
 }
 
 // UpdateDBConfig updates the database config in-memory and writes it encrypted to data/db_config.json

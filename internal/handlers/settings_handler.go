@@ -943,3 +943,32 @@ func (h *SettingsHandler) DeleteMonitoringView(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Slide Show deleted."})
 }
 
+// Service Threads Concurrency Management
+func (h *SettingsHandler) GetServiceThreads(c *gin.Context) {
+	appCfg := config.GetConfig()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    appCfg.GetServiceThreads(),
+	})
+}
+
+func (h *SettingsHandler) UpdateServiceThreads(c *gin.Context) {
+	var req config.ServiceThreadsConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
+		return
+	}
+
+	appCfg := config.GetConfig()
+	if err := appCfg.UpdateServiceThreads(req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Service thread concurrency settings applied successfully.",
+		"data":    appCfg.GetServiceThreads(),
+	})
+}
+

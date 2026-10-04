@@ -441,6 +441,8 @@ func main() {
 		api.GET("/settings/database", middleware.RequirePermission("settings", "read"), settingsHandler.GetDatabaseConfig)
 		api.POST("/settings/database", middleware.RequirePermission("settings", "manage"), settingsHandler.UpdateDatabaseConfig)
 		api.POST("/settings/database/test", middleware.RequirePermission("settings", "read"), settingsHandler.TestDatabaseConnection)
+		api.GET("/settings/threads", middleware.RequirePermission("settings", "read"), settingsHandler.GetServiceThreads)
+		api.POST("/settings/threads", middleware.RequirePermission("settings", "manage"), settingsHandler.UpdateServiceThreads)
 
 		// Monitoring Views / Slide Show (Feature: slideshow)
 		api.GET("/monitoring-views", middleware.RequirePermission("slideshow", "read"), settingsHandler.ListMonitoringViews)

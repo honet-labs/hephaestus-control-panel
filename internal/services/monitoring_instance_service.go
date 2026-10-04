@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
@@ -2423,8 +2424,12 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 		return
 	}
 
-	// Concurrency limiter: max 10 concurrent SSH handshakes to protect local daemon and remote targets
-	sem := make(chan struct{}, 10)
+	// Concurrency limiter: dynamic concurrent SSH handshakes to protect local daemon and remote targets
+	maxSSH := config.GetConfig().GetServiceThreads().SSHTelemetry
+	if maxSSH <= 0 {
+		maxSSH = 10
+	}
+	sem := make(chan struct{}, maxSSH)
 	var wg sync.WaitGroup
 
 	for _, inst := range targets {

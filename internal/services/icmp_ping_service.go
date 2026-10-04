@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
@@ -55,7 +56,11 @@ func (s *IcmpPingService) HandlePingCycleJob(ctx context.Context, job *domain.Jo
 	updateProgress(10, fmt.Sprintf("Pinging %d devices concurrently...", len(devices)))
 
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 20) // max 20 concurrent pings
+	maxWorkers := config.GetConfig().GetServiceThreads().ICMPPing
+	if maxWorkers <= 0 {
+		maxWorkers = 20
+	}
+	semaphore := make(chan struct{}, maxWorkers)
 	results := make([]domain.DevicePingResult, len(devices))
 
 	for i, dev := range devices {
