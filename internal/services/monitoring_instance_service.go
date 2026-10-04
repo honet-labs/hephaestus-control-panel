@@ -2641,6 +2641,18 @@ func (s *MonitoringInstanceService) mapVpsMetricsToLiveMetrics(data map[string]i
 		}
 	}
 
+	if down, ok := data["netDownloadMb"].(float64); ok {
+		lm.NetDownloadMB = down
+	}
+	if up, ok := data["netUploadMb"].(float64); ok {
+		lm.NetUploadMB = up
+	}
+	if tot, ok := data["netTotalMb"].(float64); ok {
+		lm.NetTotalMB = tot
+	} else {
+		lm.NetTotalMB = math.Round((lm.NetDownloadMB+lm.NetUploadMB)*100) / 100
+	}
+
 	return lm
 }
 

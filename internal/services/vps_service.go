@@ -7,20 +7,31 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
 )
 
+type netSample struct {
+	rxBytes   float64
+	txBytes   float64
+	timestamp time.Time
+}
+
 type VpsService struct {
 	remoteRepo *repository.RemoteHostRepository
 	sshService *SSHService
+	netSamples map[string]netSample
+	netMu      sync.Mutex
 }
 
 func NewVpsService(remoteRepo *repository.RemoteHostRepository, sshService *SSHService) *VpsService {
 	return &VpsService{
 		remoteRepo: remoteRepo,
 		sshService: sshService,
+		netSamples: make(map[string]netSample),
 	}
 }
 
@@ -30,29 +41,34 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 		return nil, err
 	}
 
-	cmd := `nproc 2>/dev/null || echo 1; echo "===CPU==="; (top -bn1 2>/dev/null | grep -Ei "%Cpu|CPU:" | head -1) || echo ""; echo "===SYS==="; (cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d= -f2- | tr -d '"') || uname -s; uname -r; uname -m; hostname; (uptime -p 2>/dev/null || uptime); echo "===LOAD==="; uptime 2>/dev/null; echo "===MEM==="; free -m 2>/dev/null; echo "===DF==="; df -hP -x tmpfs -x devtmpfs -x squashfs 2>/dev/null || df -hP 2>/dev/null`
+	cmd := `nproc 2>/dev/null || echo 1; echo "===CPU==="; (top -bn1 2>/dev/null | grep -Ei "%Cpu|CPU:" | head -1) || echo ""; echo "===SYS==="; (cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d= -f2- | tr -d '"') || uname -s; uname -r; uname -m; hostname; (uptime -p 2>/dev/null || uptime); echo "===LOAD==="; uptime 2>/dev/null; echo "===MEM==="; free -m 2>/dev/null; echo "===DF==="; (df -hP -x tmpfs -x devtmpfs -x squashfs 2>/dev/null || df -hP 2>/dev/null); echo "===NET==="; cat /proc/net/dev 2>/dev/null`
 	stdout, _, _, err := s.sshService.ExecuteCommand(cfg, cmd)
 	if err != nil || strings.TrimSpace(stdout) == "" {
 		return map[string]interface{}{
-			"hostname":     cfg.Name,
-			"ip":           cfg.Host,
-			"osName":       "Linux",
-			"kernel":       "-",
-			"arch":         "-",
-			"uptime":       "-",
-			"cpuUsage":     0.0,
-			"cpuCores":     1,
-			"memPercent":   0.0,
-			"memUsed":      "0 B",
-			"memTotal":     "0 B",
-			"memFree":      "0 B",
-			"memAvailable": "0 B",
-			"swapUsed":     "0 B",
-			"swapTotal":    "0 B",
-			"swapPercent":  0.0,
-			"loadAverage":  "0.00 / 0.00 / 0.00",
-			"disksCount":   0,
-			"disks":        []map[string]interface{}{},
+			"hostname":      cfg.Name,
+			"ip":            cfg.Host,
+			"osName":        "Linux",
+			"kernel":        "-",
+			"arch":          "-",
+			"uptime":        "-",
+			"cpuUsage":      0.0,
+			"cpuCores":      1,
+			"memPercent":    0.0,
+			"memUsed":       "0 B",
+			"memTotal":      "0 B",
+			"memFree":       "0 B",
+			"memAvailable":  "0 B",
+			"swapUsed":      "0 B",
+			"swapTotal":     "0 B",
+			"swapPercent":   0.0,
+			"loadAverage":   "0.00 / 0.00 / 0.00",
+			"disksCount":    0,
+			"disks":         []map[string]interface{}{},
+			"netRxBytes":    0.0,
+			"netTxBytes":    0.0,
+			"netDownloadMb": 0.0,
+			"netUploadMb":   0.0,
+			"netTotalMb":    0.0,
 		}, nil
 	}
 
@@ -72,6 +88,7 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 	swapTotalStr := "0 MB"
 	swapPercent := 0.0
 	var disks []map[string]interface{}
+	var netRxBytes, netTxBytes float64
 
 	reIdle := regexp.MustCompile(`([0-9.]+)\s*(?:%?\s*id|id)`)
 
@@ -173,7 +190,8 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 					}
 
 					if len(pDf) > 1 {
-						dfLines := strings.Split(strings.TrimSpace(pDf[1]), "\n")
+						pNet := strings.Split(pDf[1], "===NET===")
+						dfLines := strings.Split(strings.TrimSpace(pNet[0]), "\n")
 						for _, line := range dfLines {
 							line = strings.TrimSpace(line)
 							if strings.HasPrefix(line, "Filesystem") || line == "" {
@@ -193,32 +211,94 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 								})
 							}
 						}
+
+						if len(pNet) > 1 {
+							netLines := strings.Split(strings.TrimSpace(pNet[1]), "\n")
+							for _, line := range netLines {
+								line = strings.TrimSpace(line)
+								if !strings.Contains(line, ":") {
+									continue
+								}
+								colonIdx := strings.Index(line, ":")
+								iface := strings.TrimSpace(line[:colonIdx])
+								// Ignore loopback, docker bridge interfaces, and veth virtual interfaces
+								if iface == "lo" || strings.HasPrefix(iface, "docker") || strings.HasPrefix(iface, "veth") || strings.HasPrefix(iface, "br-") {
+									continue
+								}
+								fields := strings.Fields(line[colonIdx+1:])
+								if len(fields) >= 9 {
+									rx, err1 := strconv.ParseFloat(fields[0], 64)
+									tx, err2 := strconv.ParseFloat(fields[8], 64)
+									if err1 == nil && rx >= 0 {
+										netRxBytes += rx
+									}
+									if err2 == nil && tx >= 0 {
+										netTxBytes += tx
+									}
+								}
+							}
+						}
 					}
 				}
 			}
 		}
 	}
 
+	now := time.Now()
+	netDownRate := 0.0
+	netUpRate := 0.0
+
+	s.netMu.Lock()
+	prev, hasPrev := s.netSamples[hostID]
+	s.netSamples[hostID] = netSample{
+		rxBytes:   netRxBytes,
+		txBytes:   netTxBytes,
+		timestamp: now,
+	}
+	s.netMu.Unlock()
+
+	if hasPrev {
+		elapsed := now.Sub(prev.timestamp).Seconds()
+		if elapsed >= 0.5 && elapsed <= 300.0 {
+			if netRxBytes >= prev.rxBytes && netTxBytes >= prev.txBytes {
+				deltaRx := netRxBytes - prev.rxBytes
+				deltaTx := netTxBytes - prev.txBytes
+
+				// MB/s (1048576 = 1024 * 1024)
+				downMB := (deltaRx / 1048576.0) / elapsed
+				upMB := (deltaTx / 1048576.0) / elapsed
+
+				netDownRate = math.Round(downMB*100) / 100
+				netUpRate = math.Round(upMB*100) / 100
+			}
+		}
+	}
+
 	return map[string]interface{}{
-		"hostname":     cfg.Name,
-		"ip":           cfg.Host,
-		"osName":       osName,
-		"kernel":       kernel,
-		"arch":         arch,
-		"uptime":       uptimeStr,
-		"cpuUsage":     math.Round(cpuUsage*10) / 10,
-		"cpuCores":     cores,
-		"memPercent":   math.Round(memPercent*10) / 10,
-		"memUsed":      memUsedStr,
-		"memTotal":     memTotalStr,
-		"memFree":      memFreeStr,
-		"memAvailable": memAvailStr,
-		"swapUsed":     swapUsedStr,
-		"swapTotal":    swapTotalStr,
-		"swapPercent":  math.Round(swapPercent*10) / 10,
-		"loadAverage":  loadAvg,
-		"disksCount":   len(disks),
-		"disks":        disks,
+		"hostname":      cfg.Name,
+		"ip":            cfg.Host,
+		"osName":        osName,
+		"kernel":        kernel,
+		"arch":          arch,
+		"uptime":        uptimeStr,
+		"cpuUsage":      math.Round(cpuUsage*10) / 10,
+		"cpuCores":      cores,
+		"memPercent":    math.Round(memPercent*10) / 10,
+		"memUsed":       memUsedStr,
+		"memTotal":      memTotalStr,
+		"memFree":       memFreeStr,
+		"memAvailable":  memAvailStr,
+		"swapUsed":      swapUsedStr,
+		"swapTotal":     swapTotalStr,
+		"swapPercent":   math.Round(swapPercent*10) / 10,
+		"loadAverage":   loadAvg,
+		"disksCount":    len(disks),
+		"disks":         disks,
+		"netRxBytes":    netRxBytes,
+		"netTxBytes":    netTxBytes,
+		"netDownloadMb": netDownRate,
+		"netUploadMb":   netUpRate,
+		"netTotalMb":    math.Round((netDownRate+netUpRate)*100) / 100,
 	}, nil
 }
 
