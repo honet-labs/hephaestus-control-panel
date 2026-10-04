@@ -1078,6 +1078,16 @@ const onRemoteHostSelect = (hostId: string) => {
   }
 };
 
+// Determine whether an instance is collected via SSH or Prometheus
+const isSshInstance = (inst: any): boolean => {
+  if (!inst) return false;
+  if (inst.metricSource === 'prometheus') return false;
+  if (inst.metricSource === 'ssh') return true;
+  if (inst.port === 8889 || inst.port === 9100 || (inst.prometheusTarget && String(inst.prometheusTarget).trim() !== '')) return false;
+  if (inst.port === 22) return true;
+  return !!inst.remoteHostId;
+};
+
 // -----------------------------------------------------------------------------
 // Add / Edit Manual Instance Modal
 // -----------------------------------------------------------------------------
@@ -1162,6 +1172,7 @@ const openEditModal = async (inst: MonitoringInstance) => {
     }
   }
 
+  const isSsh = isSshInstance(inst);
   instanceForm.value = {
     name: inst.name,
     host: inst.host,
@@ -1172,8 +1183,8 @@ const openEditModal = async (inst: MonitoringInstance) => {
     groupName: inst.groupName || 'Default',
     tags: inst.tags ? inst.tags.join(', ') : '',
     prometheusTarget: inst.prometheusTarget || '',
-    remoteHostId: inst.remoteHostId || '',
-    metricSource: (inst.remoteHostId || inst.metricSource === 'ssh') ? 'ssh' : 'prometheus',
+    remoteHostId: isSsh ? (inst.remoteHostId || '') : '',
+    metricSource: isSsh ? 'ssh' : 'prometheus',
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
@@ -1199,12 +1210,13 @@ const saveInstance = async () => {
   }
   savingInstance.value = true;
   try {
+    const isSsh = instanceForm.value.metricSource === 'ssh';
     const payload = {
       name: instanceForm.value.name.trim(),
       host: instanceForm.value.host.trim(),
       ipAddress: instanceForm.value.ipAddress.trim() || instanceForm.value.host.trim(),
       hostname: instanceForm.value.hostname.trim(),
-      port: instanceForm.value.metricSource === 'ssh' 
+      port: isSsh 
         ? (Number(instanceForm.value.sshPort) || 22) 
         : (Number(instanceForm.value.port) || 8889),
       instanceType: instanceForm.value.instanceType,
@@ -1212,11 +1224,11 @@ const saveInstance = async () => {
       tags: instanceForm.value.tags
         ? instanceForm.value.tags.split(',').map((t) => t.trim()).filter(Boolean)
         : [],
-      prometheusTarget: instanceForm.value.prometheusTarget.trim(),
-      remoteHostId: instanceForm.value.remoteHostId || undefined,
-      metricSource: instanceForm.value.metricSource,
+      prometheusTarget: !isSsh ? instanceForm.value.prometheusTarget.trim() : '',
+      remoteHostId: isSsh ? (instanceForm.value.remoteHostId || undefined) : undefined,
+      metricSource: isSsh ? 'ssh' : 'prometheus',
       sshPort: Number(instanceForm.value.sshPort) || 22,
-      sshUsername: instanceForm.value.sshUser?.trim() || '',
+      sshUsername: isSsh ? (instanceForm.value.sshUser?.trim() || '') : '',
       sshAuthType: instanceForm.value.sshAuthType || 'password',
       sshPassword: instanceForm.value.sshPassword || '',
       sshKey: instanceForm.value.sshKey || '',
@@ -1844,13 +1856,20 @@ onUnmounted(() => {
                 {{ inst.name }}
               </span>
 
-              <!-- SSH Agentless Badge -->
+              <!-- SSH vs Prometheus Badge -->
               <span
-                v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId"
+                v-if="isSshInstance(inst)"
                 class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
-                title="Telemetry collected via SSH connection (Agentless)"
+                title="Telemetry collected via SSH connection"
               >
                 SSH
+              </span>
+              <span
+                v-else
+                class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 shrink-0"
+                title="Telemetry collected via Prometheus"
+              >
+                Prometheus
               </span>
 
               <!-- Priority Severity Status Badge -->
@@ -2217,13 +2236,20 @@ onUnmounted(() => {
                       {{ inst.name }}
                     </span>
 
-                    <!-- SSH Agentless Badge -->
+                    <!-- SSH vs Prometheus Badge -->
                     <span
-                      v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId"
+                      v-if="isSshInstance(inst)"
                       class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
-                      title="Telemetry collected via SSH connection (Agentless)"
+                      title="Telemetry collected via SSH connection"
                     >
                       SSH
+                    </span>
+                    <span
+                      v-else
+                      class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 shrink-0"
+                      title="Telemetry collected via Prometheus"
+                    >
+                      Prometheus
                     </span>
 
                     <!-- Semantic Priority Badge -->
@@ -2484,7 +2510,7 @@ onUnmounted(() => {
                       <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
                         <span class="text-slate-400 font-mono text-[11px]">Target:</span>
                         <span class="font-mono text-slate-700 dark:text-slate-300">
-                          {{ (inst.metricSource === 'ssh' || inst.remoteHostId) ? `ssh://${inst.ipAddress || inst.host}:${inst.port || 22}` : (inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port || 8889}`) }}
+                          {{ isSshInstance(inst) ? `ssh://${inst.ipAddress || inst.host}:${inst.port || 22}` : (inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port || 8889}`) }}
                         </span>
                       </div>
 
@@ -2492,7 +2518,7 @@ onUnmounted(() => {
                       <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
                         <span class="text-slate-400 font-mono text-[11px]">Source:</span>
                         <span class="font-semibold text-slate-800 dark:text-slate-200">
-                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' || inst.remoteHostId ? 'Direct SSH' : 'Prometheus / OTel' }}
+                          {{ isSshInstance(inst) ? 'SSH Connections' : 'Prometheus' }}
                         </span>
                       </div>
 
@@ -3497,7 +3523,7 @@ onUnmounted(() => {
                 v-model="instanceForm.metricSource"
                 class="text-blue-600 focus:ring-0"
               />
-              <span>Direct SSH (Agentless)</span>
+              <span>SSH Connections</span>
             </label>
 
             <label
@@ -3512,7 +3538,7 @@ onUnmounted(() => {
                 v-model="instanceForm.metricSource"
                 class="text-blue-600 focus:ring-0"
               />
-              <span>Prometheus / OTel</span>
+              <span>Prometheus</span>
             </label>
           </div>
           <p class="text-[11px] text-slate-500 dark:text-slate-400">

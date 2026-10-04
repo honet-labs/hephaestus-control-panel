@@ -722,6 +722,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		-- Migrate existing auto or null instances to explicit ssh or prometheus
 		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NOT NULL;
 		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE (metric_source = 'auto' OR metric_source IS NULL OR metric_source = '') AND remote_host_id IS NULL;
+		-- Ensure instances targeting Prometheus/OTel ports (8889, 9100) or with prometheus_target are strictly prometheus
+		UPDATE monitoring_instances SET metric_source = 'prometheus', remote_host_id = NULL WHERE (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
+		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE port = 22;
 
 		-- Metrics history table for lightweight persistence & trend graphs
 		CREATE TABLE IF NOT EXISTS instance_metrics_history (

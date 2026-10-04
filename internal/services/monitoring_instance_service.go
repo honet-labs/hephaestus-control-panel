@@ -219,7 +219,7 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 				netVal = inst.LiveMetrics.NetTotalMB
 
 				src := "prometheus"
-				if inst.MetricSource == "ssh" || (inst.RemoteHostID != nil && *inst.RemoteHostID != "") || (inst.LiveMetrics.AgentVersion != "" && strings.Contains(inst.LiveMetrics.AgentVersion, "SSH")) {
+				if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && inst.Port == 22 && inst.RemoteHostID != nil && *inst.RemoteHostID != "") {
 					src = "ssh"
 				}
 				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, src)
@@ -781,7 +781,14 @@ func (s *MonitoringInstanceService) CreateInstance(
 	}
 
 	if inst.MetricSource == "" {
-		inst.MetricSource = "ssh"
+		if inst.Port == 8889 || inst.Port == 9100 || inst.PrometheusTarget != "" {
+			inst.MetricSource = "prometheus"
+		} else {
+			inst.MetricSource = "ssh"
+		}
+	}
+	if inst.MetricSource == "prometheus" {
+		inst.RemoteHostID = nil
 	}
 
 	if inst.IPAddress == "" {
@@ -902,7 +909,14 @@ func (s *MonitoringInstanceService) UpdateInstance(
 		inst.MetricSource = req.MetricSource
 	}
 	if inst.MetricSource == "" {
-		inst.MetricSource = "ssh"
+		if inst.Port == 8889 || inst.Port == 9100 || inst.PrometheusTarget != "" {
+			inst.MetricSource = "prometheus"
+		} else {
+			inst.MetricSource = "ssh"
+		}
+	}
+	if inst.MetricSource == "prometheus" {
+		inst.RemoteHostID = nil
 	}
 	inst.Visibility = req.Visibility
 	inst.AlertEnabled = req.AlertEnabled
@@ -2364,13 +2378,13 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 
 	var targets []*domain.MonitoringInstance
 	for _, inst := range instances {
+		if inst.MetricSource == "prometheus" {
+			continue
+		}
 		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
 			continue
 		}
-		// If metric_source is not explicitly prometheus, poll via SSH
-		if inst.MetricSource != "prometheus" {
-			targets = append(targets, inst)
-		}
+		targets = append(targets, inst)
 	}
 
 	if len(targets) == 0 {
