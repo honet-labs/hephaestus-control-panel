@@ -606,7 +606,8 @@ interface GridIPItem {
   status: 'active' | 'reserved' | 'offline' | 'available';
 }
 
-const gridIPList = computed<GridIPItem[]>(() => {
+// All generated IP items for the subnet (e.g. for /24 -> 1 to 254)
+const allGridIPItems = computed<GridIPItem[]>(() => {
   if (!selectedSubnet.value) return [];
   const cidr = selectedSubnet.value.cidr;
   const parts = cidr.split('/');
@@ -669,17 +670,63 @@ const gridIPList = computed<GridIPItem[]>(() => {
   return items;
 });
 
+// Filtered grid items for IP Matrix view
+const gridIPList = computed<GridIPItem[]>(() => {
+  const q = searchIpQuery.value.trim().toLowerCase();
+  const st = filterStatus.value;
+
+  if (!q && st === 'all') {
+    return allGridIPItems.value;
+  }
+
+  return allGridIPItems.value.filter(item => {
+    // 1. Status Filter
+    if (st !== 'all') {
+      if (st === 'active' && item.status !== 'active' && !item.addr?.isOnline) return false;
+      if (st === 'reserved' && item.status !== 'reserved') return false;
+      if (st === 'offline' && item.status !== 'offline') return false;
+      if (st === 'available' && item.status !== 'available') return false;
+    }
+
+    // 2. Search Query Filter
+    if (!q) return true;
+
+    // Matches IP string directly (e.g. "10.20.3.100", ".100", "100")
+    if (item.ip.toLowerCase().includes(q)) return true;
+
+    // Matches assigned details: hostname, MAC, description, deviceType, vendor, dnsName, osDetected, tags
+    if (item.addr) {
+      if (item.addr.hostname && item.addr.hostname.toLowerCase().includes(q)) return true;
+      if (item.addr.macAddress && item.addr.macAddress.toLowerCase().includes(q)) return true;
+      if (item.addr.description && item.addr.description.toLowerCase().includes(q)) return true;
+      if (item.addr.deviceType && item.addr.deviceType.toLowerCase().includes(q)) return true;
+      if (item.addr.vendor && item.addr.vendor.toLowerCase().includes(q)) return true;
+      if (item.addr.dnsName && item.addr.dnsName.toLowerCase().includes(q)) return true;
+      if (item.addr.osDetected && item.addr.osDetected.toLowerCase().includes(q)) return true;
+      if (item.addr.osFamily && item.addr.osFamily.toLowerCase().includes(q)) return true;
+      if (item.addr.tags && item.addr.tags.some(t => t.toLowerCase().includes(q))) return true;
+    }
+
+    return false;
+  });
+});
+
 // Filtered addresses for Table view
 const filteredTableAddresses = computed(() => {
   const q = searchIpQuery.value.trim().toLowerCase();
   const st = filterStatus.value;
 
-  return subnetAddresses.value.filter(a => {
+  // Filter existing assigned/recorded addresses
+  const matchingAssigned = subnetAddresses.value.filter(a => {
     const matchQuery = !q ||
       a.ipAddress.toLowerCase().includes(q) ||
       a.hostname?.toLowerCase().includes(q) ||
       a.macAddress?.toLowerCase().includes(q) ||
-      a.deviceType?.toLowerCase().includes(q);
+      a.deviceType?.toLowerCase().includes(q) ||
+      a.description?.toLowerCase().includes(q) ||
+      a.vendor?.toLowerCase().includes(q) ||
+      a.osFamily?.toLowerCase().includes(q) ||
+      (a.tags && a.tags.some(t => t.toLowerCase().includes(q)));
 
     const matchStatus = st === 'all' ||
       (st === 'online' && a.isOnline) ||
@@ -689,6 +736,31 @@ const filteredTableAddresses = computed(() => {
 
     return matchQuery && matchStatus;
   });
+
+  // If status filter is 'available' or user searched for an IP not yet assigned in DB:
+  if (st === 'available' || (q && matchingAssigned.length === 0)) {
+    const availableFromGrid = allGridIPItems.value
+      .filter(item => item.status === 'available' && (!q || item.ip.toLowerCase().includes(q)))
+      .map(item => ({
+        id: `avail-${item.ip}`,
+        subnetId: selectedSubnet.value?.id || '',
+        ipAddress: item.ip,
+        ipVersion: (selectedSubnet.value?.ipVersion || 'ipv4') as any,
+        status: 'available' as any,
+        hostname: '',
+        macAddress: '',
+        isOnline: false,
+        deviceType: 'Unassigned (Free)',
+        lastSeenAt: null,
+      } as IpamAddress));
+
+    if (st === 'available') {
+      return availableFromGrid;
+    }
+    return [...matchingAssigned, ...availableFromGrid];
+  }
+
+  return matchingAssigned;
 });
 
 const formatTimeAgo = (dateStr: string | null) => {
@@ -1088,8 +1160,16 @@ onMounted(() => {
             <input
               v-model="searchIpQuery"
               placeholder="Filter by IP, hostname, MAC..."
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
+            <button
+              v-if="searchIpQuery"
+              @click="searchIpQuery = ''"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              title="Clear search"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
           </div>
 
           <select
@@ -1100,6 +1180,7 @@ onMounted(() => {
             <option value="active">Active / Online</option>
             <option value="reserved">Reserved / Gateway</option>
             <option value="offline">Offline Only</option>
+            <option value="available">Available (Free)</option>
           </select>
         </div>
 
@@ -1157,7 +1238,23 @@ onMounted(() => {
 
       <!-- MODE 1: VISUAL IP MATRIX GRID -->
       <div v-if="ipViewMode === 'grid'" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm">
-        <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5">
+        <!-- Empty State when filter has no matches -->
+        <div v-if="gridIPList.length === 0" class="py-12 text-center space-y-3">
+          <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-[#1a2336] text-slate-400 flex items-center justify-center mx-auto">
+            <Search class="w-5 h-5" />
+          </div>
+          <p class="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            No IP addresses match "{{ searchIpQuery }}"
+          </p>
+          <button
+            @click="searchIpQuery = ''; filterStatus = 'all'"
+            class="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer font-medium"
+          >
+            Clear Filters
+          </button>
+        </div>
+
+        <div v-else class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2.5">
           <div
             v-for="item in gridIPList"
             :key="item.ip"
