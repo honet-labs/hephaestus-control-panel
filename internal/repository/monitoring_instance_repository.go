@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -37,6 +39,7 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
+				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1 OR m.user_id IS NULL) AS is_owner,
@@ -54,6 +57,7 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
+				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1) AS is_owner,
@@ -97,9 +101,11 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 	for rows.Next() {
 		inst := &domain.MonitoringInstance{}
 		var tags []string
+		var lastMetricsBytes []byte
 		if err := rows.Scan(
 			&inst.ID, &inst.Name, &inst.Host, &inst.IPAddress, &inst.Port, &inst.InstanceType,
 			&inst.GroupName, &tags, &inst.PrometheusTarget, &inst.RemoteHostID,
+			&inst.MetricSource, &lastMetricsBytes, &inst.LastMetricsAt,
 			&inst.UserID, &inst.OwnerUsername, &inst.Visibility,
 			&inst.AlertEnabled, &inst.Notes,
 			&inst.IsOwner, &inst.UserPermission, &inst.SharesCount,
@@ -111,6 +117,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 			tags = []string{}
 		}
 		inst.Tags = tags
+		if len(lastMetricsBytes) > 0 {
+			var lm domain.InstanceLiveMetrics
+			if err := json.Unmarshal(lastMetricsBytes, &lm); err == nil {
+				inst.LiveMetrics = &lm
+			}
+		}
 		list = append(list, inst)
 	}
 
@@ -131,6 +143,7 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
+				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1 OR m.user_id IS NULL) AS is_owner,
@@ -146,6 +159,7 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 			SELECT 
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
+				COALESCE(m.metric_source, 'auto'), m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
 				(m.user_id = $1) AS is_owner,
@@ -165,9 +179,11 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 
 	inst := &domain.MonitoringInstance{}
 	var tags []string
+	var lastMetricsBytes []byte
 	err = pool.QueryRow(ctx, query, userID, id).Scan(
 		&inst.ID, &inst.Name, &inst.Host, &inst.IPAddress, &inst.Port, &inst.InstanceType,
 		&inst.GroupName, &tags, &inst.PrometheusTarget, &inst.RemoteHostID,
+		&inst.MetricSource, &lastMetricsBytes, &inst.LastMetricsAt,
 		&inst.UserID, &inst.OwnerUsername, &inst.Visibility,
 		&inst.AlertEnabled, &inst.Notes,
 		&inst.IsOwner, &inst.UserPermission, &inst.SharesCount,
@@ -183,6 +199,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 		tags = []string{}
 	}
 	inst.Tags = tags
+	if len(lastMetricsBytes) > 0 {
+		var lm domain.InstanceLiveMetrics
+		if err := json.Unmarshal(lastMetricsBytes, &lm); err == nil {
+			inst.LiveMetrics = &lm
+		}
+	}
 
 	return inst, nil
 }
@@ -212,15 +234,19 @@ func (r *MonitoringInstanceRepository) Create(ctx context.Context, inst *domain.
 		inst.Tags = []string{}
 	}
 
+	if inst.MetricSource == "" {
+		inst.MetricSource = "auto"
+	}
+
 	query := `
 		INSERT INTO monitoring_instances (
 			id, name, host, ip_address, port, instance_type, group_name, tags,
-			prometheus_target, remote_host_id, user_id, visibility, alert_enabled,
+			prometheus_target, remote_host_id, metric_source, user_id, visibility, alert_enabled,
 			notes, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13,
-			$14, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			$9, $10, $11, $12, $13, $14,
+			$15, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		)
 		RETURNING created_at, updated_at
 	`
@@ -228,7 +254,7 @@ func (r *MonitoringInstanceRepository) Create(ctx context.Context, inst *domain.
 	return pool.QueryRow(ctx, query,
 		inst.ID, inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.InstanceType,
 		inst.GroupName, inst.Tags, inst.PrometheusTarget, inst.RemoteHostID,
-		inst.UserID, inst.Visibility, inst.AlertEnabled, inst.Notes,
+		inst.MetricSource, inst.UserID, inst.Visibility, inst.AlertEnabled, inst.Notes,
 	).Scan(&inst.CreatedAt, &inst.UpdatedAt)
 }
 
@@ -244,6 +270,9 @@ func (r *MonitoringInstanceRepository) Update(ctx context.Context, inst *domain.
 	if inst.Tags == nil {
 		inst.Tags = []string{}
 	}
+	if inst.MetricSource == "" {
+		inst.MetricSource = "auto"
+	}
 
 	query := `
 		UPDATE monitoring_instances SET
@@ -256,17 +285,18 @@ func (r *MonitoringInstanceRepository) Update(ctx context.Context, inst *domain.
 			tags = $7,
 			prometheus_target = $8,
 			remote_host_id = $9,
-			visibility = $10,
-			alert_enabled = $11,
-			notes = $12,
+			metric_source = $10,
+			visibility = $11,
+			alert_enabled = $12,
+			notes = $13,
 			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $13
+		WHERE id = $14
 	`
 
 	cmdTag, err := pool.Exec(ctx, query,
 		inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.InstanceType,
 		inst.GroupName, inst.Tags, inst.PrometheusTarget, inst.RemoteHostID,
-		inst.Visibility, inst.AlertEnabled, inst.Notes, inst.ID,
+		inst.MetricSource, inst.Visibility, inst.AlertEnabled, inst.Notes, inst.ID,
 	)
 	if err != nil {
 		return err
@@ -487,6 +517,7 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		Tags:             host.Tags,
 		PrometheusTarget: fmt.Sprintf("%s:8889", host.Host),
 		RemoteHostID:     &host.ID,
+		MetricSource:     "auto",
 		UserID:           &targetUserID,
 		Visibility:       "private",
 		AlertEnabled:     true,
@@ -499,7 +530,8 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		updateQuery := `
 			UPDATE monitoring_instances SET
 				name = $1, host = $2, ip_address = $3, group_name = $4, tags = $5,
-				prometheus_target = $6, updated_at = CURRENT_TIMESTAMP
+				prometheus_target = $6, metric_source = COALESCE(NULLIF(metric_source, ''), 'auto'),
+				updated_at = CURRENT_TIMESTAMP
 			WHERE id = $7
 			RETURNING created_at, updated_at
 		`
@@ -526,23 +558,112 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 	insertQuery := `
 		INSERT INTO monitoring_instances (
 			id, name, host, ip_address, port, instance_type, group_name, tags,
-			prometheus_target, remote_host_id, user_id, visibility, alert_enabled,
+			prometheus_target, remote_host_id, metric_source, user_id, visibility, alert_enabled,
 			notes, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13,
-			$14, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+			$9, $10, $11, $12, $13, $14,
+			$15, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 		)
 		RETURNING created_at, updated_at
 	`
 	err = pool.QueryRow(ctx, insertQuery,
 		inst.ID, inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.InstanceType,
 		inst.GroupName, inst.Tags, inst.PrometheusTarget, inst.RemoteHostID,
-		inst.UserID, inst.Visibility, inst.AlertEnabled, inst.Notes,
+		inst.MetricSource, inst.UserID, inst.Visibility, inst.AlertEnabled, inst.Notes,
 	).Scan(&inst.CreatedAt, &inst.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 
 	return inst, nil
+}
+
+// SaveLiveMetrics updates the last known live telemetry snapshot and timestamp for an instance
+func (r *MonitoringInstanceRepository) SaveLiveMetrics(ctx context.Context, id string, metrics *domain.InstanceLiveMetrics) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	metricBytes, err := json.Marshal(metrics)
+	if err != nil {
+		return err
+	}
+	query := `UPDATE monitoring_instances SET last_metrics = $1, last_metrics_at = CURRENT_TIMESTAMP WHERE id = $2`
+	_, err = pool.Exec(ctx, query, metricBytes, id)
+	return err
+}
+
+// SaveMetricsHistory appends a single metric record for trend graphs
+func (r *MonitoringInstanceRepository) SaveMetricsHistory(ctx context.Context, instanceID string, cpuPct, memPct, diskPct, netMB float64, source string) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	if source == "" {
+		source = "ssh"
+	}
+	query := `INSERT INTO instance_metrics_history (instance_id, cpu_pct, mem_pct, disk_pct, net_total_mb, source, created_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`
+	_, err = pool.Exec(ctx, query, instanceID, cpuPct, memPct, diskPct, netMB, source)
+	return err
+}
+
+// GetMetricsHistoryFromDB returns stored history points from PostgreSQL when Prometheus is unavailable
+func (r *MonitoringInstanceRepository) GetMetricsHistoryFromDB(ctx context.Context, instanceID string, startTime time.Time) (*domain.InstanceHistoryResponse, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	query := `
+		SELECT 
+			COALESCE(cpu_pct, 0),
+			COALESCE(mem_pct, 0),
+			COALESCE(disk_pct, 0),
+			COALESCE(net_total_mb, 0),
+			EXTRACT(EPOCH FROM created_at)::BIGINT
+		FROM instance_metrics_history
+		WHERE instance_id = $1 AND created_at >= $2
+		ORDER BY created_at ASC
+	`
+	rows, err := pool.Query(ctx, query, instanceID, startTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &domain.InstanceHistoryResponse{
+		InstanceID: instanceID,
+		CPU:        []domain.MetricHistoryPoint{},
+		Memory:     []domain.MetricHistoryPoint{},
+		Disk:       []domain.MetricHistoryPoint{},
+		NetIn:      []domain.MetricHistoryPoint{},
+		NetOut:     []domain.MetricHistoryPoint{},
+	}
+
+	for rows.Next() {
+		var cpu, mem, disk, netVal float64
+		var ts int64
+		if err := rows.Scan(&cpu, &mem, &disk, &netVal, &ts); err == nil {
+			resp.CPU = append(resp.CPU, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(cpu*100) / 100})
+			resp.Memory = append(resp.Memory, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(mem*100) / 100})
+			resp.Disk = append(resp.Disk, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(disk*100) / 100})
+			resp.NetIn = append(resp.NetIn, domain.MetricHistoryPoint{Timestamp: ts, Value: math.Round(netVal*100) / 100})
+		}
+	}
+	return resp, nil
+}
+
+// PruneMetricsHistory deletes history points older than maxDays (default 7 days) to prevent database bloat
+func (r *MonitoringInstanceRepository) PruneMetricsHistory(ctx context.Context, maxDays int) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	if maxDays <= 0 {
+		maxDays = 7
+	}
+	query := fmt.Sprintf("DELETE FROM instance_metrics_history WHERE created_at < NOW() - INTERVAL '%d days'", maxDays)
+	_, err = pool.Exec(ctx, query)
+	return err
 }

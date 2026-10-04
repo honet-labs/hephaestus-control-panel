@@ -24,6 +24,9 @@ type MonitoringInstanceService struct {
 	promService    *PrometheusService
 	workerPool     *queue.WorkerPool
 
+	vpsService     *VpsService
+	pollCycleCount int
+
 	// Metrics Cache & Polling Engine
 	cacheMu         sync.RWMutex
 	metricsCache    map[string]*domain.InstanceLiveMetrics
@@ -44,12 +47,14 @@ func NewMonitoringInstanceService(
 	remoteHostRepo *repository.RemoteHostRepository,
 	promService *PrometheusService,
 	workerPool *queue.WorkerPool,
+	vpsService *VpsService,
 ) *MonitoringInstanceService {
 	return &MonitoringInstanceService{
 		instRepo:        instRepo,
 		remoteHostRepo:  remoteHostRepo,
 		promService:     promService,
 		workerPool:      workerPool,
+		vpsService:      vpsService,
 		metricsCache:    make(map[string]*domain.InstanceLiveMetrics),
 		dockerCache:     make([]*domain.DockerContainerMetric, 0),
 		pollInterval:    30 * time.Second, // default 30s as requested
@@ -187,13 +192,47 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 		start := time.Now()
 		s.BatchGetLiveMetrics(pollCtx, instances)
 
+		// Poll SSH metrics for instances linked to Remote Hosts that need SSH telemetry
+		s.pollSSHInstances(pollCtx, instances)
+
 		s.cacheMu.Lock()
 		for _, inst := range instances {
 			if inst.LiveMetrics != nil {
 				s.metricsCache[inst.ID] = inst.LiveMetrics
+
+				// Persist live metrics snapshot to DB for quick cold restarts
+				_ = s.instRepo.SaveLiveMetrics(pollCtx, inst.ID, inst.LiveMetrics)
+
+				// Save history point into DB
+				var cpuVal, memVal, diskVal, netVal float64
+				if inst.LiveMetrics.CPUPct != nil {
+					cpuVal = *inst.LiveMetrics.CPUPct
+				}
+				if inst.LiveMetrics.MemPct != nil {
+					memVal = *inst.LiveMetrics.MemPct
+				}
+				if inst.LiveMetrics.DiskPct != nil {
+					diskVal = *inst.LiveMetrics.DiskPct
+				}
+				netVal = inst.LiveMetrics.NetTotalMB
+
+				src := "prometheus"
+				if inst.MetricSource == "ssh" || (inst.LiveMetrics.AgentVersion != "" && strings.Contains(inst.LiveMetrics.AgentVersion, "SSH")) {
+					src = "ssh"
+				}
+				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, src)
 			}
 		}
 		s.lastPolledAt = time.Now()
+		s.pollCycleCount++
+		// Run DB pruning once every 120 polling cycles (~1 hour if 30s interval)
+		if s.pollCycleCount%120 == 0 {
+			go func() {
+				pruneCtx, pruneCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer pruneCancel()
+				_ = s.instRepo.PruneMetricsHistory(pruneCtx, 7)
+			}()
+		}
 		s.cacheMu.Unlock()
 
 		logger.Info("MonitoringEngine", fmt.Sprintf("Polled metrics for %d instances in %v", len(instances), time.Since(start)))
@@ -640,6 +679,8 @@ func (s *MonitoringInstanceService) ListInstances(
 		for _, inst := range instances {
 			if cached, exists := s.metricsCache[inst.ID]; exists {
 				inst.LiveMetrics = cached
+			} else if inst.LiveMetrics != nil {
+				// Keep metrics pre-loaded from DB (last_metrics)
 			} else {
 				// Clean N/A placeholder
 				inst.LiveMetrics = &domain.InstanceLiveMetrics{
@@ -688,6 +729,8 @@ func (s *MonitoringInstanceService) GetInstance(
 		s.cacheMu.RLock()
 		if cached, exists := s.metricsCache[inst.ID]; exists {
 			inst.LiveMetrics = cached
+		} else if inst.LiveMetrics != nil {
+			// Keep metrics loaded from DB (last_metrics)
 		} else {
 			inst.LiveMetrics = &domain.InstanceLiveMetrics{
 				IsOnline:      false,
@@ -728,10 +771,15 @@ func (s *MonitoringInstanceService) CreateInstance(
 		Tags:             req.Tags,
 		PrometheusTarget: req.PrometheusTarget,
 		RemoteHostID:     req.RemoteHostID,
+		MetricSource:     req.MetricSource,
 		UserID:           &userID,
 		Visibility:       req.Visibility,
 		AlertEnabled:     req.AlertEnabled,
 		Notes:            req.Notes,
+	}
+
+	if inst.MetricSource == "" {
+		inst.MetricSource = "auto"
 	}
 
 	if inst.IPAddress == "" {
@@ -780,6 +828,12 @@ func (s *MonitoringInstanceService) UpdateInstance(
 	inst.Tags = req.Tags
 	inst.PrometheusTarget = req.PrometheusTarget
 	inst.RemoteHostID = req.RemoteHostID
+	if req.MetricSource != "" {
+		inst.MetricSource = req.MetricSource
+	}
+	if inst.MetricSource == "" {
+		inst.MetricSource = "auto"
+	}
 	inst.Visibility = req.Visibility
 	inst.AlertEnabled = req.AlertEnabled
 	inst.Notes = req.Notes
@@ -1906,6 +1960,15 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 
 	wg.Wait()
 
+	// If Prometheus returned no data, fallback to PostgreSQL database history
+	if len(resp.CPU) == 0 && len(resp.Memory) == 0 {
+		dbHistory, err := s.instRepo.GetMetricsHistoryFromDB(ctx, inst.ID, startTime)
+		if err == nil && dbHistory != nil && (len(dbHistory.CPU) > 0 || len(dbHistory.Memory) > 0) {
+			dbHistory.TimeRange = timeRange
+			return dbHistory, nil
+		}
+	}
+
 	return resp, nil
 }
 
@@ -2141,4 +2204,300 @@ func (s *MonitoringInstanceService) GetContainerHistory(
 
 	return resp, nil
 }
+
+// ==================== SSH METRICS POLLING ENGINE ====================
+
+// pollSSHInstances polls telemetry for instances that are configured for SSH metric collection
+func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instances []*domain.MonitoringInstance) {
+	if s.vpsService == nil {
+		return
+	}
+
+	var targets []*domain.MonitoringInstance
+	for _, inst := range instances {
+		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
+			continue
+		}
+		// If metric_source is "ssh", always use SSH
+		// If metric_source is "auto" (or empty), use SSH if Prometheus didn't find live online metrics
+		if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && (inst.LiveMetrics == nil || !inst.LiveMetrics.IsOnline)) {
+			targets = append(targets, inst)
+		}
+	}
+
+	if len(targets) == 0 {
+		return
+	}
+
+	// Concurrency limiter: max 5 concurrent SSH handshakes to protect local daemon and remote targets
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+
+	for _, inst := range targets {
+		wg.Add(1)
+		go func(target *domain.MonitoringInstance) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			// Strict 8-second context timeout per host
+			hostCtx, hostCancel := context.WithTimeout(ctx, 8*time.Second)
+			defer hostCancel()
+
+			liveMetrics, err := s.fetchInstanceSSHMetrics(hostCtx, target)
+			if err == nil && liveMetrics != nil {
+				target.LiveMetrics = liveMetrics
+			}
+		}(inst)
+	}
+
+	wg.Wait()
+}
+
+// fetchInstanceSSHMetrics fetches system utilization from remote host via SSH and maps to InstanceLiveMetrics
+func (s *MonitoringInstanceService) fetchInstanceSSHMetrics(ctx context.Context, inst *domain.MonitoringInstance) (*domain.InstanceLiveMetrics, error) {
+	if s.vpsService == nil || inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
+		return nil, fmt.Errorf("no remote host linked")
+	}
+
+	data, err := s.vpsService.GetMetrics(ctx, *inst.RemoteHostID)
+	if err != nil {
+		return nil, err
+	}
+
+	lm := s.mapVpsMetricsToLiveMetrics(data)
+	if lm.DetectedHostname == "" {
+		lm.DetectedHostname = inst.Name
+	}
+	return lm, nil
+}
+
+// FetchSSHMetricsNow forces an immediate SSH telemetry pull for a single instance
+func (s *MonitoringInstanceService) FetchSSHMetricsNow(ctx context.Context, id string, userID int, userRole string) (*domain.InstanceLiveMetrics, error) {
+	inst, err := s.instRepo.GetByID(ctx, id, userID, userRole)
+	if err != nil {
+		return nil, err
+	}
+	if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
+		return nil, fmt.Errorf("instance is not linked to any Remote Host SSH connection")
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	metrics, err := s.fetchInstanceSSHMetrics(callCtx, inst)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update memory cache
+	s.cacheMu.Lock()
+	s.metricsCache[inst.ID] = metrics
+	s.cacheMu.Unlock()
+
+	// Persist live snapshot
+	_ = s.instRepo.SaveLiveMetrics(ctx, inst.ID, metrics)
+
+	// Persist history point
+	var cpuVal, memVal, diskVal, netVal float64
+	if metrics.CPUPct != nil {
+		cpuVal = *metrics.CPUPct
+	}
+	if metrics.MemPct != nil {
+		memVal = *metrics.MemPct
+	}
+	if metrics.DiskPct != nil {
+		diskVal = *metrics.DiskPct
+	}
+	netVal = metrics.NetTotalMB
+	_ = s.instRepo.SaveMetricsHistory(ctx, inst.ID, cpuVal, memVal, diskVal, netVal, "ssh")
+
+	return metrics, nil
+}
+
+// mapVpsMetricsToLiveMetrics transforms raw VPS metrics map into standard InstanceLiveMetrics
+func (s *MonitoringInstanceService) mapVpsMetricsToLiveMetrics(data map[string]interface{}) *domain.InstanceLiveMetrics {
+	lm := &domain.InstanceLiveMetrics{
+		IsOnline:     true,
+		AgentVersion: "SSH (Agentless)",
+		HasOTel:      false,
+		LastUpdated:  time.Now(),
+		Disks:        []domain.InstanceDiskMetric{},
+	}
+
+	if h, ok := data["hostname"].(string); ok {
+		lm.DetectedHostname = h
+	}
+
+	if osName, ok := data["osName"].(string); ok {
+		kernel, _ := data["kernel"].(string)
+		if kernel != "" && kernel != "-" {
+			lm.OSVersion = fmt.Sprintf("%s (%s)", osName, kernel)
+		} else {
+			lm.OSVersion = osName
+		}
+	}
+
+	if upt, ok := data["uptime"].(string); ok {
+		lm.UptimeHuman = upt
+	}
+
+	if cores, ok := data["cpuCores"].(int); ok {
+		lm.CPUCount = cores
+	}
+
+	if cpu, ok := data["cpuUsage"].(float64); ok {
+		val := math.Round(cpu*10) / 10
+		lm.CPUPct = &val
+	}
+
+	if loadStr, ok := data["loadAverage"].(string); ok && loadStr != "" {
+		l1, l5, l15 := parseLoadAverage(loadStr)
+		lm.CPULoad1m = l1
+		lm.CPULoad5m = l5
+		lm.CPULoad15m = l15
+	}
+
+	if memPct, ok := data["memPercent"].(float64); ok {
+		val := math.Round(memPct*10) / 10
+		lm.MemPct = &val
+	}
+	if memUsed, ok := data["memUsed"].(string); ok {
+		lm.MemUsedBytes = parseHumanBytes(memUsed)
+	}
+	if memTotal, ok := data["memTotal"].(string); ok {
+		lm.MemTotalBytes = parseHumanBytes(memTotal)
+	}
+	if memFree, ok := data["memFree"].(string); ok {
+		lm.MemFreeBytes = parseHumanBytes(memFree)
+	}
+
+	if rawDisks, ok := data["disks"].([]map[string]interface{}); ok {
+		var maxUsage float64
+		var totalUsed, totalCap, totalFree float64
+		foundRoot := false
+
+		for _, d := range rawDisks {
+			mount, _ := d["mount"].(string)
+			fs, _ := d["filesystem"].(string)
+			totStr, _ := d["total"].(string)
+			usedStr, _ := d["used"].(string)
+			availStr, _ := d["avail"].(string)
+
+			pctVal := 0.0
+			switch p := d["percent"].(type) {
+			case int:
+				pctVal = float64(p)
+			case float64:
+				pctVal = p
+			}
+
+			totBytes := parseHumanBytes(totStr)
+			usedBytes := parseHumanBytes(usedStr)
+			availBytes := parseHumanBytes(availStr)
+
+			totalUsed += usedBytes
+			totalCap += totBytes
+			totalFree += availBytes
+
+			diskMetric := domain.InstanceDiskMetric{
+				Mountpoint: mount,
+				Device:     fs,
+				UsagePct:   pctVal,
+				UsedBytes:  usedBytes,
+				TotalBytes: totBytes,
+				FreeBytes:  availBytes,
+				UsageHuman: fmt.Sprintf("%s / %s (%.0f%%)", usedStr, totStr, pctVal),
+			}
+			lm.Disks = append(lm.Disks, diskMetric)
+
+			if mount == "/" {
+				foundRoot = true
+				rootPct := pctVal
+				lm.DiskPct = &rootPct
+				lm.DiskUsedBytes = usedBytes
+				lm.DiskTotalBytes = totBytes
+				lm.DiskFreeBytes = availBytes
+			} else if !foundRoot && pctVal > maxUsage {
+				maxUsage = pctVal
+			}
+		}
+
+		if !foundRoot && len(lm.Disks) > 0 {
+			if totalCap > 0 {
+				calcPct := math.Round((totalUsed/totalCap)*1000) / 10
+				lm.DiskPct = &calcPct
+				lm.DiskUsedBytes = totalUsed
+				lm.DiskTotalBytes = totalCap
+				lm.DiskFreeBytes = totalFree
+			} else {
+				lm.DiskPct = &maxUsage
+			}
+		}
+	}
+
+	return lm
+}
+
+// parseHumanBytes converts human readable strings like '15.2 GB', '500 MB', '15G', '2.0 TB' to bytes
+func parseHumanBytes(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" {
+		return 0
+	}
+	re := regexp.MustCompile(`^([0-9.]+)\s*([A-Za-z]+)?$`)
+	match := re.FindStringSubmatch(s)
+	if len(match) < 2 {
+		return 0
+	}
+	val, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0
+	}
+	unit := ""
+	if len(match) > 2 {
+		unit = strings.ToUpper(strings.TrimSpace(match[2]))
+	}
+	switch {
+	case strings.HasPrefix(unit, "T"):
+		return val * 1024 * 1024 * 1024 * 1024
+	case strings.HasPrefix(unit, "G"):
+		return val * 1024 * 1024 * 1024
+	case strings.HasPrefix(unit, "M"):
+		return val * 1024 * 1024
+	case strings.HasPrefix(unit, "K"):
+		return val * 1024
+	default:
+		return val
+	}
+}
+
+// parseLoadAverage parses 1m, 5m, 15m load numbers from strings like '0.10, 0.15, 0.20'
+func parseLoadAverage(loadStr string) (*float64, *float64, *float64) {
+	cleaned := strings.ReplaceAll(loadStr, "/", " ")
+	cleaned = strings.ReplaceAll(cleaned, ",", " ")
+	fields := strings.Fields(cleaned)
+	var l1, l5, l15 *float64
+	if len(fields) > 0 {
+		if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
+			l1 = &v
+		}
+	}
+	if len(fields) > 1 {
+		if v, err := strconv.ParseFloat(fields[1], 64); err == nil {
+			l5 = &v
+		}
+	}
+	if len(fields) > 2 {
+		if v, err := strconv.ParseFloat(fields[2], 64); err == nil {
+			l15 = &v
+		}
+	}
+	return l1, l5, l15
+}
+
 

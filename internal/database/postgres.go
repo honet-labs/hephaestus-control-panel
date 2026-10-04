@@ -713,6 +713,24 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE monitoring_instances ALTER COLUMN visibility SET DEFAULT 'private';
 		UPDATE monitoring_instances SET visibility = 'private' WHERE visibility = 'public';
 
+		-- Add metric source and last metrics cache columns
+		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS metric_source VARCHAR(20) DEFAULT 'auto';
+		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics JSONB;
+		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics_at TIMESTAMP WITH TIME ZONE;
+
+		-- Metrics history table for lightweight persistence & trend graphs
+		CREATE TABLE IF NOT EXISTS instance_metrics_history (
+			id BIGSERIAL PRIMARY KEY,
+			instance_id VARCHAR(50) NOT NULL REFERENCES monitoring_instances(id) ON DELETE CASCADE,
+			cpu_pct REAL,
+			mem_pct REAL,
+			disk_pct REAL,
+			net_total_mb REAL,
+			source VARCHAR(20) DEFAULT 'ssh',
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_inst_metrics_hist_time ON instance_metrics_history (instance_id, created_at DESC);
+
 		CREATE TABLE IF NOT EXISTS monitoring_instance_shares (
 			id VARCHAR(50) PRIMARY KEY,
 			instance_id VARCHAR(50) NOT NULL REFERENCES monitoring_instances(id) ON DELETE CASCADE,

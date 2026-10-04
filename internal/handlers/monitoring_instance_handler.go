@@ -406,4 +406,27 @@ func (h *MonitoringInstanceHandler) ListContainers(c *gin.Context) {
 	})
 }
 
+// FetchSSHMetrics handles POST /api/v1/monitoring/instances/:id/fetch-ssh
+func (h *MonitoringInstanceHandler) FetchSSHMetrics(c *gin.Context) {
+	userID, userRole := getUserContext(c)
+	id := c.Param("id")
+
+	metrics, err := h.service.FetchSSHMetricsNow(c.Request.Context(), id, userID, userRole)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to fetch metrics via SSH",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Metrics fetched successfully via SSH",
+		"data":    metrics,
+	})
+}
+
+
 

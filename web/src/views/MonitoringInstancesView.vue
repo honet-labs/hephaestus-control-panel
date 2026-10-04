@@ -34,6 +34,7 @@ import {
   Sliders,
   Box,
   Settings,
+  Terminal,
 } from 'lucide-vue-next';
 
 interface DockerContainerMetric {
@@ -122,6 +123,8 @@ interface MonitoringInstance {
   tags: string[];
   prometheusTarget: string;
   remoteHostId?: string;
+  metricSource?: 'auto' | 'ssh' | 'prometheus';
+  lastMetricsAt?: string;
   userId?: number;
   ownerUsername?: string;
   visibility: string;
@@ -999,16 +1002,24 @@ const selectedSyncHosts = ref<string[]>([]);
 const loadingRemoteHosts = ref(false);
 const syncing = ref(false);
 
+const fetchRemoteHostsList = async () => {
+  try {
+    const res = await axios.get('/api/v1/remote-host');
+    if (res.data?.data) {
+      remoteHostsList.value = res.data.data;
+    }
+  } catch (err: any) {
+    // silent
+  }
+};
+
 const openSyncModal = async () => {
   showSyncModal.value = true;
   loadingRemoteHosts.value = true;
   selectedSyncHosts.value = [];
   try {
-    const res = await axios.get('/api/v1/remote-host');
-    if (res.data?.data) {
-      remoteHostsList.value = res.data.data;
-      selectedSyncHosts.value = remoteHostsList.value.map((h) => h.id);
-    }
+    await fetchRemoteHostsList();
+    selectedSyncHosts.value = remoteHostsList.value.map((h) => h.id);
   } catch (err: any) {
     showNotice(err.response?.data?.error || 'Failed to fetch remote hosts', 'error');
   } finally {
@@ -1036,6 +1047,27 @@ const executeSync = async () => {
 };
 
 // -----------------------------------------------------------------------------
+// Manual SSH Metrics Refresh Action
+// -----------------------------------------------------------------------------
+const fetchingSshId = ref<string | null>(null);
+
+const fetchSshMetricsNow = async (inst: MonitoringInstance) => {
+  activeDropdownId.value = null;
+  fetchingSshId.value = inst.id;
+  try {
+    const res = await axios.post(`/api/v1/monitoring/instances/${inst.id}/fetch-ssh`);
+    if (res.data?.success && res.data?.data) {
+      inst.liveMetrics = res.data.data;
+      showNotice(`Live metrics updated via SSH for ${inst.name}`);
+    }
+  } catch (err: any) {
+    showNotice(err.response?.data?.details || err.response?.data?.error || 'Failed to fetch metrics via SSH', 'error');
+  } finally {
+    fetchingSshId.value = null;
+  }
+};
+
+// -----------------------------------------------------------------------------
 // Add / Edit Manual Instance Modal
 // -----------------------------------------------------------------------------
 const showInstanceModal = ref(false);
@@ -1052,12 +1084,14 @@ const instanceForm = ref({
   groupName: 'Default',
   tags: '',
   prometheusTarget: '',
+  remoteHostId: '',
+  metricSource: 'auto' as 'auto' | 'ssh' | 'prometheus',
   visibility: 'private',
   alertEnabled: true,
   notes: '',
 });
 
-const openCreateModal = () => {
+const openCreateModal = async () => {
   isEditing.value = false;
   currentInstanceId.value = '';
   instanceForm.value = {
@@ -1070,14 +1104,19 @@ const openCreateModal = () => {
     groupName: 'Default',
     tags: '',
     prometheusTarget: '',
+    remoteHostId: '',
+    metricSource: 'auto',
     visibility: 'private',
     alertEnabled: true,
     notes: '',
   };
   showInstanceModal.value = true;
+  if (remoteHostsList.value.length === 0) {
+    await fetchRemoteHostsList();
+  }
 };
 
-const openEditModal = (inst: MonitoringInstance) => {
+const openEditModal = async (inst: MonitoringInstance) => {
   activeDropdownId.value = null;
   isEditing.value = true;
   currentInstanceId.value = inst.id;
@@ -1091,11 +1130,16 @@ const openEditModal = (inst: MonitoringInstance) => {
     groupName: inst.groupName || 'Default',
     tags: inst.tags ? inst.tags.join(', ') : '',
     prometheusTarget: inst.prometheusTarget || '',
+    remoteHostId: inst.remoteHostId || '',
+    metricSource: (inst.metricSource as any) || 'auto',
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
   };
   showInstanceModal.value = true;
+  if (remoteHostsList.value.length === 0) {
+    await fetchRemoteHostsList();
+  }
 };
 
 const saveInstance = async () => {
@@ -1117,6 +1161,8 @@ const saveInstance = async () => {
         ? instanceForm.value.tags.split(',').map((t) => t.trim()).filter(Boolean)
         : [],
       prometheusTarget: instanceForm.value.prometheusTarget.trim(),
+      remoteHostId: instanceForm.value.remoteHostId || undefined,
+      metricSource: instanceForm.value.metricSource,
       visibility: instanceForm.value.visibility,
       alertEnabled: instanceForm.value.alertEnabled,
       notes: instanceForm.value.notes.trim(),
@@ -1740,6 +1786,15 @@ onUnmounted(() => {
                 {{ inst.name }}
               </span>
 
+              <!-- SSH Agentless Badge -->
+              <span
+                v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh'"
+                class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
+                title="Telemetry collected via SSH connection (Agentless)"
+              >
+                SSH
+              </span>
+
               <!-- Priority Severity Status Badge -->
               <span
                 v-if="getInstanceStatus(inst).severity === 'critical'"
@@ -1804,6 +1859,17 @@ onUnmounted(() => {
                 >
                   <History class="w-3.5 h-3.5 text-slate-400" />
                   <span>View History</span>
+                </button>
+
+                <!-- Fetch via SSH (if linked to Remote Host) -->
+                <button
+                  v-if="inst.remoteHostId"
+                  @click="fetchSshMetricsNow(inst)"
+                  :disabled="fetchingSshId === inst.id"
+                  class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] text-left cursor-pointer disabled:opacity-50"
+                >
+                  <Terminal class="w-3.5 h-3.5 text-slate-400" />
+                  <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
                 </button>
 
                 <!-- Manage Shares (Owner/Manager only) -->
@@ -2104,6 +2170,15 @@ onUnmounted(() => {
                       {{ inst.name }}
                     </span>
 
+                    <!-- SSH Agentless Badge -->
+                    <span
+                      v-if="inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh'"
+                      class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/40 shrink-0"
+                      title="Telemetry collected via SSH connection (Agentless)"
+                    >
+                      SSH
+                    </span>
+
                     <!-- Semantic Priority Badge -->
                     <span
                       v-if="getInstanceStatus(inst).severity === 'critical'"
@@ -2286,6 +2361,15 @@ onUnmounted(() => {
                           <span>View History</span>
                         </button>
                         <button
+                          v-if="inst.remoteHostId"
+                          @click="fetchSshMetricsNow(inst)"
+                          :disabled="fetchingSshId === inst.id"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer disabled:opacity-50"
+                        >
+                          <Terminal class="w-3.5 h-3.5 text-slate-400" />
+                          <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
+                        </button>
+                        <button
                           v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
                           @click="openShareModal(inst)"
                           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer"
@@ -2363,6 +2447,14 @@ onUnmounted(() => {
                         <span class="text-slate-400 font-mono text-[11px]">Target:</span>
                         <span class="font-mono text-slate-700 dark:text-slate-300">
                           {{ inst.prometheusTarget || `${inst.ipAddress || inst.host}:${inst.port}` }}
+                        </span>
+                      </div>
+
+                      <!-- Metric Source -->
+                      <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
+                        <span class="text-slate-400 font-mono text-[11px]">Source:</span>
+                        <span class="font-semibold text-slate-800 dark:text-slate-200">
+                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') ? 'SSH Agentless' : (inst.metricSource === 'ssh' ? 'SSH' : 'Prometheus / Hybrid') }}
                         </span>
                       </div>
 
@@ -3265,7 +3357,7 @@ onUnmounted(() => {
           <div>
             <h3 class="text-sm font-bold text-slate-900 dark:text-white">Sync Remote Hosts</h3>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Import configured servers from Remote Host / Remote Server into Monitoring Instances.
+              Import configured servers from Remote Host into Monitoring Instances with automatic SSH & Prometheus telemetry collection.
             </p>
           </div>
           <button @click="showSyncModal = false" class="text-slate-400 hover:text-slate-200 cursor-pointer">
@@ -3427,6 +3519,36 @@ onUnmounted(() => {
               placeholder="prod, node, dc-1"
               class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
             />
+          </div>
+
+          <!-- Telemetry Method -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Telemetry Method</label>
+            <select
+              v-model="instanceForm.metricSource"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="auto">Auto / Smart Hybrid (Prometheus + SSH)</option>
+              <option value="ssh">Direct SSH Connection (Agentless)</option>
+              <option value="prometheus">Prometheus / OpenTelemetry Only</option>
+            </select>
+          </div>
+
+          <!-- Linked Remote Host (SSH) -->
+          <div class="sm:col-span-2">
+            <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Linked Remote Host (SSH Connection)</label>
+            <select
+              v-model="instanceForm.remoteHostId"
+              class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="">None (Standalone Target)</option>
+              <option v-for="h in remoteHostsList" :key="h.id" :value="h.id">
+                {{ h.name }} ({{ h.host }}:{{ h.port }})
+              </option>
+            </select>
+            <span class="text-[10px] text-slate-400 mt-1 block">
+              When linked to a Remote Host, HCP can collect CPU, Memory, Disk, and System metrics directly via SSH without requiring Prometheus or agent installation.
+            </span>
           </div>
 
           <!-- Prometheus Target Override -->
