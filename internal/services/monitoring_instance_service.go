@@ -865,7 +865,9 @@ func (s *MonitoringInstanceService) CreateInstance(
 		}
 	}
 
-	if inst.PrometheusTarget == "" {
+	if inst.MetricSource == "ssh" {
+		inst.PrometheusTarget = ""
+	} else if inst.PrometheusTarget == "" {
 		inst.PrometheusTarget = fmt.Sprintf("%s:%d", inst.IPAddress, inst.Port)
 	}
 
@@ -909,7 +911,9 @@ func (s *MonitoringInstanceService) UpdateInstance(
 		inst.MetricSource = req.MetricSource
 	}
 	if inst.MetricSource == "" {
-		if inst.Port == 8889 || inst.Port == 9100 || inst.PrometheusTarget != "" {
+		if inst.RemoteHostID != nil && *inst.RemoteHostID != "" {
+			inst.MetricSource = "ssh"
+		} else if inst.Port == 8889 || inst.Port == 9100 || inst.PrometheusTarget != "" {
 			inst.MetricSource = "prometheus"
 		} else {
 			inst.MetricSource = "ssh"
@@ -917,6 +921,8 @@ func (s *MonitoringInstanceService) UpdateInstance(
 	}
 	if inst.MetricSource == "prometheus" {
 		inst.RemoteHostID = nil
+	} else if inst.MetricSource == "ssh" {
+		inst.PrometheusTarget = ""
 	}
 	inst.Visibility = req.Visibility
 	inst.AlertEnabled = req.AlertEnabled

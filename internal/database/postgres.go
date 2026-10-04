@@ -719,7 +719,32 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics JSONB;
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics_at TIMESTAMP WITH TIME ZONE;
 
-		-- Ensure instances linked to Remote Hosts are properly set to ssh and have correct port from remote_host_configs
+		-- 1. Auto-link unlinked monitoring_instances to remote_host_configs by host/IP or name matching
+		UPDATE monitoring_instances m
+		SET remote_host_id = r.id,
+		    metric_source = 'ssh',
+		    prometheus_target = '',
+		    port = COALESCE(r.port, 22)
+		FROM remote_host_configs r
+		WHERE (m.remote_host_id IS NULL OR m.remote_host_id = '')
+		  AND (m.host = r.host OR m.ip_address = r.host OR m.name = r.name);
+
+		-- 2. Remove orphaned duplicate instances: if an instance is linked to remote_host_configs, delete any older unlinked duplicate with the same host/IP
+		DELETE FROM monitoring_instances m_old
+		USING monitoring_instances m_new
+		WHERE m_old.id != m_new.id
+		  AND (m_old.host = m_new.host OR m_old.ip_address = m_new.host)
+		  AND (m_old.remote_host_id IS NULL OR m_old.remote_host_id = '')
+		  AND (m_new.remote_host_id IS NOT NULL AND m_new.remote_host_id != '');
+
+		-- 3. If there are duplicate instances linked to the exact same remote_host_id, keep the newest one and remove duplicates
+		DELETE FROM monitoring_instances a
+		USING monitoring_instances b
+		WHERE a.id < b.id
+		  AND a.remote_host_id = b.remote_host_id
+		  AND a.remote_host_id IS NOT NULL AND a.remote_host_id != '';
+
+		-- 4. Ensure all instances linked to Remote Hosts are properly set to ssh and have correct port from remote_host_configs
 		UPDATE monitoring_instances m
 		SET metric_source = 'ssh',
 		    prometheus_target = '',

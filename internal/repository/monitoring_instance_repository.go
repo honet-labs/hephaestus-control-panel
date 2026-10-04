@@ -533,7 +533,17 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 	}
 
 	var existingID string
-	err = pool.QueryRow(ctx, "SELECT id FROM monitoring_instances WHERE remote_host_id = $1", host.ID).Scan(&existingID)
+	err = pool.QueryRow(ctx, `
+		SELECT id FROM monitoring_instances 
+		WHERE remote_host_id = $1 
+		   OR host = $2 
+		   OR ip_address = $2 
+		   OR name = $3
+		ORDER BY 
+		   CASE WHEN remote_host_id = $1 THEN 1 ELSE 2 END,
+		   created_at ASC
+		LIMIT 1
+	`, host.ID, host.Host, host.Name).Scan(&existingID)
 
 	sshPort := host.Port
 	if sshPort <= 0 {
@@ -563,18 +573,22 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		updateQuery := `
 			UPDATE monitoring_instances SET
 				name = $1, host = $2, ip_address = $3, port = $4, group_name = $5, tags = $6,
-				prometheus_target = '', metric_source = 'ssh',
+				prometheus_target = '', remote_host_id = $7, metric_source = 'ssh',
 				updated_at = CURRENT_TIMESTAMP
-			WHERE id = $7
+			WHERE id = $8
 			RETURNING created_at, updated_at
 		`
 		err = pool.QueryRow(ctx, updateQuery,
 			inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.GroupName, inst.Tags,
-			inst.ID,
+			host.ID, inst.ID,
 		).Scan(&inst.CreatedAt, &inst.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
+
+		// Clean up any remaining duplicate instance for this host
+		_, _ = pool.Exec(ctx, "DELETE FROM monitoring_instances WHERE id != $1 AND (remote_host_id = $2 OR host = $3 OR ip_address = $3)", inst.ID, host.ID, host.Host)
+
 		return inst, nil
 	}
 
@@ -608,6 +622,9 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// Ensure no duplicate rows exist for this host
+	_, _ = pool.Exec(ctx, "DELETE FROM monitoring_instances WHERE id != $1 AND (remote_host_id = $2 OR host = $3 OR ip_address = $3)", inst.ID, host.ID, host.Host)
 
 	return inst, nil
 }

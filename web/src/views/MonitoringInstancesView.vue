@@ -1172,7 +1172,7 @@ const openEditModal = async (inst: MonitoringInstance) => {
   if (inst.remoteHostId) {
     const rh = remoteHostsList.value.find((h) => h.id === inst.remoteHostId);
     if (rh) {
-      existingPort = rh.port || 22;
+      existingPort = rh.port || inst.port || 22;
       existingUser = rh.username || 'root';
       existingAuthType = (rh.authType as any) || 'password';
     }
@@ -1184,17 +1184,17 @@ const openEditModal = async (inst: MonitoringInstance) => {
     host: inst.host,
     ipAddress: inst.ipAddress || inst.host,
     hostname: inst.hostname || inst.liveMetrics?.detectedHostname || '',
-    port: inst.port || 8889,
+    port: isSsh ? (inst.port || existingPort || 22) : (inst.port || 8889),
     instanceType: inst.instanceType || 'server',
     groupName: inst.groupName || 'Default',
     tags: inst.tags ? inst.tags.join(', ') : '',
-    prometheusTarget: inst.prometheusTarget || '',
+    prometheusTarget: isSsh ? '' : (inst.prometheusTarget || ''),
     remoteHostId: isSsh ? (inst.remoteHostId || '') : '',
     metricSource: isSsh ? 'ssh' : 'prometheus',
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
-    sshPort: existingPort,
+    sshPort: isSsh ? (inst.port || existingPort || 22) : existingPort,
     sshUser: existingUser,
     sshAuthType: existingAuthType,
     sshPassword: '',
@@ -1223,7 +1223,7 @@ const saveInstance = async () => {
       ipAddress: instanceForm.value.ipAddress.trim() || instanceForm.value.host.trim(),
       hostname: instanceForm.value.hostname.trim(),
       port: isSsh 
-        ? (Number(instanceForm.value.sshPort) || 22) 
+        ? (Number(instanceForm.value.sshPort) || Number(instanceForm.value.port) || 22) 
         : (Number(instanceForm.value.port) || 8889),
       instanceType: instanceForm.value.instanceType,
       groupName: instanceForm.value.groupName.trim() || 'Default',
@@ -1233,7 +1233,7 @@ const saveInstance = async () => {
       prometheusTarget: !isSsh ? instanceForm.value.prometheusTarget.trim() : '',
       remoteHostId: isSsh ? (instanceForm.value.remoteHostId || undefined) : undefined,
       metricSource: isSsh ? 'ssh' : 'prometheus',
-      sshPort: Number(instanceForm.value.sshPort) || 22,
+      sshPort: isSsh ? (Number(instanceForm.value.sshPort) || Number(instanceForm.value.port) || 22) : Number(instanceForm.value.sshPort) || 22,
       sshUsername: isSsh ? (instanceForm.value.sshUser?.trim() || '') : '',
       sshAuthType: instanceForm.value.sshAuthType || 'password',
       sshPassword: instanceForm.value.sshPassword || '',
