@@ -235,7 +235,7 @@ func (r *MonitoringInstanceRepository) Create(ctx context.Context, inst *domain.
 	}
 
 	if inst.MetricSource == "" {
-		inst.MetricSource = "auto"
+		inst.MetricSource = "ssh"
 	}
 
 	query := `
@@ -271,7 +271,7 @@ func (r *MonitoringInstanceRepository) Update(ctx context.Context, inst *domain.
 		inst.Tags = []string{}
 	}
 	if inst.MetricSource == "" {
-		inst.MetricSource = "auto"
+		inst.MetricSource = "ssh"
 	}
 
 	query := `
@@ -517,7 +517,7 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		Tags:             host.Tags,
 		PrometheusTarget: fmt.Sprintf("%s:8889", host.Host),
 		RemoteHostID:     &host.ID,
-		MetricSource:     "auto",
+		MetricSource:     "ssh",
 		UserID:           &targetUserID,
 		Visibility:       "private",
 		AlertEnabled:     true,
@@ -530,7 +530,7 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		updateQuery := `
 			UPDATE monitoring_instances SET
 				name = $1, host = $2, ip_address = $3, group_name = $4, tags = $5,
-				prometheus_target = $6, metric_source = COALESCE(NULLIF(metric_source, ''), 'auto'),
+				prometheus_target = $6, metric_source = COALESCE(NULLIF(metric_source, ''), 'ssh'),
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = $7
 			RETURNING created_at, updated_at

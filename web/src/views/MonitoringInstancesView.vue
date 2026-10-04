@@ -122,7 +122,7 @@ interface MonitoringInstance {
   tags: string[];
   prometheusTarget: string;
   remoteHostId?: string;
-  metricSource?: 'auto' | 'ssh' | 'prometheus';
+  metricSource?: 'ssh' | 'prometheus';
   lastMetricsAt?: string;
   userId?: number;
   ownerUsername?: string;
@@ -1085,7 +1085,7 @@ const instanceForm = ref({
   tags: '',
   prometheusTarget: '',
   remoteHostId: '',
-  metricSource: 'auto' as 'auto' | 'ssh' | 'prometheus',
+  metricSource: 'ssh' as 'ssh' | 'prometheus',
   visibility: 'private',
   alertEnabled: true,
   notes: '',
@@ -1105,7 +1105,7 @@ const openCreateModal = async () => {
     tags: '',
     prometheusTarget: '',
     remoteHostId: '',
-    metricSource: 'auto',
+    metricSource: 'ssh',
     visibility: 'private',
     alertEnabled: true,
     notes: '',
@@ -1131,7 +1131,7 @@ const openEditModal = async (inst: MonitoringInstance) => {
     tags: inst.tags ? inst.tags.join(', ') : '',
     prometheusTarget: inst.prometheusTarget || '',
     remoteHostId: inst.remoteHostId || '',
-    metricSource: (inst.metricSource as any) || 'auto',
+    metricSource: inst.metricSource === 'prometheus' ? 'prometheus' : 'ssh',
     visibility: inst.visibility || 'private',
     alertEnabled: inst.alertEnabled ?? true,
     notes: inst.notes || '',
@@ -2445,7 +2445,7 @@ onUnmounted(() => {
                       <div class="flex items-center gap-1.5 bg-white dark:bg-[#141b2a] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#222c42]">
                         <span class="text-slate-400 font-mono text-[11px]">Source:</span>
                         <span class="font-semibold text-slate-800 dark:text-slate-200">
-                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') ? 'SSH Agentless' : (inst.metricSource === 'ssh' ? 'SSH' : 'Prometheus / Hybrid') }}
+                          {{ inst.liveMetrics?.agentVersion?.includes('SSH') || inst.metricSource === 'ssh' ? 'Direct SSH' : 'Prometheus / OTel' }}
                         </span>
                       </div>
 
@@ -3432,14 +3432,14 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Telemetry Method Selector at Top -->
+        <!-- Telemetry Method Selector at Top (Direct SSH vs Prometheus) -->
         <div class="bg-slate-50 dark:bg-[#0c101c] p-3 rounded-xl border border-slate-200 dark:border-[#1f283d] space-y-2">
           <label class="block text-slate-800 dark:text-slate-200 font-bold text-xs">
             Telemetry Collection Method
           </label>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <label
-              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
+              class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition text-xs"
               :class="instanceForm.metricSource === 'ssh' 
                 ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
                 : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
@@ -3454,7 +3454,7 @@ onUnmounted(() => {
             </label>
 
             <label
-              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
+              class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition text-xs"
               :class="instanceForm.metricSource === 'prometheus' 
                 ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
                 : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
@@ -3467,53 +3467,35 @@ onUnmounted(() => {
               />
               <span>Prometheus / OTel</span>
             </label>
-
-            <label
-              class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs"
-              :class="instanceForm.metricSource === 'auto' 
-                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold' 
-                : 'border-slate-200 dark:border-[#1f283d] text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-[#141b2a]'"
-            >
-              <input
-                type="radio"
-                value="auto"
-                v-model="instanceForm.metricSource"
-                class="text-blue-600 focus:ring-0"
-              />
-              <span>Auto / Hybrid</span>
-            </label>
           </div>
           <p class="text-[11px] text-slate-500 dark:text-slate-400">
             <span v-if="instanceForm.metricSource === 'ssh'">
               Collects CPU, RAM, Disk, and Load averages directly via SSH commands. No Prometheus agent needed.
             </span>
-            <span v-else-if="instanceForm.metricSource === 'prometheus'">
-              Scrapes metrics from OpenTelemetry Collector or Prometheus Node Exporter endpoints.
-            </span>
             <span v-else>
-              Attempts Prometheus scrape first, then automatically falls back to SSH if the target has no exporter.
+              Scrapes metrics from OpenTelemetry Collector or Prometheus Node Exporter endpoints.
             </span>
           </p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <!-- Linked Remote Host (SSH) - Shown for SSH & Auto/Hybrid -->
-          <div v-if="instanceForm.metricSource !== 'prometheus'" class="sm:col-span-2 bg-slate-50/50 dark:bg-[#0c101c]/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-[#1f283d]">
+          <!-- Linked Remote Host (SSH) - ONLY shown for Direct SSH -->
+          <div v-if="instanceForm.metricSource === 'ssh'" class="sm:col-span-2 bg-slate-50/50 dark:bg-[#0c101c]/50 p-2.5 rounded-xl border border-slate-200/80 dark:border-[#1f283d]">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-              Linked Remote Host (SSH Connection) {{ instanceForm.metricSource === 'ssh' ? '*' : '(Optional Fallback)' }}
+              Linked Remote Host (SSH Connection) *
             </label>
             <select
               v-model="instanceForm.remoteHostId"
               @change="onRemoteHostSelect(instanceForm.remoteHostId)"
               class="w-full px-3 py-2 bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
             >
-              <option value="">{{ instanceForm.metricSource === 'ssh' ? '-- Select a Configured Remote Host --' : 'None (No SSH Fallback)' }}</option>
+              <option value="">-- Select a Configured Remote Host --</option>
               <option v-for="h in remoteHostsList" :key="h.id" :value="h.id">
                 {{ h.name }} ({{ h.host }}:{{ h.port }})
               </option>
             </select>
             <span class="text-[10px] text-slate-400 mt-1 block">
-              {{ instanceForm.metricSource === 'ssh' ? 'Select from your existing Remote Host SSH connections. Name and IP will auto-fill below.' : 'If Prometheus has no metrics, HCP will automatically fall back to this SSH host.' }}
+              Select from your existing Remote Host SSH connections. Name and IP will auto-fill below.
             </span>
           </div>
 
@@ -3563,8 +3545,8 @@ onUnmounted(() => {
             />
           </div>
 
-          <!-- Port - ONLY shown for Prometheus & Auto -->
-          <div v-if="instanceForm.metricSource !== 'ssh'">
+          <!-- Port - ONLY shown for Prometheus -->
+          <div v-if="instanceForm.metricSource === 'prometheus'">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">OTel Exporter Port</label>
             <input
               v-model.number="instanceForm.port"
@@ -3596,8 +3578,8 @@ onUnmounted(() => {
             />
           </div>
 
-          <!-- Prometheus Target Override - ONLY shown for Prometheus & Auto -->
-          <div v-if="instanceForm.metricSource !== 'ssh'" class="sm:col-span-2">
+          <!-- Prometheus Target Override - ONLY shown for Prometheus -->
+          <div v-if="instanceForm.metricSource === 'prometheus'" class="sm:col-span-2">
             <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
               Prometheus Target Override (Optional)
             </label>

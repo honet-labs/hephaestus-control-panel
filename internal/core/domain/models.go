@@ -1116,7 +1116,7 @@ type MonitoringInstance struct {
 	Tags             []string             `json:"tags"`
 	PrometheusTarget string               `json:"prometheusTarget"`
 	RemoteHostID     *string              `json:"remoteHostId,omitempty"`
-	MetricSource     string               `json:"metricSource"` // "auto", "prometheus", "ssh"
+	MetricSource     string               `json:"metricSource"` // "ssh", "prometheus"
 	LastMetricsAt    *time.Time           `json:"lastMetricsAt,omitempty"`
 	UserID           *int                 `json:"userId,omitempty"`
 	OwnerUsername    string               `json:"ownerUsername,omitempty"`
@@ -1248,7 +1248,7 @@ type CreateMonitoringInstanceRequest struct {
 	Tags             []string `json:"tags"`
 	PrometheusTarget string   `json:"prometheusTarget"`
 	RemoteHostID     *string  `json:"remoteHostId"`
-	MetricSource     string   `json:"metricSource,omitempty"` // "auto", "prometheus", "ssh"
+	MetricSource     string   `json:"metricSource,omitempty"` // "ssh", "prometheus"
 	Visibility       string   `json:"visibility"`
 	AlertEnabled     bool     `json:"alertEnabled"`
 	Notes            string   `json:"notes"`
@@ -1265,7 +1265,7 @@ type UpdateMonitoringInstanceRequest struct {
 	Tags             []string `json:"tags"`
 	PrometheusTarget string   `json:"prometheusTarget"`
 	RemoteHostID     *string  `json:"remoteHostId"`
-	MetricSource     string   `json:"metricSource,omitempty"` // "auto", "prometheus", "ssh"
+	MetricSource     string   `json:"metricSource,omitempty"` // "ssh", "prometheus"
 	Visibility       string   `json:"visibility"`
 	AlertEnabled     bool     `json:"alertEnabled"`
 	Notes            string   `json:"notes"`

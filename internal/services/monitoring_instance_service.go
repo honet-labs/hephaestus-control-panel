@@ -779,7 +779,7 @@ func (s *MonitoringInstanceService) CreateInstance(
 	}
 
 	if inst.MetricSource == "" {
-		inst.MetricSource = "auto"
+		inst.MetricSource = "ssh"
 	}
 
 	if inst.IPAddress == "" {
@@ -832,7 +832,7 @@ func (s *MonitoringInstanceService) UpdateInstance(
 		inst.MetricSource = req.MetricSource
 	}
 	if inst.MetricSource == "" {
-		inst.MetricSource = "auto"
+		inst.MetricSource = "ssh"
 	}
 	inst.Visibility = req.Visibility
 	inst.AlertEnabled = req.AlertEnabled
@@ -2226,9 +2226,8 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
 			continue
 		}
-		// If metric_source is "ssh", always use SSH
-		// If metric_source is "auto" (or empty), use SSH if Prometheus didn't find live online metrics
-		if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && (inst.LiveMetrics == nil || !inst.LiveMetrics.IsOnline)) {
+		// If metric_source is "ssh", poll via SSH
+		if inst.MetricSource == "ssh" || inst.MetricSource == "" {
 			targets = append(targets, inst)
 		}
 	}
