@@ -40,12 +40,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					ELSE 'ssh'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					ELSE 'prometheus'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -65,12 +65,12 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					ELSE 'ssh'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					ELSE 'prometheus'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -158,12 +158,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					ELSE 'ssh'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					ELSE 'prometheus'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'Admin') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -181,12 +181,12 @@ func (r *MonitoringInstanceRepository) GetByID(ctx context.Context, id string, u
 				m.id, m.name, m.host, COALESCE(m.ip_address, ''), m.port, m.instance_type, 
 				m.group_name, m.tags, COALESCE(m.prometheus_target, ''), m.remote_host_id, 
 				CASE 
-					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
-					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.metric_source = 'prometheus' THEN 'prometheus'
-					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.metric_source = 'ssh' THEN 'ssh'
 					WHEN m.port = 8889 OR m.port = 9100 OR (m.prometheus_target IS NOT NULL AND m.prometheus_target != '') THEN 'prometheus'
-					ELSE 'ssh'
+					WHEN m.port = 22 THEN 'ssh'
+					WHEN m.remote_host_id IS NOT NULL AND m.remote_host_id != '' THEN 'ssh'
+					ELSE 'prometheus'
 				END AS metric_source, m.last_metrics, m.last_metrics_at,
 				m.user_id, COALESCE(u.username, 'System') AS owner_username, m.visibility, 
 				m.alert_enabled, COALESCE(m.notes, ''),
@@ -533,8 +533,11 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 	}
 
 	var existingID string
+	var existingMetricSource string
+	var existingPort int
+	var existingPromTarget string
 	err = pool.QueryRow(ctx, `
-		SELECT id FROM monitoring_instances 
+		SELECT id, COALESCE(metric_source, ''), port, COALESCE(prometheus_target, '') FROM monitoring_instances 
 		WHERE remote_host_id = $1 
 		   OR host = $2 
 		   OR ip_address = $2 
@@ -543,24 +546,41 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		   CASE WHEN remote_host_id = $1 THEN 1 ELSE 2 END,
 		   created_at ASC
 		LIMIT 1
-	`, host.ID, host.Host, host.Name).Scan(&existingID)
+	`, host.ID, host.Host, host.Name).Scan(&existingID, &existingMetricSource, &existingPort, &existingPromTarget)
 
 	sshPort := host.Port
 	if sshPort <= 0 {
 		sshPort = 22
 	}
 
+	targetMetricSource := "ssh"
+	targetPort := sshPort
+	targetPromTarget := ""
+
+	// If existing instance is explicitly configured as Prometheus, preserve its Prometheus setup
+	if existingMetricSource == "prometheus" {
+		targetMetricSource = "prometheus"
+		targetPort = existingPort
+		if targetPort <= 0 || targetPort == 22 {
+			targetPort = 8889
+		}
+		targetPromTarget = existingPromTarget
+		if targetPromTarget == "" {
+			targetPromTarget = fmt.Sprintf("%s:%d", host.Host, targetPort)
+		}
+	}
+
 	inst := &domain.MonitoringInstance{
 		Name:             host.Name,
 		Host:             host.Host,
 		IPAddress:        host.Host,
-		Port:             sshPort,
+		Port:             targetPort,
 		InstanceType:     "server",
 		GroupName:        host.GroupName,
 		Tags:             host.Tags,
-		PrometheusTarget: "",
+		PrometheusTarget: targetPromTarget,
 		RemoteHostID:     &host.ID,
-		MetricSource:     "ssh",
+		MetricSource:     targetMetricSource,
 		UserID:           &targetUserID,
 		Visibility:       "private",
 		AlertEnabled:     true,
@@ -573,14 +593,14 @@ func (r *MonitoringInstanceRepository) UpsertFromRemoteHost(ctx context.Context,
 		updateQuery := `
 			UPDATE monitoring_instances SET
 				name = $1, host = $2, ip_address = $3, port = $4, group_name = $5, tags = $6,
-				prometheus_target = '', remote_host_id = $7, metric_source = 'ssh',
+				prometheus_target = $7, remote_host_id = $8, metric_source = $9,
 				updated_at = CURRENT_TIMESTAMP
-			WHERE id = $8
+			WHERE id = $10
 			RETURNING created_at, updated_at
 		`
 		err = pool.QueryRow(ctx, updateQuery,
 			inst.Name, inst.Host, inst.IPAddress, inst.Port, inst.GroupName, inst.Tags,
-			host.ID, inst.ID,
+			inst.PrometheusTarget, host.ID, inst.MetricSource, inst.ID,
 		).Scan(&inst.CreatedAt, &inst.UpdatedAt)
 		if err != nil {
 			return nil, err

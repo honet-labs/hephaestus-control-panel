@@ -719,12 +719,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics JSONB;
 		ALTER TABLE monitoring_instances ADD COLUMN IF NOT EXISTS last_metrics_at TIMESTAMP WITH TIME ZONE;
 
-		-- 1. Auto-link unlinked monitoring_instances to remote_host_configs by host/IP or name matching
+		-- 1. Auto-link unlinked monitoring_instances to remote_host_configs by host/IP or name matching (preserves existing metric_source)
 		UPDATE monitoring_instances m
-		SET remote_host_id = r.id,
-		    metric_source = 'ssh',
-		    prometheus_target = '',
-		    port = COALESCE(r.port, 22)
+		SET remote_host_id = r.id
 		FROM remote_host_configs r
 		WHERE (m.remote_host_id IS NULL OR m.remote_host_id = '')
 		  AND (m.host = r.host OR m.ip_address = r.host OR m.name = r.name);
@@ -744,16 +741,23 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		  AND a.remote_host_id = b.remote_host_id
 		  AND a.remote_host_id IS NOT NULL AND a.remote_host_id != '';
 
-		-- 4. Ensure all instances linked to Remote Hosts are properly set to ssh and have correct port from remote_host_configs
-		UPDATE monitoring_instances m
-		SET metric_source = 'ssh',
-		    prometheus_target = '',
-		    port = COALESCE(r.port, 22)
-		FROM remote_host_configs r
-		WHERE m.remote_host_id = r.id;
+		-- 4. Restore Prometheus instances that run OTel/Prometheus node exporter (Agent-node, blue-whale, Kraken, Yggdrasil)
+		UPDATE monitoring_instances
+		SET metric_source = 'prometheus',
+		    port = 8889,
+		    prometheus_target = host || ':8889'
+		WHERE host IN ('10.20.3.6', '10.20.3.36', '10.20.3.31', '10.20.3.29')
+		   OR ip_address IN ('10.20.3.6', '10.20.3.36', '10.20.3.31', '10.20.3.29');
 
-		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE remote_host_id IS NOT NULL;
-		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE remote_host_id IS NULL AND (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
+		-- 5. Restore SSH instances (Docker Dev, Bifrost)
+		UPDATE monitoring_instances
+		SET metric_source = 'ssh',
+		    prometheus_target = ''
+		WHERE host IN ('10.20.3.1', '10.20.3.5')
+		   OR ip_address IN ('10.20.3.1', '10.20.3.5');
+
+		-- 6. Default fallback only for empty or null metric_source
+		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE (metric_source IS NULL OR metric_source = '' OR metric_source = 'auto') AND (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
 		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE metric_source IS NULL OR metric_source = '' OR metric_source = 'auto';
 
 		-- Metrics history table for lightweight persistence & trend graphs

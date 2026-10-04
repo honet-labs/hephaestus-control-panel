@@ -1086,12 +1086,11 @@ const onRemoteHostSelect = (hostId: string) => {
 // Determine whether an instance is collected via SSH or Prometheus
 const isSshInstance = (inst: any): boolean => {
   if (!inst) return false;
-  if (inst.remoteHostId) return true;
-  if (inst.metricSource === 'ssh') return true;
   if (inst.metricSource === 'prometheus') return false;
+  if (inst.metricSource === 'ssh') return true;
   if (inst.port === 8889 || inst.port === 9100 || (inst.prometheusTarget && String(inst.prometheusTarget).trim() !== '')) return false;
   if (inst.port === 22) return true;
-  return false;
+  return !!inst.remoteHostId;
 };
 
 // -----------------------------------------------------------------------------
