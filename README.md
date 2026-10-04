@@ -95,7 +95,7 @@ Instead of juggling disparate desktop SSH clients, standalone crontab backup scr
 
 ### 11. Monitoring Instances & Dual-Engine Telemetry
 - **Prometheus Telemetry Puller**: Instant vector querying directly from standard `node_exporter` scrape targets (`:9100`).
-- **Agentless SSH Telemetry Poller**: Lightweight, agentless polling reading kernel `/proc/stat` and `/proc/meminfo` via SSH single-pass `awk` parsing, eliminating daemon installation overhead on low-resource VPS and edge instances.
+- **Agentless SSH Telemetry Poller**: Lightweight, agentless polling reading real-time CPU (procps/top), memory, disk, and load via SSH, eliminating daemon installation overhead on low-resource VPS and edge instances.
 - **Dynamic Connection Router**: Seamlessly toggle between Prometheus puller and SSH agentless telemetry per monitored instance.
 - **Automated Health & Threshold Evaluation**: Real-time evaluation of CPU, RAM, and Disk metrics triggering status states (`HEALTHY`, `DEGRADED`, `DOWN`).
 
@@ -234,7 +234,7 @@ Hephaestus Control Panel is architected around high-throughput, concurrent Go en
 ### 1. Monitoring Instances Telemetry Pipeline (Dual-Engine: SSH Agentless vs Prometheus)
 
 HCP incorporates a **Dual-Engine Telemetry Architecture** that dynamically adapts to diverse infrastructure environments:
-- **Engine A (Agentless SSH Poller)**: Designed for edge nodes, lightweight 1-core VPS instances, network routers, and secure environments where running persistent daemon agents is prohibited or resource-intensive. It uses a single lightweight SSH connection executing a single-pass `awk` extraction directly from kernel `/proc/stat` and `/proc/meminfo`, consuming near-zero CPU and RAM.
+- **Engine A (Agentless SSH Poller)**: Designed for edge nodes, lightweight 1-core VPS instances, network routers, and secure environments where running persistent daemon agents is prohibited or resource-intensive. It uses a single lightweight SSH connection executing fast `top -bn1` and `/proc` inspections, consuming near-zero CPU and RAM.
 - **Engine B (Prometheus Puller)**: Standard pull-based observability querying `node_exporter` scrape endpoints (`:9100`) via instant PromQL queries for enterprise fleets already equipped with Prometheus agents.
 - **Automated Health Evaluator**: Both engines funnel metrics into a unified evaluator that tracks CPU, RAM, and Disk utilization thresholds, updating host state machines (`HEALTHY`, `DEGRADED`, `DOWN`) and persisting timeseries snapshots to PostgreSQL.
 
@@ -255,8 +255,8 @@ flowchart TD
         subgraph Ingestion["Dual-Engine Telemetry Poller"]
             subgraph SSH_Engine["Engine A: Agentless SSH Telemetry Worker"]
                 C1["SSH Connection Pool (Modern & Legacy Ciphers)"]
-                C2["Direct Kernel Reader: /proc/stat, /proc/meminfo, df"]
-                C3["Optimized AWK Single-Pass Metrics Calculation"]
+                C2["Procfs & Top Reader: top -bn1, /proc/meminfo, df"]
+                C3["Instantaneous CPU, Memory & Disk Parsing"]
             end
 
             subgraph Prom_Engine["Engine B: Prometheus Telemetry Puller"]
