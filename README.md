@@ -85,13 +85,28 @@ Instead of juggling disparate desktop SSH clients, standalone crontab backup scr
 - **Comprehensive Audit Trail**: All system actions logged to `activity_logs` with actor usernames, timestamps, and IP addresses.
 
 ### 9. Native In-Memory Background Worker Queue
-- **Goroutine Worker Pool**: Concurrency-controlled worker channels (default 5 concurrent workers) with real-time job state transitions (`pending`, `running`, `completed`, `failed`, `cancelled`).
+- **Goroutine Worker Pool**: Concurrency-controlled worker channels (configurable worker threads) with real-time job state transitions (`pending`, `running`, `completed`, `failed`, `cancelled`).
 - **Live Progress Reporting**: Background tasks dispatch percentage progress and status updates directly to the web UI.
 - **Queue Dashboard (`/queue`)**: Centralized interface to monitor active jobs, view job history, trigger manual runs, or cancel running tasks.
 
 ### 10. Structured Logging & Live Web Stream
 - **High-Performance Logging**: Structured JSON logging powered by Zerolog with automatic Lumberjack file rotation (`app.log`, `error.log`).
 - **Live Log WebSocket (`/ws/logs`)**: In-memory Pub/Sub channel broadcasting real-time logs to the web interface with pause/resume, level filters (`INFO`, `WARN`, `ERROR`, `DEBUG`), and text search.
+
+### 11. Monitoring Instances & Dual-Engine Telemetry
+- **Prometheus Telemetry Puller**: Instant vector querying directly from standard `node_exporter` scrape targets (`:9100`).
+- **Agentless SSH Telemetry Poller**: Lightweight, agentless polling reading kernel `/proc/stat` and `/proc/meminfo` via SSH single-pass `awk` parsing, eliminating daemon installation overhead on low-resource VPS and edge instances.
+- **Dynamic Connection Router**: Seamlessly toggle between Prometheus puller and SSH agentless telemetry per monitored instance.
+- **Automated Health & Threshold Evaluation**: Real-time evaluation of CPU, RAM, and Disk metrics triggering status states (`HEALTHY`, `DEGRADED`, `DOWN`).
+
+### 12. IPAM Subnet Management & Device Auto-Discovery
+- **High-Concurrency CIDR Sweeper**: Fast parallel scanning across network subnets (`/24`, `/16`, etc.) with raw socket ICMP ping echo engine.
+- **Hardware & Vendor Fingerprinting**: Automatic ARP cache inspection and IEEE OUI MAC vendor database resolution.
+- **Topology Staging Pipeline**: Discovered network devices staged in `topology_pending` for operator review or automatic topology canvas mapping.
+
+### 13. Dynamic Worker Thread Tuning & Concurrency Control
+- **13 Concurrent Background Daemons**: Independent background service daemons dedicated to telemetry, ping monitoring, discovery, backups, cleanup, and rate limiting.
+- **Self-Service Thread Control**: Interactive UI modal to tune thread allocations per daemon without recompiling, backed by optimized PostgreSQL connection pooling (`pgxpool`).
 
 ---
 
@@ -209,6 +224,338 @@ Hephaestus is deployed as an isolated, multi-container Docker Compose stack engi
 | **Panel** | `hephaestus-panel` | `nginx:1.27-alpine` | Serves compiled Vue 3 SPA assets, Gzip compression, and reverse-proxies `/api` and `/ws` to the engine. |
 | **Engine** | `hephaestus-engine` | `alpine:3.20` + Go binary | High-throughput Go REST API, WebSocket terminal/log multiplexer, in-memory worker queue, cron scheduler, and SSH/SFTP engine. |
 | **Database** | `hephaestus-database` | `postgres:16-alpine` | PostgreSQL 16 ACID persistence storing 29 relational tables, JSONB configurations, and encrypted credentials. |
+
+---
+
+## Architectural Workflows & System Diagrams
+
+Hephaestus Control Panel is architected around high-throughput, concurrent Go engines operating alongside PostgreSQL 16. The following diagrams detail the end-to-end data flows and component interactions for HCP's core subsystems:
+
+### 1. Monitoring Instances Telemetry Pipeline (Dual-Engine: SSH Agentless vs Prometheus)
+
+HCP incorporates a **Dual-Engine Telemetry Architecture** that dynamically adapts to diverse infrastructure environments:
+- **Engine A (Agentless SSH Poller)**: Designed for edge nodes, lightweight 1-core VPS instances, network routers, and secure environments where running persistent daemon agents is prohibited or resource-intensive. It uses a single lightweight SSH connection executing a single-pass `awk` extraction directly from kernel `/proc/stat` and `/proc/meminfo`, consuming near-zero CPU and RAM.
+- **Engine B (Prometheus Puller)**: Standard pull-based observability querying `node_exporter` scrape endpoints (`:9100`) via instant PromQL queries for enterprise fleets already equipped with Prometheus agents.
+- **Automated Health Evaluator**: Both engines funnel metrics into a unified evaluator that tracks CPU, RAM, and Disk utilization thresholds, updating host state machines (`HEALTHY`, `DEGRADED`, `DOWN`) and persisting timeseries snapshots to PostgreSQL.
+
+```mermaid
+flowchart TD
+    subgraph UI["Web Browser (Vue 3 Client)"]
+        A1["Monitoring Instances View (/monitoring-instances)"]
+        A2["Host Detail Drawer & Real-Time Gauges"]
+        A3["Engine Selector: SSH Agentless vs Prometheus"]
+    end
+
+    subgraph HCP["Hephaestus Control Panel Core Engine"]
+        subgraph Handlers["HTTP Handlers (/api/v1/monitoring-instances)"]
+            B1["Host Registry & Connection Router"]
+            B2["Live Cache & Telemetry Evaluator"]
+        end
+
+        subgraph Ingestion["Dual-Engine Telemetry Poller"]
+            subgraph SSH_Engine["Engine A: Agentless SSH Telemetry Worker"]
+                C1["SSH Connection Pool (Modern & Legacy Ciphers)"]
+                C2["Direct Kernel Reader: /proc/stat, /proc/meminfo, df"]
+                C3["Optimized AWK Single-Pass Metrics Calculation"]
+            end
+
+            subgraph Prom_Engine["Engine B: Prometheus Telemetry Puller"]
+                D1["Prometheus Query Client (PromQL API)"]
+                D2["Node Exporter Scrape Endpoint (:9100)"]
+                D3["HTTP Instant Vector Query: CPU, RAM, Disk, Load"]
+            end
+        end
+
+        subgraph Evaluator["Health & Anomaly Evaluator"]
+            E1["Threshold State Machine: CPU > 85%, RAM > 90%, Disk > 90%"]
+            E2["Operational Status: HEALTHY | DEGRADED | DOWN"]
+        end
+    end
+
+    subgraph Targets["Target Infrastructure Fleet"]
+        T1["Target 1: Linux VPS / Baremetal (SSH Only, Zero Agent)"]
+        T2["Target 2: Prometheus Monitored Host (node_exporter:9100)"]
+        T3["Target 3: Legacy Switch / Router (3DES-CBC / CBC Ciphers)"]
+    end
+
+    subgraph Storage["PostgreSQL 16 Persistence"]
+        S1["monitoring_instances (Host Profiles & Connection Settings)"]
+        S2["host_telemetry_history (Timeseries Metric Snapshots)"]
+        S3["activity_logs (Audit Trail & Status Changes)"]
+    end
+
+    %% Flows
+    A1 <-->|REST API / JSON| B1
+    A2 <-->|Auto-Refresh 10s-60s| B2
+    A3 -->|Switch Mode| B1
+    B1 --> C1
+    B1 --> D1
+
+    C1 -->|Execute Optimized Kernel Command| T1
+    C1 -->|Legacy Cipher Fallback| T3
+    C2 --> C3
+    C3 --> B2
+
+    D1 -->|HTTP Instant Query| D3
+    D3 -->|Scrape Metrics| T2
+    D3 --> B2
+
+    B2 --> Evaluator
+    Evaluator --> S2
+    Evaluator --> S3
+    B1 <--> S1
+```
+
+### 2. OpenSearch Monitor Cluster & Data Prepper Telemetry Pipeline
+
+The **OpenSearch Cluster Monitor** provides live distributed telemetry across coordinator masters, data nodes, JVM heaps, and indices. It couples directly with the **Data Prepper Pipeline Editor** to manage log ingestion routes:
+
+- **Cluster Health & Node Telemetry**: Periodically queries `/_cluster/health`, `/_nodes/stats`, and `/_cat/shards` to map shard distribution across hot/warm tiers, track JVM garbage collection pauses, and detect unassigned or relocating shards.
+- **Data Prepper Pipeline Editor**: Visual YAML schema parser and syntax validator allowing operators to update pipelines remotely and verify Data Prepper daemon health via REST APIs.
+
+```mermaid
+flowchart TD
+    subgraph UI["Web Browser (Vue 3 Client)"]
+        O1["OpenSearch Cluster Monitor View (/opensearch-cluster)"]
+        O2["Cluster Health Summary & Shards Grid"]
+        O3["Node Stats Grid: JVM Heap, CPU, Memory & Disk"]
+        O4["Data Prepper Pipeline Editor (/dataprepper-pipelines)"]
+    end
+
+    subgraph HCP["Hephaestus Control Panel Engine"]
+        subgraph OS_Service["OpenSearch Monitoring Service"]
+            OS1["HTTP/HTTPS Client Pool (TLS / Basic Auth / Token)"]
+            OS2["Cluster Health Ingestion: GET /_cluster/health"]
+            OS3["Node Stats Ingestion: GET /_nodes/stats"]
+            OS4["Shard Allocations Ingestion: GET /_cat/shards"]
+            OS5["Indices Telemetry: GET /_cat/indices"]
+        end
+
+        subgraph Prepper_Service["Data Prepper Integration Service"]
+            DP1["Pipeline YAML Parser & Schema Validator"]
+            DP2["Remote Pipeline Deployment Engine"]
+            DP3["Data Prepper APIs: GET /pipelines, GET /health"]
+        end
+
+        subgraph Aggregator["Cluster Metrics Aggregator"]
+            AG1["Health Classifier: GREEN (Optimal) | YELLOW (Relocating) | RED (Unassigned)"]
+            AG2["JVM Heap Pressure & GC Latency Analyzer"]
+            AG3["Unassigned Shard & Storage Usage Detector"]
+        end
+    end
+
+    subgraph Cluster["Target OpenSearch Distributed Cluster"]
+        M1["Cluster Master Node (Cluster State Coordinator)"]
+        D1["Data Node 1 (Hot Tier: Primary Shards & Ingestion)"]
+        D2["Data Node 2 (Warm Tier: Replica Shards & Queries)"]
+        DP_Node["Data Prepper Worker Nodes (Log Ingestion Pipeline)"]
+    end
+
+    subgraph Storage["PostgreSQL 16 Persistence"]
+        DB_OS["opensearch_configs (Cluster Endpoints & Credentials)"]
+        DB_DP["dataprepper_configs (Pipeline YAML Schemas)"]
+    end
+
+    %% Flows
+    O1 <-->|REST API| OS_Service
+    O4 <-->|YAML Schema / REST API| Prepper_Service
+    OS1 <--> DB_OS
+    DP1 <--> DB_DP
+
+    OS2 & OS3 & OS4 & OS5 --> Aggregator
+    Aggregator --> O2 & O3
+
+    OS1 -->|HTTPS _cluster/health| M1
+    OS1 -->|HTTPS _nodes/stats| D1
+    OS1 -->|HTTPS _cat/shards| D2
+    DP2 -->|Deploy Pipeline Configuration| DP_Node
+    DP_Node -->|Bulk Ingestion / OpenSearch Sink| M1
+```
+
+### 3. Management Instances & Remote Host Execution Engine
+
+HCP's **Remote Server Management Engine** consolidates multi-tab terminal multiplexing, SFTP file management, systemd service lifecycle, interactive process control, and firewall rules into a unified browser workspace:
+
+- **WebSocket PTY Bridge**: Connects `@xterm/xterm` in the browser to server-side Go pseudo-terminals (`pty.Start`) over full-duplex WebSockets, handling terminal resizing (`SIGWINCH`) and split-screen keyboard broadcasting seamlessly.
+- **Cipher-Adaptive SSH Pool**: Automatically negotiates modern high-security keys (Ed25519, RSA-SHA2) as well as legacy enterprise ciphers (`3des-cbc`, `diffie-hellman-group1-sha1`) for networking hardware and legacy servers.
+- **Integrated SFTP Transfer Engine**: Handles chunked multipart uploads and streaming downloads directly without local disk staging.
+- **Systemd & Firewall Orchestration**: Execute service lifecycle commands (`start`, `stop`, `restart`, `status`), inspect process trees with termination signals (`kill -9`), and maintain firewall rules (UFW & iptables) through structured REST APIs.
+
+```mermaid
+flowchart TD
+    subgraph Client["Web Browser Client"]
+        T_UI["Multi-Tab Interactive Terminal (@xterm/xterm)"]
+        SPLIT["Split Grid Layout (1x1, 1x2, 2x1, 2x2)"]
+        BC["Multi-Cast Keyboard Broadcast Engine"]
+        SFTP_UI["Integrated SFTP File Explorer"]
+        SVC_UI["Systemd & Process Management Drawer"]
+        FW_UI["Remote Firewall Rules Manager (UFW / iptables)"]
+    end
+
+    subgraph HCP["Hephaestus Control Panel Engine"]
+        subgraph WS_PTY["WebSocket PTY Bridge (/ws/terminal)"]
+            PTY1["WebSocket Upgrader & Session Multiplexer"]
+            PTY2["Go PTY Allocator (pty.Start with xterm-256color)"]
+            PTY3["Window Resize Handler (SIGWINCH Real-Time Sync)"]
+        end
+
+        subgraph SSH_Pool["Cipher-Adaptive SSH Engine"]
+            CIPHER["SSH Cipher Pool (Modern Ed25519/RSA + Legacy 3DES/CBC)"]
+            AUTH["AES-256-GCM Credential Decryptor"]
+        end
+
+        subgraph SFTP_Engine["SFTP Streaming Transfer Engine (/api/v1/sftp)"]
+            SFTP1["Directory Tree Traverser & Metadata Cache"]
+            SFTP2["Multipart Chunked File Uploader"]
+            SFTP3["Buffered Streaming Downloader"]
+        end
+
+        subgraph Host_Control["Remote Server Operations Engine"]
+            H1["Systemd Controller: systemctl start/stop/restart/status"]
+            H2["Interactive Process Manager (ps aux, kill -9)"]
+            H3["Firewall Manager: UFW & iptables CRUD Orchestrator"]
+        end
+    end
+
+    subgraph Remote["Managed Remote Host Fleet"]
+        SRV1["Production Linux Server (Ubuntu / Debian / RHEL)"]
+        SRV2["Application Docker Host (Containers & Sockets)"]
+        SRV3["Enterprise Switch / Legacy Network Appliance"]
+    end
+
+    %% Flows
+    T_UI & SPLIT & BC <-->|Full-Duplex WebSocket| PTY1
+    SFTP_UI <-->|Multipart HTTP / Stream| SFTP_Engine
+    SVC_UI & FW_UI <-->|REST API| Host_Control
+
+    PTY1 <--> PTY2
+    PTY2 <--> CIPHER
+    SFTP_Engine <--> CIPHER
+    Host_Control <--> CIPHER
+
+    CIPHER <-->|SSH Session (Interactive PTY Shell)| SRV1
+    CIPHER <-->|SFTP Subsystem Channel| SRV2
+    CIPHER <-->|Legacy Cipher Handshake (3des-cbc)| SRV3
+```
+
+### 4. Background Service Daemons & Tuned Worker Pool Engine
+
+To maintain high throughput without starving CPU or PostgreSQL database connection pools, HCP orchestrates **13 concurrent background service daemons**. Administrators can tune thread concurrency dynamically via the web dashboard without service restarts:
+
+- **Robfig Cron & Asynchronous Worker Pool**: Coordinates scheduled jobs, automated database dumps, and retention cleanup routines.
+- **Dynamic Thread Tuning**: Worker thread allocations are persisted to `data/service_threads.json` and adjusted dynamically through `GET/POST /api/v1/settings/threads`.
+- **Tuned PostgreSQL Pool**: Pre-configured `pgxpool.Pool` parameters (Max: 25, Min: 5, MaxConnIdleTime: 600s, MaxConnLifetime: 3600s) prevent connection exhaustion across concurrent workers.
+
+```mermaid
+flowchart TD
+    subgraph Admin["Administrator Settings UI (/settings)"]
+        S_UI["Worker Threads Tuning Modal (Full Sliders & Presets)"]
+        S_CONF["Configuration Persistence: data/service_threads.json"]
+        S_REST["REST Endpoints: GET/POST /api/v1/settings/threads"]
+    end
+
+    subgraph Engine["Hephaestus Background Runtime"]
+        subgraph MasterClock["Cron Scheduler & Triggers"]
+            CRON["Robfig Cron v3 Master Clock"]
+        end
+
+        subgraph Daemons["13 Concurrent Background Service Daemons"]
+            D1["srv-ssh-telemetry: SSH Agentless Poller (10 Threads)"]
+            D2["srv-prom-puller: Prometheus Puller Metrics (10 Threads)"]
+            D3["srv-icmp-ping: ICMP Ping Health Worker (10 Threads)"]
+            D4["srv-ipam-discovery: IPAM Subnet Sweeper (10 Threads)"]
+            D5["srv-worker-pool: In-Memory Task Queue (10 Threads)"]
+            D6["srv-db-backup: Database Backup Scheduler (5 Threads)"]
+            D7["srv-retention: Backup Retention Purge (5 Threads)"]
+            D8["srv-target-sync: Prometheus Target Sync (5 Threads)"]
+            D9["srv-otel-metrics: OpenTelemetry Agent Poller (5 Threads)"]
+            D10["srv-log-cleanup: Structured Log Cleaner (3 Threads)"]
+            D11["srv-session-cleanup: Expired Session Purge (3 Threads)"]
+            D12["srv-rate-limiter: Security Lockout Reset (3 Threads)"]
+            D13["srv-app-config: Configuration Syncer (2 Threads)"]
+        end
+
+        subgraph DBPool["Tuned Database Connection Pool (pgxpool)"]
+            POOL["PostgreSQL pgxpool: Max 25, Min 5, Idle 600s, Life 3600s"]
+        end
+    end
+
+    subgraph Targets["Target Infrastructure & Database"]
+        PG["PostgreSQL 16 Database (29 Tables)"]
+        FLEET["Remote Infrastructure Fleet (SSH, HTTP, ICMP)"]
+    end
+
+    %% Flows
+    S_UI <-->|JSON Payload| S_REST
+    S_REST <--> S_CONF
+    S_CONF -->|Load Thread Counts at Boot & Runtime| Daemons
+    CRON --> Daemons
+    Daemons --> DBPool
+    DBPool <--> PG
+    D1 & D2 & D3 & D4 --> FLEET
+```
+
+### 5. IPAM & Network Topology Auto-Discovery Pipeline
+
+The **IPAM & Topology Discovery Engine** bridges network address management with visual canvas orchestration, performing subnet discovery sweeps, ARP/MAC vendor identification, and staged operator approvals:
+
+- **CIDR Subnet Sweeper**: Concurrently sends ICMP Echo requests across targeted IP ranges (e.g. `10.0.0.0/24`) using configurable worker threads.
+- **Hardware & Vendor Fingerprinting**: Inspects kernel ARP tables and queries the IEEE OUI database to resolve network interface MAC addresses to vendor manufacturers (Cisco, MikroTik, Dell, VMware, etc.).
+- **Staging & Topology Mapping**: Discovered devices are placed into `topology_pending` for operator review or automatic insertion into visual multi-tab topology sheets (`topology_sheets`, `topology_devices`, `topology_edges`).
+
+```mermaid
+flowchart TD
+    subgraph UI["Web Browser Client"]
+        T_CANVAS["Network Topology Canvas (/network-topology)"]
+        IPAM_VIEW["IPAM Subnet Management View (/ipam)"]
+        PENDING["Pending Discovery Approval Queue"]
+    end
+
+    subgraph HCP["Hephaestus Discovery & Topology Engine"]
+        subgraph CIDR_Engine["High-Concurrency CIDR Sweeper"]
+            C_IN["Subnet Target Input (e.g. 192.168.1.0/24)"]
+            WORKERS["Concurrent Ping Workers (Configurable 10+ Threads)"]
+            ICMP["Raw Socket / Native ICMP Echo Request Engine"]
+        end
+
+        subgraph Enricher["Device Identity & Attribute Enricher"]
+            ARP["Local ARP Table & Neighbor Cache Lookup"]
+            MAC["MAC Address & IEEE OUI Vendor Fingerprinting"]
+            DNS["Reverse DNS & Hostname Resolution"]
+        end
+
+        subgraph Staging["Discovery Staging & State Engine"]
+            STAGE["Staging Table: topology_pending"]
+            AUTO_ADD["Operator Approval or Auto-Addition Pipeline"]
+            PING_LOG["device_ping_results (Historical Latency)"]
+        end
+    end
+
+    subgraph Network["Target Local & Remote Subnets"]
+        DEV1["Core Gateway / Firewall (192.168.1.1)"]
+        DEV2["Managed Core Switch (192.168.1.2)"]
+        DEV3["Hypervisors & Servers (192.168.1.100-200)"]
+    end
+
+    subgraph DB["PostgreSQL 16 Database"]
+        T_SHEETS["topology_sheets (Multi-Tab Canvases)"]
+        T_DEVICES["topology_devices (Canvas Nodes & Coordinates)"]
+        T_EDGES["topology_edges (Device Interconnects & Link Status)"]
+    end
+
+    %% Flows
+    IPAM_VIEW -->|Trigger Subnet Scan| C_IN
+    C_IN --> WORKERS
+    WORKERS --> ICMP
+    ICMP -->|ICMP Echo / Ping| DEV1 & DEV2 & DEV3
+    ICMP --> Enricher
+    Enricher --> ARP & MAC & DNS
+    Enricher --> STAGE
+    STAGE --> PENDING
+    PENDING -->|Approve & Add to Canvas| T_CANVAS
+    T_CANVAS <--> T_SHEETS & T_DEVICES & T_EDGES
+    ICMP --> PING_LOG
+```
 
 ---
 
