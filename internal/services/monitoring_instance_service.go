@@ -2585,6 +2585,18 @@ func (s *MonitoringInstanceService) mapVpsMetricsToLiveMetrics(data map[string]i
 		for _, d := range rawDisks {
 			mount, _ := d["mount"].(string)
 			fs, _ := d["filesystem"].(string)
+
+			// Skip virtual, loop, snap, and docker overlay mounts
+			if strings.HasPrefix(fs, "/dev/loop") || strings.HasPrefix(mount, "/snap") || strings.HasPrefix(mount, "/var/lib/snapd") {
+				continue
+			}
+			if fs == "tmpfs" || fs == "devtmpfs" || fs == "squashfs" || fs == "udev" || fs == "none" || fs == "shm" || fs == "overlay" {
+				continue
+			}
+			if strings.Contains(mount, "/docker/overlay2") || strings.Contains(mount, "/docker/containers") {
+				continue
+			}
+
 			totStr, _ := d["total"].(string)
 			usedStr, _ := d["used"].(string)
 			availStr, _ := d["avail"].(string)

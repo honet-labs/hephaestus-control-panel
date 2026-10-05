@@ -459,7 +459,7 @@ const applyPreset = (w: number, c: number) => {
 };
 
 // -----------------------------------------------------------------------------
-// Overall Host Storage Calculation
+// Overall Host Storage Calculation & Mount Filtering
 // -----------------------------------------------------------------------------
 interface OverallDiskInfo {
   pct: number | null;
@@ -468,15 +468,45 @@ interface OverallDiskInfo {
   freeBytes: number;
 }
 
+// Helper to identify virtual, loop, snap, boot, and non-storage mounts
+const isIgnoredMount = (mount?: string, device?: string, fsType?: string): boolean => {
+  if (!mount) return true;
+  const m = mount.toLowerCase().trim();
+  const d = (device || '').toLowerCase().trim();
+  const t = (fsType || '').toLowerCase().trim();
+
+  // 1. Snaps & Loop Devices
+  if (m.startsWith('/snap') || m.startsWith('/var/lib/snapd')) return true;
+  if (d.startsWith('/dev/loop') || d.startsWith('loop')) return true;
+
+  // 2. Read-only / Virtual / Ephemeral Filesystems
+  if (t === 'squashfs' || t === 'tmpfs' || t === 'devtmpfs' || t === 'overlay' || t === 'iso9660' || t === 'udf') return true;
+  if (d === 'tmpfs' || d === 'devtmpfs' || d === 'udev' || d === 'none' || d === 'shm' || d === 'overlay') return true;
+
+  // 3. Boot & EFI partitions (standard Linux kernel rotation leaves /boot at 80-90% without risking system capacity)
+  if (m === '/boot' || m.startsWith('/boot/')) return true;
+
+  // 4. System / Virtual tree mounts
+  if (m === '/dev' || m.startsWith('/dev/') || m === '/run' || m.startsWith('/run/') || m === '/sys' || m.startsWith('/sys/') || m === '/proc' || m.startsWith('/proc/')) return true;
+
+  // 5. Docker internal storage layers and container volumes
+  if (m.includes('/docker/overlay2') || m.includes('/docker/containers') || m.includes('/var/lib/docker')) return true;
+
+  return false;
+};
+
 const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
   if (inst.liveMetrics?.disks && inst.liveMetrics.disks.length > 0) {
     let sumUsed = 0;
     let sumTotal = 0;
+    let hasValidDisk = false;
     for (const d of inst.liveMetrics.disks) {
+      if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
       sumUsed += d.usedBytes || 0;
       sumTotal += d.totalBytes || 0;
+      hasValidDisk = true;
     }
-    if (sumTotal > 0) {
+    if (hasValidDisk && sumTotal > 0) {
       const pct = Math.round((sumUsed / sumTotal) * 1000) / 10;
       return {
         pct,
@@ -508,6 +538,7 @@ const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
 interface InstanceStatus {
   maxUsage: number;
   criticalResource: 'cpu' | 'memory' | 'disk' | null;
+  criticalMount?: string | null;
   severity: 'critical' | 'warning' | 'normal' | 'offline';
   cpu: number;
   memory: number;
@@ -519,6 +550,7 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
     return {
       maxUsage: -1,
       criticalResource: null,
+      criticalMount: null,
       severity: 'offline',
       cpu: 0,
       memory: 0,
@@ -530,11 +562,17 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
   const memory = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
   const overallDisk = getOverallDisk(inst);
   let disk = typeof overallDisk.pct === 'number' ? overallDisk.pct : 0;
+  let criticalMount: string | null = null;
 
   if (Array.isArray(inst.liveMetrics.disks) && inst.liveMetrics.disks.length > 0) {
     for (const d of inst.liveMetrics.disks) {
+      if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
+      // Skip tiny partitions smaller than 1 GB (e.g. boot/efi/recovery)
+      if (d.totalBytes && d.totalBytes < 1024 * 1024 * 1024) continue;
+
       if (typeof d.usagePct === 'number' && d.usagePct > disk) {
         disk = d.usagePct;
+        criticalMount = d.mountpoint || null;
       }
     }
   }
@@ -561,6 +599,7 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
   return {
     maxUsage,
     criticalResource: severity === 'normal' ? null : criticalResource,
+    criticalMount: severity === 'normal' ? null : criticalMount,
     severity,
     cpu,
     memory,
@@ -633,6 +672,8 @@ const previewModalCounts = computed(() => {
     let disk = overallDisk.pct ?? 0;
     if (inst.liveMetrics.disks) {
       for (const d of inst.liveMetrics.disks) {
+        if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
+        if (d.totalBytes && d.totalBytes < 1024 * 1024 * 1024) continue;
         if (d.usagePct > disk) disk = d.usagePct;
       }
     }
@@ -2044,14 +2085,14 @@ onUnmounted(() => {
               <span
                 v-if="getInstanceStatus(inst).severity === 'critical'"
                 class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300/50 dark:border-rose-800/50 shrink-0"
-                :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()}${getInstanceStatus(inst).criticalMount ? ` [${getInstanceStatus(inst).criticalMount}]` : ''} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
               >
                 CRITICAL
               </span>
               <span
                 v-else-if="getInstanceStatus(inst).severity === 'warning'"
                 class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300/50 dark:border-amber-800/50 shrink-0"
-                :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()}${getInstanceStatus(inst).criticalMount ? ` [${getInstanceStatus(inst).criticalMount}]` : ''} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
               >
                 WARNING
               </span>
@@ -2424,14 +2465,14 @@ onUnmounted(() => {
                     <span
                       v-if="getInstanceStatus(inst).severity === 'critical'"
                       class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300/50 dark:border-rose-800/50 shrink-0"
-                      :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                      :title="`Critical threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()}${getInstanceStatus(inst).criticalMount ? ` [${getInstanceStatus(inst).criticalMount}]` : ''} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
                     >
                       CRITICAL
                     </span>
                     <span
                       v-else-if="getInstanceStatus(inst).severity === 'warning'"
                       class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300/50 dark:border-amber-800/50 shrink-0"
-                      :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
+                      :title="`Warning threshold exceeded on ${getInstanceStatus(inst).criticalResource?.toUpperCase()}${getInstanceStatus(inst).criticalMount ? ` [${getInstanceStatus(inst).criticalMount}]` : ''} (${getInstanceStatus(inst).maxUsage.toFixed(1)}%)`"
                     >
                       WARNING
                     </span>
@@ -2884,7 +2925,7 @@ onUnmounted(() => {
                         </thead>
                         <tbody class="divide-y divide-slate-100 dark:divide-[#182133]">
                           <tr
-                            v-for="d in (inst.liveMetrics?.disks || [])"
+                            v-for="d in (inst.liveMetrics?.disks || []).filter(d => !isIgnoredMount(d.mountpoint, d.device, d.fsType))"
                             :key="d.mountpoint"
                             class="hover:bg-slate-50/50 dark:hover:bg-[#141c2e] transition"
                           >
@@ -2923,7 +2964,7 @@ onUnmounted(() => {
                               </div>
                             </td>
                           </tr>
-                          <tr v-if="!inst.liveMetrics?.disks || inst.liveMetrics.disks.length === 0">
+                          <tr v-if="!inst.liveMetrics?.disks || (inst.liveMetrics.disks || []).filter(d => !isIgnoredMount(d.mountpoint, d.device, d.fsType)).length === 0">
                             <td colspan="7" class="py-4 text-center text-xs text-slate-400 font-sans">
                               No mounted filesystem metrics available for this instance.
                             </td>

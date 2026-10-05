@@ -199,15 +199,29 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 							}
 							fields := strings.Fields(line)
 							if len(fields) >= 6 {
+								fs := fields[0]
+								mount := fields[5]
+
+								// Skip virtual, loop, snap, and docker overlay mounts
+								if strings.HasPrefix(fs, "/dev/loop") || strings.HasPrefix(mount, "/snap") || strings.HasPrefix(mount, "/var/lib/snapd") {
+									continue
+								}
+								if fs == "tmpfs" || fs == "devtmpfs" || fs == "squashfs" || fs == "udev" || fs == "none" || fs == "shm" || fs == "overlay" {
+									continue
+								}
+								if strings.Contains(mount, "/docker/overlay2") || strings.Contains(mount, "/docker/containers") {
+									continue
+								}
+
 								pctStr := strings.TrimSuffix(fields[4], "%")
 								pct, _ := strconv.Atoi(pctStr)
 								disks = append(disks, map[string]interface{}{
-									"filesystem": fields[0],
+									"filesystem": fs,
 									"total":      fields[1],
 									"used":       fields[2],
 									"avail":      fields[3],
 									"percent":    pct,
-									"mount":      fields[5],
+									"mount":      mount,
 								})
 							}
 						}

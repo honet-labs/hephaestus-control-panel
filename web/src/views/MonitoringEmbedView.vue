@@ -240,9 +240,30 @@ const displayedContainers = computed(() => {
   return list;
 });
 
+// Helper to identify virtual, loop, snap, boot, and non-storage mounts
+const isIgnoredMount = (mount?: string, device?: string, fsType?: string): boolean => {
+  if (!mount) return true;
+  const m = mount.toLowerCase().trim();
+  const d = (device || '').toLowerCase().trim();
+  const t = (fsType || '').toLowerCase().trim();
+
+  // Snaps, loop devices, and ephemeral filesystems
+  if (m.startsWith('/snap') || m.startsWith('/var/lib/snapd')) return true;
+  if (d.startsWith('/dev/loop') || d.startsWith('loop')) return true;
+  if (t === 'squashfs' || t === 'tmpfs' || t === 'devtmpfs' || t === 'overlay' || t === 'iso9660') return true;
+  if (d === 'tmpfs' || d === 'devtmpfs' || d === 'udev' || d === 'none' || d === 'shm' || d === 'overlay') return true;
+  if (m === '/boot' || m.startsWith('/boot/')) return true;
+  if (m.startsWith('/dev') || m.startsWith('/run') || m.startsWith('/sys') || m.startsWith('/proc')) return true;
+  if (m.includes('/docker/overlay2') || m.includes('/docker/containers') || m.includes('/var/lib/docker')) return true;
+
+  return false;
+};
+
 // Overall Disk Helper
 const getOverallDisk = (inst: MonitoringInstance) => {
-  const disks = inst.liveMetrics?.disks || [];
+  const disks = (inst.liveMetrics?.disks || []).filter(
+    (d) => !isIgnoredMount(d.mountpoint, d.device, d.fsType)
+  );
   if (disks.length === 0) {
     return {
       pct: inst.liveMetrics?.diskPct != null ? Math.round(inst.liveMetrics.diskPct * 10) / 10 : null,
