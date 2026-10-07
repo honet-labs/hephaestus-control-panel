@@ -165,6 +165,10 @@ const router = createRouter({
           redirect: '/settings?tab=services',
         },
         {
+          path: 'logs',
+          redirect: '/settings?tab=services',
+        },
+        {
           path: 'reports',
           name: 'reports',
           component: () => import('../views/ReportsView.vue'),

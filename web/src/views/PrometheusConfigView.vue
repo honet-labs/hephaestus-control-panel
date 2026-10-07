@@ -25,7 +25,8 @@ import {
   ChevronDown,
   ChevronRight,
   Code,
-  RotateCw
+  RotateCw,
+  Server
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -68,6 +69,16 @@ interface TargetItem {
   labels: Record<string, string>;
 }
 
+interface RelabelConfigItem {
+  source_labels?: string[];
+  separator?: string;
+  target_label?: string;
+  regex?: string;
+  modulus?: number;
+  replacement?: string;
+  action?: 'replace' | 'keep' | 'drop' | 'hashmod' | 'labelmap' | 'labeldrop' | 'labelkeep';
+}
+
 interface ScrapeJob {
   id: string;
   job_name: string;
@@ -77,6 +88,8 @@ interface ScrapeJob {
   scrape_timeout: string;
   targets: TargetItem[];
   labels: Record<string, string>;
+  params?: Record<string, string[]>;
+  relabel_configs?: RelabelConfigItem[];
   relabel_configs_count?: number;
   rawExtra?: string; // Preserve extra fields
 }
@@ -102,7 +115,7 @@ const previewScope = ref<'full' | 'job'>('full');
 // Filter & Selection
 const searchJobQuery = ref('');
 const selectedJobId = ref<string>('');
-const activeJobTab = ref<'targets' | 'labels' | 'relabel' | 'advanced'>('targets');
+const activeJobTab = ref<'targets' | 'labels' | 'params' | 'relabel' | 'advanced'>('targets');
 
 // Modals
 const showAddJobModal = ref(false);
@@ -275,34 +288,78 @@ const filteredScrapeJobs = computed(() => {
 // ==================== YAML PARSER & GENERATOR ====================
 
 // Generate Prometheus YAML from reactive model
-const generateYaml = (singleJob?: ScrapeJob): string => {
-  if (singleJob) {
-    // Generate only for single job
-    let y = `  - job_name: ${singleJob.job_name}\n`;
-    if (singleJob.metrics_path && singleJob.metrics_path !== '/metrics') {
-      y += `    metrics_path: ${singleJob.metrics_path}\n`;
-    }
-    if (singleJob.scheme && singleJob.scheme !== 'http') {
-      y += `    scheme: ${singleJob.scheme}\n`;
-    }
-    if (singleJob.scrape_interval) {
-      y += `    scrape_interval: ${singleJob.scrape_interval}\n`;
-    }
-    if (singleJob.scrape_timeout) {
-      y += `    scrape_timeout: ${singleJob.scrape_timeout}\n`;
-    }
-    y += `    static_configs:\n`;
-    y += `      - targets:\n`;
-    singleJob.targets.forEach(t => {
-      const isDup = singleJob.targets.filter(x => x.endpoint === t.endpoint).length > 1;
-      y += `          - ${t.endpoint}${isDup ? ' # Duplicate target' : ''}\n`;
-    });
-    if (Object.keys(singleJob.labels).length > 0) {
-      y += `        labels:\n`;
-      for (const [k, v] of Object.entries(singleJob.labels)) {
-        y += `          ${k}: ${v}\n`;
+// Generate Prometheus YAML snippet for a single scrape job
+const generateJobYamlSnippet = (job: ScrapeJob, indent: string = '    '): string => {
+  let y = '';
+  if (job.metrics_path && job.metrics_path !== '/metrics') {
+    y += `${indent}metrics_path: ${job.metrics_path}\n`;
+  }
+  if (job.scheme && job.scheme !== 'http') {
+    y += `${indent}scheme: ${job.scheme}\n`;
+  }
+  if (job.scrape_interval) {
+    y += `${indent}scrape_interval: ${job.scrape_interval}\n`;
+  }
+  if (job.scrape_timeout) {
+    y += `${indent}scrape_timeout: ${job.scrape_timeout}\n`;
+  }
+  if (job.params && Object.keys(job.params).length > 0) {
+    y += `${indent}params:\n`;
+    for (const [k, v] of Object.entries(job.params)) {
+      if (Array.isArray(v) && v.length > 0) {
+        y += `${indent}  ${k}:\n`;
+        v.forEach(val => {
+          y += `${indent}    - ${val}\n`;
+        });
       }
     }
+  }
+  y += `${indent}static_configs:\n`;
+  y += `${indent}  - targets:\n`;
+  job.targets.forEach(t => {
+    const isDup = job.targets.filter(x => x.endpoint === t.endpoint).length > 1;
+    y += `${indent}      - ${t.endpoint}${isDup ? ' # Duplicate target' : ''}\n`;
+  });
+  if (Object.keys(job.labels).length > 0) {
+    y += `${indent}    labels:\n`;
+    for (const [k, v] of Object.entries(job.labels)) {
+      y += `${indent}      ${k}: ${v}\n`;
+    }
+  }
+  if (job.relabel_configs && job.relabel_configs.length > 0) {
+    y += `${indent}relabel_configs:\n`;
+    job.relabel_configs.forEach(rc => {
+      let first = true;
+      if (rc.source_labels && rc.source_labels.length > 0) {
+        y += `${indent}  - source_labels: [${rc.source_labels.join(', ')}]\n`;
+        first = false;
+      }
+      if (rc.target_label) {
+        y += `${indent}  ${first ? '- ' : '  '}target_label: ${rc.target_label}\n`;
+        first = false;
+      }
+      if (rc.replacement) {
+        y += `${indent}  ${first ? '- ' : '  '}replacement: ${rc.replacement}\n`;
+        first = false;
+      }
+      if (rc.regex && rc.regex !== '(.*)') {
+        y += `${indent}  ${first ? '- ' : '  '}regex: '${rc.regex}'\n`;
+        first = false;
+      }
+      if (rc.action && rc.action !== 'replace') {
+        y += `${indent}  ${first ? '- ' : '  '}action: ${rc.action}\n`;
+        first = false;
+      }
+    });
+  }
+  return y;
+};
+
+// Generate Prometheus YAML from reactive model
+const generateYaml = (singleJob?: ScrapeJob): string => {
+  if (singleJob) {
+    let y = `  - job_name: ${singleJob.job_name}\n`;
+    y += generateJobYamlSnippet(singleJob, '    ');
     return y;
   }
 
@@ -336,30 +393,7 @@ const generateYaml = (singleJob?: ScrapeJob): string => {
   out += `\nscrape_configs:\n`;
   scrapeJobs.value.forEach(job => {
     out += `  - job_name: ${job.job_name}\n`;
-    if (job.metrics_path && job.metrics_path !== '/metrics') {
-      out += `    metrics_path: ${job.metrics_path}\n`;
-    }
-    if (job.scheme && job.scheme !== 'http') {
-      out += `    scheme: ${job.scheme}\n`;
-    }
-    if (job.scrape_interval) {
-      out += `    scrape_interval: ${job.scrape_interval}\n`;
-    }
-    if (job.scrape_timeout) {
-      out += `    scrape_timeout: ${job.scrape_timeout}\n`;
-    }
-    out += `    static_configs:\n`;
-    out += `      - targets:\n`;
-    job.targets.forEach(t => {
-      const isDup = job.targets.filter(x => x.endpoint === t.endpoint).length > 1;
-      out += `          - ${t.endpoint}${isDup ? ' # Duplicate target' : ''}\n`;
-    });
-    if (Object.keys(job.labels).length > 0) {
-      out += `        labels:\n`;
-      for (const [k, v] of Object.entries(job.labels)) {
-        out += `          ${k}: ${v}\n`;
-      }
-    }
+    out += generateJobYamlSnippet(job, '    ');
     out += `\n`;
   });
 
@@ -386,6 +420,10 @@ const parseYamlIntoModel = (content: string) => {
     let activeParsedJob: Partial<ScrapeJob> | null = null;
     let inTargets = false;
     let inLabels = false;
+    let inParams = false;
+    let currentParamKey = '';
+    let inRelabel = false;
+    let currentRelabelRule: RelabelConfigItem | null = null;
 
     lines.forEach(line => {
       const trimmed = line.trim();
@@ -409,7 +447,9 @@ const parseYamlIntoModel = (content: string) => {
             scrape_interval: activeParsedJob.scrape_interval || '15s',
             scrape_timeout: activeParsedJob.scrape_timeout || '10s',
             targets: activeParsedJob.targets || [],
-            labels: activeParsedJob.labels || {}
+            labels: activeParsedJob.labels || {},
+            params: activeParsedJob.params && Object.keys(activeParsedJob.params).length > 0 ? activeParsedJob.params : undefined,
+            relabel_configs: activeParsedJob.relabel_configs && activeParsedJob.relabel_configs.length > 0 ? activeParsedJob.relabel_configs : undefined
           });
         }
         const jName = trimmed.replace('- job_name:', '').trim().replace(/['"]/g, '');
@@ -420,23 +460,77 @@ const parseYamlIntoModel = (content: string) => {
           scrape_interval: '15s',
           scrape_timeout: '10s',
           targets: [],
-          labels: {}
+          labels: {},
+          params: {},
+          relabel_configs: []
         };
         inTargets = false;
         inLabels = false;
+        inParams = false;
+        currentParamKey = '';
+        inRelabel = false;
+        currentRelabelRule = null;
       } else if (currentSection === 'scrape' && activeParsedJob) {
         if (trimmed.startsWith('metrics_path:')) {
+          inTargets = false; inLabels = false; inParams = false; inRelabel = false;
           activeParsedJob.metrics_path = trimmed.replace('metrics_path:', '').trim().replace(/['"]/g, '');
         } else if (trimmed.startsWith('scheme:')) {
+          inTargets = false; inLabels = false; inParams = false; inRelabel = false;
           activeParsedJob.scheme = trimmed.replace('scheme:', '').trim().toLowerCase() === 'https' ? 'https' : 'http';
         } else if (trimmed.startsWith('scrape_interval:')) {
+          inTargets = false; inLabels = false; inParams = false; inRelabel = false;
           activeParsedJob.scrape_interval = trimmed.replace('scrape_interval:', '').trim();
         } else if (trimmed.startsWith('scrape_timeout:')) {
+          inTargets = false; inLabels = false; inParams = false; inRelabel = false;
           activeParsedJob.scrape_timeout = trimmed.replace('scrape_timeout:', '').trim();
+        } else if (trimmed.startsWith('params:')) {
+          inParams = true; inTargets = false; inLabels = false; inRelabel = false;
+          activeParsedJob.params = activeParsedJob.params || {};
+        } else if (inParams && trimmed.startsWith('- ') && currentParamKey) {
+          const val = trimmed.replace(/^-/, '').trim().replace(/['"]/g, '');
+          if (val) activeParsedJob.params![currentParamKey].push(val);
+        } else if (inParams && trimmed.includes(':') && !trimmed.startsWith('static_configs:') && !trimmed.startsWith('relabel_configs:') && !trimmed.startsWith('metrics_path:')) {
+          const parts = trimmed.split(':');
+          const pKey = parts[0].trim();
+          const pVal = parts.slice(1).join(':').trim();
+          if (pVal.startsWith('[') && pVal.endsWith(']')) {
+            const arr = pVal.slice(1, -1).split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+            activeParsedJob.params![pKey] = arr;
+            currentParamKey = '';
+          } else if (pVal) {
+            activeParsedJob.params![pKey] = [pVal.replace(/['"]/g, '')];
+            currentParamKey = '';
+          } else {
+            currentParamKey = pKey;
+            activeParsedJob.params![pKey] = [];
+          }
+        } else if (trimmed.startsWith('relabel_configs:')) {
+          inRelabel = true; inParams = false; inTargets = false; inLabels = false;
+          activeParsedJob.relabel_configs = activeParsedJob.relabel_configs || [];
+        } else if (inRelabel && (trimmed.startsWith('-') || trimmed.includes(':')) && !trimmed.startsWith('static_configs:') && !trimmed.startsWith('params:') && !trimmed.startsWith('- job_name:')) {
+          if (trimmed.startsWith('-')) {
+            currentRelabelRule = {};
+            activeParsedJob.relabel_configs!.push(currentRelabelRule);
+          }
+          if (currentRelabelRule) {
+            const clean = trimmed.replace(/^-/, '').trim();
+            if (clean.startsWith('source_labels:')) {
+              const val = clean.replace('source_labels:', '').trim();
+              if (val.startsWith('[') && val.endsWith(']')) {
+                currentRelabelRule.source_labels = val.slice(1, -1).split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+              }
+            } else if (clean.startsWith('target_label:')) {
+              currentRelabelRule.target_label = clean.replace('target_label:', '').trim().replace(/['"]/g, '');
+            } else if (clean.startsWith('replacement:')) {
+              currentRelabelRule.replacement = clean.replace('replacement:', '').trim().replace(/['"]/g, '');
+            } else if (clean.startsWith('action:')) {
+              currentRelabelRule.action = clean.replace('action:', '').trim().replace(/['"]/g, '') as any;
+            } else if (clean.startsWith('regex:')) {
+              currentRelabelRule.regex = clean.replace('regex:', '').trim().replace(/^['"]|['"]$/g, '');
+            }
+          }
         } else if (trimmed.startsWith('targets:') || trimmed.startsWith('- targets:')) {
-          inTargets = true;
-          inLabels = false;
-          // Check inline targets format: targets: ['a:9090', 'b:9090'] or - targets: ['a:9090']
+          inTargets = true; inLabels = false; inParams = false; inRelabel = false;
           const inlineMatch = trimmed.match(/\[(.*)\]/);
           if (inlineMatch && inlineMatch[1]) {
             const splitted = inlineMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
@@ -450,8 +544,7 @@ const parseYamlIntoModel = (content: string) => {
             inTargets = false;
           }
         } else if (trimmed.startsWith('labels:')) {
-          inLabels = true;
-          inTargets = false;
+          inLabels = true; inTargets = false; inParams = false; inRelabel = false;
         } else if (inTargets && trimmed.startsWith('-') && !trimmed.startsWith('- targets:') && !trimmed.startsWith('- job_name:')) {
           const ep = trimmed.replace(/^-/, '').trim().replace(/['"]/g, '').split('#')[0].trim();
           if (ep) {
@@ -484,7 +577,9 @@ const parseYamlIntoModel = (content: string) => {
         scrape_interval: activeParsedJob.scrape_interval || '15s',
         scrape_timeout: activeParsedJob.scrape_timeout || '10s',
         targets: activeParsedJob.targets || [],
-        labels: activeParsedJob.labels || {}
+        labels: activeParsedJob.labels || {},
+        params: activeParsedJob.params && Object.keys(activeParsedJob.params).length > 0 ? activeParsedJob.params : undefined,
+        relabel_configs: activeParsedJob.relabel_configs && activeParsedJob.relabel_configs.length > 0 ? activeParsedJob.relabel_configs : undefined
       });
     }
 
@@ -921,31 +1016,243 @@ const executeBulkAdd = () => {
 };
 
 // ==================== JOB ACTIONS ====================
+type JobPreset = 'standard' | 'snmp' | 'blackbox' | 'custom';
+
 const newJobForm = ref({
+  preset: 'standard' as JobPreset,
   job_name: '',
   metrics_path: '/metrics',
   scheme: 'http' as 'http' | 'https',
   scrape_interval: '15s',
-  scrape_timeout: '10s'
+  scrape_timeout: '10s',
+  snmp_module: 'if_mib',
+  snmp_custom_module: '',
+  blackbox_module: 'http_2xx',
+  blackbox_custom_module: '',
+  exporter_address: 'localhost:9116',
+  targets_text: ''
 });
+
+const availableRemoteHosts = ref<Array<{ id: string; name: string; host: string }>>([]);
+
+const fetchAvailableRemoteHosts = async () => {
+  try {
+    const res = await axios.get('/api/v1/remote-host');
+    if (res?.data?.success && Array.isArray(res.data.data)) {
+      availableRemoteHosts.value = res.data.data.map((h: any) => ({
+        id: h.id,
+        name: h.name,
+        host: h.host,
+      }));
+    }
+  } catch (_) {}
+};
+
+const appendRemoteHostTarget = (hostStr: string) => {
+  const current = newJobForm.value.targets_text.trim();
+  const targetWithPort = hostStr.includes(':') ? hostStr : `${hostStr}:9100`;
+  if (!current) {
+    newJobForm.value.targets_text = targetWithPort;
+  } else {
+    newJobForm.value.targets_text = `${current}\n${targetWithPort}`;
+  }
+};
+
+const openAddJobModal = () => {
+  if (availableRemoteHosts.value.length === 0) {
+    fetchAvailableRemoteHosts();
+  }
+  showAddJobModal.value = true;
+};
+
+const setJobPreset = (preset: JobPreset) => {
+  newJobForm.value.preset = preset;
+  if (preset === 'standard') {
+    newJobForm.value.metrics_path = '/metrics';
+    newJobForm.value.scrape_interval = '15s';
+    newJobForm.value.scrape_timeout = '10s';
+  } else if (preset === 'snmp') {
+    newJobForm.value.metrics_path = '/snmp';
+    newJobForm.value.scrape_interval = '60s';
+    newJobForm.value.scrape_timeout = '30s';
+    newJobForm.value.snmp_module = 'if_mib';
+    newJobForm.value.exporter_address = 'localhost:9116';
+  } else if (preset === 'blackbox') {
+    newJobForm.value.metrics_path = '/probe';
+    newJobForm.value.scrape_interval = '15s';
+    newJobForm.value.scrape_timeout = '10s';
+    newJobForm.value.blackbox_module = 'http_2xx';
+    newJobForm.value.exporter_address = 'localhost:9115';
+  } else if (preset === 'custom') {
+    newJobForm.value.metrics_path = '/metrics';
+    newJobForm.value.scrape_interval = '15s';
+    newJobForm.value.scrape_timeout = '10s';
+  }
+};
 
 const executeAddJob = () => {
   if (!newJobForm.value.job_name.trim()) return;
+  const jName = newJobForm.value.job_name.trim();
+
+  let path = newJobForm.value.metrics_path.trim() || '/metrics';
+  if (!path.startsWith('/')) path = '/' + path;
+
+  const paramsObj: Record<string, string[]> = {};
+  const relabelConfigs: RelabelConfigItem[] = [];
+
+  if (newJobForm.value.preset === 'snmp') {
+    path = newJobForm.value.metrics_path.trim() || '/snmp';
+    if (!path.startsWith('/')) path = '/' + path;
+    const mod = newJobForm.value.snmp_module === 'custom'
+      ? (newJobForm.value.snmp_custom_module.trim() || 'if_mib')
+      : (newJobForm.value.snmp_module || 'if_mib');
+    paramsObj.module = [mod];
+
+    const exporter = newJobForm.value.exporter_address.trim() || 'localhost:9116';
+    relabelConfigs.push(
+      { source_labels: ['__address__'], target_label: '__param_target__' },
+      { source_labels: ['__param_target__'], target_label: 'instance' },
+      { target_label: '__address__', replacement: exporter }
+    );
+  } else if (newJobForm.value.preset === 'blackbox') {
+    path = newJobForm.value.metrics_path.trim() || '/probe';
+    if (!path.startsWith('/')) path = '/' + path;
+    const mod = newJobForm.value.blackbox_module === 'custom'
+      ? (newJobForm.value.blackbox_custom_module.trim() || 'http_2xx')
+      : (newJobForm.value.blackbox_module || 'http_2xx');
+    paramsObj.module = [mod];
+
+    const exporter = newJobForm.value.exporter_address.trim() || 'localhost:9115';
+    relabelConfigs.push(
+      { source_labels: ['__address__'], target_label: '__param_target__' },
+      { source_labels: ['__param_target__'], target_label: 'instance' },
+      { target_label: '__address__', replacement: exporter }
+    );
+  } else if (newJobForm.value.preset === 'custom' && newJobForm.value.exporter_address.trim()) {
+    const exporter = newJobForm.value.exporter_address.trim();
+    relabelConfigs.push(
+      { source_labels: ['__address__'], target_label: '__param_target__' },
+      { source_labels: ['__param_target__'], target_label: 'instance' },
+      { target_label: '__address__', replacement: exporter }
+    );
+  }
+
+  // Parse optional initial targets
+  const initialTargets: TargetItem[] = [];
+  if (newJobForm.value.targets_text.trim()) {
+    const lines = newJobForm.value.targets_text.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    lines.forEach(ep => {
+      initialTargets.push({
+        id: `t-${Date.now()}-${Math.random()}`,
+        endpoint: ep,
+        labels: { app: jName }
+      });
+    });
+  } else {
+    const defaultEp = newJobForm.value.preset === 'snmp' ? '192.168.1.1'
+      : newJobForm.value.preset === 'blackbox' ? 'https://google.com'
+      : 'localhost:9100';
+    initialTargets.push({
+      id: `t-${Date.now()}-${Math.random()}`,
+      endpoint: defaultEp,
+      labels: { app: jName }
+    });
+  }
+
   const newJob: ScrapeJob = {
     id: `job-${Date.now()}`,
-    job_name: newJobForm.value.job_name.trim(),
-    metrics_path: newJobForm.value.metrics_path || '/metrics',
+    job_name: jName,
+    metrics_path: path,
     scheme: newJobForm.value.scheme,
     scrape_interval: newJobForm.value.scrape_interval || '15s',
     scrape_timeout: newJobForm.value.scrape_timeout || '10s',
-    targets: [],
-    labels: { app: newJobForm.value.job_name.trim() }
+    targets: initialTargets,
+    labels: { app: jName },
+    params: Object.keys(paramsObj).length > 0 ? paramsObj : undefined,
+    relabel_configs: relabelConfigs.length > 0 ? relabelConfigs : undefined
   };
+
   scrapeJobs.value.push(newJob);
   selectedJobId.value = newJob.id;
   showAddJobModal.value = false;
+
+  // Reset form
   newJobForm.value.job_name = '';
+  newJobForm.value.targets_text = '';
+  newJobForm.value.snmp_custom_module = '';
+  newJobForm.value.blackbox_custom_module = '';
+  setJobPreset('standard');
+
   showNotification('success', `Scrape job '${newJob.job_name}' created.`);
+};
+
+// ==================== PARAMETER & RELABEL ACTIONS FOR CURRENT JOB ====================
+const newParamKey = ref('');
+const newParamValue = ref('');
+
+const addParamToCurrentJob = () => {
+  if (!currentJob.value || !newParamKey.value.trim() || !newParamValue.value.trim()) return;
+  if (!currentJob.value.params) {
+    currentJob.value.params = {};
+  }
+  const k = newParamKey.value.trim();
+  const v = newParamValue.value.trim();
+  if (!currentJob.value.params[k]) {
+    currentJob.value.params[k] = [];
+  }
+  currentJob.value.params[k].push(v);
+  newParamKey.value = '';
+  newParamValue.value = '';
+};
+
+const removeParamValue = (key: string, idx: number) => {
+  if (!currentJob.value?.params?.[key]) return;
+  currentJob.value.params[key].splice(idx, 1);
+  if (currentJob.value.params[key].length === 0) {
+    delete currentJob.value.params[key];
+  }
+};
+
+const deleteParamKey = (key: string) => {
+  if (!currentJob.value?.params) return;
+  delete currentJob.value.params[key];
+};
+
+const quickAddParam = (key: string, val: string) => {
+  if (!currentJob.value) return;
+  if (!currentJob.value.params) {
+    currentJob.value.params = {};
+  }
+  currentJob.value.params[key] = [val];
+};
+
+const applyExporterRelabelPreset = (preset: 'snmp' | 'blackbox') => {
+  if (!currentJob.value) return;
+  const address = preset === 'snmp' ? 'localhost:9116' : 'localhost:9115';
+  currentJob.value.relabel_configs = [
+    { source_labels: ['__address__'], target_label: '__param_target__' },
+    { source_labels: ['__param_target__'], target_label: 'instance' },
+    { target_label: '__address__', replacement: address }
+  ];
+  showNotification('success', `Applied ${preset.toUpperCase()} Exporter relabeling rules.`);
+};
+
+const addEmptyRelabelRule = () => {
+  if (!currentJob.value) return;
+  if (!currentJob.value.relabel_configs) {
+    currentJob.value.relabel_configs = [];
+  }
+  currentJob.value.relabel_configs.push({
+    source_labels: ['__address__'],
+    target_label: '',
+    replacement: '',
+    action: 'replace'
+  });
+};
+
+const deleteRelabelRule = (idx: number) => {
+  if (!currentJob.value?.relabel_configs) return;
+  currentJob.value.relabel_configs.splice(idx, 1);
 };
 
 const duplicateCurrentJob = () => {
@@ -1101,6 +1408,7 @@ const handleSaveAndRestart = async () => {
 
 onMounted(() => {
   fetchPrometheusInstances();
+  fetchAvailableRemoteHosts();
 });
 </script>
 
@@ -1547,7 +1855,7 @@ onMounted(() => {
                 {{ scrapeJobs.length }} jobs
               </span>
               <button
-                @click="showAddJobModal = true"
+                @click="openAddJobModal"
                 class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
               >
                 <Plus class="w-3.5 h-3.5" />
@@ -1835,6 +2143,30 @@ onMounted(() => {
                 v-model="currentJob.metrics_path"
                 class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
+              <div class="flex items-center gap-1.5 mt-1">
+                <span class="text-[10px] text-slate-400">Presets:</span>
+                <button
+                  type="button"
+                  @click="currentJob.metrics_path = '/metrics'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                >
+                  /metrics
+                </button>
+                <button
+                  type="button"
+                  @click="currentJob.metrics_path = '/snmp'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                >
+                  /snmp
+                </button>
+                <button
+                  type="button"
+                  @click="currentJob.metrics_path = '/probe'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-600 dark:text-slate-300 font-mono cursor-pointer"
+                >
+                  /probe
+                </button>
+              </div>
             </div>
 
             <div class="md:col-span-4">
@@ -1865,7 +2197,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Sub-tabs: Targets, Labels, Relabel Configs -->
+          <!-- Sub-tabs: Targets, Labels, Parameters, Relabel Configs -->
           <div class="border-b border-slate-200 dark:border-[#1b2234] flex items-center gap-4 text-xs font-semibold pt-2">
             <button
               @click="activeJobTab = 'targets'"
@@ -1890,6 +2222,17 @@ onMounted(() => {
               Labels ({{ Object.keys(currentJob.labels).length }})
             </button>
             <button
+              @click="activeJobTab = 'params'"
+              :class="[
+                'pb-2 border-b-2 transition cursor-pointer',
+                activeJobTab === 'params'
+                  ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ]"
+            >
+              Parameters ({{ currentJob.params ? Object.keys(currentJob.params).length : 0 }})
+            </button>
+            <button
               @click="activeJobTab = 'relabel'"
               :class="[
                 'pb-2 border-b-2 transition cursor-pointer',
@@ -1898,7 +2241,7 @@ onMounted(() => {
                   : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
               ]"
             >
-              Relabel Configs
+              Relabel Configs ({{ currentJob.relabel_configs ? currentJob.relabel_configs.length : 0 }})
             </button>
           </div>
 
@@ -2006,10 +2349,222 @@ onMounted(() => {
                   v-model="currentJob.labels[key]"
                   class="flex-1 bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs font-mono"
                 />
-                <button @click="delete currentJob.labels[key]" class="text-slate-400 hover:text-rose-500 p-1">
+                <button @click="delete currentJob.labels[key]" class="text-slate-400 hover:text-rose-500 p-1 cursor-pointer">
                   <X class="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- Sub-tab Content: PARAMETERS (params) -->
+          <div v-if="activeJobTab === 'params'" class="space-y-4 pt-1">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200">Query Parameters (`params`)</h4>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400">
+                  HTTP GET query parameters sent with scrape requests (required for SNMP Exporter e.g. <code class="font-mono">module: [if_mib]</code> or Blackbox Exporter e.g. <code class="font-mono">module: [http_2xx]</code>).
+                </p>
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="flex items-center gap-1.5 shrink-0 flex-wrap">
+                <span class="text-[10px] text-slate-400">Presets:</span>
+                <button
+                  type="button"
+                  @click="quickAddParam('module', 'if_mib')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer"
+                >
+                  + module: if_mib
+                </button>
+                <button
+                  type="button"
+                  @click="quickAddParam('module', 'mikrotik')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer"
+                >
+                  + module: mikrotik
+                </button>
+                <button
+                  type="button"
+                  @click="quickAddParam('module', 'http_2xx')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer"
+                >
+                  + module: http_2xx
+                </button>
+              </div>
+            </div>
+
+            <!-- Existing Parameters List -->
+            <div v-if="currentJob.params && Object.keys(currentJob.params).length > 0" class="space-y-2">
+              <div
+                v-for="(vals, pKey) in currentJob.params"
+                :key="pKey"
+                class="p-3 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg space-y-2"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold font-mono text-blue-600 dark:text-blue-400">{{ pKey }}</span>
+                    <span class="text-[10px] text-slate-400">({{ vals.length }} values)</span>
+                  </div>
+                  <button
+                    @click="deleteParamKey(pKey as string)"
+                    class="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                    title="Delete Parameter Key"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <div
+                    v-for="(val, idx) in vals"
+                    :key="idx"
+                    class="flex items-center gap-1 px-2 py-1 bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded text-xs font-mono text-slate-800 dark:text-slate-200"
+                  >
+                    <span>{{ val }}</span>
+                    <button
+                      @click="removeParamValue(pKey as string, idx)"
+                      class="text-slate-400 hover:text-rose-500 p-0.5 cursor-pointer"
+                    >
+                      <X class="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="py-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+              No query parameters defined. Standard exporters do not require parameters. Multi-target exporters use <code class="font-mono">module</code> parameter.
+            </div>
+
+            <!-- Add Parameter Input Form -->
+            <div class="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <input
+                v-model="newParamKey"
+                placeholder="Parameter key (e.g. module or target)"
+                class="w-full sm:w-1/3 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <input
+                v-model="newParamValue"
+                placeholder="Parameter value (e.g. if_mib, http_2xx, mikrotik)"
+                class="w-full sm:flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <button
+                @click="addParamToCurrentJob"
+                class="w-full sm:w-auto px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shrink-0"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>Add Param</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Sub-tab Content: RELABEL CONFIGS -->
+          <div v-if="activeJobTab === 'relabel'" class="space-y-4 pt-1">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200">Relabel Configurations (`relabel_configs`)</h4>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400">
+                  Target relabeling rules executed before scraping. Essential for routing multi-target SNMP and Blackbox probes to the exporter instance.
+                </p>
+              </div>
+
+              <!-- Presets for SNMP and Blackbox -->
+              <div class="flex items-center gap-1.5 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  @click="applyExporterRelabelPreset('snmp')"
+                  class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-semibold transition cursor-pointer"
+                >
+                  SNMP Proxy Rules
+                </button>
+                <button
+                  type="button"
+                  @click="applyExporterRelabelPreset('blackbox')"
+                  class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-semibold transition cursor-pointer"
+                >
+                  Blackbox Proxy Rules
+                </button>
+                <button
+                  type="button"
+                  @click="addEmptyRelabelRule"
+                  class="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus class="w-3 h-3" />
+                  <span>Add Rule</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- List of Relabel Rules -->
+            <div v-if="currentJob.relabel_configs && currentJob.relabel_configs.length > 0" class="space-y-2.5">
+              <div
+                v-for="(rc, rIdx) in currentJob.relabel_configs"
+                :key="rIdx"
+                class="p-3 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg space-y-2.5"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-bold font-mono text-slate-600 dark:text-slate-400">
+                    Rule #{{ rIdx + 1 }}
+                  </span>
+                  <button
+                    @click="deleteRelabelRule(rIdx)"
+                    class="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                    title="Delete Rule"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Source Labels</label>
+                    <input
+                      :value="rc.source_labels ? rc.source_labels.join(', ') : ''"
+                      @input="(e: any) => rc.source_labels = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)"
+                      placeholder="e.g. __address__"
+                      class="w-full bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 font-mono text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Target Label</label>
+                    <input
+                      v-model="rc.target_label"
+                      placeholder="e.g. __param_target__ or instance"
+                      class="w-full bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 font-mono text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Replacement</label>
+                    <input
+                      v-model="rc.replacement"
+                      placeholder="e.g. localhost:9116"
+                      class="w-full bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 font-mono text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Action</label>
+                    <select
+                      v-model="rc.action"
+                      class="w-full bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2.5 py-1 text-xs text-slate-900 dark:text-white font-medium focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="replace">replace (default)</option>
+                      <option value="keep">keep</option>
+                      <option value="drop">drop</option>
+                      <option value="hashmod">hashmod</option>
+                      <option value="labelmap">labelmap</option>
+                      <option value="labeldrop">labeldrop</option>
+                      <option value="labelkeep">labelkeep</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="py-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+              No relabel rules defined. Standard direct scrapes do not require relabel configs. Click <strong>SNMP Proxy Rules</strong> or <strong>Blackbox Proxy Rules</strong> to configure multi-target routing.
             </div>
           </div>
         </div>
@@ -2143,37 +2698,203 @@ onMounted(() => {
       v-if="showAddJobModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
-        <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#1b2234] pb-3">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Scrape Job</h3>
-          <button @click="showAddJobModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-[#1b2234] shrink-0">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Add Scrape Job</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Configure target scrape job, metrics path, and discovery endpoints</p>
+          </div>
+          <button
+            @click="showAddJobModal = false"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1a2233] cursor-pointer"
+          >
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="space-y-3 text-xs">
+        <!-- Modal Body (Scrollable) -->
+        <div class="p-5 overflow-y-auto space-y-4 text-xs flex-1">
+          <!-- 1. Job Preset / Type -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Job Preset / Type</label>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                @click="setJobPreset('standard')"
+                :class="[
+                  'px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer flex flex-col gap-0.5',
+                  newJobForm.preset === 'standard'
+                    ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/20'
+                    : 'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <span class="font-bold">Standard</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Direct /metrics</span>
+              </button>
+
+              <button
+                type="button"
+                @click="setJobPreset('snmp')"
+                :class="[
+                  'px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer flex flex-col gap-0.5',
+                  newJobForm.preset === 'snmp'
+                    ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/20'
+                    : 'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <span class="font-bold">SNMP Exporter</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Switch & Router /snmp</span>
+              </button>
+
+              <button
+                type="button"
+                @click="setJobPreset('blackbox')"
+                :class="[
+                  'px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer flex flex-col gap-0.5',
+                  newJobForm.preset === 'blackbox'
+                    ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/20'
+                    : 'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <span class="font-bold">Blackbox Probe</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">HTTP/TCP Probe /probe</span>
+              </button>
+
+              <button
+                type="button"
+                @click="setJobPreset('custom')"
+                :class="[
+                  'px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer flex flex-col gap-0.5',
+                  newJobForm.preset === 'custom'
+                    ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/20'
+                    : 'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                ]"
+              >
+                <span class="font-bold">Custom</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Manual Config</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Job Name -->
           <div>
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Job Name *</label>
             <input
               v-model="newJobForm.job_name"
-              placeholder="e.g. redis-exporter or mysql"
-              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono"
+              :placeholder="
+                newJobForm.preset === 'snmp'
+                  ? 'e.g. snmp_switches or cisco_devices'
+                  : newJobForm.preset === 'blackbox'
+                  ? 'e.g. http_probe_endpoints'
+                  : newJobForm.preset === 'custom'
+                  ? 'e.g. custom_service_metrics'
+                  : 'e.g. node_exporter or redis_exporter'
+              "
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
             />
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Unique identifier for this scrape job in prometheus.yml.
+            </p>
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <!-- 3. Target Endpoints (IP / Host:Port) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                {{
+                  newJobForm.preset === 'snmp'
+                    ? 'Target Network Devices * (Device IP)'
+                    : newJobForm.preset === 'blackbox'
+                    ? 'Probe Targets * (URLs or Endpoints)'
+                    : 'Target Endpoints * (host:port)'
+                }}
+              </label>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400">One per line or comma-separated</span>
+            </div>
+            <textarea
+              v-model="newJobForm.targets_text"
+              rows="3"
+              :placeholder="
+                newJobForm.preset === 'snmp'
+                  ? '192.168.1.1\n192.168.1.254\n10.0.0.1'
+                  : newJobForm.preset === 'blackbox'
+                  ? 'https://example.com\nhttps://internal.service.local\n10.20.3.1:80'
+                  : '10.20.3.5:9100\n10.20.3.6:9100\nlocalhost:9100'
+              "
+              class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            ></textarea>
+
+            <!-- Quick Append from Remote Servers -->
+            <div v-if="availableRemoteHosts.length > 0 && (newJobForm.preset === 'standard' || newJobForm.preset === 'custom')" class="space-y-1 pt-0.5">
+              <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span class="flex items-center gap-1 font-medium">
+                  <Server class="w-3 h-3 text-slate-400" />
+                  Quick add from Remote Servers:
+                </span>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap max-h-24 overflow-y-auto p-1.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200/80 dark:border-[#1b2234] rounded-lg">
+                <button
+                  v-for="host in availableRemoteHosts"
+                  :key="host.id"
+                  type="button"
+                  @click="appendRemoteHostTarget(host.host)"
+                  class="text-[10px] px-2 py-0.5 rounded bg-white hover:bg-slate-100 dark:bg-[#1a2233] dark:hover:bg-[#222d42] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition cursor-pointer font-mono flex items-center gap-1"
+                  :title="`Add ${host.host}:9100`"
+                >
+                  <Plus class="w-2.5 h-2.5 text-slate-400" />
+                  <span>{{ host.name }} ({{ host.host }})</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Metrics Path & Scheme -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Metrics Path</label>
               <input
                 v-model="newJobForm.metrics_path"
-                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono"
+                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
+              <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span class="text-[10px] text-slate-400">Presets:</span>
+                <button
+                  type="button"
+                  @click="newJobForm.metrics_path = '/metrics'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#253046] text-slate-600 dark:text-slate-300 font-mono transition cursor-pointer"
+                >
+                  /metrics
+                </button>
+                <button
+                  type="button"
+                  @click="newJobForm.metrics_path = '/snmp'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#253046] text-slate-600 dark:text-slate-300 font-mono transition cursor-pointer"
+                >
+                  /snmp
+                </button>
+                <button
+                  type="button"
+                  @click="newJobForm.metrics_path = '/probe'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#253046] text-slate-600 dark:text-slate-300 font-mono transition cursor-pointer"
+                >
+                  /probe
+                </button>
+                <button
+                  type="button"
+                  @click="newJobForm.metrics_path = '/actuator/prometheus'"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#253046] text-slate-600 dark:text-slate-300 font-mono transition cursor-pointer"
+                >
+                  /actuator/prometheus
+                </button>
+              </div>
             </div>
+
             <div>
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Scheme</label>
               <select
                 v-model="newJobForm.scheme"
-                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-medium"
+                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="http">http</option>
                 <option value="https">https</option>
@@ -2181,34 +2902,135 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 5. Scrape Interval & Timeout -->
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Scrape Interval</label>
               <input
                 v-model="newJobForm.scrape_interval"
-                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono"
+                placeholder="15s"
+                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Timeout</label>
               <input
                 v-model="newJobForm.scrape_timeout"
-                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono"
+                placeholder="10s"
+                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               />
+            </div>
+          </div>
+
+          <!-- 6. SNMP Configuration Box (Preset SNMP) -->
+          <div v-if="newJobForm.preset === 'snmp'" class="p-3.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-200/60 dark:border-[#1b2234] pb-2">
+              <span class="text-xs font-bold text-slate-800 dark:text-slate-200">SNMP Exporter Configuration</span>
+              <span class="text-[10px] text-slate-500 font-mono">relabeling to localhost:9116</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">SNMP Module</label>
+                <select
+                  v-model="newJobForm.snmp_module"
+                  class="w-full bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="if_mib">if_mib (Network Interfaces)</option>
+                  <option value="cisco">cisco (Cisco Devices)</option>
+                  <option value="synology">synology (Synology NAS)</option>
+                  <option value="apcups">apcups (APC Smart-UPS)</option>
+                  <option value="printer">printer (Printers)</option>
+                  <option value="custom">custom (Custom Module Name)</option>
+                </select>
+                <input
+                  v-if="newJobForm.snmp_module === 'custom'"
+                  v-model="newJobForm.snmp_custom_module"
+                  placeholder="Custom module name"
+                  class="w-full mt-1.5 bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1 text-xs font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">SNMP Exporter Address</label>
+                <input
+                  v-model="newJobForm.exporter_address"
+                  placeholder="localhost:9116"
+                  class="w-full bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 dark:text-white"
+                />
+                <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Address of running snmp_exporter daemon</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7. Blackbox Configuration Box (Preset Blackbox) -->
+          <div v-if="newJobForm.preset === 'blackbox'" class="p-3.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-200/60 dark:border-[#1b2234] pb-2">
+              <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Blackbox Exporter Configuration</span>
+              <span class="text-[10px] text-slate-500 font-mono">probe module & proxy relabeling</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">Probe Module</label>
+                <select
+                  v-model="newJobForm.blackbox_module"
+                  class="w-full bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="http_2xx">http_2xx (HTTP 2xx Status)</option>
+                  <option value="http_post_2xx">http_post_2xx (HTTP POST Status)</option>
+                  <option value="tcp_connect">tcp_connect (TCP Port Check)</option>
+                  <option value="icmp">icmp (Ping / ICMP Echo)</option>
+                  <option value="ssh_banner">ssh_banner (SSH Banner Handshake)</option>
+                  <option value="custom">custom (Custom Probe Module)</option>
+                </select>
+                <input
+                  v-if="newJobForm.blackbox_module === 'custom'"
+                  v-model="newJobForm.blackbox_custom_module"
+                  placeholder="Custom probe module name"
+                  class="w-full mt-1.5 bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1 text-xs font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">Blackbox Exporter Address</label>
+                <input
+                  v-model="newJobForm.exporter_address"
+                  placeholder="localhost:9115"
+                  class="w-full bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 dark:text-white"
+                />
+                <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Address of running blackbox_exporter daemon</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8. Custom Configuration Box (Preset Custom) -->
+          <div v-if="newJobForm.preset === 'custom'" class="p-3.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-2">
+            <div class="flex items-center justify-between border-b border-slate-200/60 dark:border-[#1b2234] pb-1.5">
+              <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Optional Proxy Exporter Relabeling</span>
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">Exporter Address (Optional)</label>
+              <input
+                v-model="newJobForm.exporter_address"
+                placeholder="e.g. localhost:9116 (leave blank for direct scrape)"
+                class="w-full bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 dark:text-white"
+              />
+              <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                If specified, automatically configures __param_target__ relabeling to proxy through this exporter address.
+              </p>
             </div>
           </div>
         </div>
 
-        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#0c101a] shrink-0">
           <button
             @click="showAddJobModal = false"
-            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            class="px-3.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
             Cancel
           </button>
           <button
             @click="executeAddJob"
-            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+            :disabled="!newJobForm.job_name.trim()"
+            class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             Create Job
           </button>
