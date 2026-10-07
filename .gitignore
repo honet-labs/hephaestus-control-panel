@@ -22,10 +22,10 @@ logs/*.log
 logs/*.gz
 *.log
 
-# Data persistence (except structure)
+# Data persistence (except bundled MIBs)
 data/*
-!data/mibs/
-!data/mibs/.gitkeep
+!data/mibs
+!data/mibs/**
 backups/*
 
 # IDE & OS

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -281,29 +282,173 @@ func (s *SnmpService) ImportMibText(ctx context.Context, mibName, content string
 	}, nil
 }
 
-func (s *SnmpService) SyncMibsFromDisk(ctx context.Context) {
-	files, err := os.ReadDir(s.mibsDir)
-	if err != nil {
+func (s *SnmpService) seedBundledMibs() {
+	bundledCandidates := []string{"/app/bundled_mibs", "./data/mibs"}
+	var sourceDir string
+	for _, dir := range bundledCandidates {
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		absMibsDir, _ := filepath.Abs(s.mibsDir)
+		if absDir == absMibsDir {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			sourceDir = dir
+			break
+		}
+	}
+
+	if sourceDir == "" {
 		return
 	}
 
-	imported, _ := s.snmpRepo.ListImportedMibs(ctx)
-	existingSet := make(map[string]bool)
+	_ = filepath.WalkDir(sourceDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+
+		destPath := filepath.Join(s.mibsDir, rel)
+		if d.IsDir() {
+			_ = os.MkdirAll(destPath, 0755)
+			return nil
+		}
+
+		if _, statErr := os.Stat(destPath); os.IsNotExist(statErr) {
+			if srcData, readErr := os.ReadFile(path); readErr == nil {
+				_ = os.WriteFile(destPath, srcData, 0644)
+			}
+		}
+		return nil
+	})
+}
+
+func (s *SnmpService) SyncMibsFromDisk(ctx context.Context) {
+	// 1. Ensure bundled MIBs are seeded if s.mibsDir is missing them
+	s.seedBundledMibs()
+
+	// 2. Fetch already imported MIBs from database to skip redundant parsing
+	imported, err := s.snmpRepo.ListImportedMibs(ctx)
+	if err != nil {
+		logger.Warn("SNMP", fmt.Sprintf("Failed to list imported MIBs for sync: %v", err))
+		return
+	}
+
+	existingSet := make(map[string]bool, len(imported))
 	for _, m := range imported {
 		existingSet[m.Name] = true
 	}
 
-	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(f.Name(), ".mib") {
-			name := strings.TrimSuffix(f.Name(), ".mib")
-			if !existingSet[name] {
-				content, err := os.ReadFile(filepath.Join(s.mibsDir, f.Name()))
-				if err == nil {
-					_, _ = s.ImportMibText(ctx, name, string(content))
-				}
+	defRegex := regexp.MustCompile(`(?m)^\s*([a-zA-Z0-9_-]+)\s+DEFINITIONS\s*::=\s*BEGIN`)
+	safeNameRegex := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+
+	var filesToImport []string
+	var namesToImport []string
+
+	// 3. Walk s.mibsDir recursively to find all MIB definitions (vendor directories + root)
+	_ = filepath.WalkDir(s.mibsDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		baseName := d.Name()
+		if strings.HasPrefix(baseName, ".") || baseName == "README" || baseName == ".gitkeep" {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(baseName))
+		if ext == ".md" || ext == ".json" || ext == ".yaml" || ext == ".yml" || ext == ".png" || ext == ".jpg" || ext == ".csv" || ext == ".svg" {
+			return nil
+		}
+
+		cleanBase := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		safeBase := safeNameRegex.ReplaceAllString(cleanBase, "")
+
+		// Fast check by base name
+		if safeBase != "" && existingSet[safeBase] {
+			return nil
+		}
+
+		// Read first 2KB to check DEFINITIONS module name
+		f, openErr := os.Open(path)
+		if openErr != nil {
+			return nil
+		}
+		buf := make([]byte, 2048)
+		n, _ := f.Read(buf)
+		_ = f.Close()
+
+		modName := safeBase
+		if m := defRegex.FindSubmatch(buf[:n]); len(m) > 1 {
+			extracted := safeNameRegex.ReplaceAllString(string(m[1]), "")
+			if extracted != "" {
+				modName = extracted
 			}
 		}
+
+		if modName == "" {
+			return nil
+		}
+
+		if existingSet[modName] {
+			return nil
+		}
+
+		// Deduplicate across vendor directories
+		existingSet[modName] = true
+		filesToImport = append(filesToImport, path)
+		namesToImport = append(namesToImport, modName)
+		return nil
+	})
+
+	if len(filesToImport) == 0 {
+		logger.Info("SNMP", fmt.Sprintf("All bundled MIB modules are indexed and up to date (%d modules).", len(imported)))
+		return
 	}
+
+	logger.Info("SNMP", fmt.Sprintf("Indexing %d new MIB modules from disk into database...", len(filesToImport)))
+
+	importedCount := 0
+	for i, path := range filesToImport {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		name := namesToImport[i]
+
+		// Parse MIB syntax into OID definitions
+		parsedNodes := parseMibSyntax(string(content), name)
+
+		// 1. Foreign key constraint: imported_mibs MUST be saved before oid_registry
+		if err := s.snmpRepo.SaveImportedMib(ctx, name, len(parsedNodes)); err != nil {
+			logger.Warn("SNMP", fmt.Sprintf("Failed to register MIB '%s': %v", name, err))
+			continue
+		}
+
+		// 2. Save OID batch
+		if len(parsedNodes) > 0 {
+			if err := s.snmpRepo.SaveOidBatch(ctx, parsedNodes); err != nil {
+				logger.Warn("SNMP", fmt.Sprintf("Failed to save OID definitions for '%s': %v", name, err))
+			}
+		}
+
+		importedCount++
+		if importedCount%250 == 0 || importedCount == len(filesToImport) {
+			logger.Info("SNMP", fmt.Sprintf("Indexed %d/%d MIB modules into database", importedCount, len(filesToImport)))
+		}
+	}
+
+	logger.Info("SNMP", fmt.Sprintf("Finished syncing MIBs: %d new modules successfully registered.", importedCount))
 }
 
 type rawMibEntry struct {

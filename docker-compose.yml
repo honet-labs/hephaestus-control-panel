@@ -14,8 +14,11 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
+    environment:
+      - TZ=${TZ:-Asia/Jakarta}
     volumes:
       - ./certs:/etc/nginx/certs
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
       - engine
     logging:
@@ -60,6 +63,7 @@ services:
       - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-}
       - LOGS_DIR=/app/logs
       - DATA_DIR=/app/data
+      - TZ=${TZ:-Asia/Jakarta}
     security_opt:
       - no-new-privileges:true
     volumes:
@@ -68,6 +72,7 @@ services:
       - ${BACKUP_DIR:-./backups}:/app/backups
       - ${BACKUP_DIR:-./backups}:/opt/backups
       - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
       - database
     logging:
@@ -101,11 +106,13 @@ services:
       - POSTGRES_USER=${DB_USER:-hephaestus}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
       - POSTGRES_DB=${DB_NAME:-hephaestus}
+      - TZ=${TZ:-Asia/Jakarta}
     ports:
       # Bind to localhost (127.0.0.1) only by default to prevent exposure to external network (HCP-SEC-002)
       - "127.0.0.1:${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
     logging:
       driver: "json-file"
       options:

@@ -56,7 +56,8 @@ install_dependencies() {
             echo "Updating APT repository..."
             apt-get update -y
             apt-get install -y ca-certificates curl gnupg lsb-release git openssl jq ufw \
-                iputils-ping net-tools snmp dnsutils traceroute socat tar gzip unzip
+                iputils-ping net-tools snmp dnsutils traceroute socat tar gzip unzip \
+                tzdata procps iproute2 bc
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then
@@ -81,7 +82,8 @@ install_dependencies() {
                 PKG_MGR="yum"
             fi
 
-            $PKG_MGR install -y yum-utils git openssl jq curl iputils net-tools net-snmp-utils bind-utils traceroute tar gzip unzip socat
+            $PKG_MGR install -y yum-utils git openssl jq curl iputils net-tools net-snmp-utils \
+                bind-utils traceroute tar gzip unzip socat tzdata procps-ng iproute bc cronie
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then
@@ -188,13 +190,55 @@ setup_configuration() {
         fi
     fi
 
+    if [ "$RECONFIGURE" = "no" ]; then
+        if ! grep -q "^TZ=" .env 2>/dev/null; then
+            DETECTED_TZ=""
+            if command -v timedatectl &> /dev/null; then
+                DETECTED_TZ=$(timedatectl show --property=Timezone --value 2>/dev/null || true)
+            fi
+            DEF_TIMEZONE=${DETECTED_TZ:-"Asia/Jakarta"}
+            echo "TZ=${DEF_TIMEZONE}" >> .env
+        fi
+        source .env 2>/dev/null || true
+    fi
+
     if [ "$RECONFIGURE" = "yes" ]; then
         echo -e "\nPlease specify installation parameters (press Enter to accept default):"
 
-        # 1. Web Panel Port
+        # 1. System & Container Timezone
+        DETECTED_TZ=""
+        if command -v timedatectl &> /dev/null; then
+            DETECTED_TZ=$(timedatectl show --property=Timezone --value 2>/dev/null || true)
+        fi
+        if [ -z "$DETECTED_TZ" ] && [ -f /etc/timezone ]; then
+            DETECTED_TZ=$(cat /etc/timezone | tr -d ' \n\r' || true)
+        fi
+        if [ -z "$DETECTED_TZ" ] && [ -L /etc/localtime ]; then
+            DETECTED_TZ=$(readlink /etc/localtime | sed 's#.*/zoneinfo/##' || true)
+        fi
+        DEF_TIMEZONE=${DETECTED_TZ:-"Asia/Jakarta"}
+
+        if [ -t 0 ]; then
+            read -p "1. System & Container Timezone (e.g. Asia/Jakarta, UTC, Asia/Singapore) [$DEF_TIMEZONE]: " INPUT_TIMEZONE
+        else
+            INPUT_TIMEZONE=""
+        fi
+        INPUT_TIMEZONE=${INPUT_TIMEZONE:-$DEF_TIMEZONE}
+
+        # Configure host OS timezone if running as root
+        echo -e "Configuring system timezone to ${GREEN}${INPUT_TIMEZONE}${NC}..."
+        if command -v timedatectl &> /dev/null; then
+            timedatectl set-timezone "$INPUT_TIMEZONE" 2>/dev/null || true
+        fi
+        if [ -f "/usr/share/zoneinfo/$INPUT_TIMEZONE" ]; then
+            ln -sf "/usr/share/zoneinfo/$INPUT_TIMEZONE" /etc/localtime 2>/dev/null || true
+            echo "$INPUT_TIMEZONE" > /etc/timezone 2>/dev/null || true
+        fi
+
+        # 2. Web Panel Port
         while true; do
             if [ -t 0 ]; then
-                read -p "1. Web Panel HTTP Port [$DEF_HTTP_PORT]: " INPUT_HTTP_PORT
+                read -p "2. Web Panel HTTP Port [$DEF_HTTP_PORT]: " INPUT_HTTP_PORT
             else
                 INPUT_HTTP_PORT=""
             fi
@@ -221,10 +265,10 @@ setup_configuration() {
             fi
         done
 
-        # 2. Database External Port
+        # 3. Database External Port
         while true; do
             if [ -t 0 ]; then
-                read -p "2. PostgreSQL External Port [$DEF_DB_PORT]: " INPUT_DB_PORT
+                read -p "3. PostgreSQL External Port [$DEF_DB_PORT]: " INPUT_DB_PORT
             else
                 INPUT_DB_PORT=""
             fi
@@ -251,32 +295,32 @@ setup_configuration() {
             fi
         done
 
-        # 3. Database Username
+        # 4. Database Username
         if [ -t 0 ]; then
-            read -p "3. Database Username [$DEF_DB_USER]: " INPUT_DB_USER
+            read -p "4. Database Username [$DEF_DB_USER]: " INPUT_DB_USER
         else
             INPUT_DB_USER=""
         fi
         INPUT_DB_USER=${INPUT_DB_USER:-$DEF_DB_USER}
 
-        # 4. Database Name
+        # 5. Database Name
         if [ -t 0 ]; then
-            read -p "4. Database Name [$DEF_DB_NAME]: " INPUT_DB_NAME
+            read -p "5. Database Name [$DEF_DB_NAME]: " INPUT_DB_NAME
         else
             INPUT_DB_NAME=""
         fi
         INPUT_DB_NAME=${INPUT_DB_NAME:-$DEF_DB_NAME}
 
-        # 5. Database Password
+        # 6. Database Password
         RANDOM_DB_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
         if [ -t 0 ]; then
-            read -p "5. Database Password (leave blank for random: $RANDOM_DB_PASSWORD): " INPUT_DB_PASS
+            read -p "6. Database Password (leave blank for random: $RANDOM_DB_PASSWORD): " INPUT_DB_PASS
         else
             INPUT_DB_PASS=""
         fi
         INPUT_DB_PASS=${INPUT_DB_PASS:-$RANDOM_DB_PASSWORD}
 
-        # 6. Generate 64-char Hex Encryption Key for AES-256-GCM
+        # 7. Generate 64-char Hex Encryption Key for AES-256-GCM
         RANDOM_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
         echo -e "\nWriting configuration to .env..."
@@ -289,6 +333,9 @@ setup_configuration() {
 HTTP_PORT=${INPUT_HTTP_PORT}
 DB_EXTERNAL_PORT=${INPUT_DB_PORT}
 APP_ENV=production
+
+# System & Container Timezone
+TZ=${INPUT_TIMEZONE}
 
 # Registry Mirror (Leave empty for standard Docker Hub, or specify mirror e.g. mirror.gcr.io/library/)
 REGISTRY_MIRROR=
@@ -403,6 +450,7 @@ fi
 echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database)"
 echo -e "PostgreSQL Database  : ${DB_NAME:-hephaestus} (External Port: ${DB_EXTERNAL_PORT:-5432})"
 echo -e "Database User        : ${DB_USER:-hephaestus}"
+echo -e "System Timezone      : ${TZ:-${INPUT_TIMEZONE:-Asia/Jakarta}}"
 echo -e "Installation Path    : ${INSTALL_DIR}"
 echo -e "Backup Directory     : ${INSTALL_DIR}/backups"
 echo -e "Configuration File   : ${INSTALL_DIR}/.env"

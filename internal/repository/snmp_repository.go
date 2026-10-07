@@ -83,7 +83,7 @@ func (r *SnmpRepository) SaveOidBatch(ctx context.Context, oids []domain.OidRegi
 		deduped = append(deduped, o)
 	}
 
-	batchSize := 100
+	batchSize := 500
 	for i := 0; i < len(deduped); i += batchSize {
 		end := i + batchSize
 		if end > len(deduped) {

@@ -26,7 +26,9 @@ import {
   Sliders,
   CheckCircle2,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-vue-next';
 
 // ==================== TABS & NAVIGATION ====================
@@ -367,6 +369,36 @@ const uploadModalOpen = ref(false);
 const uploadName = ref('');
 const uploadContent = ref('');
 const uploadingMib = ref(false);
+
+// Search & Pagination for MIB modules
+const mibSearch = ref('');
+const mibPage = ref(1);
+const mibPageSize = ref(25);
+
+const filteredMibs = computed(() => {
+  if (!mibSearch.value.trim()) {
+    return mibs.value;
+  }
+  const q = mibSearch.value.trim().toLowerCase();
+  return mibs.value.filter(m => m.name.toLowerCase().includes(q));
+});
+
+const totalMibPages = computed(() => {
+  return Math.ceil(filteredMibs.value.length / mibPageSize.value) || 1;
+});
+
+const paginatedMibs = computed(() => {
+  const start = (mibPage.value - 1) * mibPageSize.value;
+  return filteredMibs.value.slice(start, start + mibPageSize.value);
+});
+
+watch(mibSearch, () => {
+  mibPage.value = 1;
+});
+
+watch(mibPageSize, () => {
+  mibPage.value = 1;
+});
 
 // Delete confirmation modal state
 const deleteModalOpen = ref(false);
@@ -1379,13 +1411,34 @@ onMounted(() => {
 
       <!-- MIB Modules Table -->
       <div class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
-        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
-          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            Imported MIB Modules
-          </h2>
-          <span class="text-xs text-slate-500 dark:text-slate-400">
-            {{ mibs.length }} definitions loaded
-          </span>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <div>
+            <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Imported MIB Modules
+            </h2>
+            <span class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 block">
+              {{ mibs.length }} definitions loaded
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <div class="relative w-full sm:w-64">
+              <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                v-model="mibSearch"
+                placeholder="Filter MIB module..."
+                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <button
+              @click="fetchMibs"
+              :disabled="mibsLoading"
+              class="p-1.5 hover:bg-slate-100 dark:hover:bg-[#1a2233] text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
+              title="Refresh MIBs"
+            >
+              <RefreshCw :class="['w-4 h-4', mibsLoading ? 'animate-spin' : '']" />
+            </button>
+          </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -1400,7 +1453,7 @@ onMounted(() => {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]/60">
               <tr
-                v-for="m in mibs"
+                v-for="m in paginatedMibs"
                 :key="m.name"
                 class="hover:bg-slate-50/60 dark:hover:bg-[#151c2d] transition"
               >
@@ -1426,8 +1479,47 @@ onMounted(() => {
             </tbody>
           </table>
 
-          <div v-if="mibs.length === 0" class="py-10 text-center text-slate-500 dark:text-slate-400 text-xs">
-            No custom MIB modules imported yet. Click "Import MIB" to upload enterprise definitions (e.g. Cisco, Huawei, MikroTik).
+          <div v-if="filteredMibs.length === 0" class="py-10 text-center text-slate-500 dark:text-slate-400 text-xs">
+            {{ mibSearch ? 'No MIB modules found matching "' + mibSearch + '".' : 'No MIB modules loaded yet.' }}
+          </div>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div v-if="filteredMibs.length > 0" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400">
+          <div class="flex items-center gap-2">
+            <span>Showing {{ (mibPage - 1) * mibPageSize + 1 }} - {{ Math.min(mibPage * mibPageSize, filteredMibs.length) }} of {{ filteredMibs.length }}</span>
+            <span class="text-slate-300 dark:text-slate-700">|</span>
+            <label class="flex items-center gap-1.5">
+              <span>Per page:</span>
+              <select
+                v-model.number="mibPageSize"
+                class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+              >
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="flex items-center gap-1">
+            <button
+              @click="mibPage = Math.max(1, mibPage - 1)"
+              :disabled="mibPage <= 1"
+              class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+            >
+              <ChevronLeft class="w-3.5 h-3.5" />
+            </button>
+            <span class="px-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+              Page {{ mibPage }} of {{ totalMibPages }}
+            </span>
+            <button
+              @click="mibPage = Math.min(totalMibPages, mibPage + 1)"
+              :disabled="mibPage >= totalMibPages"
+              class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+            >
+              <ChevronRight class="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
