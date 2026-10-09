@@ -2826,24 +2826,34 @@ onMounted(() => {
             ></textarea>
 
             <!-- Quick Append from Remote Servers -->
-            <div v-if="availableRemoteHosts.length > 0 && (newJobForm.preset === 'standard' || newJobForm.preset === 'custom')" class="space-y-1 pt-0.5">
-              <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                <span class="flex items-center gap-1 font-medium">
-                  <Server class="w-3 h-3 text-slate-400" />
+            <div v-if="availableRemoteHosts.length > 0 && (newJobForm.preset === 'standard' || newJobForm.preset === 'custom')" class="space-y-2 pt-1">
+              <div class="flex items-center justify-between">
+                <span class="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                   Quick add from Remote Servers:
                 </span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">
+                  Click server to append target (:9100)
+                </span>
               </div>
-              <div class="flex items-center gap-1.5 flex-wrap max-h-24 overflow-y-auto p-1.5 bg-slate-50 dark:bg-[#0c101a] border border-slate-200/80 dark:border-[#1b2234] rounded-lg">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-50 dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-xl">
                 <button
                   v-for="host in availableRemoteHosts"
                   :key="host.id"
                   type="button"
                   @click="appendRemoteHostTarget(host.host)"
-                  class="text-[10px] px-2 py-0.5 rounded bg-white hover:bg-slate-100 dark:bg-[#1a2233] dark:hover:bg-[#222d42] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition cursor-pointer font-mono flex items-center gap-1"
-                  :title="`Add ${host.host}:9100`"
+                  class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 dark:bg-[#161d2d] dark:hover:bg-[#1e273d] border border-slate-200 dark:border-[#26334d] text-slate-800 dark:text-slate-200 transition cursor-pointer flex items-center justify-between gap-2.5 group text-left shadow-2xs"
+                  :title="`Click to add ${host.host}:9100 to target endpoints`"
                 >
-                  <Plus class="w-2.5 h-2.5 text-slate-400" />
-                  <span>{{ host.name }} ({{ host.host }})</span>
+                  <div class="flex items-center gap-2 min-w-0 flex-1">
+                    <Plus class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200 shrink-0" />
+                    <span class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                      {{ host.name }}
+                    </span>
+                  </div>
+                  <span class="text-xs font-mono text-slate-600 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-[#0f1422] px-2 py-0.5 rounded border border-slate-200/80 dark:border-[#1e273d]">
+                    {{ host.host }}
+                  </span>
                 </button>
               </div>
             </div>
