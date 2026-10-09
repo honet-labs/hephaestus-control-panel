@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1211,14 +1212,21 @@ func formatBytes(bytes float64) string {
 }
 
 func getInstancePattern(inst *domain.MonitoringInstance) string {
-	if inst.PrometheusTarget != "" {
-		return strings.TrimSpace(inst.PrometheusTarget)
+	if strings.TrimSpace(inst.PrometheusTarget) != "" {
+		t := strings.TrimSpace(inst.PrometheusTarget)
+		if h, _, err := net.SplitHostPort(t); err == nil {
+			return fmt.Sprintf(`^(%s|%s(:[0-9]+)?)$`, regexp.QuoteMeta(t), regexp.QuoteMeta(h))
+		}
+		return fmt.Sprintf(`^(%s|%s(:[0-9]+)?)$`, regexp.QuoteMeta(t), regexp.QuoteMeta(t))
 	}
-	targetHost := inst.IPAddress
+	targetHost := strings.TrimSpace(inst.IPAddress)
 	if targetHost == "" {
-		targetHost = inst.Host
+		targetHost = strings.TrimSpace(inst.Host)
 	}
-	return fmt.Sprintf("%s(:%d)?", targetHost, inst.Port)
+	if targetHost == "" {
+		return ".*"
+	}
+	return fmt.Sprintf(`^%s(:[0-9]+)?$`, regexp.QuoteMeta(targetHost))
 }
 
 type hostMetricCollector struct {
@@ -1263,17 +1271,41 @@ type hostMetricData struct {
 func (c *hostMetricCollector) getOrCreate(labels map[string]string) *hostMetricData {
 	ip := strings.TrimSpace(labels["ip_address"])
 	host := strings.TrimSpace(labels["hostname"])
+	if host == "" {
+		host = strings.TrimSpace(labels["nodename"])
+	}
 	inst := strings.TrimSpace(labels["instance"])
 
+	// Parse host/IP from instance label (e.g. "10.20.3.6:9100" -> IP="10.20.3.6")
+	instHost := ""
+	if inst != "" {
+		if h, _, err := net.SplitHostPort(inst); err == nil {
+			instHost = strings.TrimSpace(h)
+		} else {
+			instHost = inst
+		}
+		if ip == "" && instHost != "" {
+			if net.ParseIP(instHost) != nil {
+				ip = instHost
+			}
+		}
+		if host == "" && instHost != "" && net.ParseIP(instHost) == nil {
+			host = instHost
+		}
+	}
+
 	var h *hostMetricData
-	if ip != "" {
+	if inst != "" {
+		h = c.byInst[inst]
+		if h == nil && instHost != "" {
+			h = c.byInst[instHost]
+		}
+	}
+	if h == nil && ip != "" {
 		h = c.byIP[ip]
 	}
 	if h == nil && host != "" {
 		h = c.byHost[strings.ToLower(host)]
-	}
-	if h == nil && inst != "" {
-		h = c.byInst[inst]
 	}
 
 	if h != nil {
@@ -1281,13 +1313,16 @@ func (c *hostMetricCollector) getOrCreate(labels map[string]string) *hostMetricD
 			h.ipAddress = ip
 			c.byIP[ip] = h
 		}
-		if host != "" && h.hostname == "" {
+		if host != "" && (h.hostname == "" || h.hostname == "-") {
 			h.hostname = host
 			c.byHost[strings.ToLower(host)] = h
 		}
 		if inst != "" && h.instanceTarget == "" {
 			h.instanceTarget = inst
 			c.byInst[inst] = h
+		}
+		if instHost != "" {
+			c.byInst[instHost] = h
 		}
 		if ver := labels["otel_scope_version"]; ver != "" && (h.agentVersion == "" || h.agentVersion == "N/A") {
 			h.agentVersion = ver
@@ -1311,6 +1346,9 @@ func (c *hostMetricCollector) getOrCreate(labels map[string]string) *hostMetricD
 	if inst != "" {
 		c.byInst[inst] = h
 	}
+	if instHost != "" {
+		c.byInst[instHost] = h
+	}
 	c.hosts = append(c.hosts, h)
 	return h
 }
@@ -1322,210 +1360,385 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 
 	collector := newHostMetricCollector()
 
-	// 1. Query Up status (Populates upMap ONLY, does NOT create dummy host records)
+	type qJob struct {
+		key string
+		q   string
+	}
+
+	jobs := []qJob{
+		{"up", "up"},
+		{"node_uname", "node_uname_info"},
+
+		// CPU Utilization
+		{"cpu_util_otel_1", `(1 - avg by (ip_address, hostname, instance) (host_system_cpu_utilization_ratio{state="idle"})) * 100`},
+		{"cpu_util_otel_2", `(1 - avg by (ip_address, hostname, instance) (system_cpu_utilization_ratio{state="idle"})) * 100`},
+		{"cpu_util_otel_3", `(1 - (sum by (ip_address, hostname, instance) (rate(host_system_cpu_time_seconds_total{state="idle"}[2m])) / sum by (ip_address, hostname, instance) (rate(host_system_cpu_time_seconds_total[2m])))) * 100`},
+		{"cpu_util_otel_4", `(1 - (sum by (instance) (rate(system_cpu_time_seconds_total{state="idle"}[2m])) / sum by (instance) (rate(system_cpu_time_seconds_total[2m])))) * 100`},
+		{"cpu_util_node", `(1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m]))) * 100`},
+
+		// CPU Cores Logical
+		{"cpu_cores_otel_1", `host_system_cpu_logical_count`},
+		{"cpu_cores_otel_2", `system_cpu_logical_count`},
+		{"cpu_cores_otel_3", `count by (ip_address, hostname, instance) (host_system_cpu_time_seconds_total{state="idle"})`},
+		{"cpu_cores_otel_4", `count by (instance) (system_cpu_time_seconds_total{state="idle"})`},
+		{"cpu_cores_node", `count by (instance) (node_cpu_seconds_total{mode="idle"})`},
+
+		// CPU Cores Physical
+		{"cpu_phys_otel_1", `host_system_cpu_physical_count`},
+		{"cpu_phys_otel_2", `system_cpu_physical_count`},
+
+		// CPU Load Averages
+		{"cpu_load1_otel", `host_system_cpu_load_average_1m`},
+		{"cpu_load5_otel", `host_system_cpu_load_average_5m`},
+		{"cpu_load15_otel", `host_system_cpu_load_average_15m`},
+		{"cpu_load1_sys", `system_cpu_load_average_1m`},
+		{"cpu_load5_sys", `system_cpu_load_average_5m`},
+		{"cpu_load15_sys", `system_cpu_load_average_15m`},
+		{"cpu_load1_node", `node_load1`},
+		{"cpu_load5_node", `node_load5`},
+		{"cpu_load15_node", `node_load15`},
+
+		// Memory %
+		{"mem_pct_otel_1", `host_system_memory_utilization_ratio{state="used"} * 100`},
+		{"mem_pct_otel_2", `system_memory_utilization_ratio{state="used"} * 100`},
+		{"mem_pct_node", `(1 - ((node_memory_MemAvailable_bytes or (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)) / node_memory_MemTotal_bytes)) * 100`},
+
+		// Memory Bytes
+		{"mem_used_otel_1", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state="used"})`},
+		{"mem_used_otel_2", `sum by (instance) (system_memory_usage_bytes{state="used"})`},
+		{"mem_free_otel_1", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state="free"})`},
+		{"mem_free_otel_2", `sum by (instance) (system_memory_usage_bytes{state="free"})`},
+		{"mem_total_otel_1", `host_system_memory_limit_bytes`},
+		{"mem_total_otel_2", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes)`},
+		{"mem_total_otel_3", `sum by (instance) (system_memory_usage_bytes)`},
+		{"mem_total_node", `node_memory_MemTotal_bytes`},
+		{"mem_avail_node", `node_memory_MemAvailable_bytes or (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)`},
+		{"mem_free_node", `node_memory_MemFree_bytes`},
+
+		// Filesystem
+		{"fs_pct_otel_1", `host_system_filesystem_utilization_ratio * 100`},
+		{"fs_pct_otel_2", `system_filesystem_utilization_ratio * 100`},
+		{"fs_used_otel_1", `host_system_filesystem_usage_bytes{state="used"}`},
+		{"fs_used_otel_2", `system_filesystem_usage_bytes{state="used"}`},
+		{"fs_free_otel_1", `host_system_filesystem_usage_bytes{state="free"}`},
+		{"fs_free_otel_2", `system_filesystem_usage_bytes{state="free"}`},
+		{"fs_total_node", `node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs|overlay|autofs"}`},
+		{"fs_free_node", `node_filesystem_free_bytes{fstype!~"tmpfs|fuse.lxcfs|overlay|autofs"}`},
+
+		// Network IO (MB/s)
+		{"net_down_otel_1", `sum by (ip_address, hostname, instance) (rate(host_system_network_io_bytes_total{direction="receive"}[2m])) / 1048576`},
+		{"net_down_otel_2", `sum by (instance) (rate(system_network_io_bytes_total{direction="receive"}[2m])) / 1048576`},
+		{"net_up_otel_1", `sum by (ip_address, hostname, instance) (rate(host_system_network_io_bytes_total{direction="transmit"}[2m])) / 1048576`},
+		{"net_up_otel_2", `sum by (instance) (rate(system_network_io_bytes_total{direction="transmit"}[2m])) / 1048576`},
+		{"net_down_node", `sum by (instance) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*"}[2m])) / 1048576`},
+		{"net_up_node", `sum by (instance) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*"}[2m])) / 1048576`},
+
+		// Uptime
+		{"uptime_otel_1", `max by (ip_address, hostname, instance) (host_process_uptime_seconds)`},
+		{"uptime_otel_2", `max by (instance) (host_process_uptime_seconds)`},
+		{"uptime_node", `time() - node_boot_time_seconds`},
+	}
+
+	results := make(map[string]*promVectorResponse)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j qJob) {
+			defer wg.Done()
+			res, err := s.executeInstantQuery(ctx, j.q)
+			if err == nil && res != nil && res.Status == "success" {
+				mu.Lock()
+				results[j.key] = res
+				mu.Unlock()
+			}
+		}(job)
+	}
+
+	wg.Wait()
+
+	// 1. Process "up" status
 	upMap := make(map[string]bool)
-	upRes, err := s.executeInstantQuery(ctx, "up")
-	if err == nil && upRes != nil && upRes.Status == "success" {
-		for _, item := range upRes.Data.Result {
+	if res, ok := results["up"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
-					upMap[item.Metric["instance"]] = true
+					inst := item.Metric["instance"]
+					if inst != "" {
+						upMap[inst] = true
+						if h, _, err := net.SplitHostPort(inst); err == nil {
+							upMap[h] = true
+						}
+					}
+					h := collector.getOrCreate(item.Metric)
+					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	// 2. Query CPU %: OpenTelemetry hostmetrics receiver
-	// Primary: (1 - avg by (ip_address, hostname, instance) (host_system_cpu_utilization_ratio{state="idle"})) * 100
-	cpuRes, err := s.executeInstantQuery(ctx, `(1 - avg by (ip_address, hostname, instance) (host_system_cpu_utilization_ratio{state="idle"})) * 100`)
-	if err != nil || cpuRes == nil || len(cpuRes.Data.Result) == 0 {
-		cpuRes, _ = s.executeInstantQuery(ctx, `(1 - avg by (ip_address, hostname, instance) (system_cpu_utilization_ratio{state="idle"})) * 100`)
+	// 2. Process node_uname_info (real hostname & OS info)
+	if res, ok := results["node_uname"]; ok {
+		for _, item := range res.Data.Result {
+			h := collector.getOrCreate(item.Metric)
+			h.isOnline = true
+			if nodename := item.Metric["nodename"]; nodename != "" {
+				h.hostname = nodename
+			}
+			sys := item.Metric["sysname"]
+			rel := item.Metric["release"]
+			mach := item.Metric["machine"]
+			if sys != "" || rel != "" {
+				h.osVersion = strings.TrimSpace(fmt.Sprintf("%s %s %s", sys, rel, mach))
+			}
+			if h.agentVersion == "" || h.agentVersion == "N/A" {
+				h.agentVersion = "node_exporter"
+			}
+		}
 	}
-	if cpuRes == nil || len(cpuRes.Data.Result) == 0 {
-		cpuRes, _ = s.executeInstantQuery(ctx, `(1 - (sum by (ip_address, hostname, instance) (rate(host_system_cpu_time_seconds_total{state="idle"}[2m])) / sum by (ip_address, hostname, instance) (rate(host_system_cpu_time_seconds_total[2m])))) * 100`)
+
+	// 3. Process CPU Utilization %
+	// OTel Queries
+	for _, k := range []string{"cpu_util_otel_1", "cpu_util_otel_2", "cpu_util_otel_3", "cpu_util_otel_4"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+						pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
+						h := collector.getOrCreate(item.Metric)
+						h.cpuPct = &pct
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if cpuRes == nil || len(cpuRes.Data.Result) == 0 {
-		cpuRes, _ = s.executeInstantQuery(ctx, `(1 - (sum by (instance) (rate(system_cpu_time_seconds_total{state="idle"}[2m])) / sum by (instance) (rate(system_cpu_time_seconds_total[2m])))) * 100`)
-	}
-	if cpuRes != nil && cpuRes.Status == "success" {
-		for _, item := range cpuRes.Data.Result {
+	// Node Exporter CPU
+	if res, ok := results["cpu_util_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
 					pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
 					h := collector.getOrCreate(item.Metric)
-					h.cpuPct = &pct
-					h.hasOTel = true
+					if h.cpuPct == nil {
+						h.cpuPct = &pct
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	// 3. Query CPU Logical Count: host_system_cpu_logical_count
-	coreRes, err := s.executeInstantQuery(ctx, `host_system_cpu_logical_count`)
-	if err != nil || coreRes == nil || len(coreRes.Data.Result) == 0 {
-		coreRes, _ = s.executeInstantQuery(ctx, `system_cpu_logical_count`)
+	// 4. Process CPU Cores Logical
+	for _, k := range []string{"cpu_cores_otel_1", "cpu_cores_otel_2", "cpu_cores_otel_3", "cpu_cores_otel_4"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.cpuCount = int(v)
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if coreRes == nil || len(coreRes.Data.Result) == 0 {
-		coreRes, _ = s.executeInstantQuery(ctx, `count by (ip_address, hostname, instance) (host_system_cpu_time_seconds_total{state="idle"})`)
-	}
-	if coreRes == nil || len(coreRes.Data.Result) == 0 {
-		coreRes, _ = s.executeInstantQuery(ctx, `count by (instance) (system_cpu_time_seconds_total{state="idle"})`)
-	}
-	if coreRes != nil && coreRes.Status == "success" {
-		for _, item := range coreRes.Data.Result {
+	if res, ok := results["cpu_cores_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.cpuCount = int(v)
-					h.hasOTel = true
+					if h.cpuCount == 0 {
+						h.cpuCount = int(v)
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	// 3b. Query CPU Physical Count: host_system_cpu_physical_count
-	physRes, err := s.executeInstantQuery(ctx, `host_system_cpu_physical_count`)
-	if err != nil || physRes == nil || len(physRes.Data.Result) == 0 {
-		physRes, _ = s.executeInstantQuery(ctx, `system_cpu_physical_count`)
-	}
-	if physRes != nil && physRes.Status == "success" {
-		for _, item := range physRes.Data.Result {
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
-					h := collector.getOrCreate(item.Metric)
-					h.cpuPhysicalCount = int(v)
-					h.hasOTel = true
-					h.isOnline = true
+	// 4b. Process CPU Cores Physical
+	for _, k := range []string{"cpu_phys_otel_1", "cpu_phys_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.cpuPhysicalCount = int(v)
+						h.hasOTel = true
+						h.isOnline = true
+					}
 				}
 			}
 		}
 	}
 
-	// 3c. Query CPU Load Averages (1m, 5m, 15m)
-	load1Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_1m`)
-	if load1Res == nil || len(load1Res.Data.Result) == 0 {
-		load1Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_1m`)
+	// 5. Process CPU Load Averages
+	for _, k := range []string{"cpu_load1_otel", "cpu_load1_sys", "cpu_load1_node"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						val := math.Round(v*100) / 100
+						h := collector.getOrCreate(item.Metric)
+						if h.cpuLoad1m == nil {
+							h.cpuLoad1m = &val
+						}
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if load1Res != nil && load1Res.Status == "success" {
-		for _, item := range load1Res.Data.Result {
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
-					val := math.Round(v*100) / 100
-					h := collector.getOrCreate(item.Metric)
-					h.cpuLoad1m = &val
-					h.hasOTel = true
-					h.isOnline = true
+	for _, k := range []string{"cpu_load5_otel", "cpu_load5_sys", "cpu_load5_node"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						val := math.Round(v*100) / 100
+						h := collector.getOrCreate(item.Metric)
+						if h.cpuLoad5m == nil {
+							h.cpuLoad5m = &val
+						}
+						h.isOnline = true
+					}
+				}
+			}
+		}
+	}
+	for _, k := range []string{"cpu_load15_otel", "cpu_load15_sys", "cpu_load15_node"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						val := math.Round(v*100) / 100
+						h := collector.getOrCreate(item.Metric)
+						if h.cpuLoad15m == nil {
+							h.cpuLoad15m = &val
+						}
+						h.isOnline = true
+					}
 				}
 			}
 		}
 	}
 
-	load5Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_5m`)
-	if load5Res == nil || len(load5Res.Data.Result) == 0 {
-		load5Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_5m`)
-	}
-	if load5Res != nil && load5Res.Status == "success" {
-		for _, item := range load5Res.Data.Result {
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
-					val := math.Round(v*100) / 100
-					h := collector.getOrCreate(item.Metric)
-					h.cpuLoad5m = &val
-					h.hasOTel = true
-					h.isOnline = true
+	// 6. Process Memory %
+	for _, k := range []string{"mem_pct_otel_1", "mem_pct_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+						pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
+						h := collector.getOrCreate(item.Metric)
+						h.memPct = &pct
+						h.hasOTel = true
+						h.isOnline = true
+					}
 				}
 			}
 		}
 	}
-
-	load15Res, _ := s.executeInstantQuery(ctx, `host_system_cpu_load_average_15m`)
-	if load15Res == nil || len(load15Res.Data.Result) == 0 {
-		load15Res, _ = s.executeInstantQuery(ctx, `system_cpu_load_average_15m`)
-	}
-	if load15Res != nil && load15Res.Status == "success" {
-		for _, item := range load15Res.Data.Result {
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
-					val := math.Round(v*100) / 100
-					h := collector.getOrCreate(item.Metric)
-					h.cpuLoad15m = &val
-					h.hasOTel = true
-					h.isOnline = true
-				}
-			}
-		}
-	}
-
-	// 4. Query Memory %
-	memPctRes, err := s.executeInstantQuery(ctx, `host_system_memory_utilization_ratio{state="used"} * 100`)
-	if err != nil || memPctRes == nil || len(memPctRes.Data.Result) == 0 {
-		memPctRes, _ = s.executeInstantQuery(ctx, `system_memory_utilization_ratio{state="used"} * 100`)
-	}
-	if memPctRes != nil && memPctRes.Status == "success" {
-		for _, item := range memPctRes.Data.Result {
+	if res, ok := results["mem_pct_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
 					pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
 					h := collector.getOrCreate(item.Metric)
-					h.memPct = &pct
-					h.hasOTel = true
+					if h.memPct == nil {
+						h.memPct = &pct
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	// 4b. Query Memory Bytes: Used, Free, Limit
-	memUsedRes, _ := s.executeInstantQuery(ctx, `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state="used"})`)
-	if memUsedRes == nil || len(memUsedRes.Data.Result) == 0 {
-		memUsedRes, _ = s.executeInstantQuery(ctx, `sum by (instance) (system_memory_usage_bytes{state="used"})`)
+	// 7. Process Memory Bytes
+	for _, k := range []string{"mem_used_otel_1", "mem_used_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.memUsed = v
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if memUsedRes != nil && memUsedRes.Status == "success" {
-		for _, item := range memUsedRes.Data.Result {
+	for _, k := range []string{"mem_free_otel_1", "mem_free_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.memFree = v
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
+	}
+	for _, k := range []string{"mem_total_otel_1", "mem_total_otel_2", "mem_total_otel_3"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.memTotal = v
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
+	}
+	if res, ok := results["mem_total_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok {
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.memUsed = v
-					h.hasOTel = true
+					if h.memTotal == 0 {
+						h.memTotal = v
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
-
-	memFreeRes, _ := s.executeInstantQuery(ctx, `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state="free"})`)
-	if memFreeRes == nil || len(memFreeRes.Data.Result) == 0 {
-		memFreeRes, _ = s.executeInstantQuery(ctx, `sum by (instance) (system_memory_usage_bytes{state="free"})`)
-	}
-	if memFreeRes != nil && memFreeRes.Status == "success" {
-		for _, item := range memFreeRes.Data.Result {
+	if res, ok := results["mem_avail_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok {
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.memFree = v
-					h.hasOTel = true
+					if h.memFree == 0 {
+						h.memFree = v
+					}
+					if h.memTotal > 0 && h.memUsed == 0 {
+						h.memUsed = math.Max(0, h.memTotal-v)
+					}
 					h.isOnline = true
 				}
 			}
 		}
-	}
-
-	memLimitRes, _ := s.executeInstantQuery(ctx, `host_system_memory_limit_bytes`)
-	if memLimitRes == nil || len(memLimitRes.Data.Result) == 0 {
-		memLimitRes, _ = s.executeInstantQuery(ctx, `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes)`)
-	}
-	if memLimitRes == nil || len(memLimitRes.Data.Result) == 0 {
-		memLimitRes, _ = s.executeInstantQuery(ctx, `sum by (instance) (system_memory_usage_bytes)`)
-	}
-	if memLimitRes != nil && memLimitRes.Status == "success" {
-		for _, item := range memLimitRes.Data.Result {
+	} else if res, ok := results["mem_free_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok {
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.memTotal = v
-					h.hasOTel = true
+					if h.memFree == 0 {
+						h.memFree = v
+					}
+					if h.memTotal > 0 && h.memUsed == 0 {
+						h.memUsed = math.Max(0, h.memTotal-v)
+					}
 					h.isOnline = true
 				}
 			}
@@ -1540,49 +1753,121 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 				h.memPct = &calc
 			} else if h.memPct != nil && h.memUsed == 0 {
 				h.memUsed = (*h.memPct / 100.0) * h.memTotal
-				h.memFree = h.memTotal - h.memUsed
+				h.memFree = math.Max(0, h.memTotal-h.memUsed)
 			}
 		}
 	}
 
-	// 5. Query Filesystem: Utilization %, Used bytes, Free bytes
-	fsPctRes, _ := s.executeInstantQuery(ctx, `host_system_filesystem_utilization_ratio * 100`)
-	if fsPctRes == nil || len(fsPctRes.Data.Result) == 0 {
-		fsPctRes, _ = s.executeInstantQuery(ctx, `system_filesystem_utilization_ratio * 100`)
+	// 8. Process Filesystem
+	for _, k := range []string{"fs_pct_otel_1", "fs_pct_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				mp := item.Metric["mountpoint"]
+				if mp == "" {
+					mp = "/"
+				}
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
+						h := collector.getOrCreate(item.Metric)
+						h.hasOTel = true
+						h.isOnline = true
+						d, exists := h.disks[mp]
+						if !exists {
+							d = &domain.InstanceDiskMetric{
+								Mountpoint: mp,
+								Device:     item.Metric["device"],
+								FSType:     item.Metric["type"],
+							}
+							h.disks[mp] = d
+						}
+						d.UsagePct = pct
+					}
+				}
+			}
+		}
 	}
-	if fsPctRes != nil && fsPctRes.Status == "success" {
-		for _, item := range fsPctRes.Data.Result {
+	for _, k := range []string{"fs_used_otel_1", "fs_used_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				mp := item.Metric["mountpoint"]
+				if mp == "" {
+					mp = "/"
+				}
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok {
+						h := collector.getOrCreate(item.Metric)
+						h.hasOTel = true
+						h.isOnline = true
+						d, exists := h.disks[mp]
+						if !exists {
+							d = &domain.InstanceDiskMetric{
+								Mountpoint: mp,
+								Device:     item.Metric["device"],
+								FSType:     item.Metric["type"],
+							}
+							h.disks[mp] = d
+						}
+						d.UsedBytes = v
+					}
+				}
+			}
+		}
+	}
+	for _, k := range []string{"fs_free_otel_1", "fs_free_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				mp := item.Metric["mountpoint"]
+				if mp == "" {
+					mp = "/"
+				}
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok {
+						h := collector.getOrCreate(item.Metric)
+						h.hasOTel = true
+						h.isOnline = true
+						d, exists := h.disks[mp]
+						if !exists {
+							d = &domain.InstanceDiskMetric{
+								Mountpoint: mp,
+								Device:     item.Metric["device"],
+								FSType:     item.Metric["type"],
+							}
+							h.disks[mp] = d
+						}
+						d.FreeBytes = v
+					}
+				}
+			}
+		}
+	}
+	// Node Exporter Filesystem
+	if res, ok := results["fs_total_node"]; ok {
+		for _, item := range res.Data.Result {
 			mp := item.Metric["mountpoint"]
 			if mp == "" {
 				mp = "/"
 			}
 			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
-					pct := math.Round(math.Max(0, math.Min(100, v))*10) / 10
+				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.hasOTel = true
 					h.isOnline = true
 					d, exists := h.disks[mp]
 					if !exists {
 						d = &domain.InstanceDiskMetric{
 							Mountpoint: mp,
 							Device:     item.Metric["device"],
-							FSType:     item.Metric["type"],
+							FSType:     item.Metric["fstype"],
 						}
 						h.disks[mp] = d
 					}
-					d.UsagePct = pct
+					d.TotalBytes = v
 				}
 			}
 		}
 	}
-
-	fsUsedRes, _ := s.executeInstantQuery(ctx, `host_system_filesystem_usage_bytes{state="used"}`)
-	if fsUsedRes == nil || len(fsUsedRes.Data.Result) == 0 {
-		fsUsedRes, _ = s.executeInstantQuery(ctx, `system_filesystem_usage_bytes{state="used"}`)
-	}
-	if fsUsedRes != nil && fsUsedRes.Status == "success" {
-		for _, item := range fsUsedRes.Data.Result {
+	if res, ok := results["fs_free_node"]; ok {
+		for _, item := range res.Data.Result {
 			mp := item.Metric["mountpoint"]
 			if mp == "" {
 				mp = "/"
@@ -1590,48 +1875,21 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok {
 					h := collector.getOrCreate(item.Metric)
-					h.hasOTel = true
 					h.isOnline = true
 					d, exists := h.disks[mp]
 					if !exists {
 						d = &domain.InstanceDiskMetric{
 							Mountpoint: mp,
 							Device:     item.Metric["device"],
-							FSType:     item.Metric["type"],
-						}
-						h.disks[mp] = d
-					}
-					d.UsedBytes = v
-				}
-			}
-		}
-	}
-
-	fsFreeRes, _ := s.executeInstantQuery(ctx, `host_system_filesystem_usage_bytes{state="free"}`)
-	if fsFreeRes == nil || len(fsFreeRes.Data.Result) == 0 {
-		fsFreeRes, _ = s.executeInstantQuery(ctx, `system_filesystem_usage_bytes{state="free"}`)
-	}
-	if fsFreeRes != nil && fsFreeRes.Status == "success" {
-		for _, item := range fsFreeRes.Data.Result {
-			mp := item.Metric["mountpoint"]
-			if mp == "" {
-				mp = "/"
-			}
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok {
-					h := collector.getOrCreate(item.Metric)
-					h.hasOTel = true
-					h.isOnline = true
-					d, exists := h.disks[mp]
-					if !exists {
-						d = &domain.InstanceDiskMetric{
-							Mountpoint: mp,
-							Device:     item.Metric["device"],
-							FSType:     item.Metric["type"],
+							FSType:     item.Metric["fstype"],
 						}
 						h.disks[mp] = d
 					}
 					d.FreeBytes = v
+					if d.TotalBytes > 0 {
+						d.UsedBytes = math.Max(0, d.TotalBytes-d.FreeBytes)
+						d.UsagePct = math.Round((d.UsedBytes/d.TotalBytes)*1000) / 10
+					}
 				}
 			}
 		}
@@ -1640,9 +1898,15 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 	// Format disk sizes and human strings
 	for _, h := range collector.hosts {
 		for _, d := range h.disks {
-			total := d.UsedBytes + d.FreeBytes
-			if total > 0 {
+			total := d.TotalBytes
+			if total == 0 {
+				total = d.UsedBytes + d.FreeBytes
 				d.TotalBytes = total
+			}
+			if total > 0 {
+				if d.UsedBytes == 0 && d.FreeBytes > 0 && d.FreeBytes < total {
+					d.UsedBytes = total - d.FreeBytes
+				}
 				d.UsageHuman = fmt.Sprintf("%s / %s", formatBytes(d.UsedBytes), formatBytes(total))
 				if d.UsagePct == 0 && d.UsedBytes > 0 {
 					d.UsagePct = math.Round((d.UsedBytes/total)*1000) / 10
@@ -1653,53 +1917,86 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		}
 	}
 
-	// 6. Query Network (MB/s)
-	netDownRes, _ := s.executeInstantQuery(ctx, `sum by (ip_address, hostname, instance) (rate(host_system_network_io_bytes_total{direction="receive"}[2m])) / 1048576`)
-	if netDownRes == nil || len(netDownRes.Data.Result) == 0 {
-		netDownRes, _ = s.executeInstantQuery(ctx, `sum by (instance) (rate(system_network_io_bytes_total{direction="receive"}[2m])) / 1048576`)
+	// 9. Process Network (MB/s)
+	for _, k := range []string{"net_down_otel_1", "net_down_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						h := collector.getOrCreate(item.Metric)
+						h.netDown = math.Round(math.Max(0, v)*100) / 100
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if netDownRes != nil && netDownRes.Status == "success" {
-		for _, item := range netDownRes.Data.Result {
+	if res, ok := results["net_down_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
 					h := collector.getOrCreate(item.Metric)
-					h.netDown = math.Round(math.Max(0, v)*100) / 100
-					h.hasOTel = true
+					if h.netDown == 0 {
+						h.netDown = math.Round(math.Max(0, v)*100) / 100
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	netUpRes, _ := s.executeInstantQuery(ctx, `sum by (ip_address, hostname, instance) (rate(host_system_network_io_bytes_total{direction="transmit"}[2m])) / 1048576`)
-	if netUpRes == nil || len(netUpRes.Data.Result) == 0 {
-		netUpRes, _ = s.executeInstantQuery(ctx, `sum by (instance) (rate(system_network_io_bytes_total{direction="transmit"}[2m])) / 1048576`)
+	for _, k := range []string{"net_up_otel_1", "net_up_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
+						h := collector.getOrCreate(item.Metric)
+						h.netUp = math.Round(math.Max(0, v)*100) / 100
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if netUpRes != nil && netUpRes.Status == "success" {
-		for _, item := range netUpRes.Data.Result {
+	if res, ok := results["net_up_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && !math.IsNaN(v) {
 					h := collector.getOrCreate(item.Metric)
-					h.netUp = math.Round(math.Max(0, v)*100) / 100
-					h.hasOTel = true
+					if h.netUp == 0 {
+						h.netUp = math.Round(math.Max(0, v)*100) / 100
+					}
 					h.isOnline = true
 				}
 			}
 		}
 	}
 
-	// 7. Query Uptime (seconds)
-	uptimeRes, _ := s.executeInstantQuery(ctx, `max by (ip_address, hostname, instance) (host_process_uptime_seconds)`)
-	if uptimeRes == nil || len(uptimeRes.Data.Result) == 0 {
-		uptimeRes, _ = s.executeInstantQuery(ctx, `max by (instance) (host_process_uptime_seconds)`)
+	// 10. Process Uptime (seconds)
+	for _, k := range []string{"uptime_otel_1", "uptime_otel_2"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						h.uptimeSeconds = &v
+						h.hasOTel = true
+						h.isOnline = true
+					}
+				}
+			}
+		}
 	}
-	if uptimeRes != nil && uptimeRes.Status == "success" {
-		for _, item := range uptimeRes.Data.Result {
+	if res, ok := results["uptime_node"]; ok {
+		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					h.uptimeSeconds = &v
-					h.hasOTel = true
+					if h.uptimeSeconds == nil {
+						h.uptimeSeconds = &v
+					}
 					h.isOnline = true
 				}
 			}
@@ -1723,53 +2020,20 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		instNameLower := strings.ToLower(inst.Name)
 		instHostLower := strings.ToLower(inst.Host)
 
-		// Tier 1: Exact PrometheusTarget match (e.g. 10.20.3.36:8889)
+		// Tier 1: Exact PrometheusTarget match (e.g. 10.20.3.36:8889 or 10.20.3.6:9100)
 		if instTarget != "" {
 			for _, h := range collector.hosts {
-				if h.hasOTel && h.instanceTarget == instTarget {
+				if strings.EqualFold(h.instanceTarget, instTarget) || strings.HasPrefix(h.instanceTarget, instTarget+":") {
 					matched = h
 					break
 				}
 			}
 		}
 
-		// Tier 2: Hostname + IP match
-		if matched == nil {
+		// Tier 2: IP match (with target compatibility check)
+		if matched == nil && instIP != "" {
 			for _, h := range collector.hosts {
-				if !h.hasOTel {
-					continue
-				}
-				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
-					if h.ipAddress != "" && (h.ipAddress == instIP || h.ipAddress == inst.Host) {
-						matched = h
-						break
-					}
-				}
-			}
-		}
-
-		// Tier 3: Hostname match alone
-		if matched == nil {
-			for _, h := range collector.hosts {
-				if !h.hasOTel {
-					continue
-				}
-				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
-					matched = h
-					break
-				}
-			}
-		}
-
-		// Tier 4: IP match alone (with port check to avoid matching e.g. port 9090 when exporter is on 8889)
-		if matched == nil {
-			for _, h := range collector.hosts {
-				if !h.hasOTel {
-					continue
-				}
-				if h.ipAddress != "" && (h.ipAddress == instIP || h.ipAddress == inst.Host) {
+				if h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":") || h.instanceTarget == instIP {
 					if instTarget != "" && h.instanceTarget != "" && !strings.EqualFold(instTarget, h.instanceTarget) {
 						continue
 					}
@@ -1779,7 +2043,51 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 
-		if matched == nil || !matched.hasOTel {
+		// Tier 3: Hostname + IP match
+		if matched == nil {
+			for _, h := range collector.hosts {
+				hLower := strings.ToLower(h.hostname)
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
+					if instIP != "" && (h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":")) {
+						matched = h
+						break
+					}
+				}
+			}
+		}
+
+		// Tier 4: Hostname match alone
+		if matched == nil {
+			for _, h := range collector.hosts {
+				hLower := strings.ToLower(h.hostname)
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
+					matched = h
+					break
+				}
+			}
+		}
+
+		// Tier 5: IP match fallback
+		if matched == nil && instIP != "" {
+			for _, h := range collector.hosts {
+				if h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":") {
+					matched = h
+					break
+				}
+			}
+		}
+
+		targetWithPort := fmt.Sprintf("%s:%d", instIP, inst.Port)
+		isOnline := false
+		if matched != nil {
+			if upMap[matched.instanceTarget] || (instTarget != "" && upMap[instTarget]) || upMap[targetWithPort] || upMap[instIP] || matched.isOnline || matched.hasOTel {
+				isOnline = true
+			}
+		}
+
+		hasMetrics := matched != nil && (isOnline || matched.cpuPct != nil || matched.memPct != nil || len(matched.disks) > 0)
+
+		if !hasMetrics {
 			inst.LiveMetrics = &domain.InstanceLiveMetrics{
 				IsOnline:         false,
 				AgentVersion:     "N/A",
@@ -1810,7 +2118,11 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 
 		ver := matched.agentVersion
 		if ver == "" {
-			ver = "0.159.0"
+			if matched.hasOTel {
+				ver = "0.159.0"
+			} else {
+				ver = "node_exporter"
+			}
 		}
 
 		// Overall disk calculation across all storage partitions
@@ -1836,12 +2148,6 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		}
 
 		netTotal := math.Round((matched.netDown+matched.netUp)*100) / 100
-
-		// Check online status against upMap or if metrics are live
-		isOnline := false
-		if upMap[matched.instanceTarget] || upMap[inst.PrometheusTarget] || upMap[fmt.Sprintf("%s:%d", instIP, inst.Port)] || matched.isOnline || matched.hasOTel {
-			isOnline = true
-		}
 
 		// Format Uptime Human
 		uptimeHuman := "N/A"
@@ -1877,7 +2183,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			IsOnline:         isOnline,
 			DetectedHostname: matched.hostname,
 			AgentVersion:     ver,
-			HasOTel:          true,
+			HasOTel:          matched.hasOTel,
 			CPUPct:           matched.cpuPct,
 			CPUCount:         cpuCount,
 			CPUPhysicalCount: matched.cpuPhysicalCount,
@@ -2053,6 +2359,13 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 				pts = parsePoints(r)
 			}
 		}
+		if len(pts) == 0 {
+			qNode := fmt.Sprintf(`(1 - avg(rate(node_cpu_seconds_total{instance=~"%s",mode="idle"}[2m]))) * 100`, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
 		mu.Lock()
 		resp.CPU = pts
 		mu.Unlock()
@@ -2073,6 +2386,13 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 		if len(pts) == 0 {
 			qFallback := fmt.Sprintf(`(sum(system_memory_usage_bytes{instance=~"%s",state="used"}) / sum(system_memory_usage_bytes{instance=~"%s"})) * 100`, targetPattern, targetPattern)
 			r, err := s.executeRangeQuery(ctx, qFallback, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 {
+			qNode := fmt.Sprintf(`(1 - ((node_memory_MemAvailable_bytes{instance=~"%s"} or (node_memory_MemFree_bytes{instance=~"%s"} + node_memory_Buffers_bytes{instance=~"%s"} + node_memory_Cached_bytes{instance=~"%s"})) / node_memory_MemTotal_bytes{instance=~"%s"})) * 100`, targetPattern, targetPattern, targetPattern, targetPattern, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
 			if err == nil {
 				pts = parsePoints(r)
 			}
@@ -2101,6 +2421,13 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 				pts = parsePoints(r)
 			}
 		}
+		if len(pts) == 0 {
+			qNode := fmt.Sprintf(`((node_filesystem_size_bytes{instance=~"%s",mountpoint="/"} - node_filesystem_free_bytes{instance=~"%s",mountpoint="/"}) / node_filesystem_size_bytes{instance=~"%s",mountpoint="/"}) * 100`, targetPattern, targetPattern, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
 		mu.Lock()
 		resp.Disk = pts
 		mu.Unlock()
@@ -2125,6 +2452,13 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 				pts = parsePoints(r)
 			}
 		}
+		if len(pts) == 0 {
+			qNode := fmt.Sprintf(`sum(rate(node_network_receive_bytes_total{instance=~"%s",device!~"lo|veth.*|docker.*"}[2m])) / 1048576`, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
 		mu.Lock()
 		resp.NetIn = pts
 		mu.Unlock()
@@ -2145,6 +2479,13 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 		if len(pts) == 0 {
 			qFallback := fmt.Sprintf(`sum(rate(system_network_io_bytes_total{instance=~"%s",direction="transmit"}[2m])) / 1048576`, targetPattern)
 			r, err := s.executeRangeQuery(ctx, qFallback, startTime, now, step)
+			if err == nil {
+				pts = parsePoints(r)
+			}
+		}
+		if len(pts) == 0 {
+			qNode := fmt.Sprintf(`sum(rate(node_network_transmit_bytes_total{instance=~"%s",device!~"lo|veth.*|docker.*"}[2m])) / 1048576`, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
 			if err == nil {
 				pts = parsePoints(r)
 			}
