@@ -50,8 +50,8 @@ if [ -n "$COMPOSE_CMD" ] && [ -f docker-compose.yml ]; then
 fi
 
 # Explicitly ensure any leftover containers are stopped
-docker stop hephaestus-panel hephaestus-engine hephaestus-database hephaestus-frontend hephaestus-backend hephaestus-postgres 2>/dev/null || true
-docker rm -f hephaestus-panel hephaestus-engine hephaestus-database hephaestus-frontend hephaestus-backend hephaestus-postgres 2>/dev/null || true
+docker stop hephaestus-panel hephaestus-engine hephaestus-database hephaestus-guacd hephaestus-frontend hephaestus-backend hephaestus-postgres 2>/dev/null || true
+docker rm -f hephaestus-panel hephaestus-engine hephaestus-database hephaestus-guacd hephaestus-frontend hephaestus-backend hephaestus-postgres 2>/dev/null || true
 
 echo -e "\n${BLUE}[2/3] Cleaning up Docker images and networks...${NC}"
 docker rmi -f hephaestus-control-panel-frontend hephaestus-control-panel-backend hephaestus-control-panel-panel hephaestus-control-panel-engine 2>/dev/null || true

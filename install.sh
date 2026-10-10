@@ -199,6 +199,14 @@ setup_configuration() {
             DEF_TIMEZONE=${DETECTED_TZ:-"Asia/Jakarta"}
             echo "TZ=${DEF_TIMEZONE}" >> .env
         fi
+        if ! grep -q "GUACD_HOST" .env 2>/dev/null; then
+            cat << 'EOF' >> .env
+
+# Guacamole Remote Desktop Proxy Daemon (guacd)
+GUACD_HOST=guacd
+GUACD_PORT=4822
+EOF
+        fi
         source .env 2>/dev/null || true
     fi
 
@@ -365,6 +373,10 @@ GOGC=80
 # Security Key (64-character Hexadecimal for AES-256-GCM)
 APP_ENCRYPTION_KEY=${RANDOM_ENCRYPTION_KEY}
 
+# Guacamole Remote Desktop Proxy Daemon (guacd)
+GUACD_HOST=guacd
+GUACD_PORT=4822
+
 # Directories & Persistent Storage
 LOGS_DIR=/app/logs
 DATA_DIR=/app/data
@@ -403,7 +415,7 @@ configure_firewall
 
 # Build and Deploy Containers
 deploy_containers() {
-    echo -e "\n${BLUE}[5/6] Building & Starting Multi-Container Stack (Panel, Engine, Database)...${NC}"
+    echo -e "\n${BLUE}[5/6] Building & Starting Multi-Container Stack (Panel, Engine, Database, Guacd)...${NC}"
     
     # Check if docker compose or docker-compose is available
     if docker compose version &> /dev/null; then
@@ -447,7 +459,7 @@ if [ "$HTTP_PORT" = "80" ]; then
 else
     echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} (or http://localhost:${HTTP_PORT})"
 fi
-echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database)"
+echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database, hephaestus-guacd)"
 echo -e "PostgreSQL Database  : ${DB_NAME:-hephaestus} (External Port: ${DB_EXTERNAL_PORT:-5432})"
 echo -e "Database User        : ${DB_USER:-hephaestus}"
 echo -e "System Timezone      : ${TZ:-${INPUT_TIMEZONE:-Asia/Jakarta}}"
