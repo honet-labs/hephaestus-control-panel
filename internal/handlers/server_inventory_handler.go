@@ -119,6 +119,13 @@ func (h *ServerInventoryHandler) SyncFromRemoteHost(c *gin.Context) {
 
 	item, err := h.service.SyncFromRemoteHost(c.Request.Context(), remoteHostID, userID)
 	if err != nil {
+		if item != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"message": "Remote server enrolled to inventory, but SSH probe failed: " + err.Error(),
+				"item":    item,
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to probe remote server specifications: " + err.Error()})
 		return
 	}

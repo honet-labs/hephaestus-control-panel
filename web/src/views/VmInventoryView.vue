@@ -317,6 +317,10 @@ const triggerSyncRemote = async (remoteHostId: string, hostName: string) => {
   } finally {
     syncingHostId.value = null;
   }
+const getHostInventoryStatus = (host: RemoteHostOption) => {
+  return inventoryList.value.find(
+    (i) => i.remoteHostId === host.id || i.ipAddress === host.host
+  );
 };
 
 const triggerSyncAll = async () => {
@@ -324,10 +328,17 @@ const triggerSyncAll = async () => {
   try {
     const res = await axios.post('/api/v1/inventory/servers/sync-all');
     const result = res.data;
-    showNotification(
-      'success',
-      `Synchronized ${result.syncedSuccess} of ${result.totalHosts} remote servers successfully.`
-    );
+    if (result.errors && result.errors.length > 0) {
+      showNotification(
+        'success',
+        `Synchronized ${result.totalHosts} remote servers (${result.syncedSuccess} active, ${result.errors.length} unreachable/offline).`
+      );
+    } else {
+      showNotification(
+        'success',
+        `All ${result.totalHosts} remote servers synchronized successfully.`
+      );
+    }
     await fetchData();
     showSyncModal.value = false;
   } catch (err: any) {
@@ -1022,14 +1033,14 @@ onMounted(() => {
         <div class="flex items-center justify-between bg-slate-50 dark:bg-[#141824] p-3 rounded-xl border border-slate-200 dark:border-[#1f283d]">
           <div>
             <p class="text-xs font-semibold text-slate-800 dark:text-slate-200">Sync All Available Hosts</p>
-            <p class="text-[11px] text-slate-500">Run parallel discovery probe across all registered SSH servers</p>
+            <p class="text-[11px] text-slate-500">Run parallel discovery probe across all {{ remoteHosts.length }} registered SSH servers</p>
           </div>
           <button
             @click="triggerSyncAll"
             :disabled="syncingAll || remoteHosts.length === 0"
             class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer transition shadow-sm disabled:opacity-50"
           >
-            {{ syncingAll ? 'Syncing All...' : 'Sync All' }}
+            {{ syncingAll ? 'Syncing All...' : `Sync All (${remoteHosts.length})` }}
           </button>
         </div>
 
@@ -1044,8 +1055,27 @@ onMounted(() => {
             class="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-[#182030] bg-slate-50/50 dark:bg-[#141824]/50"
           >
             <div>
-              <p class="text-xs font-semibold text-slate-900 dark:text-white">{{ host.name }}</p>
-              <p class="text-[11px] text-slate-500 font-mono">{{ host.username }}@{{ host.host }}:{{ host.port }}</p>
+              <div class="flex items-center gap-2">
+                <p class="text-xs font-semibold text-slate-900 dark:text-white">{{ host.name }}</p>
+                <span
+                  v-if="getHostInventoryStatus(host)"
+                  :class="[
+                    'text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase',
+                    getHostInventoryStatus(host)?.status === 'active'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                  ]"
+                >
+                  {{ getHostInventoryStatus(host)?.status }}
+                </span>
+                <span
+                  v-else
+                  class="text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase bg-slate-200/60 dark:bg-slate-800 text-slate-500"
+                >
+                  Not In Inventory
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 font-mono mt-0.5">{{ host.username }}@{{ host.host }}:{{ host.port }}</p>
             </div>
             <button
               @click="triggerSyncRemote(host.id, host.name)"

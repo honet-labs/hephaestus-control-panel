@@ -222,23 +222,71 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		return nil, fmt.Errorf("remote host configuration not found: %w", err)
 	}
 
-	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(cfg, linuxDiscoveryBashScript)
+	now := time.Now()
+	var userPtr *int
+	if userID > 0 {
+		userPtr = &userID
+	}
 
-	// Extract JSON payload from stdout
+	stdout, stderr, exitCode, sshErr := s.sshService.ExecuteCommand(cfg, linuxDiscoveryBashScript)
+
+	var raw rawProbePayload
 	cleanOut := strings.TrimSpace(stdout)
 	startIdx := strings.Index(cleanOut, "{")
 	endIdx := strings.LastIndex(cleanOut, "}")
-	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
-		return nil, fmt.Errorf("failed executing hardware probe over SSH (exit %d): %v (stderr: %s, stdout: %s)", exitCode, err, stderr, cleanOut)
-	}
-	jsonStr := cleanOut[startIdx : endIdx+1]
 
-	var raw rawProbePayload
-	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse probe JSON output: %w (raw: %s)", err, jsonStr)
+	hasValidJSON := false
+	if sshErr == nil && startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+		jsonStr := cleanOut[startIdx : endIdx+1]
+		if parseErr := json.Unmarshal([]byte(jsonStr), &raw); parseErr == nil {
+			hasValidJSON = true
+		}
 	}
 
-	now := time.Now()
+	if !hasValidJSON {
+		// Remote server is unreachable or failed SSH probe:
+		// Do NOT drop it! Still upsert the server into inventory with "offline" status and "N/A" specs,
+		// ensuring all registered remote servers appear in the inventory.
+		errReason := "SSH connection or probe command failed"
+		if sshErr != nil {
+			errReason = sshErr.Error()
+		} else if strings.TrimSpace(stderr) != "" {
+			errReason = strings.TrimSpace(stderr)
+		} else if exitCode != 0 {
+			errReason = fmt.Sprintf("exit code %d", exitCode)
+		}
+
+		item := domain.ServerInventoryItem{
+			RemoteHostID:           &hostID,
+			ServerName:             cfg.Name,
+			IPAddress:              cfg.Host,
+			OSVersion:              "N/A",
+			OSType:                 "Linux",
+			ArchitectureType:       "N/A",
+			ProcessorModel:         "N/A",
+			TotalCore:              "N/A",
+			TotalMemory:            "N/A",
+			TotalDimmMemory:        "N/A",
+			TotalStorageSize:       "N/A",
+			TotalDiskCount:         "N/A",
+			TotalNetworkInterfaces: "N/A",
+			GPUModel:               "N/A",
+			GPUType:                "N/A",
+			TotalVRAM:              "N/A",
+			Status:                 "offline",
+			Notes:                  fmt.Sprintf("SSH probe unreachable: %s", errReason),
+			UserID:                 userPtr,
+			LastSyncedAt:           &now,
+		}
+
+		res, _, saveErr := s.repo.UpsertFromProbe(ctx, &item)
+		if saveErr != nil {
+			return nil, fmt.Errorf("failed saving remote host to inventory: %w", saveErr)
+		}
+		return res, fmt.Errorf("SSH probe unreachable: %s (saved as offline)", errReason)
+	}
+
+	// Successful probe
 	srvName := strings.TrimSpace(raw.ServerName)
 	if srvName == "" || srvName == "N/A" {
 		srvName = cfg.Name
@@ -246,11 +294,6 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 	srvIP := strings.TrimSpace(raw.IPAddress)
 	if srvIP == "" || srvIP == "N/A" {
 		srvIP = cfg.Host
-	}
-
-	var userPtr *int
-	if userID > 0 {
-		userPtr = &userID
 	}
 
 	item := domain.ServerInventoryItem{
@@ -307,7 +350,7 @@ func (s *ServerInventoryService) SyncAllRemoteHosts(ctx context.Context, userID 
 	}
 
 	var mu sync.Mutex
-	sem := make(chan struct{}, 4) // max 4 concurrent SSH probes
+	sem := make(chan struct{}, 8) // max 8 concurrent SSH probes
 	var wg sync.WaitGroup
 
 	for _, h := range hosts {
@@ -317,16 +360,22 @@ func (s *ServerInventoryService) SyncAllRemoteHosts(ctx context.Context, userID 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			probeCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			probeCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 			defer cancel()
 
-			_, err := s.SyncFromRemoteHost(probeCtx, host.ID, userID)
+			item, err := s.SyncFromRemoteHost(probeCtx, host.ID, userID)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				result.SyncedFailed++
-				result.Errors = append(result.Errors, fmt.Sprintf("%s (%s): %v", host.Name, host.Host, err))
-				logger.Warn("ServerInventory", fmt.Sprintf("Failed syncing host %s: %v", host.Name, err))
+				if item != nil {
+					// Host was successfully registered to inventory with offline status
+					result.SyncedSuccess++
+					result.Errors = append(result.Errors, fmt.Sprintf("%s (%s): %v", host.Name, host.Host, err))
+				} else {
+					result.SyncedFailed++
+					result.Errors = append(result.Errors, fmt.Sprintf("%s (%s): %v", host.Name, host.Host, err))
+				}
+				logger.Warn("ServerInventory", fmt.Sprintf("Notice syncing host %s: %v", host.Name, err))
 			} else {
 				result.SyncedSuccess++
 			}
