@@ -364,7 +364,9 @@ func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
 		return
 	}
 
-	h.guacService.HandleTunnel(ws, cfg, proto, width, height, dpi)
+	security := c.DefaultQuery("security", "any")
+
+	h.guacService.HandleTunnel(ws, cfg, proto, security, width, height, dpi)
 }
 
 // SFTP Endpoints

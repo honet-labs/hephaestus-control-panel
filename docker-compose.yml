@@ -91,6 +91,8 @@ services:
     image: guacamole/guacd:latest
     container_name: hephaestus-guacd
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "4822"
     environment:

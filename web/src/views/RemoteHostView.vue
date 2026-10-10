@@ -193,6 +193,7 @@ interface OpenSession {
 
 // Remote Desktop (RDP / VNC Guacamole) State
 const desktopProto = ref<Record<string, 'rdp' | 'vnc'>>({});
+const desktopSecurity = ref<Record<string, string>>({});
 const desktopConnected = ref<Record<string, boolean>>({});
 const desktopLoading = ref<Record<string, boolean>>({});
 const desktopError = ref<Record<string, string>>({});
@@ -1412,8 +1413,8 @@ const parseGuacamoleError = (status: any): string => {
     0x0203: 'Remote desktop server is busy',
     0x0204: 'Remote host connection timed out (target host offline or port unreachable)',
     0x0205: 'Remote host connection error (connection refused or credentials rejected)',
-    0x0207: 'Resource not found',
-    0x0208: 'Resource conflict',
+    0x0207: 'Target host or IP unreachable from Hephaestus server on port 3389 (Upstream host not found)',
+    0x0208: 'Remote desktop server is currently unavailable or offline',
     0x0209: 'Resource closed',
     0x020A: 'Remote desktop host not found',
     0x020B: 'Remote desktop host is unavailable or unreachable',
@@ -1462,9 +1463,10 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     const height = Math.max(container.clientHeight || 1080, 768);
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const protoType = desktopProto.value[sessId] || 'rdp';
+    const secMode = desktopSecurity.value[sessId] || 'any';
     const token = authStore.token || '';
 
-    const wsUrl = `${proto}//${window.location.host}/ws/remote-desktop?token=${encodeURIComponent(token)}&hostId=${session.host.id}&proto=${protoType}&width=${width}&height=${height}&dpi=96`;
+    const wsUrl = `${proto}//${window.location.host}/ws/remote-desktop?token=${encodeURIComponent(token)}&hostId=${session.host.id}&proto=${protoType}&security=${encodeURIComponent(secMode)}&width=${width}&height=${height}&dpi=96`;
 
     const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
     const client = new Guacamole.Client(tunnel);
@@ -1546,10 +1548,18 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
 
 const changeDesktopProto = async (session: OpenSession, proto: 'rdp' | 'vnc') => {
   desktopProto.value[session.id] = proto;
+  desktopError.value[session.id] = '';
+  await ensureDesktopReady(session, true);
+};
+
+const changeDesktopSecurity = async (session: OpenSession, sec: string) => {
+  desktopSecurity.value[session.id] = sec;
+  desktopError.value[session.id] = '';
   await ensureDesktopReady(session, true);
 };
 
 const reconnectDesktop = async (session: OpenSession) => {
+  desktopError.value[session.id] = '';
   await ensureDesktopReady(session, true);
 };
 
@@ -3590,16 +3600,59 @@ onUnmounted(() => {
                       VNC (5900)
                     </button>
                   </div>
+
+                  <!-- RDP Security Mode Selector -->
+                  <div
+                    v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
+                    class="flex items-center gap-0.5 bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-[11px]"
+                  >
+                    <button
+                      v-for="sec in [
+                        { id: 'any', label: 'Auto' },
+                        { id: 'nla', label: 'NLA' },
+                        { id: 'tls', label: 'TLS' },
+                        { id: 'rdp', label: 'Standard' }
+                      ]"
+                      :key="sec.id"
+                      @click="changeDesktopSecurity(session, sec.id)"
+                      :class="[
+                        'px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer',
+                        (desktopSecurity[session.id] || 'any') === sec.id
+                          ? 'bg-slate-700 text-white shadow-xs font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      ]"
+                      :title="`RDP Security: ${sec.label}`"
+                    >
+                      {{ sec.label }}
+                    </button>
+                  </div>
                 </div>
 
                 <!-- Right Action Controls -->
                 <div class="flex items-center gap-2">
                   <span :class="[
                     'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium',
-                    desktopConnected[session.id] ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    desktopConnected[session.id]
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : desktopError[session.id]
+                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                   ]">
-                    <span :class="['w-1.5 h-1.5 rounded-full', desktopConnected[session.id] ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse']"></span>
-                    {{ desktopConnected[session.id] ? 'Connected' : 'Connecting...' }}
+                    <span :class="[
+                      'w-1.5 h-1.5 rounded-full',
+                      desktopConnected[session.id]
+                        ? 'bg-emerald-400'
+                        : desktopError[session.id]
+                          ? 'bg-rose-400'
+                          : 'bg-amber-400 animate-pulse'
+                    ]"></span>
+                    {{
+                      desktopConnected[session.id]
+                        ? 'Connected'
+                        : desktopError[session.id]
+                          ? 'Failed'
+                          : 'Connecting...'
+                    }}
                   </span>
 
                   <button
@@ -3660,11 +3713,23 @@ onUnmounted(() => {
                   <div class="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
                     <AlertTriangle class="w-6 h-6" />
                   </div>
-                  <div class="space-y-1 max-w-md mx-auto">
+                  <div class="space-y-1.5 max-w-lg mx-auto">
                     <h4 class="text-sm font-bold text-white">Connection Failed</h4>
                     <p class="text-xs text-rose-300 font-mono break-words leading-relaxed">{{ desktopError[session.id] }}</p>
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 text-[11px] text-slate-400 text-left space-y-1 mt-2">
+                      <div class="flex items-center justify-between text-slate-300 font-mono">
+                        <span>Target:</span>
+                        <span>{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
+                      </div>
+                      <p class="text-slate-400">
+                        • Host target harus dapat diakses dari server Hephaestus (bukan hanya dari laptop lokal).
+                      </p>
+                      <p class="text-slate-400">
+                        • Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di atas lalu Retry.
+                      </p>
+                    </div>
                   </div>
-                  <div class="flex items-center justify-center gap-3 pt-2">
+                  <div class="flex items-center justify-center gap-2 pt-2">
                     <button
                       @click="reconnectDesktop(session)"
                       class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
@@ -3673,16 +3738,23 @@ onUnmounted(() => {
                       Retry Connection
                     </button>
                     <button
+                      v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
+                      @click="changeDesktopSecurity(session, desktopSecurity[session.id] === 'nla' ? 'any' : 'nla')"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
+                    >
+                      Switch to {{ (desktopSecurity[session.id] || 'any') === 'nla' ? 'Auto Security' : 'NLA Mode' }}
+                    </button>
+                    <button
                       v-if="desktopProto[session.id] !== 'vnc'"
                       @click="changeDesktopProto(session, 'vnc')"
-                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer border border-slate-700"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
                     >
                       Try VNC (5900)
                     </button>
                     <button
                       v-else
                       @click="changeDesktopProto(session, 'rdp')"
-                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer border border-slate-700"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
                     >
                       Try RDP (3389)
                     </button>

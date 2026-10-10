@@ -106,7 +106,7 @@ func ReadInstruction(r *bufio.Reader) (opcode string, args []string, err error) 
 }
 
 // HandleTunnel establishes connection to guacd, performs handshake, and proxies instruction streams
-func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHostConfig, proto string, width, height, dpi int) {
+func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHostConfig, proto, security string, width, height, dpi int) {
 	defer ws.Close()
 
 	if proto == "" {
@@ -201,7 +201,11 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 
 	if proto == "rdp" {
 		paramMap["ignore-cert"] = "true"
-		paramMap["security"] = "any"
+		sec := strings.ToLower(strings.TrimSpace(security))
+		if sec == "" {
+			sec = "any"
+		}
+		paramMap["security"] = sec
 		paramMap["resize-method"] = "display-update"
 		paramMap["enable-wallpaper"] = "false"
 		paramMap["enable-theming"] = "false"
