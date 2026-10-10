@@ -25,7 +25,6 @@ import {
   Radio,
   FileText,
   Network,
-  Tv,
 } from 'lucide-vue-next';
 
 interface ServerInventoryItem {
@@ -512,49 +511,6 @@ onMounted(() => {
         >
           <RefreshCw :class="['w-4 h-4 text-slate-500 dark:text-slate-400', loading ? 'animate-spin' : '']" />
         </button>
-      </div>
-    </div>
-
-    <!-- Summary Metrics Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-4 flex items-center justify-between shadow-sm">
-        <div>
-          <p class="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Servers</p>
-          <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1">{{ stats.totalServers }}</p>
-        </div>
-        <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-[#161d2d] flex items-center justify-center text-slate-600 dark:text-slate-400">
-          <Server class="w-5 h-5 text-slate-500 dark:text-slate-400" />
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-4 flex items-center justify-between shadow-sm">
-        <div>
-          <p class="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Status</p>
-          <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{{ stats.activeServers }}</p>
-        </div>
-        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-          <CheckCircle2 class="w-5 h-5" />
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-4 flex items-center justify-between shadow-sm">
-        <div>
-          <p class="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">SSH Auto-Synced</p>
-          <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1">{{ stats.syncedFromRemote }}</p>
-        </div>
-        <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-[#161d2d] flex items-center justify-center text-slate-600 dark:text-slate-400">
-          <Radio class="w-5 h-5 text-slate-500 dark:text-slate-400" />
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl p-4 flex items-center justify-between shadow-sm">
-        <div>
-          <p class="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">GPU Accelerators</p>
-          <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1">{{ stats.withGpuCount }}</p>
-        </div>
-        <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-[#161d2d] flex items-center justify-center text-slate-600 dark:text-slate-400">
-          <Tv class="w-5 h-5 text-slate-500 dark:text-slate-400" />
-        </div>
       </div>
     </div>
 
