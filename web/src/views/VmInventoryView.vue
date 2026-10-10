@@ -443,7 +443,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-7xl mx-auto font-sans">
+  <div class="space-y-6 w-full font-sans">
     <!-- Notification Banner (Auto-dismisses in 3000ms) -->
     <transition
       enter-active-class="transform ease-out duration-200 transition"
@@ -578,26 +578,36 @@ onMounted(() => {
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50 dark:bg-[#141824] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#1b2234]">
             <tr>
-              <th class="px-4 py-3 font-semibold">Server & IP</th>
-              <th class="px-4 py-3 font-semibold">OS & Architecture</th>
-              <th class="px-4 py-3 font-semibold">CPU & Cores</th>
-              <th class="px-4 py-3 font-semibold">Memory & DIMMs</th>
-              <th class="px-4 py-3 font-semibold">Storage Disks</th>
-              <th class="px-4 py-3 font-semibold">GPU & VRAM</th>
-              <th class="px-4 py-3 font-semibold">Status / Sync</th>
-              <th class="px-4 py-3 font-semibold text-right">Actions</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[150px]">Server Name</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[130px]">IP Address</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[160px]">OS Version</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[90px]">OS Type</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[110px]">Architecture</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[220px]">Processor Model</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[90px]">Total Cores</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[110px]">Total Memory</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[120px]">DIMM Slots</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[110px]">Storage Size</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[160px]">Storage Disks</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[160px]">Network Interfaces</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[170px]">GPU Model</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[100px]">GPU Type</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[100px]">Total VRAM</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[100px]">Status</th>
+              <th class="px-3.5 py-3 font-semibold whitespace-nowrap min-w-[130px]">Last Synced</th>
+              <th class="px-3.5 py-3 font-semibold text-right whitespace-nowrap sticky right-0 bg-slate-50 dark:bg-[#141824] z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] min-w-[130px]">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-[#192132]">
             <tr v-if="loading && inventoryList.length === 0">
-              <td colspan="8" class="px-4 py-12 text-center text-slate-400 dark:text-slate-500">
+              <td colspan="18" class="px-4 py-12 text-center text-slate-400 dark:text-slate-500">
                 <RefreshCw class="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
                 <span>Loading server inventory...</span>
               </td>
             </tr>
 
             <tr v-else-if="inventoryList.length === 0">
-              <td colspan="8" class="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
+              <td colspan="18" class="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
                 <Server class="w-8 h-8 mx-auto mb-2 text-slate-400 opacity-60" />
                 <p class="font-medium text-slate-700 dark:text-slate-300">No servers registered in inventory</p>
                 <p class="text-[11px] text-slate-400 mt-1">
@@ -625,9 +635,9 @@ onMounted(() => {
               :key="item.id"
               class="hover:bg-slate-50/80 dark:hover:bg-[#131926]/50 transition"
             >
-              <!-- Server & IP -->
-              <td class="px-4 py-3">
-                <div class="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <!-- 1. Server Name -->
+              <td class="px-3.5 py-3 font-semibold text-slate-900 dark:text-white break-words whitespace-normal min-w-[150px]">
+                <div class="flex items-center gap-1.5 flex-wrap">
                   <span>{{ item.serverName }}</span>
                   <span
                     v-if="item.remoteHostId"
@@ -637,7 +647,11 @@ onMounted(() => {
                     SSH
                   </span>
                 </div>
-                <div class="flex items-center gap-1 mt-0.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+              </td>
+
+              <!-- 2. IP Address -->
+              <td class="px-3.5 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap min-w-[130px]">
+                <div class="flex items-center gap-1">
                   <span>{{ item.ipAddress }}</span>
                   <button
                     @click="copyToClipboard(item.ipAddress, item.id + '-ip')"
@@ -650,61 +664,73 @@ onMounted(() => {
                 </div>
               </td>
 
-              <!-- OS & Arch -->
-              <td class="px-4 py-3">
-                <div class="text-slate-800 dark:text-slate-200 font-medium">
-                  {{ item.osVersion }}
-                </div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {{ item.osType }} • {{ item.architectureType }}
-                </div>
+              <!-- 3. OS Version -->
+              <td class="px-3.5 py-3 text-slate-800 dark:text-slate-200 break-words whitespace-normal min-w-[160px]">
+                {{ item.osVersion }}
               </td>
 
-              <!-- CPU & Cores -->
-              <td class="px-4 py-3 max-w-[200px]">
-                <div class="text-slate-800 dark:text-slate-200 font-medium truncate" :title="item.processorModel">
-                  {{ item.processorModel }}
-                </div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {{ item.totalCore }}
-                </div>
+              <!-- 4. OS Type -->
+              <td class="px-3.5 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap min-w-[90px]">
+                {{ item.osType }}
               </td>
 
-              <!-- Memory & DIMMs -->
-              <td class="px-4 py-3">
-                <div class="text-slate-800 dark:text-slate-200 font-medium">
-                  {{ item.totalMemory }}
-                </div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {{ item.totalDimmMemory }}
-                </div>
+              <!-- 5. Architecture Type -->
+              <td class="px-3.5 py-3 text-slate-600 dark:text-slate-400 font-mono text-[11px] whitespace-nowrap min-w-[110px]">
+                {{ item.architectureType }}
               </td>
 
-              <!-- Storage & Disks -->
-              <td class="px-4 py-3 max-w-[180px]">
-                <div class="text-slate-800 dark:text-slate-200 font-medium">
-                  {{ item.totalStorageSize }}
-                </div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate" :title="item.totalDiskCount">
-                  {{ item.totalDiskCount }}
-                </div>
+              <!-- 6. Processor Model -->
+              <td class="px-3.5 py-3 text-slate-800 dark:text-slate-200 break-words whitespace-normal min-w-[220px]">
+                {{ item.processorModel }}
               </td>
 
-              <!-- GPU & VRAM -->
-              <td class="px-4 py-3 max-w-[180px]">
-                <div v-if="item.gpuModel !== 'N/A'" class="text-slate-800 dark:text-slate-200 font-medium truncate" :title="item.gpuModel">
-                  {{ item.gpuModel }}
-                  <div class="text-[11px] text-slate-500 dark:text-slate-400">
-                    {{ item.totalVram }} ({{ item.gpuType }})
-                  </div>
-                </div>
-                <div v-else class="text-slate-400 dark:text-slate-500 font-mono text-[11px]">
-                  N/A
-                </div>
+              <!-- 7. Total Cores -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 font-mono text-[11px] whitespace-nowrap min-w-[90px]">
+                {{ item.totalCore }}
               </td>
 
-              <!-- Status / Sync -->
-              <td class="px-4 py-3">
+              <!-- 8. Total Memory -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 font-mono text-[11px] whitespace-nowrap min-w-[110px]">
+                {{ item.totalMemory }}
+              </td>
+
+              <!-- 9. DIMM Slots -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 break-words whitespace-normal min-w-[120px]">
+                {{ item.totalDimmMemory }}
+              </td>
+
+              <!-- 10. Storage Size -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 font-mono text-[11px] whitespace-nowrap min-w-[110px]">
+                {{ item.totalStorageSize }}
+              </td>
+
+              <!-- 11. Storage Disks -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 break-words whitespace-normal min-w-[160px]">
+                {{ item.totalDiskCount }}
+              </td>
+
+              <!-- 12. Network Interfaces -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 font-mono text-[11px] break-words whitespace-normal min-w-[160px]">
+                {{ item.totalNetworkInterfaces }}
+              </td>
+
+              <!-- 13. GPU Model -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 break-words whitespace-normal min-w-[170px]">
+                {{ item.gpuModel }}
+              </td>
+
+              <!-- 14. GPU Type -->
+              <td class="px-3.5 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap min-w-[100px]">
+                {{ item.gpuType }}
+              </td>
+
+              <!-- 15. Total VRAM -->
+              <td class="px-3.5 py-3 text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[100px]">
+                {{ item.totalVram }}
+              </td>
+
+              <!-- 16. Status -->
+              <td class="px-3.5 py-3 whitespace-nowrap min-w-[100px]">
                 <span
                   :class="[
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase',
@@ -723,13 +749,15 @@ onMounted(() => {
                   ></span>
                   <span>{{ item.status }}</span>
                 </span>
-                <div class="text-[10px] text-slate-400 mt-1">
-                  Synced: {{ formatDate(item.lastSyncedAt) }}
-                </div>
               </td>
 
-              <!-- Actions -->
-              <td class="px-4 py-3 text-right">
+              <!-- 17. Last Synced -->
+              <td class="px-3.5 py-3 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[130px]">
+                {{ formatDate(item.lastSyncedAt) }}
+              </td>
+
+              <!-- 18. Actions (Sticky Right) -->
+              <td class="px-3.5 py-3 text-right whitespace-nowrap sticky right-0 bg-white dark:bg-[#0e121c] z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] min-w-[130px] border-l border-slate-100 dark:border-[#192132]">
                 <div class="inline-flex items-center gap-1">
                   <button
                     @click="openDetail(item)"
