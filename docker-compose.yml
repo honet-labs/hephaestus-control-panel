@@ -6,7 +6,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-      network: host
       args:
         REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
     container_name: hephaestus-panel
@@ -36,7 +35,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-      network: host
       args:
         REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
     container_name: hephaestus-engine

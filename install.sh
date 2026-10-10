@@ -419,7 +419,7 @@ deploy_containers() {
     mkdir -p "$INSTALL_DIR/backups/database"
     chmod -R 0777 "$INSTALL_DIR/backups" 2>/dev/null || true
 
-    echo "Building container images with host networking..."
+    echo "Building container images..."
     $COMPOSE_CMD build
     
     echo "Starting container stack..."
