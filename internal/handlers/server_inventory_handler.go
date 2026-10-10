@@ -20,8 +20,7 @@ func NewServerInventoryHandler(service *services.ServerInventoryService) *Server
 }
 
 func (h *ServerInventoryHandler) List(c *gin.Context) {
-	userID := c.GetInt("user_id")
-	userRole := c.GetString("user_role")
+	userID, userRole := getUserContext(c)
 	search := c.Query("search")
 	status := c.Query("status")
 	osType := c.Query("osType")
@@ -65,7 +64,7 @@ func (h *ServerInventoryHandler) GetByID(c *gin.Context) {
 }
 
 func (h *ServerInventoryHandler) Create(c *gin.Context) {
-	userID := c.GetInt("user_id")
+	userID, _ := getUserContext(c)
 
 	var req domain.CreateServerInventoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -111,7 +110,7 @@ func (h *ServerInventoryHandler) Delete(c *gin.Context) {
 }
 
 func (h *ServerInventoryHandler) SyncFromRemoteHost(c *gin.Context) {
-	userID := c.GetInt("user_id")
+	userID, _ := getUserContext(c)
 	remoteHostID := c.Param("remoteHostId")
 	if remoteHostID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Remote host ID is required"})
@@ -131,8 +130,7 @@ func (h *ServerInventoryHandler) SyncFromRemoteHost(c *gin.Context) {
 }
 
 func (h *ServerInventoryHandler) SyncAllRemoteHosts(c *gin.Context) {
-	userID := c.GetInt("user_id")
-	userRole := c.GetString("user_role")
+	userID, userRole := getUserContext(c)
 
 	result, err := h.service.SyncAllRemoteHosts(c.Request.Context(), userID, userRole)
 	if err != nil {
@@ -151,8 +149,7 @@ func (h *ServerInventoryHandler) DownloadTemplate(c *gin.Context) {
 }
 
 func (h *ServerInventoryHandler) ExportCSV(c *gin.Context) {
-	userID := c.GetInt("user_id")
-	userRole := c.GetString("user_role")
+	userID, userRole := getUserContext(c)
 
 	exportBytes, err := h.service.ExportCSV(c.Request.Context(), userID, userRole)
 	if err != nil {
@@ -166,7 +163,7 @@ func (h *ServerInventoryHandler) ExportCSV(c *gin.Context) {
 }
 
 func (h *ServerInventoryHandler) ImportCSV(c *gin.Context) {
-	userID := c.GetInt("user_id")
+	userID, _ := getUserContext(c)
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {

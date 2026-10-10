@@ -47,6 +47,11 @@ func (s *ServerInventoryService) GetStats(ctx context.Context) (*domain.ServerIn
 }
 
 func (s *ServerInventoryService) Create(ctx context.Context, req domain.CreateServerInventoryRequest, userID int) (*domain.ServerInventoryItem, error) {
+	var userPtr *int
+	if userID > 0 {
+		userPtr = &userID
+	}
+
 	item := domain.ServerInventoryItem{
 		RemoteHostID:           cleanOptionalStr(req.RemoteHostID),
 		ServerName:             fallbackStr(req.ServerName, "Unnamed Server"),
@@ -66,7 +71,7 @@ func (s *ServerInventoryService) Create(ctx context.Context, req domain.CreateSe
 		TotalVRAM:              fallbackStr(req.TotalVRAM, "N/A"),
 		Status:                 fallbackStr(req.Status, "active"),
 		Notes:                  strings.TrimSpace(req.Notes),
-		UserID:                 &userID,
+		UserID:                 userPtr,
 	}
 
 	if err := s.repo.Create(ctx, &item); err != nil {
@@ -243,6 +248,11 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		srvIP = cfg.Host
 	}
 
+	var userPtr *int
+	if userID > 0 {
+		userPtr = &userID
+	}
+
 	item := domain.ServerInventoryItem{
 		RemoteHostID:           &hostID,
 		ServerName:             srvName,
@@ -262,7 +272,7 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		TotalVRAM:              fallbackStr(raw.TotalVRAM, "N/A"),
 		Status:                 "active",
 		Notes:                  fmt.Sprintf("Auto-discovered via Remote Host %s (%s)", cfg.Name, cfg.Host),
-		UserID:                 &userID,
+		UserID:                 userPtr,
 		LastSyncedAt:           &now,
 	}
 
@@ -488,6 +498,11 @@ func (s *ServerInventoryService) ImportCSV(ctx context.Context, r io.Reader, use
 		return ""
 	}
 
+	var userPtr *int
+	if userID > 0 {
+		userPtr = &userID
+	}
+
 	result := &domain.BulkImportServerResult{
 		Errors: make([]string, 0),
 	}
@@ -528,7 +543,7 @@ func (s *ServerInventoryService) ImportCSV(ctx context.Context, r io.Reader, use
 			TotalVRAM:              fallbackStr(getCol(row, "total_vram", "totalvram", "vram"), "N/A"),
 			Status:                 fallbackStr(getCol(row, "status"), "active"),
 			Notes:                  getCol(row, "notes", "note", "description"),
-			UserID:                 &userID,
+			UserID:                 userPtr,
 		}
 
 		_, created, err := s.repo.UpsertFromProbe(ctx, &item)

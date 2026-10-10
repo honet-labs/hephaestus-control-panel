@@ -57,14 +57,32 @@ func getUserContext(c *gin.Context) (int, string) {
 	var userID int
 	var userRole string
 	if val, exists := c.Get("userId"); exists {
-		if id, ok := val.(int); ok {
-			userID = id
+		switch v := val.(type) {
+		case int:
+			userID = v
+		case int64:
+			userID = int(v)
+		case float64:
+			userID = int(v)
 		}
 	}
+	if userID == 0 {
+		userID = c.GetInt("userId")
+	}
+	if userID == 0 {
+		userID = c.GetInt("user_id")
+	}
+
 	if val, exists := c.Get("userRole"); exists {
 		if r, ok := val.(string); ok {
 			userRole = r
 		}
+	}
+	if userRole == "" {
+		userRole = c.GetString("userRole")
+	}
+	if userRole == "" {
+		userRole = c.GetString("user_role")
 	}
 	return userID, userRole
 }

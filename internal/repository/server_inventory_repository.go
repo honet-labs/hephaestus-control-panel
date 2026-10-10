@@ -187,6 +187,9 @@ func (r *ServerInventoryRepository) Create(ctx context.Context, item *domain.Ser
 	if item.ID == "" {
 		item.ID = "srv-" + uuid.New().String()[:8]
 	}
+	if item.UserID != nil && *item.UserID <= 0 {
+		item.UserID = nil
+	}
 	now := time.Now()
 	item.CreatedAt = now
 	item.UpdatedAt = now
@@ -260,6 +263,10 @@ func (r *ServerInventoryRepository) UpsertFromProbe(ctx context.Context, item *d
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, false, err
+	}
+
+	if item.UserID != nil && *item.UserID <= 0 {
+		item.UserID = nil
 	}
 
 	// 1. Try finding existing by remote_host_id or ip_address
