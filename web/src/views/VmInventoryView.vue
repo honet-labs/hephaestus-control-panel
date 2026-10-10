@@ -317,6 +317,8 @@ const triggerSyncRemote = async (remoteHostId: string, hostName: string) => {
   } finally {
     syncingHostId.value = null;
   }
+};
+
 const getHostInventoryStatus = (host: RemoteHostOption) => {
   return inventoryList.value.find(
     (i) => i.remoteHostId === host.id || i.ipAddress === host.host
