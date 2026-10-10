@@ -360,7 +360,7 @@ func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
 
 	ws, err := h.guacService.Upgrader().Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("WebSocket upgrade error: %v", err))
+		logger.Error("Guacamole", "WebSocket upgrade error", err)
 		return
 	}
 

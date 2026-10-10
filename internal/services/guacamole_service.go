@@ -131,7 +131,7 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 	guacdAddr := net.JoinHostPort(s.guacdHost, s.guacdPort)
 	guacdConn, err := net.DialTimeout("tcp", guacdAddr, 8*time.Second)
 	if err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("Failed to connect to guacd at %s: %v", guacdAddr, err))
+		logger.Error("Guacamole", fmt.Sprintf("Failed to connect to guacd at %s", guacdAddr), err)
 		errMsg := EncodeInstruction("error", fmt.Sprintf("Guacamole daemon unreachable at %s: %v", guacdAddr, err), "512")
 		_ = ws.WriteMessage(websocket.TextMessage, []byte(errMsg))
 		return
@@ -143,18 +143,18 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 	// 2. Send "select,<proto>;"
 	selectInst := EncodeInstruction("select", proto)
 	if _, err := guacdConn.Write([]byte(selectInst)); err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("Failed to send select instruction: %v", err))
+		logger.Error("Guacamole", "Failed to send select instruction", err)
 		return
 	}
 
 	// 3. Read "args" from guacd
 	argsOpcode, expectedArgs, err := ReadInstruction(reader)
 	if err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("Failed reading args from guacd: %v", err))
+		logger.Error("Guacamole", "Failed reading args from guacd", err)
 		return
 	}
 	if argsOpcode != "args" {
-		logger.Error("Guacamole", fmt.Sprintf("Expected args instruction from guacd, got: %s", argsOpcode))
+		logger.Error("Guacamole", fmt.Sprintf("Expected args instruction from guacd, got: %s", argsOpcode), fmt.Errorf("unexpected opcode: %s", argsOpcode))
 		return
 	}
 
@@ -213,14 +213,14 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 
 	connectInst := EncodeInstruction("connect", connectArgs...)
 	if _, err := guacdConn.Write([]byte(connectInst)); err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("Failed to send connect instruction: %v", err))
+		logger.Error("Guacamole", "Failed to send connect instruction", err)
 		return
 	}
 
 	// 7. Read "ready" from guacd
 	readyOpcode, readyArgs, err := ReadInstruction(reader)
 	if err != nil {
-		logger.Error("Guacamole", fmt.Sprintf("Failed reading ready instruction from guacd: %v", err))
+		logger.Error("Guacamole", "Failed reading ready instruction from guacd", err)
 		return
 	}
 	if readyOpcode != "ready" {
