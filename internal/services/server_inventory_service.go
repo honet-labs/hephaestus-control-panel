@@ -178,7 +178,7 @@ fi
 [ -z "$GPU_V" ] && GPU_V="N/A"
 
 clean_val() {
-  printf '%s' "$1" | tr -d '"\\`\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+  printf '%s' "$1" | tr -d '"\\\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 HN=$(clean_val "$HN")
