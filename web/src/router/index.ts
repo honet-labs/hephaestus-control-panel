@@ -309,7 +309,13 @@ router.beforeEach(async (to, from, next) => {
     // RBAC Feature Permission Enforcement
     if (to.meta.feature && typeof to.meta.feature === 'string') {
       const action = (to.meta.action as 'read' | 'manage') || 'read';
-      if (!authStore.can(to.meta.feature, action)) {
+      const isInventoryAllowed = to.name === 'inventory-server' && (
+        authStore.can('server_inventory', action) ||
+        authStore.can('connections', action) ||
+        authStore.can('infrastructure', action)
+      );
+
+      if (!isInventoryAllowed && !authStore.can(to.meta.feature, action)) {
         // User lacks permission for this route: avoid blank screen and redirect safely
         if (to.meta.feature !== 'dashboard' && authStore.can('dashboard', 'read')) {
           return next({ path: '/' });

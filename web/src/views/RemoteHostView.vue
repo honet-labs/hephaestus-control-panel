@@ -720,9 +720,11 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
     session.heartbeatTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping' }));
+        try {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        } catch (e) {}
       }
-    }, 10000);
+    }, 5000);
   };
 
   ws.onmessage = (ev) => {
@@ -740,7 +742,9 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
         session.connected = true;
         // On connected ack, ensure remote PTY matches client dimensions
         if (session.term && session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
+          try {
+            ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
+          } catch (e) {}
         }
       } else if (msg.type === 'error') {
         session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
@@ -762,7 +766,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (ev: CloseEvent) => {
     if (session.ws !== ws) return;
     session.connecting = false;
     session.connected = false;
@@ -770,7 +774,17 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       clearInterval(session.heartbeatTimer);
       session.heartbeatTimer = undefined;
     }
-    session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
+    // Clean close or user logout
+    if (ev.code === 1000) {
+      session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
+    } else {
+      session.term?.write('\r\n\x1b[33m[Connection dropped. Reconnecting automatically...]\x1b[0m\r\n');
+      setTimeout(() => {
+        if (!session.connected && session.term && session.ws === ws) {
+          reconnectTerminal(session);
+        }
+      }, 2000);
+    }
   };
 
   ws.onerror = () => {
@@ -781,7 +795,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       clearInterval(session.heartbeatTimer);
       session.heartbeatTimer = undefined;
     }
-    session.term?.write('\r\n\x1b[31m[WebSocket connection error]\x1b[0m\r\n');
+    session.term?.write('\r\n\x1b[31m[WebSocket connection dropped]\x1b[0m\r\n');
   };
 };
 
@@ -905,6 +919,35 @@ watch(
     });
   }
 );
+
+// Auto-recover disconnected terminal WebSockets on tab focus / visibilitychange
+const handleVisibilityOrFocus = () => {
+  if (document.visibilityState === 'visible') {
+    openSessions.value.forEach((sess) => {
+      if (sess.activeView === 'terminal' && sess.term) {
+        if (!sess.ws || sess.ws.readyState === WebSocket.CLOSED || sess.ws.readyState === WebSocket.CLOSING) {
+          reconnectTerminal(sess);
+        } else if (sess.ws.readyState === WebSocket.OPEN) {
+          try {
+            sess.ws.send(JSON.stringify({ type: 'ping' }));
+          } catch (e) {
+            reconnectTerminal(sess);
+          }
+        }
+      }
+    });
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.addEventListener('focus', handleVisibilityOrFocus);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.removeEventListener('focus', handleVisibilityOrFocus);
+});
 
 // =================================================================
 // CHROME-STYLE TAB GROUPS & DRAG-AND-DROP REORDERING

@@ -1406,5 +1406,94 @@ type IpamScanAllResponse struct {
 	Errors       []string      `json:"errors"`
 }
 
+// ==================== SERVER INVENTORY DOMAIN ====================
+
+type ServerInventoryItem struct {
+	ID                     string     `json:"id"`
+	RemoteHostID           *string    `json:"remoteHostId,omitempty"`
+	RemoteHostName         *string    `json:"remoteHostName,omitempty"`
+	ServerName             string     `json:"serverName"`
+	IPAddress              string     `json:"ipAddress"`
+	OSVersion              string     `json:"osVersion"`
+	OSType                 string     `json:"osType"`
+	ArchitectureType       string     `json:"architectureType"`
+	ProcessorModel         string     `json:"processorModel"`
+	TotalCore              string     `json:"totalCore"`
+	TotalMemory            string     `json:"totalMemory"`
+	TotalDimmMemory        string     `json:"totalDimmMemory"`
+	TotalStorageSize       string     `json:"totalStorageSize"`
+	TotalDiskCount         string     `json:"totalDiskCount"`
+	TotalNetworkInterfaces string     `json:"totalNetworkInterfaces"`
+	GPUModel               string     `json:"gpuModel"`
+	GPUType                string     `json:"gpuType"`
+	TotalVRAM              string     `json:"totalVram"`
+	Status                 string     `json:"status"` // "active", "maintenance", "offline"
+	Notes                  string     `json:"notes"`
+	UserID                 *int       `json:"userId,omitempty"`
+	OwnerUsername          *string    `json:"ownerUsername,omitempty"`
+	LastSyncedAt           *time.Time `json:"lastSyncedAt,omitempty"`
+	CreatedAt              time.Time  `json:"createdAt"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
+}
+
+type CreateServerInventoryRequest struct {
+	RemoteHostID           *string `json:"remoteHostId"`
+	ServerName             string  `json:"serverName" binding:"required"`
+	IPAddress              string  `json:"ipAddress" binding:"required"`
+	OSVersion              string  `json:"osVersion"`
+	OSType                 string  `json:"osType"`
+	ArchitectureType       string  `json:"architectureType"`
+	ProcessorModel         string  `json:"processorModel"`
+	TotalCore              string  `json:"totalCore"`
+	TotalMemory            string  `json:"totalMemory"`
+	TotalDimmMemory        string  `json:"totalDimmMemory"`
+	TotalStorageSize       string  `json:"totalStorageSize"`
+	TotalDiskCount         string  `json:"totalDiskCount"`
+	TotalNetworkInterfaces string  `json:"totalNetworkInterfaces"`
+	GPUModel               string  `json:"gpuModel"`
+	GPUType                string  `json:"gpuType"`
+	TotalVRAM              string  `json:"totalVram"`
+	Status                 string  `json:"status"`
+	Notes                  string  `json:"notes"`
+}
+
+type UpdateServerInventoryRequest struct {
+	RemoteHostID           *string `json:"remoteHostId"`
+	ServerName             string  `json:"serverName" binding:"required"`
+	IPAddress              string  `json:"ipAddress" binding:"required"`
+	OSVersion              string  `json:"osVersion"`
+	OSType                 string  `json:"osType"`
+	ArchitectureType       string  `json:"architectureType"`
+	ProcessorModel         string  `json:"processorModel"`
+	TotalCore              string  `json:"totalCore"`
+	TotalMemory            string  `json:"totalMemory"`
+	TotalDimmMemory        string  `json:"totalDimmMemory"`
+	TotalStorageSize       string  `json:"totalStorageSize"`
+	TotalDiskCount         string  `json:"totalDiskCount"`
+	TotalNetworkInterfaces string  `json:"totalNetworkInterfaces"`
+	GPUModel               string  `json:"gpuModel"`
+	GPUType                string  `json:"gpuType"`
+	TotalVRAM              string  `json:"totalVram"`
+	Status                 string  `json:"status"`
+	Notes                  string  `json:"notes"`
+}
+
+type ServerInventoryStats struct {
+	TotalServers     int `json:"totalServers"`
+	ActiveServers    int `json:"activeServers"`
+	SyncedFromRemote int `json:"syncedFromRemote"`
+	ManualServers    int `json:"manualServers"`
+	WithGPUCount     int `json:"withGpuCount"`
+}
+
+type BulkImportServerResult struct {
+	TotalProcessed int      `json:"totalProcessed"`
+	CreatedCount   int      `json:"createdCount"`
+	UpdatedCount   int      `json:"updatedCount"`
+	FailedCount    int      `json:"failedCount"`
+	Errors         []string `json:"errors"`
+}
+
+
 
 

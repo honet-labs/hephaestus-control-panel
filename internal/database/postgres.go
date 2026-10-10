@@ -877,12 +877,46 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE INDEX IF NOT EXISTS idx_ipam_scan_logs_started ON ipam_scan_logs(started_at DESC);
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"ipam": "manage", "monitoring_instances": "manage", "slideshow": "manage", "infrastructure": "manage", "status_pages": "manage", "reports": "manage", "security": "manage"}'::jsonb 
+		SET permissions = permissions || '{"ipam": "manage", "monitoring_instances": "manage", "slideshow": "manage", "infrastructure": "manage", "status_pages": "manage", "reports": "manage", "security": "manage", "server_inventory": "manage"}'::jsonb 
 		WHERE name IN ('ADMIN', 'OPERATOR');
 
 		UPDATE system_roles 
-		SET permissions = permissions || '{"ipam": "read", "monitoring_instances": "read", "slideshow": "read", "infrastructure": "read", "status_pages": "read", "reports": "read"}'::jsonb 
+		SET permissions = permissions || '{"ipam": "read", "monitoring_instances": "read", "slideshow": "read", "infrastructure": "read", "status_pages": "read", "reports": "read", "server_inventory": "read"}'::jsonb 
 		WHERE name = 'VIEWER';
+
+		-- =========================================================================
+		-- Server Inventory Specification & Hardware Table
+		-- =========================================================================
+		CREATE TABLE IF NOT EXISTS server_inventory (
+			id VARCHAR(50) PRIMARY KEY,
+			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
+			server_name VARCHAR(255) NOT NULL,
+			ip_address VARCHAR(100) NOT NULL,
+			os_version VARCHAR(255) DEFAULT 'N/A',
+			os_type VARCHAR(100) DEFAULT 'Linux',
+			architecture_type VARCHAR(100) DEFAULT 'N/A',
+			processor_model VARCHAR(255) DEFAULT 'N/A',
+			total_core VARCHAR(50) DEFAULT 'N/A',
+			total_memory VARCHAR(100) DEFAULT 'N/A',
+			total_dimm_memory VARCHAR(255) DEFAULT 'N/A',
+			total_storage_size VARCHAR(100) DEFAULT 'N/A',
+			total_disk_count VARCHAR(255) DEFAULT 'N/A',
+			total_network_interfaces VARCHAR(255) DEFAULT 'N/A',
+			gpu_model VARCHAR(255) DEFAULT 'N/A',
+			gpu_type VARCHAR(100) DEFAULT 'N/A',
+			total_vram VARCHAR(100) DEFAULT 'N/A',
+			status VARCHAR(50) DEFAULT 'active',
+			notes TEXT DEFAULT '',
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			last_synced_at TIMESTAMP WITH TIME ZONE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_server_inventory_remote_host ON server_inventory(remote_host_id);
+		CREATE INDEX IF NOT EXISTS idx_server_inventory_ip ON server_inventory(ip_address);
+		CREATE INDEX IF NOT EXISTS idx_server_inventory_user_id ON server_inventory(user_id);
+		CREATE INDEX IF NOT EXISTS idx_server_inventory_server_name ON server_inventory(server_name);
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))

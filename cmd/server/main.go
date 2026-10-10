@@ -77,6 +77,7 @@ func main() {
 	statusPageRepo := repository.NewStatusPageRepository()
 	monitoringInstanceRepo := repository.NewMonitoringInstanceRepository()
 	ipamRepo := repository.NewIpamRepository()
+	serverInventoryRepo := repository.NewServerInventoryRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(10)
@@ -108,6 +109,7 @@ func main() {
 	monitoringInstanceService.StartBackgroundEngine()
 	ipamService := services.NewIpamService(ipamRepo, workerPool)
 	ipamService.StartBackgroundEngine()
+	serverInventoryService := services.NewServerInventoryService(serverInventoryRepo, remoteRepo, sshService)
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -130,6 +132,7 @@ func main() {
 	statusPageHandler := handlers.NewStatusPageHandler(statusPageService, authService)
 	monitoringInstanceHandler := handlers.NewMonitoringInstanceHandler(monitoringInstanceService)
 	ipamHandler := handlers.NewIpamHandler(ipamService)
+	serverInventoryHandler := handlers.NewServerInventoryHandler(serverInventoryService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -351,6 +354,19 @@ func main() {
 		api.POST("/monitoring/instances/engine/interval", middleware.RequirePermission("monitoring_instances", "manage"), monitoringInstanceHandler.SetEngineInterval)
 		api.POST("/monitoring/instances/poll-now", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.PollNow)
 		api.POST("/monitoring/instances/:id/fetch-ssh", middleware.RequirePermission("monitoring_instances", "read"), monitoringInstanceHandler.FetchSSHMetrics)
+
+		// Server Inventory & Hardware Specs (Feature: server_inventory, connections, or infrastructure)
+		api.GET("/inventory/servers", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "read"), serverInventoryHandler.List)
+		api.GET("/inventory/servers/stats", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "read"), serverInventoryHandler.GetStats)
+		api.GET("/inventory/servers/template", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "read"), serverInventoryHandler.DownloadTemplate)
+		api.GET("/inventory/servers/export", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "read"), serverInventoryHandler.ExportCSV)
+		api.POST("/inventory/servers/import", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.ImportCSV)
+		api.POST("/inventory/servers/sync-all", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.SyncAllRemoteHosts)
+		api.POST("/inventory/servers/sync-remote/:remoteHostId", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.SyncFromRemoteHost)
+		api.GET("/inventory/servers/:id", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "read"), serverInventoryHandler.GetByID)
+		api.POST("/inventory/servers", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.Create)
+		api.PUT("/inventory/servers/:id", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.Update)
+		api.DELETE("/inventory/servers/:id", middleware.RequireAnyPermission([]string{"server_inventory", "connections", "infrastructure"}, "manage"), serverInventoryHandler.Delete)
 
 		// VPS Telemetry, Processes, Services, and Network (Feature: remote_servers) - Compatibility aliases
 		api.GET("/vps/:id/metrics", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetMetrics)

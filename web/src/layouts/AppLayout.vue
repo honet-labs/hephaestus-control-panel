@@ -369,7 +369,7 @@ onUnmounted(() => {
                 <!-- Sub-sub-menu items under Server -->
                 <div v-show="isServerSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
                   <router-link
-                    v-if="authStore.can('connections', 'read')"
+                    v-if="authStore.can('server_inventory', 'read') || authStore.can('connections', 'read') || authStore.can('infrastructure', 'read')"
                     to="/inventory-server"
                     :class="[
                       (route.path === '/inventory-server' || route.path === '/inventory')
