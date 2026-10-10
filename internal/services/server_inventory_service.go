@@ -116,57 +116,52 @@ func (s *ServerInventoryService) Delete(ctx context.Context, id string) error {
 }
 
 // Linux Probe Script: Returns strict JSON with specifications, defaulting missing values to "N/A"
-const linuxDiscoveryBashScript = `bash -c '
-HN=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "")
+const linuxDiscoveryBashScript = `
+HN=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "N/A")
 [ -z "$HN" ] && HN="N/A"
 
-IP=$(ip -4 addr show scope global 2>/dev/null | awk "/inet /{print \$2}" | cut -d/ -f1 | head -n1)
-[ -z "$IP" ] && IP=$(hostname -I 2>/dev/null | awk "{print \$1}")
+IP=$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
+[ -z "$IP" ] && IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$IP" ] && IP="N/A"
 
-OS_VER=$(awk -F"=" "/^PRETTY_NAME/{gsub(/\"/, \"\", \$2); print \$2}" /etc/os-release 2>/dev/null)
+OS_VER=$(awk -F'=' '/^PRETTY_NAME/{gsub(/"/, "", $2); print $2}' /etc/os-release 2>/dev/null)
 [ -z "$OS_VER" ] && OS_VER=$(uname -r 2>/dev/null || echo "N/A")
 OS_TYPE=$(uname -s 2>/dev/null || echo "Linux")
 ARCH=$(uname -m 2>/dev/null || echo "N/A")
 
-CPU_MOD=$(awk -F: "/model name/{gsub(/^[ \t]+/, \"\", \$2); print \$2; exit}" /proc/cpuinfo 2>/dev/null)
-[ -z "$CPU_MOD" ] && CPU_MOD=$(lscpu 2>/dev/null | awk -F: "/Model name:/{gsub(/^[ \t]+/, \"\", \$2); print \$2; exit}")
+CPU_MOD=$(awk -F: '/model name/{gsub(/^[ \t]+/, "", $2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
+[ -z "$CPU_MOD" ] && CPU_MOD=$(lscpu 2>/dev/null | awk -F: '/Model name:/{gsub(/^[ \t]+/, "", $2); print $2; exit}')
 [ -z "$CPU_MOD" ] && CPU_MOD="N/A"
 
-CORES=$(nproc 2>/dev/null)
-[ -z "$CORES" ] && CORES=$(grep -c "^processor" /proc/cpuinfo 2>/dev/null)
-if [ -n "$CORES" ] && [ "$CORES" != "0" ]; then
-  TOTAL_CORE="$CORES Cores"
-else
-  TOTAL_CORE="N/A"
-fi
+CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "1")
+TOTAL_CORE="$CORES Cores"
 
-TOT_MEM=$(awk "/MemTotal/{printf \"%.2f GB\", \$2/1024/1024}" /proc/meminfo 2>/dev/null)
+TOT_MEM=$(awk '/MemTotal/{printf "%.2f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null)
 [ -z "$TOT_MEM" ] && TOT_MEM="N/A"
 
-DIMMS=$(dmidecode -t 17 2>/dev/null | awk "/Size:/{if (\$2 !~ /No/ && \$2 !~ /Installed/) count++} END {if (count > 0) print count \" DIMMs\"; else print \"\"}")
+DIMMS=$(dmidecode -t 17 2>/dev/null | awk '/Size:/{if ($2 !~ /No/ && $2 !~ /Installed/) count++} END {if (count > 0) print count " DIMMs"; else print ""}')
 [ -z "$DIMMS" ] && DIMMS="N/A"
 
-TOT_STORAGE=$(lsblk -b -d -n -o SIZE,TYPE 2>/dev/null | awk "\$2==\"disk\"{sum+=\$1} END {if (sum>0) {if (sum>=1099511627776) printf \"%.2f TB\", sum/1099511627776; else printf \"%.2f GB\", sum/1073741824} else print \"\"}")
+TOT_STORAGE=$(lsblk -b -d -n -o SIZE,TYPE 2>/dev/null | awk '$2=="disk"{sum+=$1} END {if (sum>0) {if (sum>=1099511627776) printf "%.2f TB", sum/1099511627776; else printf "%.2f GB", sum/1073741824} else print ""}')
 [ -z "$TOT_STORAGE" ] && TOT_STORAGE="N/A"
 
-DISK_LIST=$(lsblk -d -n -o NAME,SIZE,TYPE 2>/dev/null | awk "\$3==\"disk\"{count++; disks=disks (disks?\", \":\"\") \$1 \" (\" \$2 \")\"} END {if (count>0) print count \" Disks [\" disks \"]\"; else print \"\"}")
+DISK_LIST=$(lsblk -d -n -o NAME,SIZE,TYPE 2>/dev/null | awk '$3=="disk"{count++; disks=disks (disks?", ":"") $1 " (" $2 ")"} END {if (count>0) print count " Disks [" disks "]"; else print ""}')
 [ -z "$DISK_LIST" ] && DISK_LIST="N/A"
 
-NET_LIST=$(ip -br link 2>/dev/null | awk "{count++; iface=iface (iface?\", \":\"\") \$1} END {if (count>0) print count \" Interfaces [\" iface \"]\"; else print \"\"}")
+NET_LIST=$(ip -br link 2>/dev/null | awk '{count++; iface=iface (iface?", ":"") $1} END {if (count>0) print count " Interfaces [" iface "]"; else print ""}')
 [ -z "$NET_LIST" ] && NET_LIST="N/A"
 
 GPU_M=""
 GPU_T=""
 GPU_V=""
 if command -v nvidia-smi >/dev/null 2>&1; then
-  GPU_M=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 | tr "\n" " " | sed "s/ *$//")
-  GPU_V=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -n1 | tr "\n" " " | sed "s/ *$//")
+  GPU_M=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 | tr '\n' ' ' | sed 's/ *$//')
+  GPU_V=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -n1 | tr '\n' ' ' | sed 's/ *$//')
   [ -n "$GPU_M" ] && GPU_T="Discrete (NVIDIA)"
 fi
 
 if [ -z "$GPU_M" ] && command -v lspci >/dev/null 2>&1; then
-  PCI_VGA=$(lspci 2>/dev/null | grep -iE "vga|3d|display" | awk -F: "{print \$3}" | sed "s/^[ \t]*//" | head -n1)
+  PCI_VGA=$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | awk -F: '{print $3}' | sed 's/^[ \t]*//' | head -n1)
   if [ -n "$PCI_VGA" ]; then
     GPU_M="$PCI_VGA"
     GPU_T="Integrated / PCI Display"
@@ -196,7 +191,7 @@ cat <<EOF
   "total_vram": "$GPU_V"
 }
 EOF
-'`
+`
 
 type rawProbePayload struct {
 	ServerName             string `json:"server_name"`
@@ -223,16 +218,13 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 	}
 
 	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(cfg, linuxDiscoveryBashScript)
-	if err != nil || exitCode != 0 {
-		return nil, fmt.Errorf("failed executing hardware probe over SSH (exit %d): %v (stderr: %s)", exitCode, err, stderr)
-	}
 
 	// Extract JSON payload from stdout
 	cleanOut := strings.TrimSpace(stdout)
 	startIdx := strings.Index(cleanOut, "{")
 	endIdx := strings.LastIndex(cleanOut, "}")
 	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
-		return nil, fmt.Errorf("probe output did not contain valid JSON: %s", cleanOut)
+		return nil, fmt.Errorf("failed executing hardware probe over SSH (exit %d): %v (stderr: %s, stdout: %s)", exitCode, err, stderr, cleanOut)
 	}
 	jsonStr := cleanOut[startIdx : endIdx+1]
 

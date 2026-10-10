@@ -191,12 +191,27 @@ const fetchData = async () => {
 const fetchRemoteHosts = async () => {
   try {
     const res = await axios.get('/api/v1/remote-host');
-    remoteHosts.value = res.data || [];
-  } catch (err) {}
+    if (res.data?.success && Array.isArray(res.data?.data)) {
+      remoteHosts.value = res.data.data;
+    } else if (Array.isArray(res.data)) {
+      remoteHosts.value = res.data;
+    } else if (Array.isArray(res.data?.data)) {
+      remoteHosts.value = res.data.data;
+    } else {
+      remoteHosts.value = [];
+    }
+  } catch (err) {
+    remoteHosts.value = [];
+  }
+};
+
+const openSyncModal = async () => {
+  showSyncModal.value = true;
+  await fetchRemoteHosts();
 };
 
 // Actions
-const openAddModal = () => {
+const openAddModal = async () => {
   isEditing.value = false;
   editingId.value = '';
   formData.value = {
@@ -220,9 +235,10 @@ const openAddModal = () => {
     notes: '',
   };
   showAddModal.value = true;
+  await fetchRemoteHosts();
 };
 
-const openEditModal = (item: ServerInventoryItem) => {
+const openEditModal = async (item: ServerInventoryItem) => {
   isEditing.value = true;
   editingId.value = item.id;
   formData.value = {
@@ -246,6 +262,7 @@ const openEditModal = (item: ServerInventoryItem) => {
     notes: item.notes || '',
   };
   showAddModal.value = true;
+  await fetchRemoteHosts();
 };
 
 const saveServer = async () => {
@@ -455,7 +472,7 @@ onMounted(() => {
       <!-- Action Buttons Toolbar -->
       <div class="flex flex-wrap items-center gap-2 shrink-0">
         <button
-          @click="showSyncModal = true"
+          @click="openSyncModal"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-[#141824] hover:bg-slate-200 dark:hover:bg-[#1a2336] border border-slate-300 dark:border-[#222c42] transition cursor-pointer"
         >
           <Radio class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
@@ -627,7 +644,7 @@ onMounted(() => {
                     Add Server Manual
                   </button>
                   <button
-                    @click="showSyncModal = true"
+                    @click="openSyncModal"
                     class="px-3 py-1.5 bg-slate-100 dark:bg-[#161d2d] text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-300 dark:border-[#222c42] cursor-pointer"
                   >
                     Sync from Remote Host
