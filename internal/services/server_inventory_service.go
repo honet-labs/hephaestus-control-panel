@@ -177,6 +177,26 @@ fi
 [ -z "$GPU_T" ] && GPU_T="N/A"
 [ -z "$GPU_V" ] && GPU_V="N/A"
 
+clean_val() {
+  printf '%s' "$1" | tr -d '"\\`\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+HN=$(clean_val "$HN")
+IP=$(clean_val "$IP")
+OS_VER=$(clean_val "$OS_VER")
+OS_TYPE=$(clean_val "$OS_TYPE")
+ARCH=$(clean_val "$ARCH")
+CPU_MOD=$(clean_val "$CPU_MOD")
+TOTAL_CORE=$(clean_val "$TOTAL_CORE")
+TOT_MEM=$(clean_val "$TOT_MEM")
+DIMMS=$(clean_val "$DIMMS")
+TOT_STORAGE=$(clean_val "$TOT_STORAGE")
+DISK_LIST=$(clean_val "$DISK_LIST")
+NET_LIST=$(clean_val "$NET_LIST")
+GPU_M=$(clean_val "$GPU_M")
+GPU_T=$(clean_val "$GPU_T")
+GPU_V=$(clean_val "$GPU_V")
+
 cat <<EOF
 {
   "server_name": "$HN",

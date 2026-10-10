@@ -890,28 +890,47 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		CREATE TABLE IF NOT EXISTS server_inventory (
 			id VARCHAR(50) PRIMARY KEY,
 			remote_host_id VARCHAR(50) REFERENCES remote_host_configs(id) ON DELETE SET NULL,
-			server_name VARCHAR(255) NOT NULL,
-			ip_address VARCHAR(100) NOT NULL,
-			os_version VARCHAR(255) DEFAULT 'N/A',
-			os_type VARCHAR(100) DEFAULT 'Linux',
-			architecture_type VARCHAR(100) DEFAULT 'N/A',
-			processor_model VARCHAR(255) DEFAULT 'N/A',
-			total_core VARCHAR(50) DEFAULT 'N/A',
-			total_memory VARCHAR(100) DEFAULT 'N/A',
-			total_dimm_memory VARCHAR(255) DEFAULT 'N/A',
-			total_storage_size VARCHAR(100) DEFAULT 'N/A',
-			total_disk_count VARCHAR(255) DEFAULT 'N/A',
-			total_network_interfaces VARCHAR(255) DEFAULT 'N/A',
-			gpu_model VARCHAR(255) DEFAULT 'N/A',
-			gpu_type VARCHAR(100) DEFAULT 'N/A',
-			total_vram VARCHAR(100) DEFAULT 'N/A',
-			status VARCHAR(50) DEFAULT 'active',
+			server_name TEXT NOT NULL,
+			ip_address TEXT NOT NULL,
+			os_version TEXT DEFAULT 'N/A',
+			os_type TEXT DEFAULT 'Linux',
+			architecture_type TEXT DEFAULT 'N/A',
+			processor_model TEXT DEFAULT 'N/A',
+			total_core TEXT DEFAULT 'N/A',
+			total_memory TEXT DEFAULT 'N/A',
+			total_dimm_memory TEXT DEFAULT 'N/A',
+			total_storage_size TEXT DEFAULT 'N/A',
+			total_disk_count TEXT DEFAULT 'N/A',
+			total_network_interfaces TEXT DEFAULT 'N/A',
+			gpu_model TEXT DEFAULT 'N/A',
+			gpu_type TEXT DEFAULT 'N/A',
+			total_vram TEXT DEFAULT 'N/A',
+			status TEXT DEFAULT 'active',
 			notes TEXT DEFAULT '',
 			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
 			last_synced_at TIMESTAMP WITH TIME ZONE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		);
+
+		-- Incremental upgrades for server_inventory
+		ALTER TABLE server_inventory ALTER COLUMN server_name TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN ip_address TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN os_version TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN os_type TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN architecture_type TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN processor_model TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_core TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_memory TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_dimm_memory TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_storage_size TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_disk_count TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_network_interfaces TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN gpu_model TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN gpu_type TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN total_vram TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN status TYPE TEXT;
+		ALTER TABLE server_inventory ALTER COLUMN notes TYPE TEXT;
 
 		CREATE INDEX IF NOT EXISTS idx_server_inventory_remote_host ON server_inventory(remote_host_id);
 		CREATE INDEX IF NOT EXISTS idx_server_inventory_ip ON server_inventory(ip_address);
