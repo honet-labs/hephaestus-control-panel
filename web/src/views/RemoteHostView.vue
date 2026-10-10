@@ -199,6 +199,8 @@ const desktopLoading = ref<Record<string, boolean>>({});
 const desktopError = ref<Record<string, string>>({});
 const desktopClients = ref<Record<string, any>>({});
 const desktopIsFullscreen = ref<Record<string, boolean>>({});
+const desktopObservers: Record<string, ResizeObserver> = {};
+const tabBarRef = ref<HTMLElement | null>(null);
 
 const tabGroups = ref<TabGroup[]>([]);
 const isSftpFullScreen = ref(true);
@@ -714,6 +716,12 @@ const closeSession = (sessionOrIdx: OpenSession | number | string, event?: Mouse
         s.term.dispose();
       } catch (e) {}
       s.term = undefined;
+    }
+    if (desktopObservers[s.id]) {
+      try {
+        desktopObservers[s.id].disconnect();
+      } catch (e) {}
+      delete desktopObservers[s.id];
     }
     if (desktopClients.value[s.id]) {
       try {
@@ -1393,6 +1401,8 @@ const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'da
     await ensureTerminalReady(session);
   } else if (viewName === 'desktop') {
     await ensureDesktopReady(session);
+    await nextTick();
+    scaleDesktop(session.id);
   } else {
     await fetchHostTelemetry(session);
   }
@@ -1427,6 +1437,32 @@ const parseGuacamoleError = (status: any): string => {
   return codeMap[code] || `Remote desktop error (Code: 0x${Number(code).toString(16).toUpperCase()})`;
 };
 
+const scaleDesktop = (sessId: string) => {
+  const client = desktopClients.value[sessId];
+  const container = document.getElementById(`desktop-container-${sessId}`);
+  if (!client || !container) return;
+
+  const display = client.getDisplay();
+  if (!display) return;
+
+  const dispWidth = display.getWidth();
+  const dispHeight = display.getHeight();
+  if (!dispWidth || !dispHeight) return;
+
+  const cWidth = container.clientWidth;
+  const cHeight = container.clientHeight;
+  if (!cWidth || !cHeight) return;
+
+  const scale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
+  display.scale(Math.max(scale, 0.05));
+
+  const wrapper = document.getElementById(`desktop-display-wrapper-${sessId}`);
+  if (wrapper) {
+    wrapper.style.width = `${Math.floor(dispWidth * scale)}px`;
+    wrapper.style.height = `${Math.floor(dispHeight * scale)}px`;
+  }
+};
+
 const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean = false) => {
   if (!session || !session.host?.id) return;
   const sessId = session.id;
@@ -1444,6 +1480,12 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
   const viewport = document.getElementById(`desktop-viewport-${sessId}`);
   if (!container || !viewport) return;
 
+  if (desktopObservers[sessId]) {
+    try {
+      desktopObservers[sessId].disconnect();
+    } catch (_) {}
+  }
+
   if (desktopClients.value[sessId]) {
     try {
       desktopClients.value[sessId].disconnect();
@@ -1459,8 +1501,8 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     const GuacamoleModule = await import('guacamole-common-js');
     const Guacamole = GuacamoleModule.default || GuacamoleModule;
 
-    const width = Math.max(container.clientWidth || 1920, 1024);
-    const height = Math.max(container.clientHeight || 1080, 768);
+    const width = Math.max(container.clientWidth || window.innerWidth || 1920, 1024);
+    const height = Math.max(container.clientHeight || (window.innerHeight - 90) || 1080, 768);
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const protoType = desktopProto.value[sessId] || 'rdp';
     const secMode = desktopSecurity.value[sessId] || 'any';
@@ -1473,14 +1515,36 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
 
     desktopClients.value[sessId] = client;
 
-    // Display Element Setup inside dedicated viewport container
-    const displayElement = client.getDisplay().getElement();
-    displayElement.style.margin = 'auto';
-    displayElement.style.maxWidth = '100%';
-    displayElement.style.maxHeight = '100%';
-
+    // Display Element Setup inside dedicated centered wrapper
     viewport.innerHTML = '';
-    viewport.appendChild(displayElement);
+    const displayWrapper = document.createElement('div');
+    displayWrapper.id = `desktop-display-wrapper-${sessId}`;
+    displayWrapper.style.position = 'relative';
+    displayWrapper.style.overflow = 'hidden';
+    displayWrapper.style.display = 'flex';
+    displayWrapper.style.alignItems = 'center';
+    displayWrapper.style.justifyContent = 'center';
+    displayWrapper.style.margin = 'auto';
+
+    const display = client.getDisplay();
+    const displayElement = display.getElement();
+    displayElement.style.position = 'relative';
+    displayElement.style.transformOrigin = '0 0';
+
+    displayWrapper.appendChild(displayElement);
+    viewport.appendChild(displayWrapper);
+
+    // Dynamic display scaling listener
+    display.onresize = () => {
+      scaleDesktop(sessId);
+    };
+
+    // Container resize observer to automatically scale canvas when viewport resizes
+    const ro = new ResizeObserver(() => {
+      scaleDesktop(sessId);
+    });
+    ro.observe(container);
+    desktopObservers[sessId] = ro;
 
     // Mouse Handler
     const mouse = new Guacamole.Mouse(displayElement);
@@ -1523,6 +1587,7 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
         desktopLoading.value[sessId] = false;
         desktopError.value[sessId] = '';
         container.focus();
+        scaleDesktop(sessId);
       } else if (state === 5) { // DISCONNECTED
         desktopConnected.value[sessId] = false;
         desktopLoading.value[sessId] = false;
@@ -2295,28 +2360,57 @@ const handleCreateGroup = async () => {
   }
 };
 
-const handleWindowResize = () => {
-  if (activeSession.value && activeSession.value.activeView === 'terminal') {
-    try {
-      activeSession.value.fitAddon?.fit();
-      if (
-        activeSession.value.ws &&
-        activeSession.value.ws.readyState === WebSocket.OPEN &&
-        activeSession.value.term &&
-        activeSession.value.term.cols > 0 &&
-        activeSession.value.term.rows > 0
-      ) {
-        activeSession.value.ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: activeSession.value.term.cols,
-            rows: activeSession.value.term.rows,
-          })
-        );
-      }
-    } catch (e) {}
+const handleTabBarWheel = (e: WheelEvent) => {
+  const container = e.currentTarget as HTMLElement;
+  if (container && e.deltaY !== 0) {
+    container.scrollLeft += e.deltaY;
   }
 };
+
+const handleWindowResize = () => {
+  if (activeSession.value) {
+    if (activeSession.value.activeView === 'terminal') {
+      try {
+        activeSession.value.fitAddon?.fit();
+        if (
+          activeSession.value.ws &&
+          activeSession.value.ws.readyState === WebSocket.OPEN &&
+          activeSession.value.term &&
+          activeSession.value.term.cols > 0 &&
+          activeSession.value.term.rows > 0
+        ) {
+          activeSession.value.ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols: activeSession.value.term.cols,
+              rows: activeSession.value.term.rows,
+            })
+          );
+        }
+      } catch (e) {}
+    } else if (activeSession.value.activeView === 'desktop') {
+      scaleDesktop(activeSession.value.id);
+    }
+  }
+};
+
+watch(activeSessionIndex, async (newIdx) => {
+  if (newIdx >= 0 && openSessions.value[newIdx]) {
+    const s = openSessions.value[newIdx];
+    await nextTick();
+    if (s.activeView === 'desktop') {
+      scaleDesktop(s.id);
+    } else if (s.activeView === 'terminal') {
+      s.fitAddon?.fit();
+    }
+    if (tabBarRef.value) {
+      const activeEl = tabBarRef.value.querySelector('.active-session-tab') as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+    }
+  }
+});
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible') {
@@ -2344,6 +2438,11 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('resize', handleWindowResize);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  Object.values(desktopObservers).forEach((ro) => {
+    try {
+      ro.disconnect();
+    } catch (_) {}
+  });
   openSessions.value.forEach((s) => {
     if (s.resizeObserver) {
       try {
@@ -2379,18 +2478,18 @@ onUnmounted(() => {
     </header>
 
     <!-- Sub-Header Tabs & Quick Actions Bar -->
-    <div class="bg-slate-50 dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800/80 px-4 flex items-center gap-2 text-xs shrink-0 py-1.5 overflow-x-auto">
+    <div class="h-10 bg-slate-50 dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800/80 px-3 flex items-center gap-2 text-xs shrink-0 select-none overflow-hidden">
       <!-- Servers Menu Button -->
       <button
         @click="activeSessionIndex = -1"
         :class="[
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition text-xs border',
+          'shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium transition text-xs border whitespace-nowrap h-7 cursor-pointer',
           activeSessionIndex === -1
             ? 'bg-white text-blue-700 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-sm font-bold'
             : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
         ]"
       >
-        <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+        <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
         <span>SERVERS</span>
       </button>
 
@@ -2399,7 +2498,7 @@ onUnmounted(() => {
         v-if="canManage"
         @click="openAddHostModal()"
         title="Add New Remote Server"
-        class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition"
+        class="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition h-7 flex items-center justify-center cursor-pointer"
       >
         <Plus class="w-3.5 h-3.5" />
       </button>
@@ -2407,25 +2506,27 @@ onUnmounted(() => {
       <!-- Dual-Pane SFTP Transfer Button -->
       <button
         @click="openSftpModal()"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/80 hover:border-blue-500/50 dark:hover:border-brand-500/50 transition font-medium text-xs shadow-sm"
+        class="shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/80 hover:border-blue-500/50 dark:hover:border-brand-500/50 transition font-medium text-xs shadow-sm whitespace-nowrap h-7 cursor-pointer"
         title="Open FileZilla Dual-Pane SFTP Transfer"
       >
-        <Upload class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400" />
+        <Upload class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400 shrink-0" />
         <span>SFTP TRANSFER</span>
       </button>
 
       <!-- Open Session Tabs Strip (Google Chrome-style Groups & Drag n Drop) -->
       <div
-        class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3 flex-1 overflow-x-auto select-none py-0.5"
+        ref="tabBarRef"
+        class="flex items-center gap-1.5 ml-2 border-l border-slate-300 dark:border-slate-800 pl-3 flex-1 overflow-x-auto overflow-y-hidden select-none py-1 h-full scrollbar-none"
         @dragover.prevent
         @drop.prevent="handleTabBarDrop"
+        @wheel.passive="handleTabBarWheel"
       >
         <template v-for="cluster in tabClusters" :key="cluster.type === 'group' ? cluster.group.id : cluster.session.id">
           
           <!-- CHROME TAB GROUP -->
           <div
             v-if="cluster.type === 'group'"
-            class="flex items-center gap-1 p-0.5 rounded-xl border transition"
+            class="shrink-0 flex items-center gap-1 p-0.5 rounded-xl border transition h-8"
             :style="{
               borderColor: cluster.group.color + '55',
               backgroundColor: cluster.group.color + '10'
@@ -2438,7 +2539,7 @@ onUnmounted(() => {
               @dragover.prevent="handleGroupPillDragOver($event, cluster.group.id)"
               @drop.prevent="handleGroupPillDrop($event, cluster.group)"
               :class="[
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer select-none group/grp',
+                'shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer select-none group/grp whitespace-nowrap h-7',
                 dragOverGroupId === cluster.group.id ? 'ring-2 ring-white scale-105' : ''
               ]"
               :style="{
@@ -2448,17 +2549,17 @@ onUnmounted(() => {
               }"
               :title="'Click to ' + (cluster.group.collapsed ? 'expand' : 'collapse') + ' | Right click to configure group'"
             >
-              <span class="w-2 h-2 rounded-full shadow-sm" :style="{ backgroundColor: cluster.group.color }"></span>
-              <span>{{ cluster.group.name }}</span>
+              <span class="w-2 h-2 rounded-full shadow-sm shrink-0" :style="{ backgroundColor: cluster.group.color }"></span>
+              <span class="truncate max-w-[120px]">{{ cluster.group.name }}</span>
               <span
                 v-if="cluster.group.collapsed"
-                class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-900/80 text-white"
+                class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-900/80 text-white shrink-0"
               >
                 {{ cluster.sessions.length }}
               </span>
               <ChevronDown
                 v-else
-                class="w-3 h-3 opacity-60 group-hover/grp:opacity-100 transition"
+                class="w-3 h-3 opacity-60 group-hover/grp:opacity-100 transition shrink-0"
               />
             </div>
 
@@ -2475,12 +2576,12 @@ onUnmounted(() => {
                 @click="activeSessionIndex = sItem.globalIndex"
                 @contextmenu.prevent="openTabContextMenu($event, sItem.session, sItem.globalIndex)"
                 :class="[
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border',
+                  'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border h-7 max-w-[200px]',
                   draggedGlobalIndex === sItem.globalIndex ? 'opacity-40 scale-95' : '',
                   dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-white' : '',
                   dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-white' : '',
                   activeSessionIndex === sItem.globalIndex
-                    ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+                    ? 'active-session-tab bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                 ]"
                 :style="{
@@ -2488,19 +2589,19 @@ onUnmounted(() => {
                   borderLeftWidth: activeSessionIndex === sItem.globalIndex ? '3px' : undefined
                 }"
               >
-                <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
+                <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
                 <span
-                  class="w-1.5 h-1.5 rounded-full transition-all"
+                  class="w-1.5 h-1.5 rounded-full transition-all shrink-0"
                   :class="sItem.session.connected ? '' : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
                   :style="{ backgroundColor: sItem.session.connected ? cluster.group.color : (sItem.session.connecting ? cluster.group.color : '#ef4444') }"
                 ></span>
-                <span>{{ sItem.session.displayName || sItem.session.host.name }}</span>
+                <span class="truncate whitespace-nowrap text-[11px]">{{ sItem.session.displayName || sItem.session.host.name }}</span>
 
                 <!-- Duplicate Tab Button -->
                 <button
                   @click.stop="duplicateSession(sItem.session)"
                   title="Duplicate tab in group"
-                  class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+                  class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500 shrink-0 cursor-pointer"
                 >
                   <Copy class="w-2.5 h-2.5" />
                 </button>
@@ -2509,7 +2610,7 @@ onUnmounted(() => {
                 <button
                   @click.stop="closeSession(sItem.session)"
                   title="Close Tab"
-                  class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500"
+                  class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500 shrink-0 cursor-pointer"
                 >
                   <X class="w-2.5 h-2.5" />
                 </button>
@@ -2528,27 +2629,27 @@ onUnmounted(() => {
             @click="activeSessionIndex = cluster.globalIndex"
             @contextmenu.prevent="openTabContextMenu($event, cluster.session, cluster.globalIndex)"
             :class="[
-              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border',
+              'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border h-8 max-w-[220px]',
               draggedGlobalIndex === cluster.globalIndex ? 'opacity-40 scale-95' : '',
               dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-brand-400' : '',
               dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-brand-400' : '',
               activeSessionIndex === cluster.globalIndex
-                ? 'bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
+                ? 'active-session-tab bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
                 : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
             ]"
           >
-            <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab" />
+            <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
             <span
-              class="w-2 h-2 rounded-full transition-colors"
+              class="w-2 h-2 rounded-full transition-colors shrink-0"
               :class="cluster.session.connected ? 'bg-emerald-500' : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
             ></span>
-            <span>{{ cluster.session.displayName || cluster.session.host.name }}</span>
+            <span class="truncate whitespace-nowrap text-[11px]">{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
             <!-- Duplicate Tab Button -->
             <button
               @click.stop="duplicateSession(cluster.session)"
               title="Duplicate Terminal Tab"
-              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-0.5"
+              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-0.5 shrink-0 cursor-pointer"
             >
               <Copy class="w-3 h-3" />
             </button>
@@ -2557,7 +2658,7 @@ onUnmounted(() => {
             <button
               @click.stop="closeSession(cluster.session)"
               title="Close Tab"
-              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400"
+              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400 shrink-0 cursor-pointer"
             >
               <X class="w-3 h-3" />
             </button>
@@ -2570,9 +2671,9 @@ onUnmounted(() => {
           v-if="openSessions.length > 1"
           @click="autoGroupByHost"
           title="Auto-organize tabs into Chrome groups by Host"
-          class="flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px] font-mono border border-slate-700/60 transition ml-1"
+          class="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px] font-mono border border-slate-700/60 transition ml-1 whitespace-nowrap h-7 cursor-pointer"
         >
-          <Layers class="w-3 h-3 text-brand-400" />
+          <Layers class="w-3 h-3 text-brand-400 shrink-0" />
           <span>Auto Group</span>
         </button>
 
@@ -2581,16 +2682,16 @@ onUnmounted(() => {
           v-if="activeSession"
           @click="duplicateSession(activeSession)"
           title="Duplicate Current Server Tab"
-          class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition"
+          class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition whitespace-nowrap h-7 cursor-pointer"
         >
-          <Plus class="w-3 h-3 text-brand-400" />
+          <Plus class="w-3 h-3 text-brand-400 shrink-0" />
           <span>New Tab</span>
         </button>
       </div>
     </div>
 
     <!-- Main Workspace Body -->
-    <div class="flex-1 flex overflow-hidden">
+    <div class="flex-1 flex overflow-hidden min-h-0 w-full h-full">
       
       <!-- VIEW 1: SERVER LIST / DISCOVERY -->
       <div v-if="activeSessionIndex === -1" class="flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 overflow-y-auto w-full max-w-[1720px] mx-auto space-y-6">
@@ -2858,7 +2959,7 @@ onUnmounted(() => {
 
       <!-- VIEW 2: ACTIVE HOST WORKSPACES (PRESERVED IN DOM WITH v-show) -->
       <template v-for="(session, sIdx) in openSessions" :key="session.id">
-        <div v-show="activeSessionIndex === sIdx" class="flex-1 flex overflow-hidden">
+        <div v-show="activeSessionIndex === sIdx" class="flex-1 flex overflow-hidden min-h-0 w-full h-full">
           <!-- Left Vertical Icon Nav Bar -->
           <aside class="w-12 bg-white dark:bg-[#1b1e26] border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0 shadow-sm">
             <button
@@ -2962,7 +3063,7 @@ onUnmounted(() => {
           </aside>
 
           <!-- Host Content Pane -->
-          <div class="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-[#090d16]">
+          <div class="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-[#090d16] min-h-0 w-full h-full">
             
             <!-- 1. TERMINAL VIEW (Always mounted, no blank screens) -->
             <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden">
@@ -3687,13 +3788,13 @@ onUnmounted(() => {
               <!-- Canvas Container -->
               <div
                 :id="`desktop-container-${session.id}`"
-                class="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center bg-black focus:outline-none"
+                class="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center bg-black focus:outline-none min-h-0 min-w-0"
                 tabindex="0"
               >
                 <!-- Dedicated mount container for Guacamole display canvas -->
                 <div
                   :id="`desktop-viewport-${session.id}`"
-                  class="w-full h-full flex items-center justify-center overflow-hidden"
+                  class="w-full h-full flex items-center justify-center overflow-hidden min-h-0 min-w-0"
                 ></div>
 
                 <!-- Loading State Overlay -->
