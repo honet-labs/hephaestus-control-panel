@@ -801,3 +801,8 @@ Detailed technical documentation and operational runbooks are maintained in the 
 
 This project is licensed under the **[MIT License](./LICENSE)**.  
 Copyright (c) 2026 HONET Labs & Hephaestus Contributors.
+
+### Third-Party Software Notices
+Hephaestus incorporates third-party open-source components under permissive licenses:
+- **Apache Guacamole (`guacd` & `guacamole-common-js`)**: Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0). See [NOTICE](./NOTICE) for full attribution details.
+
