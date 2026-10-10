@@ -96,6 +96,7 @@ services:
     expose:
       - "4822"
     environment:
+      - GUACD_LOG_LEVEL=${GUACD_LOG_LEVEL:-info}
       - TZ=${TZ:-Asia/Jakarta}
     logging:
       driver: "json-file"

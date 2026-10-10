@@ -175,6 +175,9 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 	// 6. Map connection parameters
 	paramMap := make(map[string]string)
 	paramMap["hostname"] = cfg.Host
+	paramMap["width"] = strconv.Itoa(width)
+	paramMap["height"] = strconv.Itoa(height)
+	paramMap["dpi"] = strconv.Itoa(dpi)
 
 	port := 3389
 	if proto == "vnc" {
@@ -201,6 +204,8 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 
 	if proto == "rdp" {
 		paramMap["ignore-cert"] = "true"
+		paramMap["cert-ignore"] = "true"
+		paramMap["disable-auth"] = "false"
 		sec := strings.ToLower(strings.TrimSpace(security))
 		if sec == "" {
 			sec = "any"
