@@ -69,7 +69,10 @@ interface RemoteHostOption {
   host: string;
   port: number;
   username: string;
+  tags?: string[];
 }
+
+const isRdpRemoteHost = (h: RemoteHostOption) => h.port === 3389 || h.tags?.includes('rdp');
 
 const authStore = useAuthStore();
 
@@ -235,6 +238,30 @@ const openAddModal = async () => {
   };
   showAddModal.value = true;
   await fetchRemoteHosts();
+};
+
+const onOsTypeChange = () => {
+  if (formData.value.osType === 'Windows') {
+    if (!formData.value.osVersion || formData.value.osVersion.includes('Ubuntu')) {
+      formData.value.osVersion = 'Microsoft Windows Server 2022';
+    }
+  } else if (formData.value.osType === 'Linux') {
+    if (!formData.value.osVersion || formData.value.osVersion.includes('Windows')) {
+      formData.value.osVersion = 'Ubuntu 22.04 LTS';
+    }
+  }
+};
+
+const onRemoteHostSelect = () => {
+  const selected = remoteHosts.value.find((h) => h.id === formData.value.remoteHostId);
+  if (selected) {
+    if (!formData.value.serverName) formData.value.serverName = selected.name;
+    if (!formData.value.ipAddress) formData.value.ipAddress = selected.host;
+    if (isRdpRemoteHost(selected)) {
+      formData.value.osType = 'Windows';
+      formData.value.osVersion = 'Microsoft Windows Server 2022';
+    }
+  }
 };
 
 const openEditModal = async (item: ServerInventoryItem) => {
@@ -643,10 +670,15 @@ onMounted(() => {
                   <span>{{ item.serverName }}</span>
                   <span
                     v-if="item.remoteHostId"
-                    class="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#222c42]"
-                    title="Linked to Remote Host"
+                    :class="[
+                      'px-1.5 py-0.2 rounded text-[10px] border',
+                      item.osType === 'Windows' || item.notes?.toLowerCase().includes('rdp')
+                        ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20'
+                        : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#222c42]'
+                    ]"
+                    :title="item.osType === 'Windows' || item.notes?.toLowerCase().includes('rdp') ? 'Linked to Remote Desktop (RDP)' : 'Linked to Remote SSH Host'"
                   >
-                    SSH
+                    {{ item.osType === 'Windows' || item.notes?.toLowerCase().includes('rdp') ? 'RDP' : 'SSH' }}
                   </span>
                 </div>
               </td>
@@ -672,8 +704,19 @@ onMounted(() => {
               </td>
 
               <!-- 4. OS Type -->
-              <td class="px-3.5 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap min-w-[90px]">
-                {{ item.osType }}
+              <td class="px-3.5 py-3 whitespace-nowrap min-w-[90px]">
+                <span
+                  :class="[
+                    'px-2 py-0.5 rounded text-[11px] font-medium inline-flex items-center gap-1',
+                    item.osType === 'Windows'
+                      ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20'
+                      : item.osType === 'Linux'
+                      ? 'bg-slate-100 dark:bg-[#182133] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#222d42]'
+                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  ]"
+                >
+                  {{ item.osType }}
+                </span>
               </td>
 
               <!-- 5. Architecture Type -->
@@ -842,14 +885,15 @@ onMounted(() => {
 
           <!-- Linked Remote Host -->
           <div class="md:col-span-2">
-            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Link to Remote Host (Optional SSH Sync)</label>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Link to Remote Host (SSH / RDP Sync)</label>
             <select
               v-model="formData.remoteHostId"
+              @change="onRemoteHostSelect"
               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1f283d] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="">None (Standalone Manual Server)</option>
               <option v-for="host in remoteHosts" :key="host.id" :value="host.id">
-                {{ host.name }} ({{ host.host }}:{{ host.port }})
+                {{ host.name }} ({{ host.host }}:{{ host.port }}) - {{ isRdpRemoteHost(host) ? 'RDP' : 'SSH' }}
               </option>
             </select>
           </div>
@@ -860,7 +904,7 @@ onMounted(() => {
             <input
               v-model="formData.osVersion"
               type="text"
-              placeholder="e.g. Ubuntu 22.04.4 LTS"
+              placeholder="e.g. Ubuntu 22.04 LTS or Windows Server 2022"
               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1f283d] text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -870,6 +914,7 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">OS Type</label>
             <select
               v-model="formData.osType"
+              @change="onOsTypeChange"
               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1f283d] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="Linux">Linux</option>
@@ -1052,7 +1097,7 @@ onMounted(() => {
           <div>
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">Sync from Remote Servers</h2>
             <p class="text-[11px] text-slate-500 dark:text-slate-400">
-              Discovers hardware specs, CPU cores, memory DIMMs, disks, and GPU via SSH.
+              Discovers hardware specs, CPU cores, memory DIMMs, disks, and GPU via SSH and Remote Desktop (RDP).
             </p>
           </div>
           <button @click="showSyncModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
@@ -1063,7 +1108,7 @@ onMounted(() => {
         <div class="flex items-center justify-between bg-slate-50 dark:bg-[#141824] p-3 rounded-xl border border-slate-200 dark:border-[#1f283d]">
           <div>
             <p class="text-xs font-semibold text-slate-800 dark:text-slate-200">Sync All Available Hosts</p>
-            <p class="text-[11px] text-slate-500">Run parallel discovery probe across all {{ remoteHosts.length }} registered SSH servers</p>
+            <p class="text-[11px] text-slate-500">Run parallel discovery probe across all {{ remoteHosts.length }} registered SSH & RDP servers</p>
           </div>
           <button
             @click="triggerSyncAll"
@@ -1085,8 +1130,18 @@ onMounted(() => {
             class="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-[#182030] bg-slate-50/50 dark:bg-[#141824]/50"
           >
             <div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <p class="text-xs font-semibold text-slate-900 dark:text-white">{{ host.name }}</p>
+                <span
+                  :class="[
+                    'text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold',
+                    isRdpRemoteHost(host)
+                      ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20'
+                      : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#222c42]'
+                  ]"
+                >
+                  {{ isRdpRemoteHost(host) ? 'RDP' : 'SSH' }}
+                </span>
                 <span
                   v-if="getHostInventoryStatus(host)"
                   :class="[

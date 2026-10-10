@@ -3,13 +3,20 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
@@ -218,6 +225,163 @@ cat <<EOF
 EOF
 `
 
+// Windows Discovery PowerShell Script: Gathers CPU, cores, memory DIMMs, storage drives, network interfaces, and GPU specifications
+const windowsDiscoveryPowerShellScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+if (-not $os) { $os = Get-WmiObject Win32_OperatingSystem -ErrorAction SilentlyContinue }
+$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+if (-not $cs) { $cs = Get-WmiObject Win32_ComputerSystem -ErrorAction SilentlyContinue }
+$cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $cpu) { $cpu = Get-WmiObject Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1 }
+
+$coresSum = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property NumberOfCores -Sum).Sum
+$cores = if ($coresSum) { $coresSum } elseif ($cpu.NumberOfCores) { $cpu.NumberOfCores } else { 1 }
+
+$totMemBytes = if ($cs.TotalPhysicalMemory) { [int64]$cs.TotalPhysicalMemory } elseif ($os.TotalVisibleMemorySize) { [int64]$os.TotalVisibleMemorySize * 1024 } else { 0 }
+$totMemGB = if ($totMemBytes -gt 0) { [math]::Round($totMemBytes / 1GB, 2) } else { 0 }
+
+$dimmCount = (Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue | Measure-Object).Count
+$dimmStr = if ($dimmCount -gt 0) { "$dimmCount DIMMs" } else { "N/A" }
+
+$disks = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)
+if ($disks.Count -eq 0) { $disks = @(Get-WmiObject Win32_DiskDrive -ErrorAction SilentlyContinue) }
+$diskCount = $disks.Count
+$totDiskBytes = ($disks | Measure-Object -Property Size -Sum).Sum
+$totDiskStr = if ($totDiskBytes -gt 1TB) { "$([math]::Round($totDiskBytes / 1TB, 2)) TB" } elseif ($totDiskBytes -gt 0) { "$([math]::Round($totDiskBytes / 1GB, 2)) GB" } else { "N/A" }
+
+$diskParts = @()
+foreach ($d in $disks) {
+    $sz = if ($d.Size -gt 1TB) { "$([math]::Round($d.Size / 1TB, 1))T" } elseif ($d.Size -gt 0) { "$([math]::Round($d.Size / 1GB, 1))G" } else { "?" }
+    $nm = if ($d.DeviceID) { $d.DeviceID -replace '\\\\\.\\','' } else { "Disk" }
+    $diskParts += "$nm ($sz)"
+}
+$diskListStr = if ($diskCount -gt 0) { "$diskCount Disks [" + ($diskParts -join ", ") + "]" } else { "N/A" }
+
+$nics = @(Get-CimInstance Win32_NetworkAdapter -Filter "NetConnectionStatus=2" -ErrorAction SilentlyContinue)
+if ($nics.Count -eq 0) {
+    $nics = @(Get-CimInstance Win32_NetworkAdapter -Filter "PhysicalAdapter=True" -ErrorAction SilentlyContinue)
+}
+$nicNames = @($nics | ForEach-Object { $_.NetConnectionID } | Where-Object { $_ })
+$nicListStr = if ($nicNames.Count -gt 0) { "$($nicNames.Count) Interfaces [" + ($nicNames -join ", ") + "]" } else { "N/A" }
+
+$gpus = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue)
+$gpu = if ($gpus.Count -gt 0) { $gpus[0] } else { $null }
+$gpuName = if ($gpu -and $gpu.Name) { $gpu.Name.Trim() } else { "N/A" }
+$gpuType = if ($gpuName -ne "N/A") {
+    if ($gpuName -match "NVIDIA|GeForce|RTX|Quadro|Tesla") { "Discrete (NVIDIA)" }
+    elseif ($gpuName -match "AMD|Radeon") { "Discrete (AMD)" }
+    elseif ($gpuName -match "Intel") { "Integrated (Intel)" }
+    else { "Standard / Virtual Display" }
+} else { "N/A" }
+$gpuVram = if ($gpu -and $gpu.AdapterRAM -and $gpu.AdapterRAM -gt 0) { "$([math]::Round([int64]$gpu.AdapterRAM / 1MB, 0)) MB" } else { "N/A" }
+
+$hn = if ($os.CSName) { $os.CSName } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "N/A" }
+$ipObj = Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp,Manual -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1
+$ip = if ($ipObj) { $ipObj.IPAddress } else { "N/A" }
+
+$arch = if ($os.OSArchitecture -match "64") { "x86_64" } elseif ($os.OSArchitecture -match "ARM64") { "arm64" } elseif ($os.OSArchitecture -match "32") { "x86_32" } elseif ([IntPtr]::Size -eq 8) { "x86_64" } else { "x86_32" }
+
+$obj = [ordered]@{
+    server_name = $hn
+    ip_address = $ip
+    os_version = if ($os.Caption) { $os.Caption.Trim() } else { "Windows" }
+    os_type = "Windows"
+    architecture_type = $arch
+    processor_model = if ($cpu.Name) { $cpu.Name.Trim() } else { "N/A" }
+    total_core = "$cores Cores"
+    total_memory = if ($totMemGB -gt 0) { "$totMemGB GB" } else { "N/A" }
+    total_dimm_memory = $dimmStr
+    total_storage_size = $totDiskStr
+    total_disk_count = $diskListStr
+    total_network_interfaces = $nicListStr
+    gpu_model = $gpuName
+    gpu_type = $gpuType
+    total_vram = $gpuVram
+}
+$obj | ConvertTo-Json -Compress
+`
+
+func encodePowerShellCommand(psCode string) string {
+	runes := utf16.Encode([]rune(psCode))
+	b := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		binary.LittleEndian.PutUint16(b[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func isWindowsRemoteHost(cfg *domain.RemoteHostConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Port == 3389 {
+		return true
+	}
+	for _, tag := range cfg.Tags {
+		lower := strings.ToLower(tag)
+		if lower == "rdp" || lower == "windows" || lower == "win" {
+			return true
+		}
+	}
+	lowerName := strings.ToLower(cfg.Name)
+	if strings.Contains(lowerName, "windows") || strings.Contains(lowerName, "win10") ||
+		strings.Contains(lowerName, "win11") || strings.Contains(lowerName, "win20") ||
+		strings.Contains(lowerName, "winserver") || strings.Contains(lowerName, "hyper-v") ||
+		strings.Contains(lowerName, "hyperv") {
+		return true
+	}
+	if strings.ToLower(cfg.Username) == "administrator" {
+		return true
+	}
+	return false
+}
+
+func testTcpPort(host string, port int, timeout time.Duration) bool {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func probeRdpHostInfo(host string, timeout time.Duration) (string, string, bool) {
+	if !testTcpPort(host, 3389, timeout) {
+		return "", "", false
+	}
+
+	computerName := ""
+	osVersion := "Windows Server (RDP)"
+
+	// 1. Try querying NetBIOS for hostname
+	_, nbName, nbOk := queryNetBIOS(host, 400*time.Millisecond)
+	if nbOk && nbName != "" {
+		computerName = nbName
+	}
+
+	// 2. Try TLS handshake on 3389 to read certificate Subject CN
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	tlsDialer := &net.Dialer{
+		Timeout: timeout,
+	}
+	if tlsConn, err := tls.DialWithDialer(tlsDialer, "tcp", net.JoinHostPort(host, "3389"), tlsConf); err == nil {
+		defer tlsConn.Close()
+		state := tlsConn.ConnectionState()
+		if len(state.PeerCertificates) > 0 {
+			cert := state.PeerCertificates[0]
+			if computerName == "" && cert.Subject.CommonName != "" {
+				computerName = cert.Subject.CommonName
+			}
+		}
+	}
+
+	return computerName, osVersion, true
+}
+
 type rawProbePayload struct {
 	ServerName             string `json:"server_name"`
 	IPAddress              string `json:"ip_address"`
@@ -248,32 +412,171 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		userPtr = &userID
 	}
 
-	stdout, stderr, exitCode, sshErr := s.sshService.ExecuteCommand(cfg, linuxDiscoveryBashScript)
-
+	isWindows := isWindowsRemoteHost(cfg)
 	var raw rawProbePayload
-	cleanOut := strings.TrimSpace(stdout)
-	startIdx := strings.Index(cleanOut, "{")
-	endIdx := strings.LastIndex(cleanOut, "}")
-
 	hasValidJSON := false
-	if sshErr == nil && startIdx != -1 && endIdx != -1 && endIdx > startIdx {
-		jsonStr := cleanOut[startIdx : endIdx+1]
-		if parseErr := json.Unmarshal([]byte(jsonStr), &raw); parseErr == nil {
-			hasValidJSON = true
+	var lastErr error
+
+	if isWindows {
+		// Attempt A: OpenSSH on Windows (if port is 22 or if port 22 is open when cfg.Port == 3389)
+		sshCfg := cfg
+		canTrySSH := false
+		if cfg.Port != 3389 {
+			canTrySSH = true
+		} else if testTcpPort(cfg.Host, 22, 1200*time.Millisecond) {
+			cloned := *cfg
+			cloned.Port = 22
+			sshCfg = &cloned
+			canTrySSH = true
+		}
+
+		if canTrySSH {
+			psCmd := fmt.Sprintf("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand %s", encodePowerShellCommand(windowsDiscoveryPowerShellScript))
+			stdout, stderr, exitCode, sshErr := s.sshService.ExecuteCommand(sshCfg, psCmd)
+			cleanOut := strings.TrimSpace(stdout)
+			startIdx := strings.Index(cleanOut, "{")
+			endIdx := strings.LastIndex(cleanOut, "}")
+			if sshErr == nil && startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+				jsonStr := cleanOut[startIdx : endIdx+1]
+				if parseErr := json.Unmarshal([]byte(jsonStr), &raw); parseErr == nil && strings.TrimSpace(raw.ServerName) != "" {
+					hasValidJSON = true
+				}
+			} else {
+				if sshErr != nil {
+					lastErr = sshErr
+				} else if strings.TrimSpace(stderr) != "" {
+					lastErr = errors.New(strings.TrimSpace(stderr))
+				} else if exitCode != 0 {
+					lastErr = fmt.Errorf("exit code %d", exitCode)
+				}
+			}
+		}
+
+		// Attempt B: If SSH was not available or didn't return valid JSON, check RDP reachability (port 3389)
+		if !hasValidJSON {
+			rdpPort := cfg.Port
+			if rdpPort != 3389 && !testTcpPort(cfg.Host, rdpPort, 2*time.Second) {
+				rdpPort = 3389
+			}
+			if testTcpPort(cfg.Host, rdpPort, 3*time.Second) {
+				compName, osVer, _ := probeRdpHostInfo(cfg.Host, 2*time.Second)
+				srvName := cfg.Name
+				if compName != "" {
+					srvName = compName
+				}
+				item := domain.ServerInventoryItem{
+					RemoteHostID:           &hostID,
+					ServerName:             srvName,
+					IPAddress:              cfg.Host,
+					OSVersion:              osVer,
+					OSType:                 "Windows",
+					ArchitectureType:       "x86_64",
+					ProcessorModel:         "Intel / AMD Processor",
+					TotalCore:              "N/A",
+					TotalMemory:            "N/A",
+					TotalDimmMemory:        "N/A",
+					TotalStorageSize:       "N/A",
+					TotalDiskCount:         "N/A",
+					TotalNetworkInterfaces: "N/A",
+					GPUModel:               "N/A",
+					GPUType:                "N/A",
+					TotalVRAM:              "N/A",
+					Status:                 "active",
+					Notes:                  fmt.Sprintf("Auto-discovered via Remote Desktop (RDP %d). Active & reachable.", rdpPort),
+					UserID:                 userPtr,
+					LastSyncedAt:           &now,
+				}
+
+				res, _, saveErr := s.repo.UpsertFromProbe(ctx, &item)
+				if saveErr != nil {
+					return nil, fmt.Errorf("failed saving remote host to inventory: %w", saveErr)
+				}
+				return res, nil
+			}
+		}
+	} else {
+		// Non-Windows (assumed Linux): Try bash discovery script first
+		stdout, stderr, exitCode, sshErr := s.sshService.ExecuteCommand(cfg, linuxDiscoveryBashScript)
+		cleanOut := strings.TrimSpace(stdout)
+		startIdx := strings.Index(cleanOut, "{")
+		endIdx := strings.LastIndex(cleanOut, "}")
+		if sshErr == nil && startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+			jsonStr := cleanOut[startIdx : endIdx+1]
+			if parseErr := json.Unmarshal([]byte(jsonStr), &raw); parseErr == nil && strings.TrimSpace(raw.ServerName) != "" {
+				hasValidJSON = true
+			}
+		} else {
+			if sshErr != nil {
+				lastErr = sshErr
+			} else if strings.TrimSpace(stderr) != "" {
+				lastErr = errors.New(strings.TrimSpace(stderr))
+			} else if exitCode != 0 {
+				lastErr = fmt.Errorf("exit code %d", exitCode)
+			}
+		}
+
+		// What if the host was actually a Windows server running SSH with CMD/PowerShell?
+		if !hasValidJSON && sshErr == nil {
+			psCmd := fmt.Sprintf("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand %s", encodePowerShellCommand(windowsDiscoveryPowerShellScript))
+			stdoutPs, _, _, psErr := s.sshService.ExecuteCommand(cfg, psCmd)
+			cleanPs := strings.TrimSpace(stdoutPs)
+			startPs := strings.Index(cleanPs, "{")
+			endPs := strings.LastIndex(cleanPs, "}")
+			if psErr == nil && startPs != -1 && endPs != -1 && endPs > startPs {
+				jsonStr := cleanPs[startPs : endPs+1]
+				if parseErr := json.Unmarshal([]byte(jsonStr), &raw); parseErr == nil && strings.TrimSpace(raw.ServerName) != "" {
+					hasValidJSON = true
+					isWindows = true
+				}
+			}
+		}
+
+		// What if SSH failed, but port 3389 is open (Windows RDP host registered without tags)?
+		if !hasValidJSON && testTcpPort(cfg.Host, 3389, 2*time.Second) {
+			compName, osVer, _ := probeRdpHostInfo(cfg.Host, 2*time.Second)
+			srvName := cfg.Name
+			if compName != "" {
+				srvName = compName
+			}
+			item := domain.ServerInventoryItem{
+				RemoteHostID:           &hostID,
+				ServerName:             srvName,
+				IPAddress:              cfg.Host,
+				OSVersion:              osVer,
+				OSType:                 "Windows",
+				ArchitectureType:       "x86_64",
+				ProcessorModel:         "Intel / AMD Processor",
+				TotalCore:              "N/A",
+				TotalMemory:            "N/A",
+				TotalDimmMemory:        "N/A",
+				TotalStorageSize:       "N/A",
+				TotalDiskCount:         "N/A",
+				TotalNetworkInterfaces: "N/A",
+				GPUModel:               "N/A",
+				GPUType:                "N/A",
+				TotalVRAM:              "N/A",
+				Status:                 "active",
+				Notes:                  "Auto-discovered via Remote Desktop (RDP 3389). Active & reachable.",
+				UserID:                 userPtr,
+				LastSyncedAt:           &now,
+			}
+
+			res, _, saveErr := s.repo.UpsertFromProbe(ctx, &item)
+			if saveErr != nil {
+				return nil, fmt.Errorf("failed saving remote host to inventory: %w", saveErr)
+			}
+			return res, nil
 		}
 	}
 
 	if !hasValidJSON {
-		// Remote server is unreachable or failed SSH probe:
-		// Do NOT drop it! Still upsert the server into inventory with "offline" status and "N/A" specs,
-		// ensuring all registered remote servers appear in the inventory.
-		errReason := "SSH connection or probe command failed"
-		if sshErr != nil {
-			errReason = sshErr.Error()
-		} else if strings.TrimSpace(stderr) != "" {
-			errReason = strings.TrimSpace(stderr)
-		} else if exitCode != 0 {
-			errReason = fmt.Sprintf("exit code %d", exitCode)
+		errReason := "Connection or probe command failed"
+		if lastErr != nil {
+			errReason = lastErr.Error()
+		}
+		fallbackOSType := "Linux"
+		if isWindows {
+			fallbackOSType = "Windows"
 		}
 
 		item := domain.ServerInventoryItem{
@@ -281,7 +584,7 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 			ServerName:             cfg.Name,
 			IPAddress:              cfg.Host,
 			OSVersion:              "N/A",
-			OSType:                 "Linux",
+			OSType:                 fallbackOSType,
 			ArchitectureType:       "N/A",
 			ProcessorModel:         "N/A",
 			TotalCore:              "N/A",
@@ -294,7 +597,7 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 			GPUType:                "N/A",
 			TotalVRAM:              "N/A",
 			Status:                 "offline",
-			Notes:                  fmt.Sprintf("SSH probe unreachable: %s", errReason),
+			Notes:                  fmt.Sprintf("Probe unreachable: %s", errReason),
 			UserID:                 userPtr,
 			LastSyncedAt:           &now,
 		}
@@ -303,10 +606,10 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		if saveErr != nil {
 			return nil, fmt.Errorf("failed saving remote host to inventory: %w", saveErr)
 		}
-		return res, fmt.Errorf("SSH probe unreachable: %s (saved as offline)", errReason)
+		return res, fmt.Errorf("Probe unreachable: %s (saved as offline)", errReason)
 	}
 
-	// Successful probe
+	// Successful probe (Linux or Windows via PowerShell)
 	srvName := strings.TrimSpace(raw.ServerName)
 	if srvName == "" || srvName == "N/A" {
 		srvName = cfg.Name
@@ -316,12 +619,21 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		srvIP = cfg.Host
 	}
 
+	targetOSType := strings.TrimSpace(raw.OSType)
+	if targetOSType == "" || targetOSType == "N/A" {
+		if isWindows {
+			targetOSType = "Windows"
+		} else {
+			targetOSType = "Linux"
+		}
+	}
+
 	item := domain.ServerInventoryItem{
 		RemoteHostID:           &hostID,
 		ServerName:             srvName,
 		IPAddress:              srvIP,
 		OSVersion:              fallbackStr(raw.OSVersion, "N/A"),
-		OSType:                 fallbackStr(raw.OSType, "Linux"),
+		OSType:                 targetOSType,
 		ArchitectureType:       fallbackStr(raw.ArchitectureType, "N/A"),
 		ProcessorModel:         fallbackStr(raw.ProcessorModel, "N/A"),
 		TotalCore:              fallbackStr(raw.TotalCore, "N/A"),
@@ -472,8 +784,29 @@ func (s *ServerInventoryService) GenerateCSVTemplate() []byte {
 		"Deep Learning Inference Node",
 	}
 
+	sample3 := []string{
+		"win-app-srv-01",
+		"192.168.1.30",
+		"Microsoft Windows Server 2022 Datacenter",
+		"Windows",
+		"x86_64",
+		"Intel Xeon E5-2680 v4 @ 2.40GHz",
+		"16 Cores",
+		"32.00 GB",
+		"4 DIMMs",
+		"500.00 GB",
+		"1 Disks [PHYSICALDRIVE0 (500G)]",
+		"2 Interfaces [Ethernet0, vEthernet]",
+		"N/A",
+		"N/A",
+		"N/A",
+		"active",
+		"Windows Active Directory / Application Host",
+	}
+
 	_ = w.Write(sample1)
 	_ = w.Write(sample2)
+	_ = w.Write(sample3)
 	w.Flush()
 	return buf.Bytes()
 }
