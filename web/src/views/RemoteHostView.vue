@@ -1453,7 +1453,7 @@ const parseGuacamoleError = (status: any): string => {
     0x0203: 'Remote desktop server is busy',
     0x0204: 'Remote host connection timed out (target host offline or port unreachable)',
     0x0205: 'Remote host connection error (connection refused or credentials rejected)',
-    0x0207: 'Target host or IP unreachable from Hephaestus server on port 3389 (Upstream host not found)',
+    0x0207: 'Target host unreachable or RDP security negotiation rejected by Windows (Upstream host not found)',
     0x0208: 'Remote desktop server is currently unavailable or offline',
     0x0209: 'Resource closed',
     0x020A: 'Remote desktop host not found',
@@ -3952,6 +3952,21 @@ onUnmounted(() => {
                         <span :class="diagnosticResult[session.id].success ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-rose-600 dark:text-rose-400 font-semibold'">
                           {{ diagnosticResult[session.id].message }}
                         </span>
+
+                        <!-- Smart guidance if port reached but RDP session still fails -->
+                        <div v-if="diagnosticResult[session.id].success" class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] font-sans text-emerald-800 dark:text-emerald-200 space-y-1">
+                          <p class="font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
+                            <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                            Port 3389 Berhasil Terhubung ke Server!
+                          </p>
+                          <p class="leading-relaxed text-slate-700 dark:text-slate-300">
+                            Koneksi TCP sukses. Penolakan ini terjadi karena Windows menolak <strong>Mode Standard (rdp)</strong> atau memerlukan <strong>NLA (Network Level Authentication)</strong>:
+                          </p>
+                          <ul class="list-disc pl-4 space-y-0.5 text-slate-600 dark:text-slate-400">
+                            <li>Klik tombol mode <strong>Auto</strong> atau <strong>NLA</strong> di toolbar atas.</li>
+                            <li>Pastikan <strong>Username</strong> &amp; <strong>Password</strong> akun Windows di konfigurasi server HCP sudah diisi dengan benar.</li>
+                          </ul>
+                        </div>
                       </div>
                     </div>
 
