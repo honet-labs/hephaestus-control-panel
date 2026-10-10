@@ -62,6 +62,7 @@ import {
   GripVertical,
   Share2,
   Users,
+  AlertCircle,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -1625,7 +1626,51 @@ const changeDesktopSecurity = async (session: OpenSession, sec: string) => {
 
 const reconnectDesktop = async (session: OpenSession) => {
   desktopError.value[session.id] = '';
+  if (diagnosticResult.value[session.id]) {
+    delete diagnosticResult.value[session.id];
+  }
   await ensureDesktopReady(session, true);
+};
+
+const testingReachability = ref<Record<string, boolean>>({});
+const diagnosticResult = ref<Record<string, { success: boolean; message: string }>>({});
+
+const isPrivateIp = (ip?: string) => {
+  if (!ip) return false;
+  return ip.startsWith('10.') || ip.startsWith('192.168.') || 
+    ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || 
+    ip.startsWith('172.19.') || ip.startsWith('172.2') || ip.startsWith('172.30.') || 
+    ip.startsWith('172.31.') || ip.startsWith('127.');
+};
+
+const testHostReachability = async (session: OpenSession) => {
+  if (!session?.host) return;
+  const sessId = session.id;
+  testingReachability.value[sessId] = true;
+  diagnosticResult.value[sessId] = { success: false, message: 'Menguji konektivitas TCP dari backend Hephaestus...' };
+
+  const targetPort = session.host.port && session.host.port !== 22
+    ? session.host.port
+    : (desktopProto.value[sessId] === 'vnc' ? 5900 : 3389);
+
+  try {
+    const res = await axios.post('/api/v1/remote-host/test', {
+      host: session.host.host,
+      port: targetPort,
+      tags: [desktopProto.value[sessId] || 'rdp'],
+    });
+    diagnosticResult.value[sessId] = {
+      success: res.data?.success || false,
+      message: res.data?.message || (res.data?.success ? 'Port terbuka dan dapat dijangkau.' : 'Port tidak dapat dijangkau.'),
+    };
+  } catch (err: any) {
+    diagnosticResult.value[sessId] = {
+      success: false,
+      message: err.response?.data?.error || err.message || 'Gagal menjalankan uji konektivitas.',
+    };
+  } finally {
+    testingReachability.value[sessId] = false;
+  }
 };
 
 const toggleDesktopFullscreen = (session: OpenSession) => {
@@ -3774,14 +3819,15 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Desktop Error Notification Banner -->
-              <div v-if="desktopError[session.id]" class="bg-rose-500/10 border-b border-rose-500/30 px-4 py-2 flex items-center justify-between text-xs text-rose-400">
+              <!-- Desktop Error Notification Banner (Crisp High-Contrast) -->
+              <div v-if="desktopError[session.id]" class="bg-rose-950/80 border-b border-rose-500/50 px-4 py-2.5 flex items-center justify-between text-xs text-rose-200">
                 <span class="flex items-center gap-2">
                   <AlertTriangle class="w-4 h-4 text-rose-400 shrink-0" />
-                  {{ desktopError[session.id] }}
+                  <span class="font-bold text-rose-300">Connection Error:</span>
+                  <span>{{ desktopError[session.id] }}</span>
                 </span>
-                <button @click="desktopError[session.id] = ''" class="hover:text-white cursor-pointer">
-                  <X class="w-3.5 h-3.5" />
+                <button @click="desktopError[session.id] = ''" class="hover:text-white cursor-pointer text-rose-300 transition">
+                  <X class="w-4 h-4" />
                 </button>
               </div>
 
@@ -3803,62 +3849,112 @@ onUnmounted(() => {
                   class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs space-y-3 pointer-events-none"
                 >
                   <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <p class="text-xs text-slate-400 font-mono">Connecting to {{ (desktopProto[session.id] || 'RDP').toUpperCase() }} display session...</p>
+                  <p class="text-xs text-slate-300 font-mono">Connecting to {{ (desktopProto[session.id] || 'RDP').toUpperCase() }} display session...</p>
                 </div>
 
-                <!-- Error State Overlay (when connection failed and not connected) -->
+                <!-- Error State Overlay (High-Contrast & Comprehensive Diagnostic) -->
                 <div
                   v-if="!desktopConnected[session.id] && !desktopLoading[session.id] && desktopError[session.id]"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-xs p-6 text-center space-y-4"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto"
                 >
-                  <div class="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
-                    <AlertTriangle class="w-6 h-6" />
-                  </div>
-                  <div class="space-y-1.5 max-w-lg mx-auto">
-                    <h4 class="text-sm font-bold text-white">Connection Failed</h4>
-                    <p class="text-xs text-rose-300 font-mono break-words leading-relaxed">{{ desktopError[session.id] }}</p>
-                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 text-[11px] text-slate-400 text-left space-y-1 mt-2">
-                      <div class="flex items-center justify-between text-slate-300 font-mono">
-                        <span>Target:</span>
-                        <span>{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
-                      </div>
-                      <p class="text-slate-400">
-                        • Host target harus dapat diakses dari server Hephaestus (bukan hanya dari laptop lokal).
-                      </p>
-                      <p class="text-slate-400">
-                        • Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di atas lalu Retry.
-                      </p>
+                  <div class="bg-[#101524] border border-slate-700/80 rounded-2xl p-5 sm:p-6 max-w-lg w-full text-center space-y-4 shadow-2xl">
+                    <!-- Warning Icon -->
+                    <div class="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
+                      <AlertTriangle class="w-6 h-6" />
                     </div>
-                  </div>
-                  <div class="flex items-center justify-center gap-2 pt-2">
-                    <button
-                      @click="reconnectDesktop(session)"
-                      class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                    >
-                      <RotateCw class="w-3.5 h-3.5" />
-                      Retry Connection
-                    </button>
-                    <button
-                      v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                      @click="changeDesktopSecurity(session, desktopSecurity[session.id] === 'nla' ? 'any' : 'nla')"
-                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
-                    >
-                      Switch to {{ (desktopSecurity[session.id] || 'any') === 'nla' ? 'Auto Security' : 'NLA Mode' }}
-                    </button>
-                    <button
-                      v-if="desktopProto[session.id] !== 'vnc'"
-                      @click="changeDesktopProto(session, 'vnc')"
-                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
-                    >
-                      Try VNC (5900)
-                    </button>
-                    <button
-                      v-else
-                      @click="changeDesktopProto(session, 'rdp')"
-                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
-                    >
-                      Try RDP (3389)
-                    </button>
+
+                    <!-- Title & Error Badge -->
+                    <div class="space-y-2">
+                      <h4 class="text-base font-bold text-white tracking-tight">Connection Failed</h4>
+                      
+                      <!-- Prominent High-Contrast Error Box -->
+                      <div class="p-3 rounded-xl bg-rose-950/60 border border-rose-500/50 text-rose-100 text-xs font-mono break-words leading-relaxed text-left flex items-start gap-2.5">
+                        <AlertCircle class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span class="font-bold text-rose-300 block mb-0.5 uppercase text-[10px] tracking-wider">Detail Error:</span>
+                          <span class="text-white">{{ desktopError[session.id] }}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Diagnostic Context Card -->
+                    <div class="bg-[#141b2f] border border-slate-700/80 rounded-xl p-3.5 text-xs text-left space-y-2.5">
+                      <div class="grid grid-cols-2 gap-2 text-[11px] pb-2 border-b border-slate-800 font-mono">
+                        <div>
+                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Target Server:</span>
+                          <span class="text-white font-bold">{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
+                        </div>
+                        <div>
+                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Protokol & Mode:</span>
+                          <span class="text-white font-bold">{{ (desktopProto[session.id] || 'rdp').toUpperCase() }} ({{ desktopSecurity[session.id] || 'any' }})</span>
+                        </div>
+                      </div>
+
+                      <div class="space-y-2 text-slate-200 text-[11px] leading-relaxed">
+                        <p class="flex items-start gap-1.5">
+                          <span class="text-rose-400 font-bold shrink-0">•</span>
+                          <span>
+                            <strong>Upstream Host Unreachable:</strong> Server Hephaestus di cloud tidak dapat menjangkau target IP dan port tersebut.
+                          </span>
+                        </p>
+                        <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-200 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                          <span class="text-amber-400 font-bold shrink-0">•</span>
+                          <span>
+                            IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN). Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
+                          </span>
+                        </p>
+                        <p class="flex items-start gap-1.5 text-slate-300">
+                          <span class="text-blue-400 font-bold shrink-0">•</span>
+                          <span>
+                            Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di toolbar atas, atau coba protokol <strong>VNC</strong> jika tersedia.
+                          </span>
+                        </p>
+                      </div>
+
+                      <!-- Interactive Test Reachability Result -->
+                      <div v-if="diagnosticResult[session.id]" class="mt-2 p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-[11px] font-mono">
+                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold mb-1">Hasil Test Reachability dari Server:</span>
+                        <span :class="diagnosticResult[session.id].success ? 'text-emerald-400' : 'text-rose-400'">
+                          {{ diagnosticResult[session.id].message }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-center flex-wrap gap-2 pt-1">
+                      <button
+                        @click="reconnectDesktop(session)"
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                      >
+                        <RotateCw class="w-3.5 h-3.5" />
+                        Retry Connection
+                      </button>
+
+                      <button
+                        @click="testHostReachability(session)"
+                        :disabled="testingReachability[session.id]"
+                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Activity class="w-3.5 h-3.5 text-blue-400" />
+                        {{ testingReachability[session.id] ? 'Testing...' : 'Test Port Reachability' }}
+                      </button>
+
+                      <button
+                        v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
+                        @click="changeDesktopSecurity(session, desktopSecurity[session.id] === 'nla' ? 'any' : 'nla')"
+                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
+                      >
+                        Switch to {{ (desktopSecurity[session.id] || 'any') === 'nla' ? 'Auto Security' : 'NLA Mode' }}
+                      </button>
+
+                      <button
+                        v-if="desktopProto[session.id] !== 'vnc'"
+                        @click="changeDesktopProto(session, 'vnc')"
+                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
+                      >
+                        Try VNC (5900)
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -3,9 +3,11 @@ package handlers
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -199,6 +201,37 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 	}
 	if req.Port <= 0 {
 		req.Port = 22
+	}
+
+	isRdpOrVnc := req.Port == 3389 || req.Port == 5900
+	for _, tag := range req.Tags {
+		t := strings.ToLower(tag)
+		if t == "rdp" || t == "vnc" {
+			isRdpOrVnc = true
+			break
+		}
+	}
+
+	if isRdpOrVnc {
+		targetAddr := net.JoinHostPort(req.Host, strconv.Itoa(req.Port))
+		conn, err := net.DialTimeout("tcp", targetAddr, 4*time.Second)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("TCP dial to %s failed from Hephaestus server: %v", targetAddr, err),
+			})
+			return
+		}
+		_ = conn.Close()
+		protoName := "Remote Desktop (RDP)"
+		if req.Port == 5900 {
+			protoName = "VNC"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": fmt.Sprintf("Successfully reached %s port %s from Hephaestus server.", protoName, targetAddr),
+		})
+		return
 	}
 
 	success, msg := h.sshService.TestConnection(&req)
