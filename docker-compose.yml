@@ -59,6 +59,8 @@ services:
       - GOMEMLIMIT=${GOMEMLIMIT:-512MiB}
       - GOGC=${GOGC:-80}
       - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-}
+      - GUACD_HOST=${GUACD_HOST:-guacd}
+      - GUACD_PORT=${GUACD_PORT:-4822}
       - LOGS_DIR=/app/logs
       - DATA_DIR=/app/data
       - TZ=${TZ:-Asia/Jakarta}
@@ -73,10 +75,30 @@ services:
       - /etc/localtime:/etc/localtime:ro
     depends_on:
       - database
+      - guacd
     logging:
       driver: "json-file"
       options:
         max-size: "15m"
+        max-file: "3"
+    networks:
+      - hephaestus_net
+
+  # -------------------------------------------------------------
+  # Hephaestus Guacd Engine (Apache Guacamole Proxy Daemon for RDP & VNC)
+  # -------------------------------------------------------------
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: hephaestus-guacd
+    restart: unless-stopped
+    expose:
+      - "4822"
+    environment:
+      - TZ=${TZ:-Asia/Jakarta}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
         max-file: "3"
     networks:
       - hephaestus_net

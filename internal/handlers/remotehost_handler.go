@@ -33,6 +33,7 @@ type RemoteHostHandler struct {
 	authService     *services.AuthService
 	vpsService      *services.VpsService
 	firewallService *services.FirewallService
+	guacService     *services.GuacamoleService
 }
 
 func NewRemoteHostHandler(
@@ -42,6 +43,7 @@ func NewRemoteHostHandler(
 	authService *services.AuthService,
 	vpsService *services.VpsService,
 	firewallService *services.FirewallService,
+	guacService *services.GuacamoleService,
 ) *RemoteHostHandler {
 	return &RemoteHostHandler{
 		remoteRepo:      remoteRepo,
@@ -50,6 +52,7 @@ func NewRemoteHostHandler(
 		authService:     authService,
 		vpsService:      vpsService,
 		firewallService: firewallService,
+		guacService:     guacService,
 	}
 }
 
@@ -305,6 +308,63 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	}
 
 	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID)
+}
+
+// HandleWebSocketDesktop upgrades WebSocket for Remote Desktop and tunnels Guacamole protocol
+func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
+	queryToken := c.Query("token")
+	hostID := c.Query("hostId")
+	proto := c.DefaultQuery("proto", "rdp")
+	widthStr := c.DefaultQuery("width", "1920")
+	heightStr := c.DefaultQuery("height", "1080")
+	dpiStr := c.DefaultQuery("dpi", "96")
+
+	width, _ := strconv.Atoi(widthStr)
+	height, _ := strconv.Atoi(heightStr)
+	dpi, _ := strconv.Atoi(dpiStr)
+
+	var userID int
+	var userRole string
+	var isAuthenticated bool
+
+	if queryToken != "" {
+		user, err := h.authService.ValidateSession(c.Request.Context(), queryToken)
+		if err == nil && user != nil {
+			userID = user.ID
+			userRole = user.Role
+			isAuthenticated = true
+		}
+	}
+
+	if !isAuthenticated {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Access denied. Valid authentication token required."})
+		return
+	}
+
+	if hostID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Remote host ID is required."})
+		return
+	}
+
+	hasAccess, _, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to remote server."})
+		return
+	}
+
+	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Remote host '%s' not found.", hostID)})
+		return
+	}
+
+	ws, err := h.guacService.Upgrader().Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		logger.Error("Guacamole", fmt.Sprintf("WebSocket upgrade error: %v", err))
+		return
+	}
+
+	h.guacService.HandleTunnel(ws, cfg, proto, width, height, dpi)
 }
 
 // SFTP Endpoints
