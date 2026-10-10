@@ -184,7 +184,17 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		port = cfg.Port
 	}
 	paramMap["port"] = strconv.Itoa(port)
-	paramMap["username"] = cfg.Username
+
+	// Handle domain in username if present (e.g., "DOMAIN\user")
+	username := cfg.Username
+	if strings.Contains(username, "\\") {
+		parts := strings.SplitN(username, "\\", 2)
+		paramMap["domain"] = parts[0]
+		username = parts[1]
+	}
+	if username != "" {
+		paramMap["username"] = username
+	}
 	if cfg.Password != nil {
 		paramMap["password"] = *cfg.Password
 	}
@@ -204,30 +214,54 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 	// Build connect parameters in exact sequence expected by guacd args
 	connectArgs := make([]string, len(expectedArgs))
 	for i, argName := range expectedArgs {
-		if val, exists := paramMap[argName]; exists {
+		if strings.HasPrefix(argName, "VERSION_") {
+			// Echo back protocol version supported by guacd (e.g. VERSION_1_5_0)
+			connectArgs[i] = argName
+		} else if val, exists := paramMap[argName]; exists {
 			connectArgs[i] = val
 		} else {
 			connectArgs[i] = ""
 		}
 	}
 
+	logger.Info("Guacamole", fmt.Sprintf("Initiating %s handshake to %s:%d (hostId: %s)", strings.ToUpper(proto), cfg.Host, port, cfg.ID))
+
 	connectInst := EncodeInstruction("connect", connectArgs...)
 	if _, err := guacdConn.Write([]byte(connectInst)); err != nil {
 		logger.Error("Guacamole", "Failed to send connect instruction", err)
+		errMsg := EncodeInstruction("error", fmt.Sprintf("Failed to send connect instruction to guacd: %v", err), "512")
+		_ = ws.WriteMessage(websocket.TextMessage, []byte(errMsg))
+		time.Sleep(100 * time.Millisecond)
 		return
 	}
 
 	// 7. Read "ready" from guacd
 	readyOpcode, readyArgs, err := ReadInstruction(reader)
 	if err != nil {
-		logger.Error("Guacamole", "Failed reading ready instruction from guacd", err)
+		logger.Error("Guacamole", fmt.Sprintf("Failed reading ready instruction from guacd for %s:%d", cfg.Host, port), err)
+		errMsg := EncodeInstruction("error", fmt.Sprintf("Connection failed or rejected by host %s:%d (RDP/VNC target unreachable or credentials invalid)", cfg.Host, port), "516")
+		_ = ws.WriteMessage(websocket.TextMessage, []byte(errMsg))
+		time.Sleep(100 * time.Millisecond)
 		return
 	}
 	if readyOpcode != "ready" {
 		logger.Warn("Guacamole", fmt.Sprintf("Expected ready, got %s: %v", readyOpcode, readyArgs))
-		_ = ws.WriteMessage(websocket.TextMessage, []byte(EncodeInstruction(readyOpcode, readyArgs...)))
+		var errMsg string
+		if readyOpcode == "error" && len(readyArgs) > 0 {
+			code := "512"
+			if len(readyArgs) > 1 {
+				code = readyArgs[1]
+			}
+			errMsg = EncodeInstruction("error", readyArgs[0], code)
+		} else {
+			errMsg = EncodeInstruction("error", fmt.Sprintf("Remote desktop host %s:%d rejected connection (%s)", cfg.Host, port, readyOpcode), "512")
+		}
+		_ = ws.WriteMessage(websocket.TextMessage, []byte(errMsg))
+		time.Sleep(100 * time.Millisecond)
 		return
 	}
+
+	logger.Info("Guacamole", fmt.Sprintf("Connected successfully to %s:%d (protocol: %s, connectionId: %v)", cfg.Host, port, proto, readyArgs))
 
 	// Forward ready instruction to the browser client WebSocket
 	readyMsg := EncodeInstruction("ready", readyArgs...)

@@ -1398,6 +1398,34 @@ const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'da
 };
 
 // Remote Desktop (Guacamole HTML5 Canvas) Lifecycle Methods
+const parseGuacamoleError = (status: any): string => {
+  if (!status) return 'Remote desktop connection failed.';
+  if (status.message && typeof status.message === 'string' && status.message.trim().length > 0) {
+    return status.message;
+  }
+  const code = typeof status === 'number' ? status : (status.code || 0);
+  const codeMap: Record<number, string> = {
+    0x0100: 'Operation successful',
+    0x0200: 'Operation successful',
+    0x0201: 'Unsupported remote desktop protocol or capability',
+    0x0202: 'Internal server error in guacd daemon',
+    0x0203: 'Remote desktop server is busy',
+    0x0204: 'Remote host connection timed out (target host offline or port unreachable)',
+    0x0205: 'Remote host connection error (connection refused or credentials rejected)',
+    0x0207: 'Resource not found',
+    0x0208: 'Resource conflict',
+    0x0209: 'Resource closed',
+    0x020A: 'Remote desktop host not found',
+    0x020B: 'Remote desktop host is unavailable or unreachable',
+    0x0300: 'Bad client request',
+    0x0301: 'Authentication failed: invalid username or password',
+    0x0303: 'Access forbidden: permission denied on remote host',
+    0x0308: 'Client connection timed out',
+    0x031D: 'Credentials or security negotiation rejected by remote Windows host'
+  };
+  return codeMap[code] || `Remote desktop error (Code: 0x${Number(code).toString(16).toUpperCase()})`;
+};
+
 const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean = false) => {
   if (!session || !session.host?.id) return;
   const sessId = session.id;
@@ -1412,7 +1440,8 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
 
   await nextTick();
   const container = document.getElementById(`desktop-container-${sessId}`);
-  if (!container) return;
+  const viewport = document.getElementById(`desktop-viewport-${sessId}`);
+  if (!container || !viewport) return;
 
   if (desktopClients.value[sessId]) {
     try {
@@ -1442,14 +1471,14 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
 
     desktopClients.value[sessId] = client;
 
-    // Display Element Setup
+    // Display Element Setup inside dedicated viewport container
     const displayElement = client.getDisplay().getElement();
     displayElement.style.margin = 'auto';
     displayElement.style.maxWidth = '100%';
     displayElement.style.maxHeight = '100%';
 
-    container.innerHTML = '';
-    container.appendChild(displayElement);
+    viewport.innerHTML = '';
+    viewport.appendChild(displayElement);
 
     // Mouse Handler
     const mouse = new Guacamole.Mouse(displayElement);
@@ -1466,21 +1495,45 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
       client.sendKeyEvent(0, keysym);
     };
 
+    // Tunnel lifecycle listeners
+    tunnel.onerror = (status: any) => {
+      desktopLoading.value[sessId] = false;
+      desktopConnected.value[sessId] = false;
+      desktopError.value[sessId] = parseGuacamoleError(status);
+    };
+
+    tunnel.onstatechange = (state: number) => {
+      // Guacamole.Tunnel.State: 0=CONNECTING, 1=OPEN, 2=CLOSED, 3=UNSTABLE
+      if (state === 2) { // CLOSED
+        desktopLoading.value[sessId] = false;
+        desktopConnected.value[sessId] = false;
+        if (!desktopError.value[sessId]) {
+          desktopError.value[sessId] = 'WebSocket tunnel closed. Remote desktop host unreachable or credentials rejected.';
+        }
+      }
+    };
+
+    // Client lifecycle listeners
     client.onstatechange = (state: number) => {
+      // Guacamole.Client.State: 0=IDLE, 1=CONNECTING, 2=WAITING, 3=CONNECTED, 4=DISCONNECTING, 5=DISCONNECTED
       if (state === 3) { // CONNECTED
         desktopConnected.value[sessId] = true;
         desktopLoading.value[sessId] = false;
+        desktopError.value[sessId] = '';
         container.focus();
       } else if (state === 5) { // DISCONNECTED
         desktopConnected.value[sessId] = false;
         desktopLoading.value[sessId] = false;
+        if (!desktopError.value[sessId]) {
+          desktopError.value[sessId] = 'Remote desktop session disconnected.';
+        }
       }
     };
 
     client.onerror = (status: any) => {
       desktopLoading.value[sessId] = false;
       desktopConnected.value[sessId] = false;
-      desktopError.value[sessId] = status?.message || 'Remote desktop connection encountered an issue.';
+      desktopError.value[sessId] = parseGuacamoleError(status);
     };
 
     client.connect();
@@ -3584,13 +3637,56 @@ onUnmounted(() => {
                 class="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center bg-black focus:outline-none"
                 tabindex="0"
               >
+                <!-- Dedicated mount container for Guacamole display canvas -->
+                <div
+                  :id="`desktop-viewport-${session.id}`"
+                  class="w-full h-full flex items-center justify-center overflow-hidden"
+                ></div>
+
                 <!-- Loading State Overlay -->
                 <div
                   v-if="!desktopConnected[session.id] && desktopLoading[session.id]"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs space-y-3"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs space-y-3 pointer-events-none"
                 >
                   <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                   <p class="text-xs text-slate-400 font-mono">Connecting to {{ (desktopProto[session.id] || 'RDP').toUpperCase() }} display session...</p>
+                </div>
+
+                <!-- Error State Overlay (when connection failed and not connected) -->
+                <div
+                  v-if="!desktopConnected[session.id] && !desktopLoading[session.id] && desktopError[session.id]"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-xs p-6 text-center space-y-4"
+                >
+                  <div class="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+                    <AlertTriangle class="w-6 h-6" />
+                  </div>
+                  <div class="space-y-1 max-w-md mx-auto">
+                    <h4 class="text-sm font-bold text-white">Connection Failed</h4>
+                    <p class="text-xs text-rose-300 font-mono break-words leading-relaxed">{{ desktopError[session.id] }}</p>
+                  </div>
+                  <div class="flex items-center justify-center gap-3 pt-2">
+                    <button
+                      @click="reconnectDesktop(session)"
+                      class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <RotateCw class="w-3.5 h-3.5" />
+                      Retry Connection
+                    </button>
+                    <button
+                      v-if="desktopProto[session.id] !== 'vnc'"
+                      @click="changeDesktopProto(session, 'vnc')"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer border border-slate-700"
+                    >
+                      Try VNC (5900)
+                    </button>
+                    <button
+                      v-else
+                      @click="changeDesktopProto(session, 'rdp')"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer border border-slate-700"
+                    >
+                      Try RDP (3389)
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
