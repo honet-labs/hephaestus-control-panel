@@ -52,6 +52,7 @@ import {
   ArrowUpRight,
   ArrowRight,
   Monitor,
+  Tv,
   Cloud,
   Check,
   RefreshCw,
@@ -262,6 +263,17 @@ const toggleSelectAllHostsForGroup = () => {
   }
 };
 
+// Protocol Preset ('ssh' | 'rdp' | 'vnc')
+const selectedProtocolPreset = ref<'ssh' | 'rdp' | 'vnc'>('ssh');
+
+const isRdpHost = (h: RemoteHost) => h.port === 3389 || h.tags?.includes('rdp');
+const isVncHost = (h: RemoteHost) => h.port === 5900 || h.tags?.includes('vnc');
+const getHostConnectionLabel = (h: RemoteHost) => {
+  if (isRdpHost(h)) return `rdp, ${h.username || 'Administrator'}, ${h.host}:${h.port || 3389}`;
+  if (isVncHost(h)) return `vnc, ${h.username || 'client'}, ${h.host}:${h.port || 5900}`;
+  return `ssh, ${h.username || 'root'}, ${h.host}:${h.port || 22}`;
+};
+
 // New Host Form
 const hostForm = ref<any>({
   id: '',
@@ -275,6 +287,59 @@ const hostForm = ref<any>({
   groupName: 'Default',
   tags: [],
 });
+
+const selectProtocolPreset = (preset: 'ssh' | 'rdp' | 'vnc') => {
+  selectedProtocolPreset.value = preset;
+  if (!hostForm.value.tags) hostForm.value.tags = [];
+  if (preset === 'rdp') {
+    if (hostForm.value.port === 22 || hostForm.value.port === 5900) {
+      hostForm.value.port = 3389;
+    }
+    if (hostForm.value.username === 'root' || !hostForm.value.username) {
+      hostForm.value.username = 'Administrator';
+    }
+    if (!hostForm.value.tags.includes('rdp')) {
+      hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'vnc' && t !== 'ssh');
+      hostForm.value.tags.push('rdp');
+    }
+  } else if (preset === 'vnc') {
+    if (hostForm.value.port === 22 || hostForm.value.port === 3389) {
+      hostForm.value.port = 5900;
+    }
+    if (hostForm.value.username === 'Administrator') {
+      hostForm.value.username = '';
+    }
+    if (!hostForm.value.tags.includes('vnc')) {
+      hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'rdp' && t !== 'ssh');
+      hostForm.value.tags.push('vnc');
+    }
+  } else {
+    if (hostForm.value.port === 3389 || hostForm.value.port === 5900) {
+      hostForm.value.port = 22;
+    }
+    if (hostForm.value.username === 'Administrator' || !hostForm.value.username) {
+      hostForm.value.username = 'root';
+    }
+    hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'rdp' && t !== 'vnc');
+  }
+};
+
+const openAddHostModal = (preset: 'ssh' | 'rdp' | 'vnc' = 'ssh') => {
+  selectedProtocolPreset.value = preset;
+  hostForm.value = {
+    id: '',
+    name: '',
+    host: '',
+    port: preset === 'rdp' ? 3389 : preset === 'vnc' ? 5900 : 22,
+    username: preset === 'rdp' ? 'Administrator' : preset === 'ssh' ? 'root' : '',
+    authType: 'password',
+    password: '',
+    sshKey: '',
+    groupName: 'Default',
+    tags: preset === 'rdp' ? ['rdp'] : preset === 'vnc' ? ['vnc'] : [],
+  };
+  isHostModalOpen.value = true;
+};
 
 const activeSession = computed(() => {
   if (activeSessionIndex.value >= 0 && activeSessionIndex.value < openSessions.value.length) {
@@ -516,12 +581,21 @@ const fetchHosts = async () => {
 // MULTI-SESSION & DUPLICATE TABS SUPPORT
 // =================================================================
 const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: string) => {
+  const isRdp = isRdpHost(host);
+  const isVnc = isVncHost(host);
+  const defaultView: 'terminal' | 'desktop' = (isRdp || isVnc) ? 'desktop' : 'terminal';
+
   if (!forceNew) {
     const existingIdx = openSessions.value.findIndex((s) => s.host.id === host.id);
     if (existingIdx >= 0) {
       activeSessionIndex.value = existingIdx;
       saveSessionsState();
-      await ensureTerminalReady(openSessions.value[existingIdx]);
+      const existingSession = openSessions.value[existingIdx];
+      if (existingSession.activeView === 'desktop') {
+        await ensureDesktopReady(existingSession);
+      } else {
+        await ensureTerminalReady(existingSession);
+      }
       return;
     }
   }
@@ -534,7 +608,7 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
     id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     host,
     displayName: tabName,
-    activeView: 'terminal',
+    activeView: defaultView,
     connected: false,
     connecting: true,
     groupId: defaultGroupId,
@@ -544,8 +618,14 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
   activeSessionIndex.value = openSessions.value.length - 1;
   saveSessionsState();
 
-  await ensureTerminalReady(session);
-  fetchHostTelemetry(session);
+  if (defaultView === 'desktop') {
+    desktopProto.value[session.id] = isVnc ? 'vnc' : 'rdp';
+    await nextTick();
+    await ensureDesktopReady(session);
+  } else {
+    await ensureTerminalReady(session);
+    fetchHostTelemetry(session);
+  }
 };
 
 const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
@@ -1972,6 +2052,7 @@ const handleSaveHost = async () => {
         groupName: 'Default',
         tags: [],
       };
+      selectedProtocolPreset.value = 'ssh';
       await fetchHosts();
       if (isNew && savedHost) {
         const targetHost = hosts.value.find((h) => h.id === savedHost.id) || savedHost;
@@ -2062,6 +2143,7 @@ const handleRevokeShare = async (targetUserId: number) => {
 
 const openEditHostModal = (host: RemoteHost, event?: MouseEvent) => {
   if (event) event.stopPropagation();
+  selectedProtocolPreset.value = isRdpHost(host) ? 'rdp' : isVncHost(host) ? 'vnc' : 'ssh';
   hostForm.value = {
     id: host.id,
     name: host.name,
@@ -2104,6 +2186,7 @@ const handleCreateGroup = async () => {
 
   if (groupCreationMode.value === 'new') {
     isGroupModalOpen.value = false;
+    selectedProtocolPreset.value = 'ssh';
     hostForm.value = {
       id: '',
       name: '',
@@ -2251,7 +2334,7 @@ onUnmounted(() => {
       <!-- Quick Add Server (+) Button -->
       <button
         v-if="canManage"
-        @click="isHostModalOpen = true"
+        @click="openAddHostModal()"
         title="Add New Remote Server"
         class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition"
       >
@@ -2461,7 +2544,7 @@ onUnmounted(() => {
           <div class="flex items-center gap-2.5 shrink-0">
             <button
               v-if="canManage"
-              @click="isHostModalOpen = true"
+              @click="openAddHostModal()"
               class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition shadow-sm cursor-pointer"
             >
               <Plus class="w-4 h-4" />
@@ -2606,9 +2689,32 @@ onUnmounted(() => {
                 </div>
                 <div class="overflow-hidden space-y-1 min-w-0 flex-1">
                   <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">{{ host.name }}</p>
-                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="`ssh, ${host.username}, ${host.host}`">ssh, {{ host.username }}, {{ host.host }}</p>
+                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="getHostConnectionLabel(host)">{{ getHostConnectionLabel(host) }}</p>
                   
                   <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <!-- Protocol Badge -->
+                    <span
+                      v-if="isRdpHost(host)"
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold border border-blue-500/20 flex items-center gap-1 shrink-0"
+                    >
+                      <Monitor class="w-2.5 h-2.5" />
+                      RDP
+                    </span>
+                    <span
+                      v-else-if="isVncHost(host)"
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 flex items-center gap-1 shrink-0"
+                    >
+                      <Tv class="w-2.5 h-2.5" />
+                      VNC
+                    </span>
+                    <span
+                      v-else
+                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold border border-slate-200 dark:border-slate-700 flex items-center gap-1 shrink-0"
+                    >
+                      <SquareTerminal class="w-2.5 h-2.5" />
+                      SSH
+                    </span>
+
                     <span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
                       {{ host.groupName || 'Default' }}
                     </span>
@@ -2676,7 +2782,7 @@ onUnmounted(() => {
                 <!-- Quick Duplicate / New Tab -->
                 <button
                   @click.stop="connectHost(host, true)"
-                  title="Open New Terminal Tab"
+                  :title="isRdpHost(host) ? 'Open New Remote Desktop Tab' : 'Open New Terminal Tab'"
                   class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                 >
                   <Plus :size="14" class="w-3.5 h-3.5" />
@@ -3932,46 +4038,117 @@ onUnmounted(() => {
       v-if="isHostModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
     >
-      <div class="bg-[#1b1e26] border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
           <div class="flex items-center gap-2">
-            <Server class="w-4 h-4 text-brand-400" />
-            <h3 class="text-sm font-bold text-white">Add New Remote Server</h3>
+            <Server class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ hostForm.id ? 'Edit Remote Server' : 'Add New Remote Server' }}</h3>
           </div>
-          <button @click="isHostModalOpen = false" class="text-slate-400 hover:text-white">
+          <button @click="isHostModalOpen = false" class="text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <form @submit.prevent="handleSaveHost" class="space-y-3 text-xs">
+        <form @submit.prevent="handleSaveHost" class="space-y-3.5 text-xs">
+          <!-- Protocol & Server Type Selector -->
           <div>
-            <label class="block text-slate-400 mb-1">Server Name / Identifier</label>
-            <input v-model="hostForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="e.g. Server - Bifrost" />
+            <label class="block text-slate-600 dark:text-slate-400 mb-1.5 font-medium">Server Type & Protocol</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                @click="selectProtocolPreset('ssh')"
+                :class="[
+                  'flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg border text-xs font-semibold transition cursor-pointer',
+                  selectedProtocolPreset === 'ssh'
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-xs'
+                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <SquareTerminal class="w-3.5 h-3.5" />
+                <span>Linux (SSH)</span>
+              </button>
+              <button
+                type="button"
+                @click="selectProtocolPreset('rdp')"
+                :class="[
+                  'flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg border text-xs font-semibold transition cursor-pointer',
+                  selectedProtocolPreset === 'rdp'
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-xs'
+                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Monitor class="w-3.5 h-3.5" />
+                <span>Windows (RDP)</span>
+              </button>
+              <button
+                type="button"
+                @click="selectProtocolPreset('vnc')"
+                :class="[
+                  'flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg border text-xs font-semibold transition cursor-pointer',
+                  selectedProtocolPreset === 'vnc'
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-xs'
+                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Tv class="w-3.5 h-3.5" />
+                <span>VNC Desktop</span>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <span v-if="selectedProtocolPreset === 'ssh'">Secure Shell CLI for Linux VPS, Ubuntu/Debian/CentOS, and networking equipment (Port 22).</span>
+              <span v-else-if="selectedProtocolPreset === 'rdp'">Remote Desktop Protocol for Windows Server and Windows 10/11 Pro (Port 3389).</span>
+              <span v-else>Virtual Network Computing graphical stream (Port 5900).</span>
+            </p>
+          </div>
+
+          <div>
+            <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Server Name / Identifier</label>
+            <input
+              v-model="hostForm.name"
+              required
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              :placeholder="selectedProtocolPreset === 'rdp' ? 'e.g. Windows Server 2022 / Workstation' : 'e.g. Server - Bifrost'"
+            />
           </div>
 
           <div class="grid grid-cols-3 gap-3">
             <div class="col-span-2">
-              <label class="block text-slate-400 mb-1">Server IP / Domain</label>
-              <input v-model="hostForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="10.20.3.1" />
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Server IP / Domain</label>
+              <input
+                v-model="hostForm.host"
+                required
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                placeholder="10.20.3.1"
+              />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1">Port</label>
-              <input v-model.number="hostForm.port" type="number" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Port</label>
+              <input
+                v-model.number="hostForm.port"
+                type="number"
+                required
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+              />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-slate-400 mb-1">Username</label>
-              <input v-model="hostForm.username" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white" placeholder="root" />
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Username</label>
+              <input
+                v-model="hostForm.username"
+                required
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                :placeholder="selectedProtocolPreset === 'rdp' ? 'Administrator' : 'root'"
+              />
             </div>
             <div>
-              <label class="block text-slate-400 mb-1">Group</label>
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Group</label>
               <input
                 v-model="hostForm.groupName"
                 list="group-options"
                 required
-                class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white"
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                 placeholder="Production"
               />
               <datalist id="group-options">
@@ -3981,16 +4158,16 @@ onUnmounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-400 mb-1">
+            <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
               <span class="flex items-center gap-1.5">
-                <Lock class="w-3.5 h-3.5 text-amber-400" />
-                Password (AES-256-GCM Encrypted)
+                <Lock class="w-3.5 h-3.5 text-slate-400" />
+                <span>Password (AES-256-GCM Encrypted)</span>
               </span>
             </label>
             <input
               v-model="hostForm.password"
               type="password"
-              class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
+              class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
               placeholder="••••••••"
             />
           </div>
@@ -4005,7 +4182,7 @@ onUnmounted(() => {
             </button>
             <button
               type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-xs transition"
             >
               Save Server
             </button>
