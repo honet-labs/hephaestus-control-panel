@@ -214,11 +214,15 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 
 	if isRdpOrVnc {
 		targetAddr := net.JoinHostPort(req.Host, strconv.Itoa(req.Port))
-		conn, err := net.DialTimeout("tcp", targetAddr, 4*time.Second)
+		conn, err := net.DialTimeout("tcp", targetAddr, 7*time.Second)
 		if err != nil {
+			hint := ""
+			if strings.HasPrefix(req.Host, "172.17.") {
+				hint = " (Catatan: 172.17.x.x dapat bentrok dengan default Docker bridge docker0 jika rute host belum di-remap)"
+			}
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": fmt.Sprintf("TCP dial to %s failed from Hephaestus server: %v", targetAddr, err),
+				"message": fmt.Sprintf("TCP dial to %s failed from Hephaestus server: %v%s", targetAddr, err, hint),
 			})
 			return
 		}

@@ -270,8 +270,14 @@ const toggleSelectAllHostsForGroup = () => {
 // Protocol Preset ('ssh' | 'rdp' | 'vnc')
 const selectedProtocolPreset = ref<'ssh' | 'rdp' | 'vnc'>('ssh');
 
-const isRdpHost = (h: RemoteHost) => h.port === 3389 || h.tags?.includes('rdp');
-const isVncHost = (h: RemoteHost) => h.port === 5900 || h.tags?.includes('vnc');
+const isRdpHost = (h: RemoteHost) =>
+  h.port === 3389 ||
+  h.tags?.some((t: string) => t.toLowerCase() === 'rdp') ||
+  (h as any).protocol === 'rdp';
+const isVncHost = (h: RemoteHost) =>
+  h.port === 5900 ||
+  h.tags?.some((t: string) => t.toLowerCase() === 'vnc') ||
+  (h as any).protocol === 'vnc';
 const getHostConnectionLabel = (h: RemoteHost) => {
   if (isRdpHost(h)) return `rdp, ${h.username || 'Administrator'}, ${h.host}:${h.port || 3389}`;
   if (isVncHost(h)) return `vnc, ${h.username || 'client'}, ${h.host}:${h.port || 5900}`;
@@ -530,11 +536,13 @@ const restorePersistedSessions = async () => {
       seenHostIds.add(sInfo.hostId);
       const host = hosts.value.find((h) => h.id === sInfo.hostId);
       if (host) {
+        const isDesktop = isRdpHost(host) || isVncHost(host);
+        const resolvedView: any = sInfo.activeView || (isDesktop ? 'desktop' : 'terminal');
         const session: OpenSession = reactive({
           id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           host,
           displayName: sInfo.displayName || host.name,
-          activeView: sInfo.activeView || 'terminal',
+          activeView: resolvedView,
           connected: false,
           connecting: false,
           groupId: sInfo.groupId,
@@ -556,8 +564,19 @@ const restorePersistedSessions = async () => {
 
       if (targetIdx >= 0 && openSessions.value[targetIdx]) {
         await nextTick();
-        await ensureTerminalReady(openSessions.value[targetIdx]);
-        fetchHostTelemetry(openSessions.value[targetIdx]);
+        const activeS = openSessions.value[targetIdx];
+        const isDesktop = isRdpHost(activeS.host) || isVncHost(activeS.host);
+        if (activeS.activeView === 'desktop' || isDesktop) {
+          activeS.activeView = 'desktop';
+          desktopProto.value[activeS.id] = isVncHost(activeS.host) ? 'vnc' : 'rdp';
+          await nextTick();
+          await ensureDesktopReady(activeS);
+        } else if (activeS.activeView === 'terminal') {
+          await ensureTerminalReady(activeS);
+          fetchHostTelemetry(activeS);
+        } else {
+          fetchHostTelemetry(activeS);
+        }
       }
     }
     saveSessionsState();
@@ -1001,13 +1020,23 @@ const initXterm = (session: OpenSession) => {
   connectWsTerminal(session, false);
 };
 
-// Watch activeSession changes to ensure fitted terminal
+// Watch activeSession changes to ensure fitted terminal or desktop
 watch(
   [activeSessionIndex, () => activeSession.value?.activeView],
   async () => {
-    if (activeSession.value && activeSession.value.activeView === 'terminal') {
+    if (!activeSession.value) return;
+    if (activeSession.value.activeView === 'terminal') {
       await ensureTerminalReady(activeSession.value);
+    } else if (activeSession.value.activeView === 'desktop') {
+      const isVnc = isVncHost(activeSession.value.host);
+      if (!desktopProto.value[activeSession.value.id]) {
+        desktopProto.value[activeSession.value.id] = isVnc ? 'vnc' : 'rdp';
+      }
+      await ensureDesktopReady(activeSession.value);
+      await nextTick();
+      scaleDesktop(activeSession.value.id);
     }
+    saveSessionsState();
   }
 );
 
@@ -3008,10 +3037,10 @@ onUnmounted(() => {
           <!-- Left Vertical Icon Nav Bar -->
           <aside class="w-12 bg-white dark:bg-[#1b1e26] border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 shrink-0 shadow-sm">
             <button
-              @click="session.activeView = 'terminal'"
+              @click="switchActiveView(session, 'terminal')"
               title="Interactive Terminal"
               :class="[
-                'p-2.5 rounded-lg transition',
+                'p-2.5 rounded-lg transition cursor-pointer',
                 session.activeView === 'terminal'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3714,22 +3743,22 @@ onUnmounted(() => {
             <!-- 7. REMOTE DESKTOP VIEW (Guacamole HTML5 Canvas) -->
             <div v-show="session.activeView === 'desktop'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-slate-950">
               <!-- Top Toolbar for Remote Desktop -->
-              <div class="h-10 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-3 text-xs shrink-0 select-none">
+              <div class="h-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 text-xs shrink-0 select-none">
                 <div class="flex items-center gap-3">
-                  <div class="flex items-center gap-1.5 font-medium text-slate-300">
-                    <Monitor class="w-3.5 h-3.5 text-blue-400" />
-                    <span class="font-semibold text-slate-200">Remote Desktop</span>
+                  <div class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
+                    <Monitor class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span class="font-semibold text-slate-900 dark:text-slate-200">Remote Desktop</span>
                   </div>
-                  <span class="text-slate-700">|</span>
+                  <span class="text-slate-300 dark:text-slate-700">|</span>
                   <!-- Protocol Switcher: RDP vs VNC -->
-                  <div class="flex items-center bg-slate-950 rounded-lg p-0.5 border border-slate-800">
+                  <div class="flex items-center bg-slate-100 dark:bg-slate-950 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
                     <button
                       @click="changeDesktopProto(session, 'rdp')"
                       :class="[
                         'px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer',
                         desktopProto[session.id] === 'rdp' || !desktopProto[session.id]
                           ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       ]"
                     >
                       RDP (3389)
@@ -3740,7 +3769,7 @@ onUnmounted(() => {
                         'px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer',
                         desktopProto[session.id] === 'vnc'
                           ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       ]"
                     >
                       VNC (5900)
@@ -3750,7 +3779,7 @@ onUnmounted(() => {
                   <!-- RDP Security Mode Selector -->
                   <div
                     v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                    class="flex items-center gap-0.5 bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-[11px]"
+                    class="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-950 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800 text-[11px]"
                   >
                     <button
                       v-for="sec in [
@@ -3764,8 +3793,8 @@ onUnmounted(() => {
                       :class="[
                         'px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer',
                         (desktopSecurity[session.id] || 'any') === sec.id
-                          ? 'bg-slate-700 text-white shadow-xs font-semibold'
-                          : 'text-slate-400 hover:text-slate-200'
+                          ? 'bg-white text-slate-900 dark:bg-slate-700 dark:text-white shadow-xs font-semibold'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                       ]"
                       :title="`RDP Security: ${sec.label}`"
                     >
@@ -3779,18 +3808,18 @@ onUnmounted(() => {
                   <span :class="[
                     'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium',
                     desktopConnected[session.id]
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                       : desktopError[session.id]
-                        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
                   ]">
                     <span :class="[
                       'w-1.5 h-1.5 rounded-full',
                       desktopConnected[session.id]
-                        ? 'bg-emerald-400'
+                        ? 'bg-emerald-500 dark:bg-emerald-400'
                         : desktopError[session.id]
-                          ? 'bg-rose-400'
-                          : 'bg-amber-400 animate-pulse'
+                          ? 'bg-rose-500 dark:bg-rose-400'
+                          : 'bg-amber-500 dark:bg-amber-400 animate-pulse'
                     ]"></span>
                     {{
                       desktopConnected[session.id]
@@ -3804,7 +3833,7 @@ onUnmounted(() => {
                   <button
                     @click="reconnectDesktop(session)"
                     title="Reconnect Desktop"
-                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer border border-slate-700"
+                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700"
                   >
                     <RotateCw class="w-3.5 h-3.5" />
                   </button>
@@ -3812,7 +3841,7 @@ onUnmounted(() => {
                   <button
                     @click="toggleDesktopFullscreen(session)"
                     title="Toggle Fullscreen"
-                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer border border-slate-700"
+                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700"
                   >
                     <Maximize2 class="w-3.5 h-3.5" />
                   </button>
@@ -3820,13 +3849,13 @@ onUnmounted(() => {
               </div>
 
               <!-- Desktop Error Notification Banner (Crisp High-Contrast) -->
-              <div v-if="desktopError[session.id]" class="bg-rose-950/80 border-b border-rose-500/50 px-4 py-2.5 flex items-center justify-between text-xs text-rose-200">
+              <div v-if="desktopError[session.id]" class="bg-rose-50 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-500/50 px-4 py-2.5 flex items-center justify-between text-xs text-rose-800 dark:text-rose-200">
                 <span class="flex items-center gap-2">
-                  <AlertTriangle class="w-4 h-4 text-rose-400 shrink-0" />
-                  <span class="font-bold text-rose-300">Connection Error:</span>
-                  <span>{{ desktopError[session.id] }}</span>
+                  <AlertTriangle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span class="font-bold text-rose-700 dark:text-rose-300">Connection Error:</span>
+                  <span class="text-rose-900 dark:text-rose-200 font-medium">{{ desktopError[session.id] }}</span>
                 </span>
-                <button @click="desktopError[session.id] = ''" class="hover:text-white cursor-pointer text-rose-300 transition">
+                <button @click="desktopError[session.id] = ''" class="hover:text-rose-950 dark:hover:text-white cursor-pointer text-rose-600 dark:text-rose-300 transition">
                   <X class="w-4 h-4" />
                 </button>
               </div>
@@ -3855,56 +3884,62 @@ onUnmounted(() => {
                 <!-- Error State Overlay (High-Contrast & Comprehensive Diagnostic) -->
                 <div
                   v-if="!desktopConnected[session.id] && !desktopLoading[session.id] && desktopError[session.id]"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto"
+                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-900/60 dark:bg-black/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto"
                 >
-                  <div class="bg-[#101524] border border-slate-700/80 rounded-2xl p-5 sm:p-6 max-w-lg w-full text-center space-y-4 shadow-2xl">
+                  <div class="bg-white dark:bg-[#101524] border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 sm:p-6 max-w-lg w-full text-center space-y-4 shadow-2xl">
                     <!-- Warning Icon -->
-                    <div class="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
+                    <div class="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-500/40 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
                       <AlertTriangle class="w-6 h-6" />
                     </div>
 
                     <!-- Title & Error Badge -->
                     <div class="space-y-2">
-                      <h4 class="text-base font-bold text-white tracking-tight">Connection Failed</h4>
+                      <h4 class="text-base font-bold text-slate-900 dark:text-white tracking-tight">Connection Failed</h4>
                       
                       <!-- Prominent High-Contrast Error Box -->
-                      <div class="p-3 rounded-xl bg-rose-950/60 border border-rose-500/50 text-rose-100 text-xs font-mono break-words leading-relaxed text-left flex items-start gap-2.5">
-                        <AlertCircle class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div class="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-500/50 text-rose-800 dark:text-rose-100 text-xs font-mono break-words leading-relaxed text-left flex items-start gap-2.5">
+                        <AlertCircle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                         <div>
-                          <span class="font-bold text-rose-300 block mb-0.5 uppercase text-[10px] tracking-wider">Detail Error:</span>
-                          <span class="text-white">{{ desktopError[session.id] }}</span>
+                          <span class="font-bold text-rose-700 dark:text-rose-300 block mb-0.5 uppercase text-[10px] tracking-wider">Detail Error:</span>
+                          <span class="text-rose-900 dark:text-rose-100">{{ desktopError[session.id] }}</span>
                         </div>
                       </div>
                     </div>
 
                     <!-- Diagnostic Context Card -->
-                    <div class="bg-[#141b2f] border border-slate-700/80 rounded-xl p-3.5 text-xs text-left space-y-2.5">
-                      <div class="grid grid-cols-2 gap-2 text-[11px] pb-2 border-b border-slate-800 font-mono">
+                    <div class="bg-slate-50 dark:bg-[#141b2f] border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 text-xs text-left space-y-2.5">
+                      <div class="grid grid-cols-2 gap-2 text-[11px] pb-2 border-b border-slate-200 dark:border-slate-800 font-mono">
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Target Server:</span>
-                          <span class="text-white font-bold">{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
+                          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold">Target Server:</span>
+                          <span class="text-slate-900 dark:text-white font-bold">{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
                         </div>
                         <div>
-                          <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold">Protokol & Mode:</span>
-                          <span class="text-white font-bold">{{ (desktopProto[session.id] || 'rdp').toUpperCase() }} ({{ desktopSecurity[session.id] || 'any' }})</span>
+                          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold">Protokol & Mode:</span>
+                          <span class="text-slate-900 dark:text-white font-bold">{{ (desktopProto[session.id] || 'rdp').toUpperCase() }} ({{ desktopSecurity[session.id] || 'any' }})</span>
                         </div>
                       </div>
 
-                      <div class="space-y-2 text-slate-200 text-[11px] leading-relaxed">
+                      <div class="space-y-2 text-slate-700 dark:text-slate-200 text-[11px] leading-relaxed">
                         <p class="flex items-start gap-1.5">
-                          <span class="text-rose-400 font-bold shrink-0">•</span>
+                          <span class="text-rose-600 dark:text-rose-400 font-bold shrink-0">•</span>
                           <span>
-                            <strong>Upstream Host Unreachable:</strong> Server Hephaestus di cloud tidak dapat menjangkau target IP dan port tersebut.
+                            <strong>Upstream Host Unreachable:</strong> Layanan Guacamole di server Hephaestus tidak dapat menjangkau target IP dan port {{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}.
                           </span>
                         </p>
-                        <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-200 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
-                          <span class="text-amber-400 font-bold shrink-0">•</span>
+                        <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 p-2.5 rounded-lg border border-amber-200 dark:border-amber-500/20">
+                          <span class="text-amber-600 dark:text-amber-400 font-bold shrink-0">•</span>
                           <span>
-                            IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN). Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
+                            IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN).
+                            <span v-if="session.host?.host?.startsWith('172.17.')" class="block mt-1 font-semibold text-rose-700 dark:text-rose-300">
+                              Konflik Docker: Subnet 172.17.x.x adalah default subnet virtual bridge Docker (docker0). Jika dari host fisik server Hephaestus telnet bisa tetapi dari panel timeout, Docker menganggap IP 172.17.x.x berada di dalam virtual bridge docker0 internal. Solusinya: Ubah 'bip' di /etc/docker/daemon.json ke 10.200.0.1/16 atau gunakan host routing.
+                            </span>
+                            <span v-else>
+                              Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
+                            </span>
                           </span>
                         </p>
-                        <p class="flex items-start gap-1.5 text-slate-300">
-                          <span class="text-blue-400 font-bold shrink-0">•</span>
+                        <p class="flex items-start gap-1.5 text-slate-600 dark:text-slate-300">
+                          <span class="text-blue-600 dark:text-blue-400 font-bold shrink-0">•</span>
                           <span>
                             Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di toolbar atas, atau coba protokol <strong>VNC</strong> jika tersedia.
                           </span>
@@ -3912,9 +3947,9 @@ onUnmounted(() => {
                       </div>
 
                       <!-- Interactive Test Reachability Result -->
-                      <div v-if="diagnosticResult[session.id]" class="mt-2 p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-[11px] font-mono">
-                        <span class="text-slate-400 block text-[10px] uppercase font-sans font-semibold mb-1">Hasil Test Reachability dari Server:</span>
-                        <span :class="diagnosticResult[session.id].success ? 'text-emerald-400' : 'text-rose-400'">
+                      <div v-if="diagnosticResult[session.id]" class="mt-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-mono">
+                        <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold mb-1">Hasil Test Reachability dari Server:</span>
+                        <span :class="diagnosticResult[session.id].success ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-rose-600 dark:text-rose-400 font-semibold'">
                           {{ diagnosticResult[session.id].message }}
                         </span>
                       </div>
@@ -3933,16 +3968,16 @@ onUnmounted(() => {
                       <button
                         @click="testHostReachability(session)"
                         :disabled="testingReachability[session.id]"
-                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700 flex items-center gap-1.5 disabled:opacity-50"
+                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700 flex items-center gap-1.5 disabled:opacity-50"
                       >
-                        <Activity class="w-3.5 h-3.5 text-blue-400" />
+                        <Activity class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                         {{ testingReachability[session.id] ? 'Testing...' : 'Test Port Reachability' }}
                       </button>
 
                       <button
                         v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
                         @click="changeDesktopSecurity(session, desktopSecurity[session.id] === 'nla' ? 'any' : 'nla')"
-                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
+                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700"
                       >
                         Switch to {{ (desktopSecurity[session.id] || 'any') === 'nla' ? 'Auto Security' : 'NLA Mode' }}
                       </button>
@@ -3950,7 +3985,7 @@ onUnmounted(() => {
                       <button
                         v-if="desktopProto[session.id] !== 'vnc'"
                         @click="changeDesktopProto(session, 'vnc')"
-                        class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-700"
+                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700"
                       >
                         Try VNC (5900)
                       </button>
