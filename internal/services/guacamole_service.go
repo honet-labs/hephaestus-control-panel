@@ -175,8 +175,6 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 	// 5. Send supported media formats
 	audioInst := EncodeInstruction("audio", "audio/L16", "rate=44100,channels=2")
 	_, _ = guacdConn.Write([]byte(audioInst))
-	videoInst := EncodeInstruction("video")
-	_, _ = guacdConn.Write([]byte(videoInst))
 	imageInst := EncodeInstruction("image", "image/png", "image/jpeg", "image/webp")
 	_, _ = guacdConn.Write([]byte(imageInst))
 

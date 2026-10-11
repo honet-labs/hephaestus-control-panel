@@ -430,6 +430,90 @@ func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
 	h.guacService.HandleTunnel(ws, cfg, proto, security, width, height, dpi)
 }
 
+// DownloadRdpFile generates and serves a native Microsoft Remote Desktop (.rdp) connection file
+func (h *RemoteHostHandler) DownloadRdpFile(c *gin.Context) {
+	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "read") {
+		return
+	}
+
+	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Remote host not found"})
+		return
+	}
+
+	port := 3389
+	if cfg.Port > 0 && cfg.Port != 22 {
+		port = cfg.Port
+	}
+
+	username := cfg.Username
+	lines := []string{
+		fmt.Sprintf("full address:s:%s:%d", cfg.Host, port),
+	}
+	if username != "" {
+		lines = append(lines, fmt.Sprintf("username:s:%s", username))
+	}
+	lines = append(lines,
+		"screen mode id:i:2",
+		"use multimon:i:0",
+		"desktopwidth:i:1920",
+		"desktopheight:i:1080",
+		"session bpp:i:32",
+		"winposstr:s:0,1,0,0,800,600",
+		"compression:i:1",
+		"keyboardhook:i:2",
+		"audiocapturemode:i:0",
+		"videoplaybackmode:i:1",
+		"connection type:i:7",
+		"networkautodetect:i:1",
+		"bandwidthautodetect:i:1",
+		"displayconnectionbar:i:1",
+		"enableworkspacereconnect:i:0",
+		"disable wallpaper:i:0",
+		"allow font smoothing:i:1",
+		"allow desktop composition:i:1",
+		"disable full window drag:i:0",
+		"disable menu anims:i:0",
+		"disable themes:i:0",
+		"disable cursor setting:i:0",
+		"bitmapcachepersistenable:i:1",
+		"audiomode:i:0",
+		"redirectprinters:i:0",
+		"redirectcomports:i:0",
+		"redirectsmartcards:i:0",
+		"redirectclipboard:i:1",
+		"redirectposdevices:i:0",
+		"autoreconnection enabled:i:1",
+		"authentication level:i:2",
+		"prompt for credentials:i:0",
+		"negotiate security layer:i:1",
+		"remoteapplicationmode:i:0",
+		"alternate shell:s:",
+		"shell working directory:s:",
+		"gatewayhostname:s:",
+		"gatewayusagemethod:i:4",
+		"gatewaycredentialssource:i:4",
+		"gatewayprofileusagemethod:i:0",
+		"promptcredentialonce:i:0",
+		"gatewaybrokeringtype:i:0",
+		"use redirection server name:i:0",
+		"rdgiskdcproxy:i:0",
+		"kdcproxyname:s:",
+	)
+
+	content := strings.Join(lines, "\r\n") + "\r\n"
+	safeName := strings.ReplaceAll(cfg.Name, " ", "_")
+	if safeName == "" {
+		safeName = cfg.Host
+	}
+	filename := fmt.Sprintf("%s.rdp", safeName)
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Data(http.StatusOK, "application/x-rdp; charset=utf-8", []byte(content))
+}
+
 // SFTP Endpoints
 func (h *RemoteHostHandler) SftpList(c *gin.Context) {
 	hostID := c.Param("id")
