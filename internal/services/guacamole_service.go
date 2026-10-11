@@ -127,6 +127,14 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		dpi = 96
 	}
 
+	// Align display geometry to multiples of 8 for FreeRDP tile & scanline boundary stability
+	if width%8 != 0 {
+		width = ((width + 7) / 8) * 8
+	}
+	if height%8 != 0 {
+		height = ((height + 7) / 8) * 8
+	}
+
 	// 1. Connect to guacd TCP daemon
 	guacdAddr := net.JoinHostPort(s.guacdHost, s.guacdPort)
 	guacdConn, err := net.DialTimeout("tcp", guacdAddr, 8*time.Second)
@@ -212,11 +220,18 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		}
 		paramMap["security"] = sec
 		paramMap["resize-method"] = "display-update"
-		paramMap["enable-wallpaper"] = "false"
-		paramMap["enable-theming"] = "false"
+		// Critical anti-artifact & smoothness parameters:
+		// Disabling bitmap & offscreen caching eliminates black/white rectangle tearing when client cache desyncs
+		paramMap["disable-bitmap-caching"] = "true"
+		paramMap["disable-offscreen-caching"] = "true"
+		paramMap["disable-glyph-caching"] = "true"
+		// 32-bit native color matches Windows DWM without CPU planar color conversion overhead
+		paramMap["color-depth"] = "32"
+		paramMap["enable-desktop-composition"] = "true"
 		paramMap["enable-font-smoothing"] = "true"
 		paramMap["enable-full-window-drag"] = "true"
-		paramMap["color-depth"] = "24"
+		paramMap["enable-theming"] = "true"
+		paramMap["enable-wallpaper"] = "false"
 		paramMap["client-name"] = "Hephaestus-RDP"
 	}
 
@@ -295,7 +310,7 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		defer ws.Close()
 		defer guacdConn.Close()
 
-		buf := make([]byte, 32768)
+		buf := make([]byte, 65536)
 		for {
 			n, err := reader.Read(buf)
 			if err != nil {

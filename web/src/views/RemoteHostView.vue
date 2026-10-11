@@ -1484,12 +1484,14 @@ const scaleDesktop = (sessId: string) => {
   if (!cWidth || !cHeight) return;
 
   const scale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
-  display.scale(Math.max(scale, 0.05));
+  // Snap scale to 1.0 when viewport is approximately 1:1 (between 96% and 104%) to eliminate subpixel blur
+  const finalScale = (scale >= 0.96 && scale <= 1.04) ? 1.0 : Math.max(scale, 0.05);
+  display.scale(finalScale);
 
   const wrapper = document.getElementById(`desktop-display-wrapper-${sessId}`);
   if (wrapper) {
-    wrapper.style.width = `${Math.floor(dispWidth * scale)}px`;
-    wrapper.style.height = `${Math.floor(dispHeight * scale)}px`;
+    wrapper.style.width = `${Math.floor(dispWidth * finalScale)}px`;
+    wrapper.style.height = `${Math.floor(dispHeight * finalScale)}px`;
   }
 };
 
