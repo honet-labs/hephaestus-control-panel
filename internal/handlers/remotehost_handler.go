@@ -350,11 +350,34 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 // HandleWebSocketDesktop upgrades WebSocket for Remote Desktop and tunnels Guacamole protocol
 func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
 	queryToken := c.Query("token")
+	if queryToken == "" {
+		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
+			queryToken = cookie
+		}
+	}
+	if queryToken == "" {
+		authHeader := c.GetHeader("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			queryToken = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
 	hostID := c.Query("hostId")
 	proto := c.DefaultQuery("proto", "rdp")
 	widthStr := c.DefaultQuery("width", "1920")
 	heightStr := c.DefaultQuery("height", "1080")
 	dpiStr := c.DefaultQuery("dpi", "96")
+
+	// Sanitize any query delimiters that might be appended (e.g. ?undefined)
+	if idx := strings.IndexAny(widthStr, "?&"); idx != -1 {
+		widthStr = widthStr[:idx]
+	}
+	if idx := strings.IndexAny(heightStr, "?&"); idx != -1 {
+		heightStr = heightStr[:idx]
+	}
+	if idx := strings.IndexAny(dpiStr, "?&"); idx != -1 {
+		dpiStr = dpiStr[:idx]
+	}
 
 	width, _ := strconv.Atoi(widthStr)
 	height, _ := strconv.Atoi(heightStr)
@@ -374,6 +397,7 @@ func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
 	}
 
 	if !isAuthenticated {
+		logger.Warn("Guacamole", "WebSocket desktop connection rejected: unauthenticated request (missing or invalid session token)", nil)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Access denied. Valid authentication token required."})
 		return
 	}

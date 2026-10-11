@@ -1538,9 +1538,10 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     const secMode = desktopSecurity.value[sessId] || 'any';
     const token = authStore.token || '';
 
-    const wsUrl = `${proto}//${window.location.host}/ws/remote-desktop?token=${encodeURIComponent(token)}&hostId=${session.host.id}&proto=${protoType}&security=${encodeURIComponent(secMode)}&width=${width}&height=${height}&dpi=96`;
+    const wsBaseUrl = `${proto}//${window.location.host}/ws/remote-desktop`;
+    const connectParams = `token=${encodeURIComponent(token)}&hostId=${encodeURIComponent(session.host.id)}&proto=${encodeURIComponent(protoType)}&security=${encodeURIComponent(secMode)}&width=${width}&height=${height}&dpi=96`;
 
-    const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+    const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl);
     const client = new Guacamole.Client(tunnel);
 
     desktopClients.value[sessId] = client;
@@ -1633,7 +1634,7 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
       desktopError.value[sessId] = parseGuacamoleError(status);
     };
 
-    client.connect();
+    client.connect(connectParams);
   } catch (err: any) {
     desktopLoading.value[sessId] = false;
     desktopConnected.value[sessId] = false;
