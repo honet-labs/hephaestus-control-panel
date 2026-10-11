@@ -222,6 +222,20 @@ const portProtoFilter = ref<'all' | 'tcp' | 'udp'>('all');
 const portSearch = ref('');
 const interfaceSearch = ref('');
 
+// Notification state
+const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
+const showNotice = (text: string, type: 'success' | 'error' = 'success') => {
+  notification.value = { text, type };
+  setTimeout(() => {
+    notification.value = null;
+  }, 3000);
+};
+
+// Delete Confirmation Modal State
+const hostToDelete = ref<RemoteHost | null>(null);
+const showDeleteHostModal = ref(false);
+const deletingHost = ref(false);
+
 // Host Ownership & Sharing State
 const hostOwnershipFilter = ref<'all' | 'mine' | 'shared'>('all');
 const isShareModalOpen = ref(false);
@@ -566,9 +580,13 @@ const restorePersistedSessions = async () => {
         await nextTick();
         const activeS = openSessions.value[targetIdx];
         const isDesktop = isRdpHost(activeS.host) || isVncHost(activeS.host);
-        if (activeS.activeView === 'desktop' || isDesktop) {
+        if (isRdpHost(activeS.host)) {
+          // Windows RDP hosts use native .rdp download, avoid in-browser guacd canvas
+          activeS.activeView = 'dashboard';
+          fetchHostTelemetry(activeS);
+        } else if (activeS.activeView === 'desktop' || isDesktop) {
           activeS.activeView = 'desktop';
-          desktopProto.value[activeS.id] = isVncHost(activeS.host) ? 'vnc' : 'rdp';
+          desktopProto.value[activeS.id] = 'vnc';
           await nextTick();
           await ensureDesktopReady(activeS);
         } else if (activeS.activeView === 'terminal') {
@@ -604,9 +622,14 @@ const fetchHosts = async () => {
 // MULTI-SESSION & DUPLICATE TABS SUPPORT
 // =================================================================
 const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: string) => {
-  const isRdp = isRdpHost(host);
+  // If host is Windows / RDP, bypass in-browser guacd and download .rdp directly
+  if (isRdpHost(host)) {
+    downloadRdpFile(host);
+    return;
+  }
+
   const isVnc = isVncHost(host);
-  const defaultView: 'terminal' | 'desktop' = (isRdp || isVnc) ? 'desktop' : 'terminal';
+  const defaultView: 'terminal' | 'desktop' = isVnc ? 'desktop' : 'terminal';
 
   if (!forceNew) {
     const existingIdx = openSessions.value.findIndex((s) => s.host.id === host.id);
@@ -1502,6 +1525,12 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
   if (!session || !session.host?.id) return;
   const sessId = session.id;
 
+  if (isRdpHost(session.host)) {
+    // Windows RDP uses native .rdp configuration download, guacd in-browser is bypassed
+    downloadRdpFile(session.host);
+    return;
+  }
+
   if (!desktopProto.value[sessId]) {
     desktopProto.value[sessId] = (session.host as any).protocol === 'vnc' ? 'vnc' : 'rdp';
   }
@@ -1778,6 +1807,7 @@ const downloadRdpFile = (host?: RemoteHost) => {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  showNotice(`File .rdp untuk "${host.name || host.host}" berhasil diunduh. Silakan buka file untuk koneksi Remote Desktop.`);
 };
 
 const toggleDesktopFullscreen = (session: OpenSession) => {
@@ -2439,21 +2469,32 @@ const openEditHostModal = (host: RemoteHost, event?: MouseEvent) => {
   isHostModalOpen.value = true;
 };
 
-const handleDeleteHost = async (host: RemoteHost, event?: MouseEvent) => {
+const openDeleteHostModal = (host: RemoteHost, event?: MouseEvent) => {
   if (event) event.stopPropagation();
-  if (!confirm(`Are you sure you want to delete server "${host.name}" (${host.host})?`)) return;
+  hostToDelete.value = host;
+  showDeleteHostModal.value = true;
+};
+
+const executeDeleteHost = async () => {
+  if (!hostToDelete.value) return;
+  deletingHost.value = true;
   try {
-    const res = await axios.delete(`/api/v1/remote-host/${host.id}`);
+    const res = await axios.delete(`/api/v1/remote-host/${hostToDelete.value.id}`);
     if (res.data.success) {
       for (let i = openSessions.value.length - 1; i >= 0; i--) {
-        if (openSessions.value[i].host.id === host.id) {
+        if (openSessions.value[i].host.id === hostToDelete.value.id) {
           closeSession(i);
         }
       }
       await fetchHosts();
+      showNotice(`Server "${hostToDelete.value.name}" berhasil dihapus.`);
+      showDeleteHostModal.value = false;
+      hostToDelete.value = null;
     }
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete host');
+    showNotice(err.response?.data?.error || 'Failed to delete host', 'error');
+  } finally {
+    deletingHost.value = false;
   }
 };
 
@@ -2992,118 +3033,189 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-            <div
-              v-for="host in filteredHosts"
-              :key="host.id"
-              @click="connectHost(host)"
-              class="p-4 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition group relative shadow-xs hover:shadow-sm"
-            >
-              <div class="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
-                <div class="w-10 h-10 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-xs tracking-wider shrink-0 shadow-xs">
-                  {{ host.name.substring(0, 2).toUpperCase() }}
-                </div>
-                <div class="overflow-hidden space-y-1 min-w-0 flex-1">
-                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">{{ host.name }}</p>
-                  <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="getHostConnectionLabel(host)">{{ getHostConnectionLabel(host) }}</p>
-                  
-                  <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <!-- Protocol Badge -->
-                    <span
-                      v-if="isRdpHost(host)"
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold border border-blue-500/20 flex items-center gap-1 shrink-0"
-                    >
-                      <Monitor class="w-2.5 h-2.5" />
-                      RDP
-                    </span>
-                    <span
-                      v-else-if="isVncHost(host)"
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 flex items-center gap-1 shrink-0"
-                    >
-                      <Tv class="w-2.5 h-2.5" />
-                      VNC
-                    </span>
-                    <span
-                      v-else
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold border border-slate-200 dark:border-slate-700 flex items-center gap-1 shrink-0"
-                    >
-                      <SquareTerminal class="w-2.5 h-2.5" />
-                      SSH
-                    </span>
+          <!-- Enterprise Server List Table -->
+          <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-xs">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-[#1f283d] bg-slate-50/80 dark:bg-[#151c2d]/80 text-slate-500 dark:text-slate-400 font-semibold text-[11px] uppercase tracking-wider">
+                    <th class="py-3 px-4">Server Name &amp; Host</th>
+                    <th class="py-3 px-4">Protocol &amp; Port</th>
+                    <th class="py-3 px-4">Group</th>
+                    <th class="py-3 px-4">User</th>
+                    <th class="py-3 px-4">Ownership</th>
+                    <th class="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-[#192132]">
+                  <tr
+                    v-for="host in filteredHosts"
+                    :key="host.id"
+                    @click="connectHost(host)"
+                    class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d]/50 transition cursor-pointer group"
+                  >
+                    <!-- Server Name & Host -->
+                    <td class="py-3 px-4 min-w-[200px]">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-[11px] shrink-0 font-mono">
+                          {{ host.name.substring(0, 2).toUpperCase() }}
+                        </div>
+                        <div class="min-w-0">
+                          <p class="font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">
+                            {{ host.name }}
+                          </p>
+                          <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="`${host.host}:${host.port || (isRdpHost(host) ? 3389 : 22)}`">
+                            {{ host.host }}:{{ host.port || (isRdpHost(host) ? 3389 : 22) }}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
 
-                    <span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
-                      {{ host.groupName || 'Default' }}
-                    </span>
+                    <!-- Protocol & Port -->
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <span
+                        v-if="isRdpHost(host)"
+                        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50"
+                      >
+                        <Monitor class="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                        <span>Windows RDP ({{ host.port || 3389 }})</span>
+                      </span>
+                      <span
+                        v-else-if="isVncHost(host)"
+                        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50"
+                      >
+                        <Tv class="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        <span>VNC ({{ host.port || 5900 }})</span>
+                      </span>
+                      <span
+                        v-else
+                        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                      >
+                        <SquareTerminal class="w-3 h-3 text-slate-500 dark:text-slate-400" />
+                        <span>Linux SSH ({{ host.port || 22 }})</span>
+                      </span>
+                    </td>
 
-                    <!-- Ownership Badge -->
-                    <span
-                      v-if="host.isOwner"
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium"
-                    >
-                      My Host
-                    </span>
-                    <span
-                      v-else
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium truncate max-w-[130px]"
-                      :title="`Shared by @${host.ownerUsername || 'User'} (${host.sharedAccess === 'manage' ? 'Full Control' : 'Read Only'})`"
-                    >
-                      Shared &bull; @{{ host.ownerUsername || 'User' }}
-                    </span>
+                    <!-- Group -->
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
+                        {{ host.groupName || 'Default' }}
+                      </span>
+                    </td>
 
-                    <!-- Shares Count Badge -->
-                    <span
-                      v-if="host.sharesCount && host.sharesCount > 0 && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                      class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-mono"
-                      title="Users shared with this server"
-                    >
-                      <Users class="w-2.5 h-2.5 text-slate-400" />
-                      {{ host.sharesCount }}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                    <!-- User & Auth -->
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-1.5 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                        <span>{{ host.username || (isRdpHost(host) ? 'Administrator' : 'root') }}</span>
+                        <span class="text-[10px] text-slate-400 font-sans" :title="`Auth Type: ${host.authType || 'password'}`">
+                          ({{ host.authType === 'key' ? 'Key' : 'Pass' }})
+                        </span>
+                      </div>
+                    </td>
 
-              <!-- Action Buttons -->
-              <div class="flex items-center gap-1 shrink-0">
-                <!-- Share Button (Only Owner or Admin) -->
-                <button
-                  v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                  @click.stop="openShareModal(host, $event)"
-                  title="Share access with other users"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                >
-                  <Share2 :size="14" class="w-3.5 h-3.5" />
-                </button>
+                    <!-- Ownership -->
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-1.5">
+                        <span
+                          v-if="host.isOwner"
+                          class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                        >
+                          My Host
+                        </span>
+                        <span
+                          v-else
+                          class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[140px]"
+                          :title="`Shared by @${host.ownerUsername || 'User'} (${host.sharedAccess === 'manage' ? 'Full Control' : 'Read Only'})`"
+                        >
+                          @{{ host.ownerUsername || 'User' }}
+                        </span>
+                        <span
+                          v-if="host.sharesCount && host.sharesCount > 0 && (host.isOwner || authStore.user?.role === 'ADMIN')"
+                          class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-mono"
+                          title="Shared users count"
+                        >
+                          <Users class="w-2.5 h-2.5 text-slate-400" />
+                          {{ host.sharesCount }}
+                        </span>
+                      </div>
+                    </td>
 
-                <!-- Edit Button (Only Owner or Admin) -->
-                <button
-                  v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                  @click.stop="openEditHostModal(host, $event)"
-                  title="Edit Server Configuration"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                >
-                  <Settings :size="14" class="w-3.5 h-3.5" />
-                </button>
+                    <!-- Action: Clear CONNECT button & tool buttons -->
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <div class="flex items-center justify-end gap-1.5">
+                        <!-- Prominent Connect Button (Windows downloads .rdp, Linux opens SSH, VNC opens desktop) -->
+                        <button
+                          v-if="isRdpHost(host)"
+                          @click.stop="downloadRdpFile(host)"
+                          title="Download .RDP configuration file to connect via native Windows Remote Desktop"
+                          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
+                        >
+                          <Download class="w-3.5 h-3.5" />
+                          <span>Connect</span>
+                        </button>
+                        <button
+                          v-else-if="isVncHost(host)"
+                          @click.stop="connectHost(host)"
+                          title="Open VNC Remote Desktop session"
+                          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
+                        >
+                          <Tv class="w-3.5 h-3.5" />
+                          <span>Connect</span>
+                        </button>
+                        <button
+                          v-else
+                          @click.stop="connectHost(host)"
+                          title="Open Interactive SSH Terminal session"
+                          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
+                        >
+                          <SquareTerminal class="w-3.5 h-3.5" />
+                          <span>Connect</span>
+                        </button>
 
-                <!-- Delete Button (Only Owner or Admin) -->
-                <button
-                  v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
-                  @click.stop="handleDeleteHost(host, $event)"
-                  title="Delete Server"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                >
-                  <Trash2 :size="14" class="w-3.5 h-3.5" />
-                </button>
+                        <!-- Share Button (Only Owner or Admin) -->
+                        <button
+                          v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
+                          @click.stop="openShareModal(host, $event)"
+                          title="Share access with other users"
+                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
+                        >
+                          <Share2 class="w-3.5 h-3.5" />
+                        </button>
 
-                <!-- Quick Duplicate / New Tab -->
-                <button
-                  @click.stop="connectHost(host, true)"
-                  :title="isRdpHost(host) ? 'Open New Remote Desktop Tab' : 'Open New Terminal Tab'"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                >
-                  <Plus :size="14" class="w-3.5 h-3.5" />
-                </button>
-              </div>
+                        <!-- Edit Button (Only Owner or Admin) -->
+                        <button
+                          v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
+                          @click.stop="openEditHostModal(host, $event)"
+                          title="Edit Server Configuration"
+                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
+                        >
+                          <Settings class="w-3.5 h-3.5" />
+                        </button>
+
+                        <!-- Delete Button (Only Owner or Admin) -->
+                        <button
+                          v-if="canManage && (host.isOwner || authStore.user?.role === 'ADMIN')"
+                          @click.stop="openDeleteHostModal(host, $event)"
+                          title="Delete Server"
+                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
+                        >
+                          <Trash2 class="w-3.5 h-3.5" />
+                        </button>
+
+                        <!-- Quick Duplicate / New Tab (for SSH/VNC) -->
+                        <button
+                          v-if="!isRdpHost(host)"
+                          @click.stop="connectHost(host, true)"
+                          title="Open New Session Tab"
+                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
+                        >
+                          <Plus class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -5354,6 +5466,65 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Standard Delete Confirmation Modal -->
+    <div
+      v-if="showDeleteHostModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Remote Server?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ hostToDelete?.name }}</strong> ({{ hostToDelete?.host }})? This action cannot be undone.
+          </p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            @click="showDeleteHostModal = false; hostToDelete = null"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeDeleteHost"
+            :disabled="deletingHost"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ deletingHost ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast (Teleported to body) -->
+    <Teleport to="body">
+      <transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0 -translate-y-2 scale-95"
+        enter-to-class="opacity-100 translate-y-0 scale-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0 scale-100"
+        leave-to-class="opacity-0 -translate-y-2 scale-95"
+      >
+        <div
+          v-if="notification"
+          class="fixed top-5 right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold border pointer-events-auto"
+          :class="
+            notification.type === 'success'
+              ? 'bg-emerald-50 dark:bg-[#0a2318] border-emerald-500/40 text-emerald-800 dark:text-emerald-300 shadow-emerald-950/10'
+              : 'bg-rose-50 dark:bg-[#250d12] border-rose-500/40 text-rose-800 dark:text-rose-300 shadow-rose-950/10'
+          "
+        >
+          <Check v-if="notification.type === 'success'" class="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <AlertCircle v-else class="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+          <span>{{ notification.text }}</span>
+        </div>
+      </transition>
+    </Teleport>
 
   </div>
 </template>
