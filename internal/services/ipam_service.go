@@ -1018,6 +1018,9 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 		} else {
 			if existing, ok := existingMap[res.ip]; ok {
 				existing.IsOnline = false
+				if existing.Status != "reserved" {
+					existing.Status = "offline"
+				}
 				_ = s.ipamRepo.UpsertAddress(ctx, &existing)
 			}
 		}
@@ -1182,6 +1185,13 @@ func (s *IpamService) SaveAddress(ctx context.Context, req *domain.SaveIpamAddre
 			now := time.Now()
 			if reachable {
 				existing.LastSeenAt = &now
+				if existing.Status == "discovered" || existing.Status == "offline" {
+					existing.Status = "active"
+				}
+			} else {
+				if existing.Status != "reserved" {
+					existing.Status = "offline"
+				}
 			}
 			_ = s.ipamRepo.UpsertAddress(context.Background(), existing)
 		}

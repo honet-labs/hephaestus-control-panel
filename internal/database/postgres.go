@@ -859,6 +859,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ALTER TABLE ipam_addresses ALTER COLUMN ip_address TYPE VARCHAR(100);
 
 		UPDATE ipam_addresses SET status = 'active' WHERE status = 'discovered' OR (is_online = true AND status = 'offline');
+		UPDATE ipam_addresses SET status = 'offline' WHERE status = 'active' AND is_online = false;
 		UPDATE ipam_addresses SET os_family = 'Linux' WHERE (os_family IS NULL OR os_family = '' OR os_family = 'Unknown') AND is_online = true;
 
 		CREATE TABLE IF NOT EXISTS ipam_scan_logs (

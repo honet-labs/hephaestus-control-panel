@@ -388,7 +388,7 @@ const openTableAddressDetail = (addr: IpamAddress) => {
   selectedDetailItem.value = {
     ip: addr.ipAddress,
     addr: addr,
-    status: (addr.isOnline || addr.status === 'active' || addr.status === 'discovered') ? 'active' : (addr.status === 'reserved' ? 'reserved' : 'offline'),
+    status: addr.status === 'reserved' ? 'reserved' : (addr.isOnline ? 'active' : 'offline'),
   };
   showDetailModal.value = true;
 };
@@ -503,7 +503,7 @@ const getCardOS = (item: any): string => {
   if (item.addr.hostname) {
     return item.addr.hostname;
   }
-  if (item.addr.isOnline || item.status === 'active' || item.status === 'discovered') {
+  if (item.addr.isOnline) {
     return 'Linux';
   }
   return '';
@@ -621,7 +621,7 @@ const allGridIPItems = computed<GridIPItem[]>(() => {
       ip: a.ipAddress,
       hostNum: idx + 1,
       addr: a,
-      status: (a.isOnline || a.status === 'active' || a.status === 'discovered') ? 'active' : (a.status === 'reserved' ? 'reserved' : 'offline')
+      status: a.status === 'reserved' ? 'reserved' : (a.isOnline ? 'active' : 'offline')
     }));
   }
 
@@ -652,7 +652,7 @@ const allGridIPItems = computed<GridIPItem[]>(() => {
     if (assigned) {
       if (assigned.status === 'reserved') {
         status = 'reserved';
-      } else if (assigned.isOnline || assigned.status === 'active' || assigned.status === 'discovered') {
+      } else if (assigned.isOnline) {
         status = 'active';
       } else {
         status = 'offline';
@@ -682,7 +682,7 @@ const gridIPList = computed<GridIPItem[]>(() => {
   return allGridIPItems.value.filter(item => {
     // 1. Status Filter
     if (st !== 'all') {
-      if (st === 'active' && item.status !== 'active' && !item.addr?.isOnline) return false;
+      if (st === 'active' && item.status !== 'active') return false;
       if (st === 'reserved' && item.status !== 'reserved') return false;
       if (st === 'offline' && item.status !== 'offline') return false;
       if (st === 'available' && item.status !== 'available') return false;
@@ -730,8 +730,8 @@ const filteredTableAddresses = computed(() => {
 
     const matchStatus = st === 'all' ||
       (st === 'online' && a.isOnline) ||
-      (st === 'offline' && !a.isOnline) ||
-      (st === 'active' && (a.status === 'active' || a.status === 'discovered' || a.isOnline)) ||
+      (st === 'offline' && (a.status === 'offline' || (!a.isOnline && a.status !== 'reserved'))) ||
+      (st === 'active' && a.status !== 'reserved' && a.isOnline) ||
       (st === 'reserved' && a.status === 'reserved');
 
     return matchQuery && matchStatus;
@@ -1305,7 +1305,7 @@ onMounted(() => {
             @click="openGridItemDetail(item)"
             :class="[
               'group relative p-2.5 rounded-xl border text-center transition cursor-pointer select-none',
-              (item.status === 'active' || item.addr?.isOnline) ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
+              item.status === 'active' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 hover:scale-105 shadow-xs' :
               item.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 hover:scale-105 shadow-xs' :
               item.status === 'offline' ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 hover:scale-105 shadow-xs' :
               'bg-slate-50 dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1a2233]'
@@ -1322,8 +1322,9 @@ onMounted(() => {
                 v-if="getCardOS(item)"
                 class="inline-flex items-center gap-1 text-[9px] font-semibold truncate max-w-full px-1.5 py-0.2 rounded-full"
                 :class="[
-                  item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' :
+                  item.status === 'active' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' :
                   item.status === 'reserved' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' :
+                  item.status === 'offline' ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' :
                   'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 ]"
                 :title="getCardOSTitle(item)"
@@ -1344,16 +1345,22 @@ onMounted(() => {
               <span
                 class="w-1.5 h-1.5 rounded-full"
                 :class="[
-                  item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500' :
+                  item.status === 'active' ? 'bg-emerald-500' :
                   item.status === 'reserved' ? 'bg-amber-500' :
                   item.status === 'offline' ? 'bg-rose-500' :
                   'bg-slate-300 dark:bg-slate-700'
                 ]"
               ></span>
-              <span v-if="item.addr?.isOnline" class="font-mono text-[9px] text-slate-500 dark:text-slate-400">
+              <span v-if="item.status === 'active' && item.addr?.isOnline" class="font-mono text-[9px] text-slate-500 dark:text-slate-400">
                 {{ item.addr.responseTimeMs }}ms
               </span>
-              <span v-else-if="item.status === 'active' || item.status === 'reserved'" class="font-mono text-[9px] text-slate-400">
+              <span v-else-if="item.status === 'offline'" class="font-mono text-[9px] text-rose-600 dark:text-rose-400 font-medium">
+                Offline
+              </span>
+              <span v-else-if="item.status === 'reserved'" class="font-mono text-[9px] text-amber-600 dark:text-amber-400">
+                Reserved
+              </span>
+              <span v-else-if="item.status === 'active'" class="font-mono text-[9px] text-slate-400">
                 Allocated
               </span>
               <span v-else class="text-[9px] text-slate-300 dark:text-slate-600">
@@ -1366,9 +1373,9 @@ onMounted(() => {
               <div class="font-mono font-bold text-white border-b border-slate-800 pb-1 flex items-center justify-between">
                 <span>{{ item.ip }}</span>
                 <span class="uppercase text-[9px] px-1.5 py-0.5 rounded font-bold"
-                  :class="item.status === 'active' || item.addr?.isOnline ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : item.status === 'reserved' ? 'bg-amber-500/20 text-amber-400' : 'bg-rose-500/20 text-rose-400'"
+                  :class="item.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'available' ? 'bg-slate-700 text-slate-300' : item.status === 'reserved' ? 'bg-amber-500/20 text-amber-400' : 'bg-rose-500/20 text-rose-400'"
                 >
-                  {{ item.status === 'discovered' ? 'active' : item.status }}
+                  {{ item.status }}
                 </span>
               </div>
               <div v-if="item.addr?.hostname" class="truncate">
@@ -1431,17 +1438,21 @@ onMounted(() => {
                   <div class="flex items-center gap-1.5">
                     <span
                       class="w-2 h-2 rounded-full"
-                      :class="addr.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"
+                      :class="[
+                        addr.status === 'reserved' ? 'bg-amber-500' :
+                        addr.isOnline ? 'bg-emerald-500 animate-pulse' :
+                        'bg-rose-500'
+                      ]"
                     ></span>
                     <span
                       class="text-[10px] font-bold px-1.5 py-0.5 rounded capitalize"
                       :class="[
-                        addr.status === 'active' || addr.status === 'discovered' || addr.isOnline ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' :
                         addr.status === 'reserved' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30' :
+                        addr.isOnline ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' :
                         'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30'
                       ]"
                     >
-                      {{ (addr.status === 'discovered' || addr.isOnline) ? 'active' : addr.status }}
+                      {{ addr.status === 'reserved' ? 'reserved' : (addr.isOnline ? 'active' : 'offline') }}
                     </span>
                   </div>
                 </td>
@@ -1710,7 +1721,7 @@ onMounted(() => {
         <!-- Hero IP Banner -->
         <div class="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
              :class="[
-               (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-50/60 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' :
+               selectedDetailItem.status === 'active' ? 'bg-emerald-50/60 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' :
                selectedDetailItem.status === 'reserved' ? 'bg-amber-50/60 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' :
                selectedDetailItem.status === 'offline' ? 'bg-rose-50/60 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' :
                'bg-slate-50 dark:bg-[#161d2d] border-slate-200 dark:border-slate-800'
@@ -1719,7 +1730,7 @@ onMounted(() => {
           <div class="flex items-center gap-2.5">
             <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
                  :class="[
-                   (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-500 text-white' :
+                   selectedDetailItem.status === 'active' ? 'bg-emerald-500 text-white' :
                    selectedDetailItem.status === 'reserved' ? 'bg-amber-500 text-white' :
                    selectedDetailItem.status === 'offline' ? 'bg-rose-500 text-white' :
                    'bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
@@ -1751,7 +1762,7 @@ onMounted(() => {
             <span
               class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold"
               :class="[
-                (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30' :
+                selectedDetailItem.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30' :
                 selectedDetailItem.status === 'reserved' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30' :
                 selectedDetailItem.status === 'offline' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30' :
                 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
@@ -1760,14 +1771,14 @@ onMounted(() => {
               <span
                 class="w-2 h-2 rounded-full"
                 :class="[
-                  (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'bg-emerald-500 animate-pulse' :
+                  selectedDetailItem.status === 'active' ? 'bg-emerald-500 animate-pulse' :
                   selectedDetailItem.status === 'reserved' ? 'bg-amber-500' :
                   selectedDetailItem.status === 'offline' ? 'bg-rose-500' :
                   'bg-slate-400'
                 ]"
               ></span>
               {{
-                (selectedDetailItem.status === 'active' || selectedDetailItem.addr?.isOnline) ? 'Active (Online)' :
+                selectedDetailItem.status === 'active' ? 'Active (Online)' :
                 selectedDetailItem.status === 'reserved' ? 'Reserved (Gateway)' :
                 selectedDetailItem.status === 'offline' ? 'Offline (Unreachable)' :
                 'Available (Free)'
@@ -1809,9 +1820,16 @@ onMounted(() => {
                 </span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-slate-500 dark:text-slate-400">Allocation Type:</span>
-                <span class="font-semibold capitalize text-slate-800 dark:text-slate-200">
-                  {{ selectedDetailItem.addr ? selectedDetailItem.addr.status : 'Unallocated (Free)' }}
+                <span class="text-slate-500 dark:text-slate-400">Status / Allocation:</span>
+                <span class="font-semibold capitalize"
+                  :class="[
+                    selectedDetailItem.status === 'active' ? 'text-emerald-600 dark:text-emerald-400' :
+                    selectedDetailItem.status === 'reserved' ? 'text-amber-600 dark:text-amber-400' :
+                    selectedDetailItem.status === 'offline' ? 'text-rose-600 dark:text-rose-400' :
+                    'text-slate-500 dark:text-slate-400'
+                  ]"
+                >
+                  {{ selectedDetailItem.status === 'available' ? 'Unallocated (Free)' : (selectedDetailItem.status === 'active' ? 'Active (Allocated)' : selectedDetailItem.status) }}
                 </span>
               </div>
               <div class="flex items-center justify-between">
