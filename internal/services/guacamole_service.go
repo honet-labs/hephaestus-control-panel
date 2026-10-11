@@ -218,12 +218,6 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		}
 		paramMap["security"] = sec
 		paramMap["resize-method"] = "display-update"
-		// Critical anti-artifact & smoothness parameters:
-		// Disabling bitmap & offscreen caching eliminates black/white rectangle tearing when client cache desyncs
-		paramMap["disable-bitmap-caching"] = "true"
-		paramMap["disable-offscreen-caching"] = "true"
-		paramMap["disable-glyph-caching"] = "true"
-		// 32-bit native color matches Windows DWM without CPU planar color conversion overhead
 		paramMap["color-depth"] = "32"
 		paramMap["enable-desktop-composition"] = "true"
 		paramMap["enable-font-smoothing"] = "true"
