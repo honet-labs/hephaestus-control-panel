@@ -1442,6 +1442,9 @@ const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'da
 const parseGuacamoleError = (status: any): string => {
   if (!status) return 'Remote desktop connection failed.';
   if (status.message && typeof status.message === 'string' && status.message.trim().length > 0) {
+    if (status.message.toLowerCase().includes('disconnected by other connection')) {
+      return 'Disconnected by other connection (Sesi RDP terputus karena akun Windows ini sedang dibuka oleh sesi/aplikasi lain seperti mstsc atau tab lain)';
+    }
     return status.message;
   }
   const code = typeof status === 'number' ? status : (status.code || 0);
@@ -1523,6 +1526,8 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
       desktopClients.value[sessId].disconnect();
     } catch (_) {}
     desktopClients.value[sessId] = null;
+    // Brief delay to allow Windows RDP server to cleanly finalize previous session teardown
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   desktopLoading.value[sessId] = true;
@@ -3923,30 +3928,51 @@ onUnmounted(() => {
                       </div>
 
                       <div class="space-y-2 text-slate-700 dark:text-slate-200 text-[11px] leading-relaxed">
-                        <p class="flex items-start gap-1.5">
-                          <span class="text-rose-600 dark:text-rose-400 font-bold shrink-0">•</span>
-                          <span>
-                            <strong>Upstream Host Unreachable:</strong> Layanan Guacamole di server Hephaestus tidak dapat menjangkau target IP dan port {{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}.
-                          </span>
-                        </p>
-                        <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 p-2.5 rounded-lg border border-amber-200 dark:border-amber-500/20">
-                          <span class="text-amber-600 dark:text-amber-400 font-bold shrink-0">•</span>
-                          <span>
-                            IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN).
-                            <span v-if="session.host?.host?.startsWith('172.17.')" class="block mt-1 font-semibold text-rose-700 dark:text-rose-300">
-                              Konflik Docker: Subnet 172.17.x.x adalah default subnet virtual bridge Docker (docker0). Jika dari host fisik server Hephaestus telnet bisa tetapi dari panel timeout, Docker menganggap IP 172.17.x.x berada di dalam virtual bridge docker0 internal. Solusinya: Ubah 'bip' di /etc/docker/daemon.json ke 10.200.0.1/16 atau gunakan host routing.
+                        <!-- Specialized Card for Session Conflict (Disconnected by other connection) -->
+                        <div v-if="desktopError[session.id]?.toLowerCase().includes('disconnected by other connection')" class="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 space-y-1.5">
+                          <p class="font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                            Konflik Sesi RDP Windows (Session Conflict):
+                          </p>
+                          <p class="leading-relaxed">
+                            Windows hanya mengizinkan <strong>1 sesi aktif</strong> untuk akun ini. Sesi ditolak karena:
+                          </p>
+                          <ul class="list-disc pl-4 space-y-0.5 text-slate-700 dark:text-slate-300">
+                            <li>Ada aplikasi Remote Desktop lain (seperti <strong>mstsc.exe</strong> di laptop Anda) yang sedang tersambung ke server ini.</li>
+                            <li>Ada tab browser lain atau perangkat lain yang sedang membuka sesi RDP ke server ini.</li>
+                            <li>Sesi sebelumnya baru saja terputus dan Windows butuh jeda 2-3 detik untuk melepaskan *lock* sesi lama.</li>
+                          </ul>
+                          <p class="pt-1 text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
+                            Solusi: Pastikan tidak ada aplikasi RDP (mstsc) atau tab lain yang aktif, tunggu 3 detik, lalu klik tombol <strong>Retry Connection</strong>.
+                          </p>
+                        </div>
+
+                        <!-- General Diagnostics if not session conflict -->
+                        <template v-else>
+                          <p class="flex items-start gap-1.5">
+                            <span class="text-rose-600 dark:text-rose-400 font-bold shrink-0">•</span>
+                            <span>
+                              <strong>Upstream Host Unreachable / Negotiation Failed:</strong> Layanan Guacamole di server Hephaestus tidak dapat menyelesaikan negosiasi RDP ke target IP dan port {{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}.
                             </span>
-                            <span v-else>
-                              Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
+                          </p>
+                          <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 p-2.5 rounded-lg border border-amber-200 dark:border-amber-500/20">
+                            <span class="text-amber-600 dark:text-amber-400 font-bold shrink-0">•</span>
+                            <span>
+                              IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN).
+                              <span v-if="session.host?.host?.startsWith('172.17.')" class="block mt-1 font-semibold text-rose-700 dark:text-rose-300">
+                                Konflik Docker: Subnet 172.17.x.x adalah default subnet virtual bridge Docker (docker0). Jika dari host fisik server Hephaestus telnet bisa tetapi dari panel timeout, Docker menganggap IP 172.17.x.x berada di dalam virtual bridge docker0 internal. Solusinya: Ubah 'bip' di /etc/docker/daemon.json ke 10.200.0.1/16 atau gunakan host routing.
+                              </span>
+                              <span v-else>
+                                Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
+                              </span>
                             </span>
-                          </span>
-                        </p>
-                        <p class="flex items-start gap-1.5 text-slate-600 dark:text-slate-300">
-                          <span class="text-blue-600 dark:text-blue-400 font-bold shrink-0">•</span>
-                          <span>
-                            Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di toolbar atas, atau coba protokol <strong>VNC</strong> jika tersedia.
-                          </span>
-                        </p>
+                          </p>
+                          <p class="flex items-start gap-1.5 text-slate-600 dark:text-slate-300">
+                            <span class="text-blue-600 dark:text-blue-400 font-bold shrink-0">•</span>
+                            <span>
+                              Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di toolbar atas, atau coba protokol <strong>VNC</strong> jika tersedia.
+                            </span>
+                          </p>
+                        </template>
                       </div>
 
                       <!-- Interactive Test Reachability Result -->
