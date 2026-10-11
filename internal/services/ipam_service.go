@@ -533,16 +533,94 @@ func probeTCPPort(ip string, port int, timeout time.Duration) (bool, string) {
 	return true, banner
 }
 
+// probeMultiplePorts attempts fast concurrent TCP connections to common service ports
+func probeMultiplePorts(ip string, ports []int, timeout time.Duration) (bool, int, float64) {
+	type portRes struct {
+		port    int
+		latency float64
+	}
+	resChan := make(chan portRes, len(ports))
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for _, p := range ports {
+		wg.Add(1)
+		go func(port int) {
+			defer wg.Done()
+			addr := net.JoinHostPort(ip, strconv.Itoa(port))
+			start := time.Now()
+			d := net.Dialer{Timeout: timeout}
+			conn, err := d.DialContext(ctx, "tcp", addr)
+			if err == nil {
+				elapsed := float64(time.Since(start).Milliseconds())
+				if elapsed < 1 {
+					elapsed = 1
+				}
+				_ = conn.Close()
+				select {
+				case resChan <- portRes{port: port, latency: elapsed}:
+				default:
+				}
+			}
+		}(p)
+	}
+
+	wg.Wait()
+	close(resChan)
+
+	if first, ok := <-resChan; ok {
+		return true, first.port, first.latency
+	}
+	return false, 0, 0
+}
+
+// checkHostLiveness performs a multi-layer host liveness check:
+// 1. ICMP Ping (fastest for hosts that allow echo requests)
+// 2. TCP Port Probe on common enterprise ports (Windows RDP 3389, SMB 445, RPC 135, Web 80/443, SSH 22, WinRM 5985, Exporter 8889/9100)
+//    - Critical for Windows machines where Windows Firewall blocks ICMP Echo Request by default
+// 3. UDP NetBIOS node query (port 137)
+func checkHostLiveness(ctx context.Context, target string) (bool, *float64, int) {
+	// 1. ICMP Ping first (fastest for responding hosts)
+	pingCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	reachable, latency, ttl := pingHostWithDetails(pingCtx, target)
+	cancel()
+	if reachable {
+		return true, latency, ttl
+	}
+
+	// 2. TCP Port Probe Fallback (Critical for Windows hosts where Windows Firewall blocks ICMP by default,
+	// or firewalled Linux servers with open management/service ports)
+	commonPorts := []int{3389, 445, 135, 80, 443, 22, 139, 5357, 5985, 8889, 9100, 8080}
+	if open, port, tcpLat := probeMultiplePorts(target, commonPorts, 500*time.Millisecond); open {
+		defaultTTL := 64
+		// Windows native services indicate Windows OS (TTL 128)
+		if port == 3389 || port == 445 || port == 135 || port == 139 || port == 5357 || port == 5985 || port == 8889 {
+			defaultTTL = 128
+		}
+		lat := tcpLat
+		return true, &lat, defaultTTL
+	}
+
+	// 3. NetBIOS UDP 137 Node Status query (Windows standard discovery)
+	if _, _, ok := queryNetBIOS(target, 350*time.Millisecond); ok {
+		lat := float64(2.0)
+		return true, &lat, 128
+	}
+
+	return false, nil, 0
+}
+
 // detectOSAndDevice combines NetBIOS, Reverse DNS, TCP probing, MAC OUI, and TTL metrics
 func detectOSAndDevice(ctx context.Context, ip string, ttl int, mac string, existingHostname, subnetName string) (osFamily, deviceType, detectedHostname, detectedMAC string) {
 	detectedHostname = existingHostname
 	detectedMAC = mac
 	devType := "Server"
 
-	// 1. If MAC is empty, try NetBIOS query
-	if detectedMAC == "" {
+	// 1. Try NetBIOS query if hostname or MAC is empty
+	if detectedHostname == "" || detectedMAC == "" {
 		if nbMac, nbName, ok := queryNetBIOS(ip, 250*time.Millisecond); ok {
-			if detectedMAC == "" {
+			if detectedMAC == "" && nbMac != "" {
 				detectedMAC = nbMac
 			}
 			if detectedHostname == "" && nbName != "" {
@@ -901,10 +979,10 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			pingCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+			pingCtx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
 			defer cancel()
 
-			reachable, latency, ttl := pingHostWithDetails(pingCtx, target)
+			reachable, latency, ttl := checkHostLiveness(pingCtx, target)
 			resultsChan <- scanResult{
 				ip:        target,
 				reachable: reachable,
@@ -945,15 +1023,31 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 			ipVersion = "ipv6"
 		}
 
+		mac := arpTable[res.ip]
+		if mac == "" {
+			if wgMac, ok := wgPeers[res.ip]; ok {
+				mac = wgMac
+			}
+		}
+
+		// Layer 2 ARP / Neighbor / WireGuard Fallback:
+		// If kernel ARP cache recorded a valid MAC address, the host answered ARP broadcast on the local Ethernet network!
+		// Layer 2 presence proves the device is actively powered on and connected to the network, even if firewalled at Layer 3/4.
+		if !res.reachable && mac != "" && mac != "00:00:00:00:00:00" && !strings.HasPrefix(mac, "<incomplete>") {
+			res.reachable = true
+			if res.latency == nil {
+				defaultLat := float64(1.0)
+				res.latency = &defaultLat
+				latencyMS = 1
+			}
+			if res.ttl == 0 {
+				res.ttl = 64
+			}
+		}
+
 		if res.reachable {
 			foundActive++
 
-			mac := arpTable[res.ip]
-			if mac == "" {
-				if wgMac, ok := wgPeers[res.ip]; ok {
-					mac = wgMac
-				}
-			}
 			existingHostname := ""
 			if existing, ok := existingMap[res.ip]; ok {
 				existingHostname = existing.Hostname
@@ -1174,9 +1268,17 @@ func (s *IpamService) SaveAddress(ctx context.Context, req *domain.SaveIpamAddre
 
 	// Trigger quick background ping to set liveness
 	go func(target, subnetID string) {
-		pCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		pCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		reachable, latency, _ := pingHostWithDetails(pCtx, target)
+		reachable, latency, _ := checkHostLiveness(pCtx, target)
+		if !reachable {
+			arpTable := readSystemARPTable()
+			if mac, ok := arpTable[target]; ok && mac != "" && mac != "00:00:00:00:00:00" && !strings.HasPrefix(mac, "<incomplete>") {
+				reachable = true
+				lat := float64(1.0)
+				latency = &lat
+			}
+		}
 		if existing, _ := s.ipamRepo.GetAddressByIP(context.Background(), subnetID, target); existing != nil {
 			existing.IsOnline = reachable
 			if latency != nil {
@@ -1223,10 +1325,42 @@ func (s *IpamService) PingSingleIP(ctx context.Context, ip string) (bool, *float
 		return false, nil, fmt.Errorf("invalid IP address format: %s", cleanIP)
 	}
 
-	pCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	pCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	reachable, latency, _ := pingHostWithDetails(pCtx, cleanIP)
+	reachable, latency, _ := checkHostLiveness(pCtx, cleanIP)
+	if !reachable {
+		arpTable := readSystemARPTable()
+		if mac, ok := arpTable[cleanIP]; ok && mac != "" && mac != "00:00:00:00:00:00" && !strings.HasPrefix(mac, "<incomplete>") {
+			reachable = true
+			lat := float64(1.0)
+			latency = &lat
+		}
+	}
+
+	// Synchronize database status if tracked
+	if reachable {
+		subnets, _ := s.ipamRepo.ListSubnets(ctx)
+		parsedIP := net.ParseIP(cleanIP)
+		for _, sub := range subnets {
+			if _, ipnet, err := net.ParseCIDR(sub.CIDR); err == nil && ipnet.Contains(parsedIP) {
+				if existing, _ := s.ipamRepo.GetAddressByIP(ctx, sub.ID, cleanIP); existing != nil {
+					existing.IsOnline = true
+					if existing.Status == "offline" || existing.Status == "discovered" || existing.Status == "" {
+						existing.Status = "active"
+					}
+					if latency != nil {
+						existing.ResponseTimeMS = int(*latency)
+					}
+					now := time.Now()
+					existing.LastSeenAt = &now
+					_ = s.ipamRepo.UpsertAddress(ctx, existing)
+				}
+				break
+			}
+		}
+	}
+
 	return reachable, latency, nil
 }
 

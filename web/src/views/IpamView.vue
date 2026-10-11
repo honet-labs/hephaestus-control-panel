@@ -398,6 +398,35 @@ const copyToClipboard = (text: string) => {
   showNotification('info', `Copied ${text} to clipboard.`);
 };
 
+const testingIP = ref(false);
+const testSingleIP = async (ip: string) => {
+  if (!ip) return;
+  testingIP.value = true;
+  try {
+    const res = await axios.post('/api/v1/ipam/addresses/ping', { ip });
+    if (res.data.success && res.data.reachable) {
+      const lat = res.data.latencyMs ? `${Math.round(res.data.latencyMs)}ms` : '<1ms';
+      showNotification('success', `Host ${ip} is ONLINE (${lat})`);
+      if (selectedSubnet.value) {
+        await fetchSubnetAddresses(selectedSubnet.value.id);
+        if (selectedDetailItem.value) {
+          const updated = subnetAddresses.value.find((a) => a.ipAddress === ip);
+          if (updated) {
+            selectedDetailItem.value.addr = updated;
+            selectedDetailItem.value.status = updated.status === 'reserved' ? 'reserved' : (updated.isOnline ? 'active' : 'offline');
+          }
+        }
+      }
+    } else {
+      showNotification('error', `Host ${ip} is unreachable (offline).`);
+    }
+  } catch (err: any) {
+    showNotification('error', `Test failed: ${err.response?.data?.error || err.message}`);
+  } finally {
+    testingIP.value = false;
+  }
+};
+
 // Address Management
 const openAddAddressModal = (ipPreset?: string) => {
   if (!selectedSubnet.value) return;
@@ -1894,31 +1923,43 @@ onMounted(() => {
         </div>
 
         <!-- Modal Footer Actions -->
-        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#1f283d]">
+        <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-[#1f283d]">
           <button
-            @click="showDetailModal = false"
-            class="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            @click="testSingleIP(selectedDetailItem.ip)"
+            :disabled="testingIP"
+            class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Check host liveness via ICMP, TCP ports, and ARP"
           >
-            Close
+            <Activity class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <span>{{ testingIP ? 'Testing...' : 'Test Host Liveness' }}</span>
           </button>
 
-          <button
-            v-if="canManage && selectedDetailItem.addr"
-            @click="showDetailModal = false; openEditAddressModal(selectedDetailItem.addr)"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-          >
-            <Edit2 class="w-3.5 h-3.5" />
-            <span>Edit Allocation</span>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              @click="showDetailModal = false"
+              class="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Close
+            </button>
 
-          <button
-            v-if="canManage && !selectedDetailItem.addr"
-            @click="showDetailModal = false; openAddAddressModal(selectedDetailItem.ip)"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>Allocate This IP</span>
-          </button>
+            <button
+              v-if="canManage && selectedDetailItem.addr"
+              @click="showDetailModal = false; openEditAddressModal(selectedDetailItem.addr)"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Edit2 class="w-3.5 h-3.5" />
+              <span>Edit Allocation</span>
+            </button>
+
+            <button
+              v-if="canManage && !selectedDetailItem.addr"
+              @click="showDetailModal = false; openAddAddressModal(selectedDetailItem.ip)"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              <span>Allocate This IP</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
