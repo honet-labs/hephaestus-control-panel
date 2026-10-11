@@ -63,7 +63,6 @@ import {
   Share2,
   Users,
   AlertCircle,
-  Download,
 } from 'lucide-vue-next';
 
 const router = useRouter();
