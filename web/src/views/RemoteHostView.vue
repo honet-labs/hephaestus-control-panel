@@ -63,6 +63,7 @@ import {
   Share2,
   Users,
   AlertCircle,
+  KeyRound,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -199,6 +200,7 @@ const desktopConnected = ref<Record<string, boolean>>({});
 const desktopLoading = ref<Record<string, boolean>>({});
 const desktopError = ref<Record<string, string>>({});
 const desktopClients = ref<Record<string, any>>({});
+const desktopScale = ref<Record<string, number>>({});
 const desktopIsFullscreen = ref<Record<string, boolean>>({});
 const desktopObservers: Record<string, ResizeObserver> = {};
 const tabBarRef = ref<HTMLElement | null>(null);
@@ -1508,6 +1510,7 @@ const scaleDesktop = (sessId: string) => {
       const scale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
       // Snap scale to 1.0 when viewport is approximately 1:1 (between 96% and 104%) to eliminate subpixel blur
       const finalScale = (scale >= 0.96 && scale <= 1.04) ? 1.0 : Math.max(scale, 0.05);
+      desktopScale.value[sessId] = finalScale;
       display.scale(finalScale);
 
       const wrapper = document.getElementById(`desktop-display-wrapper-${sessId}`);
@@ -1607,10 +1610,34 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     ro.observe(container);
     desktopObservers[sessId] = ro;
 
-    // Mouse Handler
+    // Mouse Handler with dynamic scaling translation
     const mouse = new Guacamole.Mouse(displayElement);
+    const sendScaledMouse = (mouseState: any) => {
+      const scale = desktopScale.value[sessId] || 1.0;
+      let scaledState: any;
+      if (Guacamole.Mouse && Guacamole.Mouse.State) {
+        scaledState = new Guacamole.Mouse.State(
+          Math.round(mouseState.x / scale),
+          Math.round(mouseState.y / scale),
+          mouseState.left,
+          mouseState.middle,
+          mouseState.right,
+          mouseState.up,
+          mouseState.down
+        );
+      } else {
+        scaledState = {
+          ...mouseState,
+          x: Math.round(mouseState.x / scale),
+          y: Math.round(mouseState.y / scale),
+        };
+      }
+      client.sendMouseState(scaledState);
+    };
+
     mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
-      client.sendMouseState(mouseState);
+      container.focus();
+      sendScaledMouse(mouseState);
     };
 
     // Touch Handler for tablet / mobile devices
@@ -1618,7 +1645,8 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
       try {
         const touch = new (Guacamole as any).Touch(displayElement);
         touch.ontouchstart = touch.ontouchmove = touch.ontouchend = (touchState: any) => {
-          client.sendMouseState(touchState);
+          container.focus();
+          sendScaledMouse(touchState);
         };
       } catch (_) {}
     }
@@ -1631,6 +1659,11 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     keyboard.onkeyup = (keysym: number) => {
       client.sendKeyEvent(0, keysym);
     };
+
+    // Click on container or wrapper to refocus keyboard input
+    container.addEventListener('click', () => {
+      container.focus();
+    });
 
     // Tunnel lifecycle listeners
     tunnel.onerror = (status: any) => {
@@ -1700,6 +1733,32 @@ const reconnectDesktop = async (session: OpenSession) => {
     delete diagnosticResult.value[session.id];
   }
   await ensureDesktopReady(session, true);
+};
+
+const sendCtrlAltDel = (session: OpenSession) => {
+  const sessId = session.id;
+  const client = desktopClients.value[sessId];
+  if (!client) return;
+
+  const KEY_CTRL = 0xffe3;
+  const KEY_ALT = 0xffe9;
+  const KEY_DEL = 0xffff;
+
+  // Press Ctrl, Alt, Delete in sequence
+  client.sendKeyEvent(1, KEY_CTRL);
+  client.sendKeyEvent(1, KEY_ALT);
+  client.sendKeyEvent(1, KEY_DEL);
+
+  // Release keys after a brief pulse
+  setTimeout(() => {
+    client.sendKeyEvent(0, KEY_DEL);
+    client.sendKeyEvent(0, KEY_ALT);
+    client.sendKeyEvent(0, KEY_CTRL);
+  }, 100);
+
+  // Ensure container keeps keyboard focus
+  const container = document.getElementById(`desktop-container-${sessId}`);
+  if (container) container.focus();
 };
 
 const testingReachability = ref<Record<string, boolean>>({});
@@ -4017,6 +4076,16 @@ onUnmounted(() => {
                           : 'Connecting...'
                     }}
                   </span>
+
+                  <button
+                    v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
+                    @click="sendCtrlAltDel(session)"
+                    title="Send Ctrl+Alt+Delete (Unlock / Logon)"
+                    class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1 text-[11px] font-medium"
+                  >
+                    <KeyRound class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Ctrl+Alt+Del</span>
+                  </button>
 
                   <button
                     @click="reconnectDesktop(session)"

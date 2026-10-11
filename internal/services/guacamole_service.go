@@ -217,9 +217,14 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 			sec = "any"
 		}
 		paramMap["security"] = sec
-		paramMap["resize-method"] = "display-update"
+
+		// Anti-freeze and anti-artifact parameters:
+		// Disabling bitmap & offscreen caching prevents FreeRDP client-side cache desync and freezes
+		paramMap["disable-bitmap-caching"] = "true"
+		paramMap["disable-offscreen-caching"] = "true"
+		paramMap["disable-glyph-caching"] = "true"
 		paramMap["color-depth"] = "32"
-		paramMap["enable-desktop-composition"] = "true"
+		paramMap["enable-desktop-composition"] = "false"
 		paramMap["enable-font-smoothing"] = "true"
 		paramMap["enable-full-window-drag"] = "true"
 		paramMap["enable-theming"] = "true"
