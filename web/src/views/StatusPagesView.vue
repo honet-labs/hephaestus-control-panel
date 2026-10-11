@@ -470,24 +470,26 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
-    <!-- Feedback Toast -->
-    <transition
-      enter-active-class="transform transition ease-out duration-200"
-      enter-from-class="translate-y-2 opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
-      <div
-        v-if="toastMessage"
-        class="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border backdrop-blur-md"
-        :class="toastMessage.isError ? 'bg-rose-900/90 text-rose-100 border-rose-700/60' : 'bg-slate-900/95 text-white border-emerald-500/50'"
+    <!-- Feedback Toast (Teleported to body to eliminate space-y layout shift) -->
+    <Teleport to="body">
+      <transition
+        enter-active-class="transform transition ease-out duration-200"
+        enter-from-class="translate-y-2 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
       >
-        <span class="w-2 h-2 rounded-full" :class="toastMessage.isError ? 'bg-rose-500' : 'bg-emerald-400'"></span>
-        <span>{{ toastMessage.text }}</span>
-      </div>
-    </transition>
+        <div
+          v-if="toastMessage"
+          class="fixed bottom-6 right-6 z-[9999] flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border backdrop-blur-md pointer-events-auto"
+          :class="toastMessage.isError ? 'bg-rose-900/90 text-rose-100 border-rose-700/60' : 'bg-slate-900/95 text-white border-emerald-500/50'"
+        >
+          <span class="w-2 h-2 rounded-full" :class="toastMessage.isError ? 'bg-rose-500' : 'bg-emerald-400'"></span>
+          <span>{{ toastMessage.text }}</span>
+        </div>
+      </transition>
+    </Teleport>
 
     <!-- Standard Header -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">

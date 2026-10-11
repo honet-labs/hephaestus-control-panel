@@ -1813,20 +1813,31 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-6 max-w-[1600px] w-full mx-auto font-sans">
-    <!-- Notification Banner (Auto-dismiss 3s) -->
-    <div
-      v-if="notification"
-      class="fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-semibold animate-in fade-in slide-in-from-top-2"
-      :class="
-        notification.type === 'success'
-          ? 'bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
-          : 'bg-rose-50 dark:bg-rose-950/80 border border-rose-500/30 text-rose-800 dark:text-rose-300'
-      "
-    >
-      <Check v-if="notification.type === 'success'" class="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <AlertCircle v-else class="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
-      <span>{{ notification.text }}</span>
-    </div>
+    <!-- Notification Banner (Auto-dismiss 3s, Teleported to body to eliminate space-y layout shift) -->
+    <Teleport to="body">
+      <transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0 -translate-y-2 scale-95"
+        enter-to-class="opacity-100 translate-y-0 scale-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0 scale-100"
+        leave-to-class="opacity-0 -translate-y-2 scale-95"
+      >
+        <div
+          v-if="notification"
+          class="fixed top-5 right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold border pointer-events-auto"
+          :class="
+            notification.type === 'success'
+              ? 'bg-emerald-50 dark:bg-[#0a2318] border-emerald-500/40 text-emerald-800 dark:text-emerald-300 shadow-emerald-950/10'
+              : 'bg-rose-50 dark:bg-[#250d12] border-rose-500/40 text-rose-800 dark:text-rose-300 shadow-rose-950/10'
+          "
+        >
+          <Check v-if="notification.type === 'success'" class="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <AlertCircle v-else class="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+          <span>{{ notification.text }}</span>
+        </div>
+      </transition>
+    </Teleport>
 
     <!-- Header (AGENTS.md compliant: No Icon on Title, Clean Pure Text) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">

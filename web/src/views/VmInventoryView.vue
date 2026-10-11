@@ -473,29 +473,31 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6 w-full font-sans">
-    <!-- Notification Banner (Auto-dismisses in 3000ms) -->
-    <transition
-      enter-active-class="transform ease-out duration-200 transition"
-      enter-from-class="translate-y-2 opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
-      <div
-        v-if="notification"
-        :class="[
-          'fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-xs font-medium border backdrop-blur-md',
-          notification.type === 'success'
-            ? 'bg-emerald-50/90 text-emerald-800 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
-            : 'bg-rose-50/90 text-rose-800 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800',
-        ]"
+    <!-- Notification Banner (Auto-dismisses in 3000ms, Teleported to body to eliminate space-y layout shift) -->
+    <Teleport to="body">
+      <transition
+        enter-active-class="transform ease-out duration-200 transition"
+        enter-from-class="translate-y-2 opacity-0"
+        enter-to-class="translate-y-0 opacity-100"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
       >
-        <CheckCircle2 v-if="notification.type === 'success'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-        <AlertCircle v-else class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-        <span>{{ notification.message }}</span>
-      </div>
-    </transition>
+        <div
+          v-if="notification"
+          :class="[
+            'fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-xs font-medium border backdrop-blur-md pointer-events-auto',
+            notification.type === 'success'
+              ? 'bg-emerald-50/90 text-emerald-800 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800'
+              : 'bg-rose-50/90 text-rose-800 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800',
+          ]"
+        >
+          <CheckCircle2 v-if="notification.type === 'success'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <AlertCircle v-else class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+          <span>{{ notification.message }}</span>
+        </div>
+      </transition>
+    </Teleport>
 
     <!-- Standard Header (AGENTS.md: Pure text h1, no icons, no badges) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
