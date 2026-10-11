@@ -176,6 +176,16 @@ func (r *IpamRepository) DeleteSubnet(ctx context.Context, id string) error {
 	return err
 }
 
+// UpdateSubnetNextScan updates only the next_scan_at timestamp
+func (r *IpamRepository) UpdateSubnetNextScan(ctx context.Context, id string, nextScanAt *time.Time) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, "UPDATE ipam_subnets SET next_scan_at = $2, updated_at = NOW() WHERE id = $1", id, nextScanAt)
+	return err
+}
+
 // GetSubnetsDueForScan returns subnets where scheduled scan is due
 func (r *IpamRepository) GetSubnetsDueForScan(ctx context.Context) ([]domain.IpamSubnet, error) {
 	pool, err := database.GetPool()
@@ -188,9 +198,10 @@ func (r *IpamRepository) GetSubnetsDueForScan(ctx context.Context) ([]domain.Ipa
 		       last_scanned_at, next_scan_at, total_ips, total_used_ips, total_unused_ips,
 		       user_id, created_at, updated_at
 		FROM ipam_subnets
-		WHERE scan_interval != 'manual' 
-		  AND next_scan_at IS NOT NULL 
-		  AND next_scan_at <= NOW()
+		WHERE scan_interval IS NOT NULL 
+		  AND scan_interval != '' 
+		  AND scan_interval != 'manual' 
+		  AND (next_scan_at IS NULL OR next_scan_at <= NOW())
 	`
 	rows, err := pool.Query(ctx, query)
 	if err != nil {

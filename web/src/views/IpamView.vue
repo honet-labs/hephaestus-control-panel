@@ -772,6 +772,11 @@ const formatTimeAgo = (dateStr: string | null) => {
 
 const getScanIntervalLabel = (val: string) => {
   switch (val) {
+    case '5m': return 'Every 5 Minutes';
+    case '15m': return 'Every 15 Minutes';
+    case '30m': return 'Every 30 Minutes';
+    case '1h': return 'Every 1 Hour';
+    case '2h': return 'Every 2 Hours';
     case '6h': return 'Every 6 Hours';
     case '12h': return 'Every 12 Hours';
     case '1d':
@@ -781,6 +786,32 @@ const getScanIntervalLabel = (val: string) => {
     case 'manual': return 'Manual Only';
     default: return val || 'Manual';
   }
+};
+
+const formatNextScan = (dateStr: string | null) => {
+  if (!dateStr) return 'Not scheduled';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  
+  const timeFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+                        d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+  if (diffMs <= 0) {
+    return `${timeFormatted} (Due now)`;
+  }
+
+  const diffMins = Math.round(diffMs / 60000);
+  if (diffMins < 60) {
+    return `${timeFormatted} (in ${diffMins}m)`;
+  }
+  const diffHours = Math.floor(diffMins / 60);
+  const remainMins = diffMins % 60;
+  if (diffHours < 24) {
+    return `${timeFormatted} (in ${diffHours}h ${remainMins}m)`;
+  }
+  const diffDays = Math.floor(diffHours / 24);
+  return `${timeFormatted} (in ${diffDays}d)`;
 };
 
 const calculatedTotalUsed = computed(() => {
@@ -1085,6 +1116,9 @@ onMounted(() => {
               <span>VRF: <strong class="text-slate-700 dark:text-slate-300">{{ selectedSubnet.vrf || 'Default' }}</strong></span>
               <span>Scan Schedule: <strong class="text-slate-700 dark:text-slate-300">{{ getScanIntervalLabel(selectedSubnet.scanInterval) }}</strong></span>
               <span>Last scanned: <strong class="text-slate-700 dark:text-slate-300">{{ formatTimeAgo(selectedSubnet.lastScannedAt) }}</strong></span>
+              <span v-if="selectedSubnet.scanInterval !== 'manual'">
+                Next scan: <strong class="text-blue-600 dark:text-blue-400 font-semibold">{{ formatNextScan(selectedSubnet.nextScanAt) }}</strong>
+              </span>
             </div>
           </div>
 
@@ -1097,6 +1131,16 @@ onMounted(() => {
             >
               <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': scanningSubnetId === selectedSubnet.id }" />
               <span>{{ scanningSubnetId === selectedSubnet.id ? 'Scanning...' : 'Scan Subnet Now' }}</span>
+            </button>
+
+            <button
+              v-if="canManage"
+              @click="openEditSubnetModal(selectedSubnet)"
+              class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] dark:hover:bg-[#222d42] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-800"
+              title="Edit Subnet & Scan Schedule"
+            >
+              <Edit2 class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              <span>Edit Subnet</span>
             </button>
 
             <button
@@ -1600,6 +1644,11 @@ onMounted(() => {
                 v-model="subnetForm.scanInterval"
                 class="w-full bg-slate-50 dark:bg-[#161d2d] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-medium"
               >
+                <option value="5m">Every 5 Minutes (Real-time / Testing)</option>
+                <option value="15m">Every 15 Minutes</option>
+                <option value="30m">Every 30 Minutes</option>
+                <option value="1h">Every 1 Hour</option>
+                <option value="2h">Every 2 Hours</option>
                 <option value="6h">Every 6 Hours</option>
                 <option value="12h">Every 12 Hours</option>
                 <option value="1d">Every 1 Day</option>

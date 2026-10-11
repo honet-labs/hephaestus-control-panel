@@ -40,6 +40,10 @@ func NewIpamService(ipamRepo *repository.IpamRepository, workerPool *queue.Worke
 // StartBackgroundEngine starts the automated scheduler for periodic IPAM scans
 func (s *IpamService) StartBackgroundEngine() {
 	go func() {
+		// Run initial check after 5s startup delay so DB pool is ready
+		time.Sleep(5 * time.Second)
+		s.triggerDueScans()
+
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 
@@ -80,13 +84,16 @@ func (s *IpamService) triggerDueScans() {
 		}
 
 		logger.Info("IPAM", fmt.Sprintf("Triggering scheduled scan for subnet '%s' (%s) [interval: %s]", sub.Name, sub.CIDR, sub.ScanInterval))
-		go func(id string) {
+		go func(id string, interval string) {
 			scanCtx, scanCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer scanCancel()
 			if _, err := s.ScanSubnet(scanCtx, id); err != nil {
 				logger.Error("IPAM", fmt.Sprintf("Scheduled scan failed for subnet ID %s", id), err)
+				// Reschedule next attempt in 5 minutes so it doesn't immediately repeat on error
+				nextAttempt := time.Now().Add(5 * time.Minute)
+				_ = s.ipamRepo.UpdateSubnetNextScan(context.Background(), id, &nextAttempt)
 			}
-		}(subnetID)
+		}(subnetID, sub.ScanInterval)
 	}
 }
 
@@ -152,8 +159,27 @@ func GenerateSubnetHostIPs(cidrStr string) ([]string, error) {
 }
 
 func calculateNextScanAt(interval string, from time.Time) *time.Time {
+	interval = strings.ToLower(strings.TrimSpace(interval))
+	if interval == "" || interval == "manual" {
+		return nil
+	}
+
 	var d time.Duration
-	switch strings.ToLower(strings.TrimSpace(interval)) {
+	switch interval {
+	case "5m":
+		d = 5 * time.Minute
+	case "10m":
+		d = 10 * time.Minute
+	case "15m":
+		d = 15 * time.Minute
+	case "30m":
+		d = 30 * time.Minute
+	case "1h":
+		d = 1 * time.Hour
+	case "2h":
+		d = 2 * time.Hour
+	case "4h":
+		d = 4 * time.Hour
 	case "6h":
 		d = 6 * time.Hour
 	case "12h":
@@ -162,8 +188,15 @@ func calculateNextScanAt(interval string, from time.Time) *time.Time {
 		d = 24 * time.Hour
 	case "3d", "72h":
 		d = 72 * time.Hour
+	case "7d", "1w":
+		d = 7 * 24 * time.Hour
 	default:
-		return nil
+		parsed, err := time.ParseDuration(interval)
+		if err == nil && parsed > 0 {
+			d = parsed
+		} else {
+			return nil
+		}
 	}
 	next := from.Add(d)
 	return &next
@@ -1007,8 +1040,10 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 	durationMS := int(endTime.Sub(startTime).Milliseconds())
 	nextScan := calculateNextScanAt(sub.ScanInterval, endTime)
 
-	// Update subnet metrics
-	_ = s.ipamRepo.UpdateSubnetScanStats(ctx, subnetID, totalHosts, totalUsed, totalUnused, endTime, nextScan)
+	// Update subnet metrics (using a detached context with timeout to guarantee persistence even if client disconnects)
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
+	_ = s.ipamRepo.UpdateSubnetScanStats(saveCtx, subnetID, totalHosts, totalUsed, totalUnused, endTime, nextScan)
 
 	// Save scan log
 	scanLog := &domain.IpamScanLog{
@@ -1022,7 +1057,7 @@ func (s *IpamService) ScanSubnet(ctx context.Context, subnetID string) (*domain.
 		Status:       "success",
 		ErrorMessage: "",
 	}
-	_ = s.ipamRepo.SaveScanLog(ctx, scanLog)
+	_ = s.ipamRepo.SaveScanLog(saveCtx, scanLog)
 
 	logger.Info("IPAM", fmt.Sprintf("Completed scan for '%s' in %dms: %d/%d active hosts found, %d used, %d unused.",
 		sub.Name, durationMS, foundActive, totalHosts, totalUsed, totalUnused))
