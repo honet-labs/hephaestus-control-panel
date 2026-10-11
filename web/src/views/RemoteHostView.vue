@@ -3039,10 +3039,10 @@ onUnmounted(() => {
               <table class="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr class="border-b border-slate-200 dark:border-[#1f283d] bg-slate-50/80 dark:bg-[#151c2d]/80 text-slate-500 dark:text-slate-400 font-semibold text-[11px] uppercase tracking-wider">
-                    <th class="py-3 px-4">Server Name &amp; Host</th>
-                    <th class="py-3 px-4">Protocol &amp; Port</th>
+                    <th class="py-3 px-4">Server Name</th>
+                    <th class="py-3 px-4">IP Server</th>
+                    <th class="py-3 px-4">Protocol</th>
                     <th class="py-3 px-4">Group</th>
-                    <th class="py-3 px-4">User</th>
                     <th class="py-3 px-4">Ownership</th>
                     <th class="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -3054,45 +3054,45 @@ onUnmounted(() => {
                     @click="connectHost(host)"
                     class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d]/50 transition cursor-pointer group"
                   >
-                    <!-- Server Name & Host -->
-                    <td class="py-3 px-4 min-w-[200px]">
+                    <!-- Server Name -->
+                    <td class="py-3 px-4 min-w-[180px]">
                       <div class="flex items-center gap-3">
                         <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center font-bold text-[11px] shrink-0 font-mono">
                           {{ host.name.substring(0, 2).toUpperCase() }}
                         </div>
-                        <div class="min-w-0">
-                          <p class="font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">
-                            {{ host.name }}
-                          </p>
-                          <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate" :title="`${host.host}:${host.port || (isRdpHost(host) ? 3389 : 22)}`">
-                            {{ host.host }}:{{ host.port || (isRdpHost(host) ? 3389 : 22) }}
-                          </p>
-                        </div>
+                        <span class="font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate" :title="host.name">
+                          {{ host.name }}
+                        </span>
                       </div>
                     </td>
 
-                    <!-- Protocol & Port -->
+                    <!-- IP Server -->
+                    <td class="py-3 px-4 whitespace-nowrap font-mono text-slate-700 dark:text-slate-300 font-medium">
+                      {{ host.host }}
+                    </td>
+
+                    <!-- Protocol -->
                     <td class="py-3 px-4 whitespace-nowrap">
                       <span
                         v-if="isRdpHost(host)"
                         class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50"
                       >
                         <Monitor class="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                        <span>Windows RDP ({{ host.port || 3389 }})</span>
+                        <span>Windows RDP</span>
                       </span>
                       <span
                         v-else-if="isVncHost(host)"
                         class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50"
                       >
                         <Tv class="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                        <span>VNC ({{ host.port || 5900 }})</span>
+                        <span>VNC Desktop</span>
                       </span>
                       <span
                         v-else
                         class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                       >
                         <SquareTerminal class="w-3 h-3 text-slate-500 dark:text-slate-400" />
-                        <span>Linux SSH ({{ host.port || 22 }})</span>
+                        <span>Linux SSH</span>
                       </span>
                     </td>
 
@@ -3101,16 +3101,6 @@ onUnmounted(() => {
                       <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
                         {{ host.groupName || 'Default' }}
                       </span>
-                    </td>
-
-                    <!-- User & Auth -->
-                    <td class="py-3 px-4 whitespace-nowrap">
-                      <div class="flex items-center gap-1.5 font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                        <span>{{ host.username || (isRdpHost(host) ? 'Administrator' : 'root') }}</span>
-                        <span class="text-[10px] text-slate-400 font-sans" :title="`Auth Type: ${host.authType || 'password'}`">
-                          ({{ host.authType === 'key' ? 'Key' : 'Pass' }})
-                        </span>
-                      </div>
                     </td>
 
                     <!-- Ownership -->
@@ -3200,16 +3190,6 @@ onUnmounted(() => {
                           class="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
                         >
                           <Trash2 class="w-3.5 h-3.5" />
-                        </button>
-
-                        <!-- Quick Duplicate / New Tab (for SSH/VNC) -->
-                        <button
-                          v-if="!isRdpHost(host)"
-                          @click.stop="connectHost(host, true)"
-                          title="Open New Session Tab"
-                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                        >
-                          <Plus class="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -4803,7 +4783,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div>
+          <div v-if="selectedProtocolPreset !== 'rdp'">
             <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
               <span class="flex items-center gap-1.5">
                 <Lock class="w-3.5 h-3.5 text-slate-400" />
@@ -4816,6 +4796,15 @@ onUnmounted(() => {
               class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
               placeholder="••••••••"
             />
+          </div>
+          <div v-else class="p-3 rounded-lg bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/40 text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+            <p class="font-semibold flex items-center gap-1.5">
+              <Monitor class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>Native Windows RDP</span>
+            </p>
+            <p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+              Koneksi menggunakan native file .RDP. Password tidak disimpan di server HCP (kredensial dikelola dan disimpan oleh aplikasi Remote Desktop Windows Anda).
+            </p>
           </div>
 
           <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
