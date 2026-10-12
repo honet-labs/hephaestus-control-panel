@@ -172,9 +172,7 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		return
 	}
 
-	// 5. Send supported media formats
-	audioInst := EncodeInstruction("audio", "audio/L16", "rate=44100,channels=2")
-	_, _ = guacdConn.Write([]byte(audioInst))
+	// 5. Send supported media formats (only advertise image to prevent FreeRDP audio channel deadlock/hang)
 	imageInst := EncodeInstruction("image", "image/png", "image/jpeg", "image/webp")
 	_, _ = guacdConn.Write([]byte(imageInst))
 
@@ -218,18 +216,30 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		}
 		paramMap["security"] = sec
 
-		// Anti-freeze and anti-artifact parameters:
-		// Disabling bitmap & offscreen caching prevents FreeRDP client-side cache desync and freezes
-		paramMap["disable-bitmap-caching"] = "true"
-		paramMap["disable-offscreen-caching"] = "true"
+		// Optimized RDP tuning for web streaming & eliminating browser freeze/hang:
+		// 1. Bitmap caching: CRITICAL! Keep caching enabled (false = caching ACTIVE).
+		// Disabling bitmap caching forces uncompressed full-frame bitmaps, spiking bandwidth to ~100 Mbps
+		// and catastrophic browser rendering freeze.
+		paramMap["disable-bitmap-caching"] = "false"
+		paramMap["disable-offscreen-caching"] = "true" // Keep offscreen caching disabled to avoid virtual GPU surface corruption
 		paramMap["disable-glyph-caching"] = "true"
-		paramMap["color-depth"] = "32"
-		paramMap["enable-desktop-composition"] = "false"
-		paramMap["enable-font-smoothing"] = "true"
-		paramMap["enable-full-window-drag"] = "true"
-		paramMap["enable-theming"] = "true"
-		paramMap["enable-wallpaper"] = "false"
+
+		// 2. Color depth: 24-bit TrueColor is optimal (visual parity with 32-bit, saves 25% bandwidth and reduces canvas decoding CPU overhead)
+		paramMap["color-depth"] = "24"
+
+		// 3. Performance & responsiveness tuning:
+		paramMap["enable-desktop-composition"] = "false" // Disable Aero glass to reduce compositor CPU load
+		paramMap["enable-font-smoothing"] = "true"        // ClearType font smoothing for clean readability
+		paramMap["enable-full-window-drag"] = "false"     // Show outline when dragging to eliminate 60fps window redraw thrashing
+		paramMap["enable-theming"] = "true"               // Windows desktop UI themes
+		paramMap["enable-wallpaper"] = "false"            // Solid wallpaper saves bandwidth
+		paramMap["disable-audio"] = "true"                // Prevent virtual audio channel handshake deadlock on Hyper-V / Server VMs
 		paramMap["client-name"] = "Hephaestus-RDP"
+		paramMap["resize-method"] = "display-update"      // FreeRDP dynamic display update
+		paramMap["force-lossless"] = "false"              // Efficient image compression for remote displays
+	} else if proto == "vnc" {
+		paramMap["color-depth"] = "24"
+		paramMap["read-only"] = "false"
 	}
 
 	// Build connect parameters in exact sequence expected by guacd args

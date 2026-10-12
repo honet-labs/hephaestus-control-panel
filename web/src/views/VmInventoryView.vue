@@ -75,6 +75,11 @@ interface RemoteHostOption {
 const isRdpRemoteHost = (h: RemoteHostOption) => h.port === 3389 || h.tags?.includes('rdp');
 
 const authStore = useAuthStore();
+const canManage = computed(() =>
+  authStore.can('server_inventory', 'manage') ||
+  authStore.can('connections', 'manage') ||
+  authStore.can('infrastructure', 'manage')
+);
 
 // State
 const loading = ref(false);
@@ -513,6 +518,7 @@ onMounted(() => {
       <!-- Action Buttons Toolbar -->
       <div class="flex flex-wrap items-center gap-2 shrink-0">
         <button
+          v-if="canManage"
           @click="openSyncModal"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-[#141824] hover:bg-slate-200 dark:hover:bg-[#1a2336] border border-slate-300 dark:border-[#222c42] transition cursor-pointer"
         >
@@ -521,6 +527,7 @@ onMounted(() => {
         </button>
 
         <button
+          v-if="canManage"
           @click="showImportModal = true"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-[#141824] hover:bg-slate-200 dark:hover:bg-[#1a2336] border border-slate-300 dark:border-[#222c42] transition cursor-pointer"
         >
@@ -538,6 +545,7 @@ onMounted(() => {
         </button>
 
         <button
+          v-if="canManage"
           @click="openAddModal"
           class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-[#293681] dark:hover:bg-[#3446a8] border border-blue-500/30 transition shadow-sm cursor-pointer"
         >
@@ -815,7 +823,7 @@ onMounted(() => {
                   </button>
 
                   <button
-                    v-if="item.remoteHostId"
+                    v-if="canManage && item.remoteHostId"
                     @click="triggerSyncRemote(item.remoteHostId, item.serverName)"
                     :disabled="syncingHostId === item.remoteHostId"
                     class="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer disabled:opacity-50"
@@ -825,6 +833,7 @@ onMounted(() => {
                   </button>
 
                   <button
+                    v-if="canManage"
                     @click="openEditModal(item)"
                     class="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer"
                     title="Edit Specifications"
@@ -833,6 +842,7 @@ onMounted(() => {
                   </button>
 
                   <button
+                    v-if="canManage"
                     @click="promptDelete(item)"
                     class="p-1 text-slate-500 hover:text-rose-600 rounded hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer"
                     title="Delete Server"

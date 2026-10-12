@@ -329,7 +329,7 @@ onUnmounted(() => {
           </router-link>
 
           <!-- 3. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('remote_servers', 'read') || authStore.can('server_inventory', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
@@ -349,7 +349,7 @@ onUnmounted(() => {
             <!-- Infrastructure Sub-Menu Items -->
             <div v-show="isInfrastructureOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <!-- Sub-group: Server (Collapsible Sub-menu) -->
-              <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read')">
+              <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read') || authStore.can('server_inventory', 'read')">
                 <button
                   @click="isServerSubOpen = !isServerSubOpen"
                   :class="[

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
+import { useAuthStore } from '../stores/auth';
 import {
   Radio,
   Search,
@@ -32,6 +33,9 @@ import {
 } from 'lucide-vue-next';
 
 // ==================== TABS & NAVIGATION ====================
+const authStore = useAuthStore();
+const canManage = computed(() => authStore.can('snmp', 'manage'));
+
 type ActiveTab = 'discovery' | 'subnet' | 'walk' | 'mibs';
 const activeTab = ref<ActiveTab>('discovery');
 
@@ -531,7 +535,7 @@ onMounted(() => {
           <span>Export JSON</span>
         </button>
         <button
-          v-if="activeTab === 'mibs'"
+          v-if="activeTab === 'mibs' && canManage"
           @click="uploadModalOpen = true"
           class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
         >
@@ -1468,6 +1472,7 @@ onMounted(() => {
                 </td>
                 <td class="py-2.5 px-3 text-right">
                   <button
+                    v-if="canManage"
                     @click="confirmDeleteMib(m.name)"
                     class="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500 rounded transition cursor-pointer"
                     title="Delete MIB"

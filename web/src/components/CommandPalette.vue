@@ -30,10 +30,11 @@ const items = [
   { name: 'Overview', icon: Activity, route: '/', feature: 'dashboard' },
   { name: 'App Library', icon: Boxes, action: 'open_app_library', feature: 'dashboard' },
   { name: 'Connections', icon: Link2, route: '/connections', feature: 'connections' },
-  { name: 'Inventory Server', icon: Server, route: '/inventory-server', feature: 'connections' },
+  { name: 'Inventory Server', icon: Server, route: '/inventory-server', feature: 'server_inventory' },
   { name: 'Remote Server', icon: Terminal, route: '/remote-server', newTab: true, feature: 'remote_servers' },
   { name: 'Management Containers', icon: Boxes, route: '/infrastructure/containers', newTab: true, feature: 'infrastructure' },
   { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true, feature: 'network_topology' },
+  { name: 'IP Address Management', icon: Network, route: '/ipam', feature: 'ipam' },
   { name: 'Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config', feature: 'dataprepper_config' },
   { name: 'Prometheus Config', icon: Sliders, route: '/prometheus-config', feature: 'prometheus_config' },
   { name: 'OpenTelemetry Config', icon: Radio, route: '/opentelemetry-config', feature: 'opentelemetry_config' },
@@ -54,6 +55,13 @@ const filteredItems = computed(() => {
   const allowed = items.filter(item => {
     if (item.feature === 'settings') {
       return authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN';
+    }
+    if (item.feature === 'server_inventory') {
+      return (
+        authStore.can('server_inventory', 'read') ||
+        authStore.can('connections', 'read') ||
+        authStore.can('infrastructure', 'read')
+      );
     }
     return authStore.can(item.feature, 'read');
   });

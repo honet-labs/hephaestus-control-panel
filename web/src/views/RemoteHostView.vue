@@ -41,6 +41,7 @@ import {
   FolderPlus,
   Lock,
   Copy,
+  ChevronLeft,
   ChevronRight,
   FileCode,
   FileText,
@@ -1486,9 +1487,11 @@ const parseGuacamoleError = (status: any): string => {
   return codeMap[code] || `Remote desktop error (Code: 0x${Number(code).toString(16).toUpperCase()})`;
 };
 
-let isScaling = false;
+const desktopIsScaling = ref<Record<string, boolean>>({});
+const desktopLastDims = ref<Record<string, { w: number; h: number; dw: number; dh: number; s: number }>>({});
+
 const scaleDesktop = (sessId: string) => {
-  if (isScaling) return;
+  if (desktopIsScaling.value[sessId]) return;
   const client = desktopClients.value[sessId];
   const container = document.getElementById(`desktop-container-${sessId}`);
   if (!client || !container) return;
@@ -1504,12 +1507,18 @@ const scaleDesktop = (sessId: string) => {
   const cHeight = container.clientHeight;
   if (!cWidth || !cHeight) return;
 
-  isScaling = true;
+  const rawScale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
+  // Snap scale to 1.0 when viewport is approximately 1:1 (between 96% and 104%) to eliminate subpixel blur
+  const finalScale = (rawScale >= 0.96 && rawScale <= 1.04) ? 1.0 : Math.max(rawScale, 0.05);
+
+  const prev = desktopLastDims.value[sessId];
+  if (prev && prev.w === cWidth && prev.h === cHeight && prev.dw === dispWidth && prev.dh === dispHeight && prev.s === finalScale) {
+    return;
+  }
+
+  desktopIsScaling.value[sessId] = true;
   requestAnimationFrame(() => {
     try {
-      const scale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
-      // Snap scale to 1.0 when viewport is approximately 1:1 (between 96% and 104%) to eliminate subpixel blur
-      const finalScale = (scale >= 0.96 && scale <= 1.04) ? 1.0 : Math.max(scale, 0.05);
       desktopScale.value[sessId] = finalScale;
       display.scale(finalScale);
 
@@ -1518,8 +1527,15 @@ const scaleDesktop = (sessId: string) => {
         wrapper.style.width = `${Math.floor(dispWidth * finalScale)}px`;
         wrapper.style.height = `${Math.floor(dispHeight * finalScale)}px`;
       }
+      desktopLastDims.value[sessId] = {
+        w: cWidth,
+        h: cHeight,
+        dw: dispWidth,
+        dh: dispHeight,
+        s: finalScale,
+      };
     } finally {
-      isScaling = false;
+      desktopIsScaling.value[sessId] = false;
     }
   });
 };
@@ -1580,19 +1596,24 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     desktopClients.value[sessId] = client;
 
     // Display Element Setup inside dedicated centered wrapper
+    // NOTE: Avoid flexbox on displayWrapper because displayElement uses CSS transform: scale() with (0,0) origin.
+    // Flexbox centering shifts displayElement to negative coordinates, clipping the entire canvas (blank screen bug).
+    // Instead, viewport handles centering via flex, while displayWrapper snugly frames the absolute-positioned displayElement.
     viewport.innerHTML = '';
     const displayWrapper = document.createElement('div');
     displayWrapper.id = `desktop-display-wrapper-${sessId}`;
     displayWrapper.style.position = 'relative';
     displayWrapper.style.overflow = 'hidden';
-    displayWrapper.style.display = 'flex';
-    displayWrapper.style.alignItems = 'center';
-    displayWrapper.style.justifyContent = 'center';
     displayWrapper.style.margin = 'auto';
+    displayWrapper.style.backgroundColor = '#000000';
+    displayWrapper.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)';
+    displayWrapper.style.borderRadius = '4px';
 
     const display = client.getDisplay();
     const displayElement = display.getElement();
-    displayElement.style.position = 'relative';
+    displayElement.style.position = 'absolute';
+    displayElement.style.top = '0';
+    displayElement.style.left = '0';
     displayElement.style.transformOrigin = '0 0';
 
     displayWrapper.appendChild(displayElement);
@@ -1610,7 +1631,7 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
     ro.observe(container);
     desktopObservers[sessId] = ro;
 
-    // Mouse Handler with dynamic scaling translation
+    // Mouse Handler with dynamic scaling translation & RAF throttling to eliminate browser UI freeze
     const mouse = new Guacamole.Mouse(displayElement);
     const sendScaledMouse = (mouseState: any) => {
       const scale = desktopScale.value[sessId] || 1.0;
@@ -1635,18 +1656,59 @@ const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean 
       client.sendMouseState(scaledState);
     };
 
-    mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
+    let mouseMovePending = false;
+    let latestMouseMoveState: any = null;
+
+    mouse.onmousedown = (mouseState: any) => {
       container.focus();
       sendScaledMouse(mouseState);
     };
 
-    // Touch Handler for tablet / mobile devices
+    mouse.onmouseup = (mouseState: any) => {
+      sendScaledMouse(mouseState);
+    };
+
+    mouse.onmousemove = (mouseState: any) => {
+      // CRITICAL: NEVER call container.focus() on mousemove as it triggers layout thrashing and freezes browser!
+      latestMouseMoveState = mouseState;
+      if (!mouseMovePending) {
+        mouseMovePending = true;
+        requestAnimationFrame(() => {
+          mouseMovePending = false;
+          if (latestMouseMoveState) {
+            sendScaledMouse(latestMouseMoveState);
+          }
+        });
+      }
+    };
+
+    // Touch Handler for tablet / mobile devices with RAF throttling
     if ((Guacamole as any).Touch) {
       try {
         const touch = new (Guacamole as any).Touch(displayElement);
-        touch.ontouchstart = touch.ontouchmove = touch.ontouchend = (touchState: any) => {
+        let touchMovePending = false;
+        let latestTouchState: any = null;
+
+        touch.ontouchstart = (touchState: any) => {
           container.focus();
           sendScaledMouse(touchState);
+        };
+
+        touch.ontouchend = (touchState: any) => {
+          sendScaledMouse(touchState);
+        };
+
+        touch.ontouchmove = (touchState: any) => {
+          latestTouchState = touchState;
+          if (!touchMovePending) {
+            touchMovePending = true;
+            requestAnimationFrame(() => {
+              touchMovePending = false;
+              if (latestTouchState) {
+                sendScaledMouse(latestTouchState);
+              }
+            });
+          }
         };
       } catch (_) {}
     }
@@ -2616,14 +2678,42 @@ const handleCreateGroup = async () => {
   }
 };
 
+const canScrollLeft = ref(false);
+const canScrollRight = ref(false);
+
+const updateTabScrollState = () => {
+  if (!tabBarRef.value) return;
+  const el = tabBarRef.value;
+  canScrollLeft.value = el.scrollLeft > 6;
+  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 6;
+};
+
+const scrollTabBar = (direction: 'left' | 'right') => {
+  if (!tabBarRef.value) return;
+  const el = tabBarRef.value;
+  const distance = Math.max(200, Math.floor(el.clientWidth * 0.45));
+  el.scrollBy({
+    left: direction === 'left' ? -distance : distance,
+    behavior: 'smooth',
+  });
+  setTimeout(updateTabScrollState, 320);
+};
+
 const handleTabBarWheel = (e: WheelEvent) => {
-  const container = e.currentTarget as HTMLElement;
-  if (container && e.deltaY !== 0) {
-    container.scrollLeft += e.deltaY;
+  if (!tabBarRef.value) return;
+  if (e.deltaY !== 0) {
+    tabBarRef.value.scrollLeft += e.deltaY * 0.85;
+    updateTabScrollState();
   }
 };
 
+watch([() => openSessions.value.length, () => tabClusters.value], async () => {
+  await nextTick();
+  updateTabScrollState();
+});
+
 const handleWindowResize = () => {
+  updateTabScrollState();
   if (activeSession.value) {
     if (activeSession.value.activeView === 'terminal') {
       try {
@@ -2668,6 +2758,7 @@ watch(activeSessionIndex, async (newIdx) => {
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
       }
+      setTimeout(updateTabScrollState, 350);
     }
   }
 });
@@ -2691,6 +2782,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('resize', handleWindowResize);
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  setTimeout(updateTabScrollState, 250);
 });
 
 onUnmounted(() => {
@@ -2738,203 +2830,249 @@ onUnmounted(() => {
     </header>
 
     <!-- Sub-Header Tabs & Quick Actions Bar -->
-    <div class="h-10 bg-slate-50 dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800/80 px-3 flex items-center gap-2 text-xs shrink-0 select-none overflow-hidden">
-      <!-- Servers Menu Button -->
-      <button
-        @click="activeSessionIndex = -1"
-        :class="[
-          'shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium transition text-xs border whitespace-nowrap h-7 cursor-pointer',
-          activeSessionIndex === -1
-            ? 'bg-white text-blue-700 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-sm font-bold'
-            : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
-        ]"
-      >
-        <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
-        <span>SERVERS</span>
-      </button>
+    <div class="h-10 bg-slate-50 dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800/80 px-2 sm:px-3 flex items-center gap-1.5 text-xs shrink-0 select-none overflow-hidden">
+      <!-- Left Fixed Group: SERVERS, Add (+), SFTP Transfer -->
+      <div class="flex items-center gap-1.5 shrink-0 pr-2 border-r border-slate-200 dark:border-slate-800/80">
+        <!-- Servers Menu Button -->
+        <button
+          @click="activeSessionIndex = -1"
+          :class="[
+            'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition text-xs border whitespace-nowrap h-7 cursor-pointer',
+            activeSessionIndex === -1
+              ? 'bg-white text-blue-700 border-slate-300 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-xs font-bold'
+              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
+          ]"
+        >
+          <Server class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+          <span>SERVERS</span>
+        </button>
 
-      <!-- Quick Add Server (+) Button -->
-      <button
-        v-if="canManage"
-        @click="openAddHostModal()"
-        title="Add New Remote Server"
-        class="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition h-7 flex items-center justify-center cursor-pointer"
-      >
-        <Plus class="w-3.5 h-3.5" />
-      </button>
+        <!-- Quick Add Server (+) Button -->
+        <button
+          v-if="canManage"
+          @click="openAddHostModal()"
+          title="Add New Remote Server"
+          class="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800 transition h-7 flex items-center justify-center cursor-pointer"
+        >
+          <Plus class="w-3.5 h-3.5" />
+        </button>
 
-      <!-- Dual-Pane SFTP Transfer Button -->
-      <button
-        @click="openSftpModal()"
-        class="shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/80 hover:border-blue-500/50 dark:hover:border-brand-500/50 transition font-medium text-xs shadow-sm whitespace-nowrap h-7 cursor-pointer"
-        title="Open FileZilla Dual-Pane SFTP Transfer"
-      >
-        <Upload class="w-3.5 h-3.5 text-blue-600 dark:text-brand-400 shrink-0" />
-        <span>SFTP TRANSFER</span>
-      </button>
+        <!-- Dual-Pane SFTP Transfer Button -->
+        <button
+          @click="openSftpModal()"
+          class="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] border border-slate-300 dark:border-slate-700/80 hover:border-slate-400 dark:hover:border-slate-600 transition font-medium text-xs shadow-xs whitespace-nowrap h-7 cursor-pointer"
+          title="Open FileZilla Dual-Pane SFTP Transfer"
+        >
+          <Upload class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+          <span class="hidden md:inline">SFTP TRANSFER</span>
+          <span class="md:hidden">SFTP</span>
+        </button>
+      </div>
 
-      <!-- Open Session Tabs Strip (Google Chrome-style Groups & Drag n Drop) -->
-      <div
-        ref="tabBarRef"
-        class="flex items-center gap-1.5 ml-2 border-l border-slate-300 dark:border-slate-800 pl-3 flex-1 overflow-x-auto overflow-y-hidden select-none py-1 h-full scrollbar-none"
-        @dragover.prevent
-        @drop.prevent="handleTabBarDrop"
-        @wheel.passive="handleTabBarWheel"
-      >
-        <template v-for="cluster in tabClusters" :key="cluster.type === 'group' ? cluster.group.id : cluster.session.id">
-          
-          <!-- CHROME TAB GROUP -->
-          <div
-            v-if="cluster.type === 'group'"
-            class="shrink-0 flex items-center gap-1 p-0.5 rounded-xl border transition h-8"
-            :style="{
-              borderColor: cluster.group.color + '55',
-              backgroundColor: cluster.group.color + '10'
-            }"
-          >
-            <!-- Group Header Pill -->
+      <!-- Center Flexible Tabs Scroller Strip -->
+      <div class="relative flex items-center flex-1 min-w-0 h-full overflow-hidden mx-1">
+        
+        <!-- Left Scroll Button (Visible when scrolled to the right) -->
+        <button
+          v-if="canScrollLeft"
+          @click="scrollTabBar('left')"
+          class="absolute left-0 z-20 h-7 w-6 flex items-center justify-center bg-white/95 dark:bg-[#1b1e26]/95 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded shadow-sm border border-slate-200 dark:border-slate-700 transition cursor-pointer backdrop-blur-xs"
+          title="Scroll tabs left"
+        >
+          <ChevronLeft class="w-3.5 h-3.5" />
+        </button>
+
+        <!-- Left Overflow Fade Gradient -->
+        <div
+          v-if="canScrollLeft"
+          class="absolute left-6 top-0 bottom-0 w-6 bg-gradient-to-r from-slate-50 dark:from-[#1b1e26] to-transparent pointer-events-none z-10"
+        ></div>
+
+        <!-- Open Session Tabs Track (Custom smooth scroll, completely hidden native scrollbar) -->
+        <div
+          ref="tabBarRef"
+          class="flex items-center gap-1.5 px-1.5 flex-1 overflow-x-auto overflow-y-hidden select-none py-1 h-full scrollbar-none tab-bar-strip scroll-smooth"
+          @dragover.prevent
+          @drop.prevent="handleTabBarDrop"
+          @wheel.passive="handleTabBarWheel"
+          @scroll="updateTabScrollState"
+        >
+          <template v-for="cluster in tabClusters" :key="cluster.type === 'group' ? cluster.group.id : cluster.session.id">
+            
+            <!-- CHROME TAB GROUP -->
             <div
-              @click="toggleGroupCollapse(cluster.group.id)"
-              @contextmenu.prevent="openGroupContextMenu($event, cluster.group)"
-              @dragover.prevent="handleGroupPillDragOver($event, cluster.group.id)"
-              @drop.prevent="handleGroupPillDrop($event, cluster.group)"
-              :class="[
-                'shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer select-none group/grp whitespace-nowrap h-7',
-                dragOverGroupId === cluster.group.id ? 'ring-2 ring-white scale-105' : ''
-              ]"
+              v-if="cluster.type === 'group'"
+              class="shrink-0 flex items-center gap-1 p-0.5 rounded-lg border transition h-7.5"
               :style="{
-                backgroundColor: cluster.group.color + '25',
-                color: cluster.group.color,
-                border: '1.5px solid ' + cluster.group.color + '70'
+                borderColor: cluster.group.color + '55',
+                backgroundColor: cluster.group.color + '10'
               }"
-              :title="'Click to ' + (cluster.group.collapsed ? 'expand' : 'collapse') + ' | Right click to configure group'"
             >
-              <span class="w-2 h-2 rounded-full shadow-sm shrink-0" :style="{ backgroundColor: cluster.group.color }"></span>
-              <span class="truncate max-w-[120px]">{{ cluster.group.name }}</span>
-              <span
-                v-if="cluster.group.collapsed"
-                class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-900/80 text-white shrink-0"
-              >
-                {{ cluster.sessions.length }}
-              </span>
-              <ChevronDown
-                v-else
-                class="w-3 h-3 opacity-60 group-hover/grp:opacity-100 transition shrink-0"
-              />
-            </div>
-
-            <!-- Member Tabs (Hidden when group is collapsed) -->
-            <template v-if="!cluster.group.collapsed">
+              <!-- Group Header Pill -->
               <div
-                v-for="sItem in cluster.sessions"
-                :key="sItem.session.id"
-                draggable="true"
-                @dragstart="handleTabDragStart($event, sItem.globalIndex)"
-                @dragover.prevent="handleTabDragOver($event, sItem.globalIndex)"
-                @drop.prevent="handleTabDrop($event, sItem.globalIndex)"
-                @dragend="resetDrag"
-                @click="activeSessionIndex = sItem.globalIndex"
-                @contextmenu.prevent="openTabContextMenu($event, sItem.session, sItem.globalIndex)"
+                @click="toggleGroupCollapse(cluster.group.id)"
+                @contextmenu.prevent="openGroupContextMenu($event, cluster.group)"
+                @dragover.prevent="handleGroupPillDragOver($event, cluster.group.id)"
+                @drop.prevent="handleGroupPillDrop($event, cluster.group)"
                 :class="[
-                  'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border h-7 max-w-[200px]',
-                  draggedGlobalIndex === sItem.globalIndex ? 'opacity-40 scale-95' : '',
-                  dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-white' : '',
-                  dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-white' : '',
-                  activeSessionIndex === sItem.globalIndex
-                    ? 'active-session-tab bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  'shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-bold font-mono transition cursor-pointer select-none group/grp whitespace-nowrap h-6.5',
+                  dragOverGroupId === cluster.group.id ? 'ring-2 ring-white scale-105' : ''
                 ]"
                 :style="{
-                  borderLeftColor: activeSessionIndex === sItem.globalIndex ? cluster.group.color : undefined,
-                  borderLeftWidth: activeSessionIndex === sItem.globalIndex ? '3px' : undefined
+                  backgroundColor: cluster.group.color + '25',
+                  color: cluster.group.color,
+                  border: '1.5px solid ' + cluster.group.color + '70'
                 }"
+                :title="'Click to ' + (cluster.group.collapsed ? 'expand' : 'collapse') + ' | Right click to configure group'"
               >
-                <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
+                <span class="w-2 h-2 rounded-full shadow-sm shrink-0" :style="{ backgroundColor: cluster.group.color }"></span>
+                <span class="truncate max-w-[120px]">{{ cluster.group.name }}</span>
                 <span
-                  class="w-1.5 h-1.5 rounded-full transition-all shrink-0"
-                  :class="sItem.session.connected ? '' : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
-                  :style="{ backgroundColor: sItem.session.connected ? cluster.group.color : (sItem.session.connecting ? cluster.group.color : '#ef4444') }"
-                ></span>
-                <span class="truncate whitespace-nowrap text-[11px]">{{ sItem.session.displayName || sItem.session.host.name }}</span>
-
-                <!-- Duplicate Tab Button -->
-                <button
-                  @click.stop="duplicateSession(sItem.session)"
-                  title="Duplicate tab in group"
-                  class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-500 shrink-0 cursor-pointer"
+                  v-if="cluster.group.collapsed"
+                  class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-900/80 text-white shrink-0"
                 >
-                  <Copy class="w-2.5 h-2.5" />
-                </button>
-
-                <!-- Close Tab Button -->
-                <button
-                  @click.stop="closeSession(sItem.session)"
-                  title="Close Tab"
-                  class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-500 shrink-0 cursor-pointer"
-                >
-                  <X class="w-2.5 h-2.5" />
-                </button>
+                  {{ cluster.sessions.length }}
+                </span>
+                <ChevronDown
+                  v-else
+                  class="w-3 h-3 opacity-60 group-hover/grp:opacity-100 transition shrink-0"
+                />
               </div>
-            </template>
-          </div>
 
-          <!-- UNGROUPED TAB -->
-          <div
-            v-else
-            draggable="true"
-            @dragstart="handleTabDragStart($event, cluster.globalIndex)"
-            @dragover.prevent="handleTabDragOver($event, cluster.globalIndex)"
-            @drop.prevent="handleTabDrop($event, cluster.globalIndex)"
-            @dragend="resetDrag"
-            @click="activeSessionIndex = cluster.globalIndex"
-            @contextmenu.prevent="openTabContextMenu($event, cluster.session, cluster.globalIndex)"
-            :class="[
-              'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer select-none relative group/tab border h-8 max-w-[220px]',
-              draggedGlobalIndex === cluster.globalIndex ? 'opacity-40 scale-95' : '',
-              dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-brand-400' : '',
-              dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-brand-400' : '',
-              activeSessionIndex === cluster.globalIndex
-                ? 'active-session-tab bg-[#242833] border-slate-700 text-white shadow-sm font-semibold'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-            ]"
-          >
-            <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
-            <span
-              class="w-2 h-2 rounded-full transition-colors shrink-0"
-              :class="cluster.session.connected ? 'bg-emerald-500' : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
-            ></span>
-            <span class="truncate whitespace-nowrap text-[11px]">{{ cluster.session.displayName || cluster.session.host.name }}</span>
+              <!-- Member Tabs (Hidden when group is collapsed) -->
+              <template v-if="!cluster.group.collapsed">
+                <div
+                  v-for="sItem in cluster.sessions"
+                  :key="sItem.session.id"
+                  draggable="true"
+                  @dragstart="handleTabDragStart($event, sItem.globalIndex)"
+                  @dragover.prevent="handleTabDragOver($event, sItem.globalIndex)"
+                  @drop.prevent="handleTabDrop($event, sItem.globalIndex)"
+                  @dragend="resetDrag"
+                  @click="activeSessionIndex = sItem.globalIndex"
+                  @contextmenu.prevent="openTabContextMenu($event, sItem.session, sItem.globalIndex)"
+                  :class="[
+                    'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer select-none relative group/tab border h-6.5 max-w-[200px]',
+                    draggedGlobalIndex === sItem.globalIndex ? 'opacity-40 scale-95' : '',
+                    dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-white' : '',
+                    dragOverGlobalIndex === sItem.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-white' : '',
+                    activeSessionIndex === sItem.globalIndex
+                      ? 'active-session-tab bg-white dark:bg-[#242833] border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white shadow-xs font-semibold'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/40'
+                  ]"
+                  :style="{
+                    borderLeftColor: activeSessionIndex === sItem.globalIndex ? cluster.group.color : undefined,
+                    borderLeftWidth: activeSessionIndex === sItem.globalIndex ? '3px' : undefined
+                  }"
+                  :title="sItem.session.displayName || sItem.session.host.name"
+                >
+                  <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
+                  <span
+                    class="w-1.5 h-1.5 rounded-full transition-all shrink-0"
+                    :class="sItem.session.connected ? '' : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
+                    :style="{ backgroundColor: sItem.session.connected ? cluster.group.color : (sItem.session.connecting ? cluster.group.color : '#ef4444') }"
+                  ></span>
+                  <span class="truncate whitespace-nowrap text-[11px]">{{ sItem.session.displayName || sItem.session.host.name }}</span>
 
-            <!-- Duplicate Tab Button -->
-            <button
-              @click.stop="duplicateSession(cluster.session)"
-              title="Duplicate Terminal Tab"
-              class="p-0.5 hover:text-brand-400 hover:bg-slate-700/50 rounded transition text-slate-400 ml-0.5 shrink-0 cursor-pointer"
+                  <!-- Duplicate Tab Button -->
+                  <button
+                    @click.stop="duplicateSession(sItem.session)"
+                    title="Duplicate tab in group"
+                    class="p-0.5 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded transition text-slate-400 shrink-0 cursor-pointer"
+                  >
+                    <Copy class="w-2.5 h-2.5" />
+                  </button>
+
+                  <!-- Close Tab Button -->
+                  <button
+                    @click.stop="closeSession(sItem.session)"
+                    title="Close Tab"
+                    class="p-0.5 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded transition text-slate-400 shrink-0 cursor-pointer"
+                  >
+                    <X class="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <!-- UNGROUPED TAB -->
+            <div
+              v-else
+              draggable="true"
+              @dragstart="handleTabDragStart($event, cluster.globalIndex)"
+              @dragover.prevent="handleTabDragOver($event, cluster.globalIndex)"
+              @drop.prevent="handleTabDrop($event, cluster.globalIndex)"
+              @dragend="resetDrag"
+              @click="activeSessionIndex = cluster.globalIndex"
+              @contextmenu.prevent="openTabContextMenu($event, cluster.session, cluster.globalIndex)"
+              :class="[
+                'shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer select-none relative group/tab border h-7.5 max-w-[210px]',
+                draggedGlobalIndex === cluster.globalIndex ? 'opacity-40 scale-95' : '',
+                dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'left' ? 'border-l-2 border-l-blue-500' : '',
+                dragOverGlobalIndex === cluster.globalIndex && dragDropPosition === 'right' ? 'border-r-2 border-r-blue-500' : '',
+                activeSessionIndex === cluster.globalIndex
+                  ? 'active-session-tab bg-white dark:bg-[#242833] border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white shadow-xs font-semibold'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/40'
+              ]"
+              :title="cluster.session.displayName || cluster.session.host.name"
             >
-              <Copy class="w-3 h-3" />
-            </button>
+              <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
+              <span
+                class="w-2 h-2 rounded-full transition-colors shrink-0"
+                :class="cluster.session.connected ? 'bg-emerald-500' : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
+              ></span>
+              <span class="truncate whitespace-nowrap text-[11px]">{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
-            <!-- Close Tab Button -->
-            <button
-              @click.stop="closeSession(cluster.session)"
-              title="Close Tab"
-              class="p-0.5 hover:text-red-400 hover:bg-slate-700/50 rounded transition text-slate-400 shrink-0 cursor-pointer"
-            >
-              <X class="w-3 h-3" />
-            </button>
-          </div>
+              <!-- Duplicate Tab Button -->
+              <button
+                @click.stop="duplicateSession(cluster.session)"
+                title="Duplicate Terminal Tab"
+                class="p-0.5 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded transition text-slate-400 ml-0.5 shrink-0 cursor-pointer"
+              >
+                <Copy class="w-3 h-3" />
+              </button>
 
-        </template>
+              <!-- Close Tab Button -->
+              <button
+                @click.stop="closeSession(cluster.session)"
+                title="Close Tab"
+                class="p-0.5 hover:text-red-500 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded transition text-slate-400 shrink-0 cursor-pointer"
+              >
+                <X class="w-3 h-3" />
+              </button>
+            </div>
 
+          </template>
+        </div>
+
+        <!-- Right Overflow Fade Gradient -->
+        <div
+          v-if="canScrollRight"
+          class="absolute right-6 top-0 bottom-0 w-6 bg-gradient-to-l from-slate-50 dark:from-[#1b1e26] to-transparent pointer-events-none z-10"
+        ></div>
+
+        <!-- Right Scroll Button (Visible when scrolled to the left) -->
+        <button
+          v-if="canScrollRight"
+          @click="scrollTabBar('right')"
+          class="absolute right-0 z-20 h-7 w-6 flex items-center justify-center bg-white/95 dark:bg-[#1b1e26]/95 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded shadow-sm border border-slate-200 dark:border-slate-700 transition cursor-pointer backdrop-blur-xs"
+          title="Scroll tabs right"
+        >
+          <ChevronRight class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <!-- Right Fixed Global Actions: Auto Group & New Tab -->
+      <div v-if="openSessions.length > 0" class="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-slate-800/80">
         <!-- Auto Group Helper Button (shown when 2+ sessions open) -->
         <button
           v-if="openSessions.length > 1"
           @click="autoGroupByHost"
           title="Auto-organize tabs into Chrome groups by Host"
-          class="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-[#20242e] hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px] font-mono border border-slate-700/60 transition ml-1 whitespace-nowrap h-7 cursor-pointer"
+          class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-mono border border-slate-300/80 dark:border-slate-700/60 transition whitespace-nowrap h-7 cursor-pointer"
         >
-          <Layers class="w-3 h-3 text-brand-400 shrink-0" />
-          <span>Auto Group</span>
+          <Layers class="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
+          <span class="hidden lg:inline">Auto Group</span>
         </button>
 
         <!-- Global New Tab Button -->
@@ -2942,10 +3080,10 @@ onUnmounted(() => {
           v-if="activeSession"
           @click="duplicateSession(activeSession)"
           title="Duplicate Current Server Tab"
-          class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#20242e] hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700/60 transition whitespace-nowrap h-7 cursor-pointer"
+          class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-mono border border-slate-300/80 dark:border-slate-700/60 transition whitespace-nowrap h-7 cursor-pointer"
         >
-          <Plus class="w-3 h-3 text-brand-400 shrink-0" />
-          <span>New Tab</span>
+          <Plus class="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
+          <span class="hidden sm:inline">New Tab</span>
         </button>
       </div>
     </div>
@@ -5622,5 +5760,16 @@ onUnmounted(() => {
 
 .terminal-wrapper .xterm .xterm-screen {
   width: 100% !important;
+}
+
+/* Horizontal tab scroller styling - completely hide native scrollbar */
+.tab-bar-strip {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.tab-bar-strip::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 </style>

@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
+import { useAuthStore } from '../stores/auth';
 import {
   Boxes,
   Search,
@@ -73,6 +74,8 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
+const authStore = useAuthStore();
+const canDeploy = computed(() => authStore.can('infrastructure', 'manage'));
 
 // Active state
 const searchQuery = ref('');
@@ -1404,12 +1407,13 @@ onUnmounted(() => {
 
                   <button
                     @click="handleInstallToDocker"
-                    :disabled="isDeploying"
+                    :disabled="isDeploying || !canDeploy"
+                    :title="!canDeploy ? 'Requires Infrastructure manage permission' : 'Install companion container to Docker'"
                     class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-bold text-xs rounded-xl transition cursor-pointer shadow-md disabled:opacity-50"
                   >
                     <RefreshCw v-if="isDeploying" class="w-4 h-4 animate-spin" />
                     <Play v-else class="w-4 h-4" />
-                    <span>{{ isDeploying ? 'Deploying Container...' : 'Install to Docker' }}</span>
+                    <span>{{ isDeploying ? 'Deploying Container...' : !canDeploy ? 'Read-Only (No Deploy)' : 'Install to Docker' }}</span>
                   </button>
                 </div>
               </div>

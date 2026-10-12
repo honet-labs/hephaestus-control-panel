@@ -635,6 +635,7 @@ interface UserItem {
 const SYSTEM_FEATURES = [
   { key: 'dashboard', label: 'Dashboard & Overview', desc: 'Main telemetry, resource gauges, and system status widgets', icon: Activity },
   { key: 'remote_servers', label: 'Remote Servers & SSH', desc: 'SSH Web Terminal, SFTP explorer, processes, and service manager', icon: Terminal },
+  { key: 'server_inventory', label: 'Server & Hardware Inventory', desc: 'Hardware specs, CPU, RAM, GPU, storage dimension, and server asset tracking', icon: Server },
   { key: 'infrastructure', label: 'Management Containers', desc: 'Docker Hosts, Containers, Images, Networks, and Deploy Wizard', icon: Boxes },
   { key: 'network_topology', label: 'Network Topology', desc: 'Interactive topology canvas, device nodes, links, and subnet discovery', icon: Network },
   { key: 'ipam', label: 'IP Address Management (IPAM)', desc: 'Subnets, IP allocations, ICMP ping sweeps, ARP discovery, and scan history', icon: Network },

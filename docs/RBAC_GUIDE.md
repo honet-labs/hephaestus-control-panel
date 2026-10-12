@@ -33,9 +33,10 @@ Setiap modul di HCP direpresentasikan oleh key unik dalam field `permissions` JS
 {
   "dashboard": "read" | "manage" | "none",
   "remote_servers": "read" | "manage" | "none",
-  "monitoring_instances": "read" | "manage" | "none",
+  "server_inventory": "read" | "manage" | "none",
   "infrastructure": "read" | "manage" | "none",
   "network_topology": "read" | "manage" | "none",
+  "ipam": "read" | "manage" | "none",
   "backup": "read" | "manage" | "none",
   "connections": "read" | "manage" | "none",
   "security": "read" | "manage" | "none",
@@ -47,6 +48,7 @@ Setiap modul di HCP direpresentasikan oleh key unik dalam field `permissions` JS
   "dataprepper_config": "read" | "manage" | "none",
   "prometheus_config": "read" | "manage" | "none",
   "opentelemetry_config": "read" | "manage" | "none",
+  "monitoring_instances": "read" | "manage" | "none",
   "slideshow": "read" | "manage" | "none",
   "settings": "read" | "manage" | "none"
 }

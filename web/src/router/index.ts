@@ -98,7 +98,7 @@ const router = createRouter({
           path: 'inventory-server',
           name: 'inventory-server',
           component: () => import('../views/VmInventoryView.vue'),
-          meta: { requiresAuth: true, feature: 'connections' },
+          meta: { requiresAuth: true, feature: 'server_inventory' },
         },
         {
           path: 'inventory',
@@ -322,15 +322,20 @@ router.beforeEach(async (to, from, next) => {
         }
         const accessibleRoutes = [
           { path: '/connections', feature: 'connections' },
+          { path: '/inventory-server', feature: 'server_inventory' },
           { path: '/monitoring-instance', feature: 'monitoring_instances' },
           { path: '/infrastructure/containers', feature: 'infrastructure' },
           { path: '/remote-server', feature: 'remote_servers' },
           { path: '/network-topology', feature: 'network_topology' },
           { path: '/ipam', feature: 'ipam' },
+          { path: '/dataprepper-config', feature: 'dataprepper_config' },
+          { path: '/prometheus-config', feature: 'prometheus_config' },
+          { path: '/opentelemetry-config', feature: 'opentelemetry_config' },
           { path: '/status-pages', feature: 'status_pages' },
           { path: '/slideshow', feature: 'slideshow' },
           { path: '/backup', feature: 'backup' },
           { path: '/snmp', feature: 'snmp' },
+          { path: '/grok-debugger', feature: 'grok_debugger' },
           { path: '/reports', feature: 'reports' },
         ];
         const fallback = accessibleRoutes.find((r) => authStore.can(r.feature, 'read'));
