@@ -216,23 +216,22 @@ func (s *GuacamoleService) HandleTunnel(ws *websocket.Conn, cfg *domain.RemoteHo
 		}
 		paramMap["security"] = sec
 
-		// Optimized RDP tuning for web streaming & eliminating browser freeze/hang:
-		// 1. Bitmap caching: CRITICAL! Keep caching enabled (false = caching ACTIVE).
-		// Disabling bitmap caching forces uncompressed full-frame bitmaps, spiking bandwidth to ~100 Mbps
-		// and catastrophic browser rendering freeze.
+		// Standard Apache Guacamole compatible parameters:
+		// 1. Caching: Must keep offscreen and bitmap caching enabled (false = caching ACTIVE).
+		// Disabling offscreen caching causes Windows logon forms and acrylic surfaces to render as solid black blocks.
 		paramMap["disable-bitmap-caching"] = "false"
-		paramMap["disable-offscreen-caching"] = "true" // Keep offscreen caching disabled to avoid virtual GPU surface corruption
-		paramMap["disable-glyph-caching"] = "true"
+		paramMap["disable-offscreen-caching"] = "false" // CRITICAL: enables off-screen surfaces (fixes black box on logon screen)
+		paramMap["disable-glyph-caching"] = "false"
 
-		// 2. Color depth: 24-bit TrueColor is optimal (visual parity with 32-bit, saves 25% bandwidth and reduces canvas decoding CPU overhead)
+		// 2. Color depth: 24-bit TrueColor (visual parity with 32-bit, saves 25% bandwidth and reduces canvas decoding CPU overhead)
 		paramMap["color-depth"] = "24"
 
 		// 3. Performance & responsiveness tuning:
-		paramMap["enable-desktop-composition"] = "false" // Disable Aero glass to reduce compositor CPU load
+		paramMap["enable-desktop-composition"] = "true"  // Allows Windows to properly render Fluent/acrylic UI without black artifacts
 		paramMap["enable-font-smoothing"] = "true"        // ClearType font smoothing for clean readability
 		paramMap["enable-full-window-drag"] = "false"     // Show outline when dragging to eliminate 60fps window redraw thrashing
 		paramMap["enable-theming"] = "true"               // Windows desktop UI themes
-		paramMap["enable-wallpaper"] = "false"            // Solid wallpaper saves bandwidth
+		paramMap["enable-wallpaper"] = "true"             // Native Windows background/lockscreen
 		paramMap["disable-audio"] = "true"                // Prevent virtual audio channel handshake deadlock on Hyper-V / Server VMs
 		paramMap["client-name"] = "Hephaestus-RDP"
 		paramMap["resize-method"] = "display-update"      // FreeRDP dynamic display update
