@@ -1,6 +1,7 @@
 # Hephaestus Control Panel (HCP)
 
-> **Unified DevOps, Server, Database & Network Infrastructure Control Panel**  
+> **Unified DevOps, Server, Database & Network Infrastructure Control Panel**
+> Open-source infrastructure control panel for VPS and Docker management, resource monitoring integrate with OpenSearch, Prometheus and Grafana
 > High-performance Go backend, PostgreSQL 16 ACID persistence, native in-memory worker pool, and sleek modern Vue 3 + Tailwind CSS web interface.
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go)](https://golang.org/)
