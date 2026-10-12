@@ -480,7 +480,7 @@ const isIgnoredMount = (mount?: string, device?: string, fsType?: string): boole
   if (d.startsWith('/dev/loop') || d.startsWith('loop')) return true;
 
   // 2. Read-only / Virtual / Ephemeral Filesystems
-  if (t === 'squashfs' || t === 'tmpfs' || t === 'devtmpfs' || t === 'overlay' || t === 'iso9660' || t === 'udf') return true;
+  if (t === 'squashfs' || t === 'tmpfs' || t === 'devtmpfs' || t === 'overlay' || t === 'iso9660' || t === 'udf' || t === 'autofs' || t === 'fuse.lxcfs') return true;
   if (d === 'tmpfs' || d === 'devtmpfs' || d === 'udev' || d === 'none' || d === 'shm' || d === 'overlay') return true;
 
   // 3. Boot & EFI partitions (standard Linux kernel rotation leaves /boot at 80-90% without risking system capacity)
@@ -513,6 +513,17 @@ const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
         usedBytes: sumUsed,
         totalBytes: sumTotal,
         freeBytes: Math.max(0, sumTotal - sumUsed),
+      };
+    }
+    // Fallback: if all disks were ignored, use root "/" or first available disk
+    const rootDisk = inst.liveMetrics.disks.find(d => d.mountpoint === '/') || inst.liveMetrics.disks[0];
+    if (rootDisk && (rootDisk.totalBytes || 0) > 0) {
+      const pct = Math.round(((rootDisk.usedBytes || 0) / rootDisk.totalBytes) * 1000) / 10;
+      return {
+        pct,
+        usedBytes: rootDisk.usedBytes || 0,
+        totalBytes: rootDisk.totalBytes,
+        freeBytes: Math.max(0, rootDisk.totalBytes - (rootDisk.usedBytes || 0)),
       };
     }
   }
@@ -1623,6 +1634,33 @@ const getMemFreePct = (memPct: number | null | undefined): string => {
   return `${Math.max(0, Math.min(100, +(100 - memPct).toFixed(1)))}%`;
 };
 
+// Returns nominal hardware spec size for display if close to standard physical modules (e.g. 16 GB, 32 GB)
+const formatHardwareRam = (bytes: number | null | undefined): string => {
+  if (!bytes || bytes <= 0) return '';
+  const gb = bytes / (1024 * 1024 * 1024);
+  const standardSizes = [1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 512, 1024];
+  for (const size of standardSizes) {
+    if (gb >= size * 0.88 && gb <= size * 1.05) {
+      return `${size} GB`;
+    }
+  }
+  return '';
+};
+
+// Returns nominal hardware disk drive capacity (e.g. 250 GB, 500 GB, 1 TB)
+const formatHardwareDisk = (bytes: number | null | undefined): string => {
+  if (!bytes || bytes <= 0) return '';
+  const gb = bytes / (1024 * 1024 * 1024);
+  const standardDisks = [20, 25, 30, 40, 50, 60, 80, 100, 120, 128, 160, 240, 250, 256, 480, 500, 512, 960, 1000, 1024, 2000, 2048];
+  for (const size of standardDisks) {
+    const expectedGiB = (size * 1000 * 1000 * 1000) / (1024 * 1024 * 1024);
+    if (gb >= expectedGiB * 0.88 && gb <= expectedGiB * 1.08) {
+      return size >= 1000 ? `${(size / 1000).toFixed(0)} TB` : `${size} GB`;
+    }
+  }
+  return '';
+};
+
 // -----------------------------------------------------------------------------
 // Docker Containers Logic & Computeds
 // -----------------------------------------------------------------------------
@@ -2212,13 +2250,14 @@ onUnmounted(() => {
         <!-- Metrics Rows (Replicating exact card rows from Screenshot 1) -->
         <div class="space-y-2 text-xs">
           <!-- CPU Row -->
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2" :title="inst.liveMetrics?.cpuCount ? `${inst.liveMetrics.cpuCount} Logical vCPU Cores` : undefined">
             <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
               <Cpu class="w-3.5 h-3.5 text-slate-400" />
               <span>CPU:</span>
             </div>
-            <div class="w-16 font-semibold text-slate-800 dark:text-slate-200">
-              {{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}
+            <div class="w-20 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+              <span>{{ inst.liveMetrics?.cpuPct !== null && inst.liveMetrics?.cpuPct !== undefined ? `${inst.liveMetrics.cpuPct}%` : 'N/A' }}</span>
+              <span v-if="inst.liveMetrics?.cpuCount" class="text-[10px] text-slate-400 dark:text-slate-500 font-normal font-mono">({{ inst.liveMetrics.cpuCount }}c)</span>
             </div>
             <!-- Progress Bar -->
             <div class="flex-1 bg-slate-100 dark:bg-[#1a2133] h-2 rounded-full overflow-hidden">
@@ -2231,12 +2270,15 @@ onUnmounted(() => {
           </div>
 
           <!-- Memory Row -->
-          <div class="flex items-center gap-2">
+          <div
+            class="flex items-center gap-2"
+            :title="inst.liveMetrics?.memTotalBytes ? `Memory: ${(inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1)} GB used of ${(inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1)} GB usable${formatHardwareRam(inst.liveMetrics.memTotalBytes) ? ` (${formatHardwareRam(inst.liveMetrics.memTotalBytes)} spec)` : ''}` : undefined"
+          >
             <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
               <Layers class="w-3.5 h-3.5 text-slate-400" />
               <span>Memory:</span>
             </div>
-            <div class="w-16 font-semibold text-slate-800 dark:text-slate-200">
+            <div class="w-20 font-semibold text-slate-800 dark:text-slate-200">
               {{ inst.liveMetrics?.memPct !== null && inst.liveMetrics?.memPct !== undefined ? `${inst.liveMetrics.memPct}%` : 'N/A' }}
             </div>
             <!-- Progress Bar -->
@@ -2250,12 +2292,15 @@ onUnmounted(() => {
           </div>
 
           <!-- Disk Row (Overall Storage) -->
-          <div class="flex items-center gap-2">
+          <div
+            class="flex items-center gap-2"
+            :title="getOverallDisk(inst).totalBytes > 0 ? `Storage: ${(getOverallDisk(inst).usedBytes / 1073741824).toFixed(1)} GB used of ${(getOverallDisk(inst).totalBytes / 1073741824).toFixed(1)} GB usable${formatHardwareDisk(getOverallDisk(inst).totalBytes) ? ` (${formatHardwareDisk(getOverallDisk(inst).totalBytes)} spec)` : ''}` : undefined"
+          >
             <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
               <HardDrive class="w-3.5 h-3.5 text-slate-400" />
               <span>Disk:</span>
             </div>
-            <div class="w-16 font-semibold text-slate-800 dark:text-slate-200">
+            <div class="w-20 font-semibold text-slate-800 dark:text-slate-200">
               {{ getOverallDisk(inst).pct !== null ? `${getOverallDisk(inst).pct}%` : 'N/A' }}
             </div>
             <!-- Progress Bar -->
@@ -2572,8 +2617,10 @@ onUnmounted(() => {
                   <div
                     v-if="inst.liveMetrics?.memTotalBytes"
                     class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-mono"
+                    :title="`Usable: ${(inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1)} GB${formatHardwareRam(inst.liveMetrics.memTotalBytes) ? ` | Spec: ${formatHardwareRam(inst.liveMetrics.memTotalBytes)}` : ''}`"
                   >
                     {{ (inst.liveMetrics.memUsedBytes / 1073741824).toFixed(1) }} / {{ (inst.liveMetrics.memTotalBytes / 1073741824).toFixed(1) }} GB
+                    <span v-if="formatHardwareRam(inst.liveMetrics.memTotalBytes)" class="text-slate-400/80">({{ formatHardwareRam(inst.liveMetrics.memTotalBytes) }})</span>
                   </div>
                 </td>
 
@@ -2594,8 +2641,10 @@ onUnmounted(() => {
                   <div
                     v-if="getOverallDisk(inst).totalBytes > 0"
                     class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-mono"
+                    :title="`Usable: ${(getOverallDisk(inst).totalBytes / 1073741824).toFixed(1)} GB${formatHardwareDisk(getOverallDisk(inst).totalBytes) ? ` | Spec: ${formatHardwareDisk(getOverallDisk(inst).totalBytes)}` : ''}`"
                   >
                     {{ (getOverallDisk(inst).usedBytes / 1073741824).toFixed(1) }} / {{ (getOverallDisk(inst).totalBytes / 1073741824).toFixed(1) }} GB
+                    <span v-if="formatHardwareDisk(getOverallDisk(inst).totalBytes)" class="text-slate-400/80">({{ formatHardwareDisk(getOverallDisk(inst).totalBytes) }})</span>
                   </div>
                 </td>
 
@@ -2844,6 +2893,7 @@ onUnmounted(() => {
                           <span>Total Memory:</span>
                           <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">
                             {{ formatBytesGB(inst.liveMetrics?.memTotalBytes) }} (100%)
+                            <span v-if="formatHardwareRam(inst.liveMetrics?.memTotalBytes)" class="text-slate-400 font-normal text-[11px] ml-1">[{{ formatHardwareRam(inst.liveMetrics?.memTotalBytes) }} Spec]</span>
                           </span>
                         </div>
 

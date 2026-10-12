@@ -1381,7 +1381,13 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		{"cpu_cores_otel_2", `system_cpu_logical_count`},
 		{"cpu_cores_otel_3", `count by (ip_address, hostname, instance) (host_system_cpu_time_seconds_total{state="idle"})`},
 		{"cpu_cores_otel_4", `count by (instance) (system_cpu_time_seconds_total{state="idle"})`},
+		{"cpu_cores_otel_5", `count by (instance) (host_system_cpu_time_seconds_total{state="idle"})`},
+		{"cpu_cores_otel_6", `count without (cpu, state) (host_system_cpu_time_seconds_total{state="idle"})`},
+		{"cpu_cores_otel_7", `count without (cpu, state) (system_cpu_time_seconds_total{state="idle"})`},
 		{"cpu_cores_node", `count by (instance) (node_cpu_seconds_total{mode="idle"})`},
+		{"cpu_cores_node_without", `count without (cpu, mode) (node_cpu_seconds_total{mode="idle"})`},
+		{"cpu_cores_machine", `machine_cpu_cores`},
+		{"cpu_cores_info", `count without (cpu, core, socket, package) (node_cpu_info)`},
 
 		// CPU Cores Physical
 		{"cpu_phys_otel_1", `host_system_cpu_physical_count`},
@@ -1411,6 +1417,8 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		{"mem_total_otel_1", `host_system_memory_limit_bytes`},
 		{"mem_total_otel_2", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes)`},
 		{"mem_total_otel_3", `sum by (instance) (system_memory_usage_bytes)`},
+		{"mem_total_otel_4", `sum by (instance) (host_system_memory_usage_bytes)`},
+		{"mem_total_otel_5", `sum without (state) (host_system_memory_usage_bytes)`},
 		{"mem_total_node", `node_memory_MemTotal_bytes`},
 		{"mem_avail_node", `node_memory_MemAvailable_bytes or (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)`},
 		{"mem_free_node", `node_memory_MemFree_bytes`},
@@ -1532,13 +1540,16 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 	}
 
 	// 4. Process CPU Cores Logical
-	for _, k := range []string{"cpu_cores_otel_1", "cpu_cores_otel_2", "cpu_cores_otel_3", "cpu_cores_otel_4"} {
+	for _, k := range []string{"cpu_cores_otel_1", "cpu_cores_otel_2", "cpu_cores_otel_3", "cpu_cores_otel_4", "cpu_cores_otel_5", "cpu_cores_otel_6", "cpu_cores_otel_7"} {
 		if res, ok := results[k]; ok {
 			for _, item := range res.Data.Result {
 				if len(item.Value) > 1 {
 					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 						h := collector.getOrCreate(item.Metric)
-						h.cpuCount = int(v)
+						cores := int(v)
+						if cores > h.cpuCount {
+							h.cpuCount = cores
+						}
 						h.hasOTel = true
 						h.isOnline = true
 					}
@@ -1546,15 +1557,18 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 	}
-	if res, ok := results["cpu_cores_node"]; ok {
-		for _, item := range res.Data.Result {
-			if len(item.Value) > 1 {
-				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
-					h := collector.getOrCreate(item.Metric)
-					if h.cpuCount == 0 {
-						h.cpuCount = int(v)
+	for _, k := range []string{"cpu_cores_node", "cpu_cores_node_without", "cpu_cores_machine", "cpu_cores_info"} {
+		if res, ok := results[k]; ok {
+			for _, item := range res.Data.Result {
+				if len(item.Value) > 1 {
+					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
+						h := collector.getOrCreate(item.Metric)
+						cores := int(v)
+						if cores > h.cpuCount {
+							h.cpuCount = cores
+						}
+						h.isOnline = true
 					}
-					h.isOnline = true
 				}
 			}
 		}
@@ -1686,13 +1700,15 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 	}
-	for _, k := range []string{"mem_total_otel_1", "mem_total_otel_2", "mem_total_otel_3"} {
+	for _, k := range []string{"mem_total_otel_1", "mem_total_otel_2", "mem_total_otel_3", "mem_total_otel_4", "mem_total_otel_5"} {
 		if res, ok := results[k]; ok {
 			for _, item := range res.Data.Result {
 				if len(item.Value) > 1 {
 					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 						h := collector.getOrCreate(item.Metric)
-						h.memTotal = v
+						if v > h.memTotal || h.memTotal == 0 {
+							h.memTotal = v
+						}
 						h.hasOTel = true
 						h.isOnline = true
 					}
@@ -1705,7 +1721,8 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					if h.memTotal == 0 {
+					// node_memory_MemTotal_bytes is the true physical /proc/meminfo capacity
+					if v > h.memTotal || h.memTotal == 0 {
 						h.memTotal = v
 					}
 					h.isOnline = true
@@ -2125,14 +2142,27 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 
-		// Overall disk calculation across all storage partitions
+		// Overall disk calculation across real storage partitions (filtering loop, snap, boot, and docker overlay)
 		var overallDiskPct *float64
 		var diskList []domain.InstanceDiskMetric
 		var sumUsed, sumTotal float64
 		for _, d := range matched.disks {
+			if isIgnoredMountPoint(d.Mountpoint, d.Device, d.FSType) {
+				continue
+			}
 			diskList = append(diskList, *d)
 			sumUsed += d.UsedBytes
 			sumTotal += d.TotalBytes
+		}
+		// Fallback: if all disks were filtered, include root "/" or all available
+		if sumTotal == 0 && len(matched.disks) > 0 {
+			for _, d := range matched.disks {
+				diskList = append(diskList, *d)
+				if d.Mountpoint == "/" || sumTotal == 0 {
+					sumUsed = d.UsedBytes
+					sumTotal = d.TotalBytes
+				}
+			}
 		}
 		if sumTotal > 0 {
 			pct := math.Round((sumUsed/sumTotal)*1000) / 10
@@ -2230,6 +2260,49 @@ func formatUptimeHuman(seconds float64) string {
 		return fmt.Sprintf("%dm %ds", minutes, secs)
 	}
 	return fmt.Sprintf("%ds", secs)
+}
+
+// isIgnoredMountPoint returns true if a mount point should be excluded from total host storage calculations
+func isIgnoredMountPoint(mount, device, fsType string) bool {
+	if mount == "" {
+		return true
+	}
+	m := strings.ToLower(strings.TrimSpace(mount))
+	d := strings.ToLower(strings.TrimSpace(device))
+	t := strings.ToLower(strings.TrimSpace(fsType))
+
+	// 1. Snaps & Loop Devices
+	if strings.HasPrefix(m, "/snap") || strings.HasPrefix(m, "/var/lib/snapd") {
+		return true
+	}
+	if strings.HasPrefix(d, "/dev/loop") || strings.HasPrefix(d, "loop") {
+		return true
+	}
+
+	// 2. Read-only / Virtual / Ephemeral Filesystems
+	if t == "squashfs" || t == "tmpfs" || t == "devtmpfs" || t == "overlay" || t == "iso9660" || t == "udf" || t == "autofs" || t == "fuse.lxcfs" {
+		return true
+	}
+	if d == "tmpfs" || d == "devtmpfs" || d == "udev" || d == "none" || d == "shm" || d == "overlay" {
+		return true
+	}
+
+	// 3. Boot & EFI partitions (standard Linux kernel rotation leaves /boot at 80-90% without risking system capacity)
+	if m == "/boot" || strings.HasPrefix(m, "/boot/") {
+		return true
+	}
+
+	// 4. Virtual tree mounts
+	if m == "/dev" || strings.HasPrefix(m, "/dev/") || m == "/run" || strings.HasPrefix(m, "/run/") || m == "/sys" || strings.HasPrefix(m, "/sys/") || m == "/proc" || strings.HasPrefix(m, "/proc/") {
+		return true
+	}
+
+	// 5. Docker internal storage layers and container volumes
+	if strings.Contains(m, "/docker/overlay2") || strings.Contains(m, "/docker/containers") || strings.Contains(m, "/var/lib/docker") {
+		return true
+	}
+
+	return false
 }
 
 func (s *MonitoringInstanceService) GetLiveMetrics(ctx context.Context, inst *domain.MonitoringInstance) (*domain.InstanceLiveMetrics, error) {
