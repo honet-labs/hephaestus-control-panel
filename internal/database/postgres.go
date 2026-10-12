@@ -741,22 +741,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		  AND a.remote_host_id = b.remote_host_id
 		  AND a.remote_host_id IS NOT NULL AND a.remote_host_id != '';
 
-		-- 4. Restore Prometheus instances that run OTel/Prometheus node exporter (Agent-node, blue-whale, Kraken, Yggdrasil)
-		UPDATE monitoring_instances
-		SET metric_source = 'prometheus',
-		    port = 8889,
-		    prometheus_target = host || ':8889'
-		WHERE host IN ('10.20.3.6', '10.20.3.36', '10.20.3.31', '10.20.3.29')
-		   OR ip_address IN ('10.20.3.6', '10.20.3.36', '10.20.3.31', '10.20.3.29');
-
-		-- 5. Restore SSH instances (Docker Dev, Bifrost)
-		UPDATE monitoring_instances
-		SET metric_source = 'ssh',
-		    prometheus_target = ''
-		WHERE host IN ('10.20.3.1', '10.20.3.5')
-		   OR ip_address IN ('10.20.3.1', '10.20.3.5');
-
-		-- 6. Default fallback only for empty or null metric_source
+		-- 4. Default fallback only for unconfigured/null metric_source (preserves user settings across updates)
 		UPDATE monitoring_instances SET metric_source = 'prometheus' WHERE (metric_source IS NULL OR metric_source = '' OR metric_source = 'auto') AND (port = 8889 OR port = 9100 OR (prometheus_target IS NOT NULL AND prometheus_target != ''));
 		UPDATE monitoring_instances SET metric_source = 'ssh' WHERE metric_source IS NULL OR metric_source = '' OR metric_source = 'auto';
 
