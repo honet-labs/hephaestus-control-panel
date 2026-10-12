@@ -177,6 +177,9 @@ interface OpenSession {
   connected: boolean;
   connecting?: boolean;
   heartbeatTimer?: any;
+  heartbeatWorker?: Worker;
+  reconnectAttempts?: number;
+  reconnectPendingOnVisible?: boolean;
   metrics?: any;
   processes?: any[];
   services?: any[];
@@ -788,13 +791,67 @@ const clearTerminal = (session: OpenSession) => {
   }
 };
 
-// Connect WebSocket Stream for Terminal Session
-const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) => {
-  // Teardown previous heartbeat & ws if present
+// Background-immune Heartbeat Management for Terminal Sessions
+const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
+  stopSessionHeartbeat(session);
+
+  // Use inline Web Worker for heartbeat: browser NEVER throttles Web Worker timers when minimized
+  try {
+    const workerScript = `
+      let timer = null;
+      self.onmessage = function(e) {
+        if (e.data === 'start') {
+          if (timer) clearInterval(timer);
+          timer = setInterval(function() {
+            self.postMessage('ping');
+          }, 8000); // Pulse every 8s to guarantee proxy / cloudflare keep-alive
+        } else if (e.data === 'stop') {
+          if (timer) clearInterval(timer);
+          timer = null;
+        }
+      };
+    `;
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = (e) => {
+      if (e.data === 'ping' && session.ws === ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        } catch (_) {}
+      }
+    };
+    worker.postMessage('start');
+    session.heartbeatWorker = worker;
+  } catch (_) {
+    // Fallback to standard setInterval if Web Worker is restricted
+    session.heartbeatTimer = setInterval(() => {
+      if (session.ws === ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        } catch (_) {}
+      }
+    }, 6000);
+  }
+};
+
+const stopSessionHeartbeat = (session: OpenSession) => {
+  if (session.heartbeatWorker) {
+    try {
+      session.heartbeatWorker.postMessage('stop');
+      session.heartbeatWorker.terminate();
+    } catch (_) {}
+    session.heartbeatWorker = undefined;
+  }
   if (session.heartbeatTimer) {
     clearInterval(session.heartbeatTimer);
     session.heartbeatTimer = undefined;
   }
+};
+
+// Connect WebSocket Stream for Terminal Session
+const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) => {
+  // Teardown previous heartbeat & ws if present
+  stopSessionHeartbeat(session);
   if (session.ws) {
     try {
       session.ws.onopen = null;
@@ -826,6 +883,8 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     if (session.ws !== ws) return;
     session.connecting = false;
     session.connected = true;
+    session.reconnectAttempts = 0;
+    session.reconnectPendingOnVisible = false;
 
     if (session.term) {
       session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
@@ -857,14 +916,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       );
     }
 
-    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
-    session.heartbeatTimer = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        } catch (e) {}
-      }
-    }, 5000);
+    startSessionHeartbeat(session, ws);
   };
 
   ws.onmessage = (ev) => {
@@ -880,6 +932,8 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       } else if (msg.type === 'connected') {
         session.connecting = false;
         session.connected = true;
+        session.reconnectAttempts = 0;
+        session.reconnectPendingOnVisible = false;
         // On connected ack, ensure remote PTY matches client dimensions
         if (session.term && session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
           try {
@@ -891,10 +945,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       } else if (msg.type === 'disconnected') {
         session.connecting = false;
         session.connected = false;
-        if (session.heartbeatTimer) {
-          clearInterval(session.heartbeatTimer);
-          session.heartbeatTimer = undefined;
-        }
+        stopSessionHeartbeat(session);
         session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
       }
     } catch (e) {
@@ -910,20 +961,36 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     if (session.ws !== ws) return;
     session.connecting = false;
     session.connected = false;
-    if (session.heartbeatTimer) {
-      clearInterval(session.heartbeatTimer);
-      session.heartbeatTimer = undefined;
-    }
-    // Clean close or user logout
+    stopSessionHeartbeat(session);
+
+    // Clean close or user logout (code 1000)
     if (ev.code === 1000) {
+      session.reconnectAttempts = 0;
+      session.reconnectPendingOnVisible = false;
       session.term?.write('\r\n\x1b[33m[Session closed - Click Reconnect to resume]\x1b[0m\r\n');
-    } else {
-      session.term?.write('\r\n\x1b[33m[Connection dropped. Reconnecting automatically...]\x1b[0m\r\n');
+      return;
+    }
+
+    // If browser window is currently minimized / tab is hidden:
+    // DO NOT run an uncontrolled reconnect loop that spams the terminal buffer!
+    if (document.hidden) {
+      session.reconnectPendingOnVisible = true;
+      session.term?.write('\r\n\x1b[33m[Connection suspended while browser is minimized. Reconnecting automatically when window is restored...]\x1b[0m\r\n');
+      return;
+    }
+
+    // Normal foreground reconnect with controlled attempts and backoff
+    session.reconnectAttempts = (session.reconnectAttempts || 0) + 1;
+    if (session.reconnectAttempts <= 5) {
+      const delay = Math.min(1500 * Math.pow(1.5, session.reconnectAttempts - 1), 6000);
+      session.term?.write(`\r\n\x1b[33m[Connection dropped. Reconnecting automatically (${session.reconnectAttempts}/5)...]\x1b[0m\r\n`);
       setTimeout(() => {
-        if (!session.connected && session.term && session.ws === ws) {
+        if (!session.connected && session.term && session.ws === ws && !document.hidden) {
           reconnectTerminal(session);
         }
-      }, 2000);
+      }, delay);
+    } else {
+      session.term?.write('\r\n\x1b[31m[Auto-reconnect limit reached. Click Reconnect to resume session]\x1b[0m\r\n');
     }
   };
 
@@ -931,11 +998,10 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     if (session.ws !== ws) return;
     session.connecting = false;
     session.connected = false;
-    if (session.heartbeatTimer) {
-      clearInterval(session.heartbeatTimer);
-      session.heartbeatTimer = undefined;
+    stopSessionHeartbeat(session);
+    if (!document.hidden && (!session.reconnectAttempts || session.reconnectAttempts <= 1)) {
+      session.term?.write('\r\n\x1b[31m[WebSocket connection dropped]\x1b[0m\r\n');
     }
-    session.term?.write('\r\n\x1b[31m[WebSocket connection dropped]\x1b[0m\r\n');
   };
 };
 
@@ -1075,12 +1141,16 @@ const handleVisibilityOrFocus = () => {
   if (document.visibilityState === 'visible') {
     openSessions.value.forEach((sess) => {
       if (sess.activeView === 'terminal' && sess.term) {
-        if (!sess.ws || sess.ws.readyState === WebSocket.CLOSED || sess.ws.readyState === WebSocket.CLOSING) {
+        // If connection was suspended while minimized or dropped, resume cleanly
+        if (sess.reconnectPendingOnVisible || (!sess.connected && !sess.connecting)) {
+          sess.reconnectPendingOnVisible = false;
+          sess.reconnectAttempts = 0;
+          sess.term.write('\r\n\x1b[36m[Window restored. Resuming connection to ' + sess.host.name + '...]\x1b[0m\r\n');
           reconnectTerminal(sess);
-        } else if (sess.ws.readyState === WebSocket.OPEN) {
+        } else if (sess.ws && sess.ws.readyState === WebSocket.OPEN) {
           try {
             sess.ws.send(JSON.stringify({ type: 'ping' }));
-          } catch (e) {
+          } catch (_) {
             reconnectTerminal(sess);
           }
         }
@@ -1088,16 +1158,6 @@ const handleVisibilityOrFocus = () => {
     });
   }
 };
-
-onMounted(() => {
-  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-  window.addEventListener('focus', handleVisibilityOrFocus);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-  window.removeEventListener('focus', handleVisibilityOrFocus);
-});
 
 // =================================================================
 // CHROME-STYLE TAB GROUPS & DRAG-AND-DROP REORDERING
@@ -2763,25 +2823,14 @@ watch(activeSessionIndex, async (newIdx) => {
   }
 });
 
-const handleVisibilityChange = () => {
-  if (document.visibilityState === 'visible') {
-    openSessions.value.forEach((s) => {
-      if (s.ws && s.ws.readyState === WebSocket.OPEN) {
-        try {
-          s.ws.send(JSON.stringify({ type: 'ping' }));
-        } catch (_) {}
-      }
-    });
-  }
-};
-
 onMounted(async () => {
   await fetchHosts();
   await restorePersistedSessions();
   window.addEventListener('click', closeAllContextMenus);
   window.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('resize', handleWindowResize);
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.addEventListener('focus', handleVisibilityOrFocus);
   setTimeout(updateTabScrollState, 250);
 });
 
@@ -2789,13 +2838,15 @@ onUnmounted(() => {
   window.removeEventListener('click', closeAllContextMenus);
   window.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('resize', handleWindowResize);
-  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.removeEventListener('focus', handleVisibilityOrFocus);
   Object.values(desktopObservers).forEach((ro) => {
     try {
       ro.disconnect();
     } catch (_) {}
   });
   openSessions.value.forEach((s) => {
+    stopSessionHeartbeat(s);
     if (s.resizeObserver) {
       try {
         s.resizeObserver.disconnect();
