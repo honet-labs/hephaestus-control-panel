@@ -182,6 +182,39 @@ const startedShards = computed(() => {
   });
 });
 
+// Filtered In-Flight, Recovery & Unassigned Shards (synced with shardSearch)
+const filteredRecoveryList = computed(() => {
+  if (!shardSearch.value) return recoveryList.value;
+  const q = shardSearch.value.toLowerCase();
+  return recoveryList.value.filter((rec: any) =>
+    (rec.index || '').toLowerCase().includes(q) ||
+    (rec.source_node || '').toLowerCase().includes(q) ||
+    (rec.target_node || '').toLowerCase().includes(q)
+  );
+});
+
+const filteredInFlightShards = computed(() => {
+  let list = inFlightShards.value;
+  if (!shardSearch.value) return list;
+  const q = shardSearch.value.toLowerCase();
+  return list.filter(
+    s => (s.index || s.name || '').toLowerCase().includes(q) ||
+         (s.node || s.nodeName || '').toLowerCase().includes(q) ||
+         (s.ip || '').toLowerCase().includes(q)
+  );
+});
+
+const filteredUnassignedShards = computed(() => {
+  let list = unassignedShards.value;
+  if (!shardSearch.value) return list;
+  const q = shardSearch.value.toLowerCase();
+  return list.filter(
+    s => (s.index || s.name || '').toLowerCase().includes(q) ||
+         (s.node || s.nodeName || '').toLowerCase().includes(q) ||
+         (s.ip || '').toLowerCase().includes(q)
+  );
+});
+
 const unhealthyIndices = computed(() => {
   return indicesList.value.filter(idx => {
     const health = (idx.health || '').toLowerCase();
@@ -331,7 +364,10 @@ const filteredShards = computed(() => {
   if (!shardSearch.value) return list;
   const q = shardSearch.value.toLowerCase();
   return list.filter(
-    s => (s.index || '').toLowerCase().includes(q) || (s.node || '').toLowerCase().includes(q) || (s.ip || '').toLowerCase().includes(q) || (s.state || '').toLowerCase().includes(q)
+    s => (s.index || s.name || '').toLowerCase().includes(q) ||
+         (s.node || s.nodeName || '').toLowerCase().includes(q) ||
+         (s.ip || '').toLowerCase().includes(q) ||
+         (s.state || '').toLowerCase().includes(q)
   );
 });
 
@@ -351,6 +387,55 @@ const shardsByNode = computed(() => {
 
   return map;
 });
+
+// Grouped filtered shards per node (only assigned active shards, filtered by search & state filter)
+const filteredShardsByNode = computed(() => {
+  const map: Record<string, any[]> = {};
+  clusterNodes.value.forEach(n => {
+    map[n.name] = [];
+  });
+
+  filteredShards.value.forEach(shard => {
+    const nodeName = shard.node || shard.nodeName;
+    if (nodeName && map[nodeName] && shard.state !== 'UNASSIGNED' && nodeName !== 'UNASSIGNED') {
+      map[nodeName].push(shard);
+    }
+  });
+
+  return map;
+});
+
+// Node shard statistics respecting active search and state filter
+const getNodeShardCounts = (nodeName: string) => {
+  const shards = filteredShardsByNode.value[nodeName] || [];
+  let primary = 0;
+  let replica = 0;
+  for (const s of shards) {
+    if (s.prirep === 'p' || s.type === 'Primary') {
+      primary++;
+    } else if (s.prirep === 'r' || s.type === 'Replica') {
+      replica++;
+    }
+  }
+  return { primary, replica, total: shards.length };
+};
+
+// Open index detail modal from clicking a shard block
+const openShardIndexDetails = (shard: any) => {
+  const idxName = shard.index || shard.name;
+  if (!idxName) return;
+  const found = indicesList.value.find(i => (i.index || i.name) === idxName);
+  if (found) {
+    selectedIndexModal.value = found;
+  } else {
+    selectedIndexModal.value = {
+      index: idxName,
+      health: shard.health || 'green',
+      pri: shard.pri || 1,
+      rep: shard.rep || 0,
+    };
+  }
+};
 
 // Shards belonging to the modal-selected index
 const selectedIndexShards = computed(() => {
@@ -1214,7 +1299,7 @@ onUnmounted(() => {
 
         <!-- Live Shard Replication & Recovery Progress Panel (In-Progress Shard Replication & Relocation) -->
         <div
-          v-if="recoveryList.length > 0 || inFlightShards.length > 0"
+          v-if="(recoveryList.length > 0 || inFlightShards.length > 0) && (filteredRecoveryList.length > 0 || filteredInFlightShards.length > 0 || !shardSearch)"
           class="bg-[#1b1e26] border border-blue-500/40 rounded-xl p-5 space-y-4 shadow-xl animate-in fade-in duration-200"
         >
           <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
@@ -1223,7 +1308,7 @@ onUnmounted(() => {
               <h3 class="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-2">
                 <span>In-Progress Shard Replication & Relocation</span>
                 <span class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-mono font-bold">
-                  {{ recoveryList.length || inFlightShards.length }} active
+                  {{ filteredRecoveryList.length || filteredInFlightShards.length }} active
                 </span>
               </h3>
             </div>
@@ -1233,7 +1318,7 @@ onUnmounted(() => {
           <div class="space-y-3">
             <!-- If we have detailed recovery stats from /_cat/recovery -->
             <div
-              v-for="(rec, rIdx) in recoveryList"
+              v-for="(rec, rIdx) in filteredRecoveryList"
               :key="'rec-' + rIdx"
               class="p-3.5 bg-[#13161c] border border-slate-800 rounded-lg space-y-2.5 text-xs font-mono"
             >
@@ -1268,8 +1353,8 @@ onUnmounted(() => {
 
             <!-- Fallback if recoveryList is empty but inFlightShards has records -->
             <div
-              v-if="recoveryList.length === 0"
-              v-for="(shard, fIdx) in inFlightShards"
+              v-if="filteredRecoveryList.length === 0"
+              v-for="(shard, fIdx) in filteredInFlightShards"
               :key="'flight-' + fIdx"
               class="p-3 bg-[#13161c] border border-slate-800 rounded-lg flex items-center justify-between text-xs font-mono"
             >
@@ -1293,42 +1378,73 @@ onUnmounted(() => {
 
         <!-- Unassigned Shards Card -->
         <div
-          v-if="unassignedShards.length > 0"
+          v-if="unassignedShards.length > 0 && (filteredUnassignedShards.length > 0 || !shardSearch)"
           class="bg-[#1b1e26] border border-rose-500/40 rounded-xl p-6 space-y-4 shadow-xl"
         >
           <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
             <div class="flex items-center gap-2">
               <AlertTriangle class="w-4 h-4 text-rose-400" />
               <h3 class="text-xs font-bold text-rose-400 tracking-wide uppercase">
-                Unassigned Shards ({{ unassignedShards.length }})
+                Unassigned Shards ({{ filteredUnassignedShards.length }}<span v-if="filteredUnassignedShards.length !== unassignedShards.length" class="text-slate-400 font-normal"> of {{ unassignedShards.length }}</span>)
               </h3>
             </div>
             <span class="text-[11px] text-slate-400 font-mono">Not allocated to any node</span>
           </div>
 
           <p class="text-xs text-slate-300 font-sans">
-            The following shards have not been allocated to an active node (unassigned). Hover over the <code class="bg-rose-950 px-1 py-0.5 rounded text-rose-300 font-bold">U</code> block to see the index and unassigned reason.
+            The following shards have not been allocated to an active node (unassigned). Hover over the <code class="bg-rose-950 px-1 py-0.5 rounded text-rose-300 font-bold">U</code> block to see the index and unassigned reason. Click to inspect index.
           </p>
 
           <!-- Visual Unassigned Shards Matrix -->
           <div class="flex flex-wrap gap-1.5 p-3.5 bg-[#13161c] rounded-xl border border-rose-900/30 min-h-[50px] items-center">
             <div
-              v-for="(shard, uIdx) in unassignedShards"
+              v-for="(shard, uIdx) in filteredUnassignedShards"
               :key="'unassigned-' + uIdx"
               @mouseenter="showTooltip($event, shard)"
               @mouseleave="hideTooltip"
+              @click="openShardIndexDetails(shard)"
               class="w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md"
             >
               U
             </div>
+            <span v-if="filteredUnassignedShards.length === 0" class="text-[11px] text-slate-500 italic py-1 px-1">
+              No matching unassigned shards found for "{{ shardSearch }}".
+            </span>
           </div>
         </div>
 
         <!-- Shard Allocation by Node Card (Exact visual from screenshot) -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
-            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} active nodes</span>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+            <div>
+              <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
+              <p class="text-[11px] text-slate-400 mt-0.5 font-mono">
+                {{ clusterNodes.length }} active nodes
+                <span v-if="shardSearch" class="text-sky-400 font-sans ml-1">
+                  &bull; Filtering index/shard: "{{ shardSearch }}"
+                </span>
+              </p>
+            </div>
+
+            <!-- Synchronized Search Bar at Top of Matrix -->
+            <div class="flex items-center gap-2">
+              <div class="relative w-64 sm:w-72">
+                <Search class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
+                <input
+                  v-model="shardSearch"
+                  placeholder="Search index or shard..."
+                  class="w-full bg-[#14161b] border border-slate-800 rounded-lg pl-8 pr-8 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono"
+                />
+                <button
+                  v-if="shardSearch"
+                  @click="shardSearch = ''"
+                  title="Clear search"
+                  class="absolute right-2.5 top-2 text-slate-400 hover:text-white transition cursor-pointer p-0.5"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
@@ -1340,18 +1456,22 @@ onUnmounted(() => {
             <div class="flex items-center justify-between text-xs">
               <span class="font-bold text-white text-xs tracking-wide">{{ node.name }}</span>
               <div class="flex items-center gap-4 text-slate-400 text-[11px] font-mono">
-                <span class="text-emerald-400 font-medium">Primary: {{ node.primaryCount }}</span>
-                <span class="text-sky-400 font-medium">Replica: {{ node.replicaCount }}</span>
+                <span class="text-emerald-400 font-medium">Primary: {{ getNodeShardCounts(node.name).primary }}</span>
+                <span class="text-sky-400 font-medium">Replica: {{ getNodeShardCounts(node.name).replica }}</span>
+                <span v-if="shardSearch || shardStateFilter !== 'all'" class="text-slate-500 text-[10px] font-sans">
+                  ({{ getNodeShardCounts(node.name).total }} shown)
+                </span>
               </div>
             </div>
 
             <!-- Visual Shard Blocks Matrix -->
             <div class="flex flex-wrap gap-1.5 p-3.5 bg-[#13161c] rounded-xl border border-slate-800/80 min-h-[50px] items-center">
               <div
-                v-for="(shard, sIdx) in (shardsByNode[node.name] || [])"
+                v-for="(shard, sIdx) in (filteredShardsByNode[node.name] || [])"
                 :key="sIdx"
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
+                @click="openShardIndexDetails(shard)"
                 :class="[
                   'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
                   // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
@@ -1366,8 +1486,8 @@ onUnmounted(() => {
               >
                 {{ getShardBadgeLabel(shard) }}
               </div>
-              <span v-if="(shardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-600 italic">
-                No active shards on this node.
+              <span v-if="(filteredShardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-500 italic py-1 px-1">
+                {{ shardSearch ? 'No matching shards on this node for "' + shardSearch + '"' : 'No active shards on this node.' }}
               </span>
             </div>
           </div>
@@ -1415,12 +1535,20 @@ onUnmounted(() => {
             </div>
 
             <div class="relative w-64">
-              <Search class="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-500" />
+              <Search class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
               <input
                 v-model="shardSearch"
                 placeholder="Filter shards..."
-                class="w-full bg-[#14161b] border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+                class="w-full bg-[#14161b] border border-slate-800 rounded-lg pl-8 pr-8 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono"
               />
+              <button
+                v-if="shardSearch"
+                @click="shardSearch = ''"
+                title="Clear filter"
+                class="absolute right-2.5 top-2 text-slate-400 hover:text-white transition cursor-pointer p-0.5"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
