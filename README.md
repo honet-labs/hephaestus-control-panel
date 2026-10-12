@@ -15,7 +15,7 @@
 
 ## Overview
 
-**Hephaestus Control Panel (HCP)** is a centralized, enterprise-ready infrastructure management platform designed to eliminate toolchain fragmentation for DevOps engineers, SREs, NOC network operators, and Database Administrators (DBAs).
+**Hephaestus Control Panel (HCP)** is Open-source infrastructure control panel for VPS and Docker management, resource monitoring integrate with OpenSearch, Prometheus and Grafana.
 
 Instead of juggling disparate desktop SSH clients, standalone crontab backup scripts, isolated network scanners, and multiple observability tabs, Hephaestus consolidates your operational workflow into a single, high-performance web dashboard:
 
