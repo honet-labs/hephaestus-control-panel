@@ -1415,36 +1415,9 @@ onUnmounted(() => {
 
         <!-- Shard Allocation by Node Card (Exact visual from screenshot) -->
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
-            <div>
-              <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
-              <p class="text-[11px] text-slate-400 mt-0.5 font-mono">
-                {{ clusterNodes.length }} active nodes
-                <span v-if="shardSearch" class="text-sky-400 font-sans ml-1">
-                  &bull; Filtering index/shard: "{{ shardSearch }}"
-                </span>
-              </p>
-            </div>
-
-            <!-- Synchronized Search Bar at Top of Matrix -->
-            <div class="flex items-center gap-2">
-              <div class="relative w-64 sm:w-72">
-                <Search class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
-                <input
-                  v-model="shardSearch"
-                  placeholder="Search index or shard..."
-                  class="w-full bg-[#14161b] border border-slate-800 rounded-lg pl-8 pr-8 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition font-mono"
-                />
-                <button
-                  v-if="shardSearch"
-                  @click="shardSearch = ''"
-                  title="Clear search"
-                  class="absolute right-2.5 top-2 text-slate-400 hover:text-white transition cursor-pointer p-0.5"
-                >
-                  <X class="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
+            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} active nodes</span>
           </div>
 
           <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
