@@ -32,6 +32,7 @@ type MonitoringInstanceService struct {
 	pollCycleCount int
 
 	// Metrics Cache & Polling Engine
+	pollMu          sync.Mutex
 	cacheMu         sync.RWMutex
 	metricsCache    map[string]*domain.InstanceLiveMetrics
 	lastPolledAt    time.Time
@@ -126,6 +127,14 @@ func (s *MonitoringInstanceService) TriggerImmediatePoll() {
 	}
 }
 
+// PollNowSync triggers a fresh metric polling cycle synchronously and blocks until it completes
+func (s *MonitoringInstanceService) PollNowSync(ctx context.Context) {
+	if s.promService != nil {
+		s.promService.InvalidateCache()
+	}
+	s.pollAllMetricsOnce(ctx)
+}
+
 func (s *MonitoringInstanceService) SetPollInterval(d time.Duration) {
 	s.cacheMu.Lock()
 	s.pollInterval = d
@@ -158,11 +167,10 @@ func (s *MonitoringInstanceService) GetEngineStatus() map[string]interface{} {
 
 // pollAllMetricsOnce runs batch metrics retrieval with a strict timeout and updates the in-memory cache
 func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
+	s.pollMu.Lock()
+	defer s.pollMu.Unlock()
+
 	s.cacheMu.Lock()
-	if s.isPolling {
-		s.cacheMu.Unlock()
-		return
-	}
 	s.isPolling = true
 	s.cacheMu.Unlock()
 

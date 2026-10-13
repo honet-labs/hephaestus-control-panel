@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -379,11 +380,30 @@ func (h *MonitoringInstanceHandler) SetEngineInterval(c *gin.Context) {
 
 // PollNow handles POST /api/v1/monitoring/instances/poll-now
 func (h *MonitoringInstanceHandler) PollNow(c *gin.Context) {
-	h.service.TriggerImmediatePoll()
+	userID, userRole := getUserContext(c)
+	group := c.Query("group")
+	tag := c.Query("tag")
+
+	pollCtx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	defer cancel()
+
+	h.service.PollNowSync(pollCtx)
+
+	instances, err := h.service.ListInstances(c.Request.Context(), userID, userRole, group, tag, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Metrics polled successfully, but failed to list instances",
+			"data":    h.service.GetEngineStatus(),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Prometheus metric polling queue triggered immediately",
-		"data":    h.service.GetEngineStatus(),
+		"success":   true,
+		"message":   "Prometheus and SSH metrics polled successfully",
+		"data":      h.service.GetEngineStatus(),
+		"instances": instances,
 	})
 }
 

@@ -265,14 +265,24 @@ const fetchEngineStatus = async () => {
 const triggerPollNow = async () => {
   refreshing.value = true;
   try {
-    await axios.post('/api/v1/monitoring/instances/poll-now');
-    // Fetch cached instances & containers immediately (non-blocking)
-    await Promise.all([
-      fetchInstances(true),
-      fetchDockerContainers(false),
-      fetchEngineStatus(),
-    ]);
-    showNotice('Metrics poll queued and updated');
+    const res = await axios.post('/api/v1/monitoring/instances/poll-now', null, {
+      params: {
+        group: selectedGroup.value !== 'all' ? selectedGroup.value : undefined,
+        tag: selectedTag.value !== 'all' ? selectedTag.value : undefined,
+      },
+    });
+    if (res.data?.instances && Array.isArray(res.data.instances)) {
+      instances.value = res.data.instances;
+    } else {
+      await fetchInstances(true);
+    }
+    if (res.data?.data) {
+      engineStatus.value = res.data.data;
+    } else {
+      await fetchEngineStatus();
+    }
+    await fetchDockerContainers(false);
+    showNotice('Metrics successfully refreshed from Prometheus and SSH');
   } catch (err: any) {
     showNotice(err.response?.data?.error || 'Failed to poll metrics', 'error');
   } finally {
