@@ -231,12 +231,13 @@ const greenIndices = computed(() => {
 
 const getShardBadgeLabel = (shard: any) => {
   const state = (shard.state || '').toUpperCase();
-  if (state === 'INITIALIZING') return 'I';
-  if (state === 'RELOCATING') return 'M';
-  if (state === 'UNASSIGNED') return 'U';
-  if (shard.prirep === 'p' || shard.type === 'Primary') return 'P';
-  if (shard.prirep === 'r' || shard.type === 'Replica') return 'R';
-  return 'S';
+  const num = shard.shard !== undefined && shard.shard !== null ? shard.shard : '';
+  if (state === 'INITIALIZING') return `I${num}`;
+  if (state === 'RELOCATING') return `M${num}`;
+  if (state === 'UNASSIGNED') return `U${num}`;
+  if (shard.prirep === 'p' || shard.type === 'Primary') return `P${num}`;
+  if (shard.prirep === 'r' || shard.type === 'Replica') return `R${num}`;
+  return `S${num}`;
 };
 
 const getShardColorClass = (shard: any, isHighlighted = false, isDimmed = false) => {
@@ -1044,12 +1045,12 @@ onUnmounted(() => {
             <!-- Mini Legend -->
             <div class="flex items-center gap-4 text-xs font-mono">
               <div class="flex items-center gap-1.5">
-                <span class="w-3 h-3 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[8px] font-bold text-[#4ade80]">P</span>
-                <span class="text-slate-400">Primary</span>
+                <span class="px-1.5 py-0.5 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[9px] font-bold text-[#4ade80]">P#</span>
+                <span class="text-slate-400">Primary (e.g. P0, P1)</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="w-3 h-3 rounded bg-[#132c4a] border border-[#1e4976] flex items-center justify-center text-[8px] font-bold text-[#60a5fa]">R</span>
-                <span class="text-slate-400">Replica</span>
+                <span class="px-1.5 py-0.5 rounded bg-[#132c4a] border border-[#1e4976] flex items-center justify-center text-[9px] font-bold text-[#60a5fa]">R#</span>
+                <span class="text-slate-400">Replica (e.g. R0, R1)</span>
               </div>
             </div>
           </div>
@@ -1075,8 +1076,9 @@ onUnmounted(() => {
                 :key="sIdx"
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
+                :title="`${shard.index} [Shard #${shard.shard}] - ${shard.prirep === 'p' || shard.type === 'Primary' ? 'Primary' : 'Replica'} (${shard.store || shard['store.size'] || 'N/A'})`"
                 :class="[
-                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
+                  'min-w-[26px] h-6 px-1 rounded flex items-center justify-center font-bold text-[10px] font-mono cursor-pointer transition-all duration-150 transform select-none',
                   // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
                   isShardHighlighted(shard)
                     ? (shard.prirep === 'p' || shard.type === 'Primary'
@@ -1099,7 +1101,7 @@ onUnmounted(() => {
                         : 'bg-[#3b1219] border border-[#822735] text-[#f87171] hover:scale-125 hover:border-2 hover:border-white hover:z-30 shadow-md')
                 ]"
               >
-                {{ shard.prirep === 'p' || shard.type === 'Primary' ? 'P' : shard.prirep === 'r' || shard.type === 'Replica' ? 'R' : 'U' }}
+                {{ getShardBadgeLabel(shard) }}
               </div>
               <span v-if="(shardsByNode[node.name] || []).length === 0" class="text-[11px] text-slate-600 italic">
                 No active shards on this node.
@@ -1417,7 +1419,17 @@ onUnmounted(() => {
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl p-6 space-y-6 shadow-xl">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold text-white tracking-wide uppercase">Shard Allocation by Node</h3>
-            <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} active nodes</span>
+            <div class="flex items-center gap-4 text-xs font-mono">
+              <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 rounded bg-[#0f3d28] border border-[#1c6b47] flex items-center justify-center text-[9px] font-bold text-[#4ade80]">P#</span>
+                <span class="text-slate-400">Primary (e.g. P0, P1)</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 rounded bg-[#132c4a] border border-[#1e4976] flex items-center justify-center text-[9px] font-bold text-[#60a5fa]">R#</span>
+                <span class="text-slate-400">Replica (e.g. R0, R1)</span>
+              </div>
+              <span class="text-xs text-slate-400 font-mono">{{ clusterNodes.length }} active nodes</span>
+            </div>
           </div>
 
           <div v-if="clusterNodes.length === 0" class="text-center py-6 text-slate-500 text-xs">
@@ -1445,8 +1457,9 @@ onUnmounted(() => {
                 @mouseenter="showTooltip($event, shard)"
                 @mouseleave="hideTooltip"
                 @click="openShardIndexDetails(shard)"
+                :title="`${shard.index} [Shard #${shard.shard}] - ${shard.prirep === 'p' || shard.type === 'Primary' ? 'Primary' : 'Replica'} (${shard.store || shard['store.size'] || 'N/A'})`"
                 :class="[
-                  'w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] cursor-pointer transition-all duration-150 transform select-none',
+                  'min-w-[26px] h-6 px-1 rounded flex items-center justify-center font-bold text-[10px] font-mono cursor-pointer transition-all duration-150 transform select-none',
                   // 1. Highlighted state: ALL primary and replica shards of the hovered index are highlighted with glowing white border
                   isShardHighlighted(shard)
                     ? 'border-2 border-white ring-4 scale-125 z-30 shadow-2xl font-black ' + getShardColorClass(shard, true)
