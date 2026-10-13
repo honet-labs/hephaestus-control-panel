@@ -140,6 +140,7 @@ const configForm = ref({
 });
 const testResult = ref<string | null>(null);
 const testSuccess = ref(false);
+const isTestingConnection = ref(false);
 const isSavingConfig = ref(false);
 
 // Filter & Search states
@@ -629,6 +630,7 @@ const fetchActiveConfig = async () => {
 };
 
 const handleTestConnection = async () => {
+  isTestingConnection.value = true;
   testResult.value = 'Testing connection...';
   testSuccess.value = false;
   try {
@@ -648,6 +650,8 @@ const handleTestConnection = async () => {
   } catch (err: any) {
     testSuccess.value = false;
     testResult.value = `Failed: ${err.response?.data?.error || err.message}`;
+  } finally {
+    isTestingConnection.value = false;
   }
 };
 
@@ -1661,7 +1665,15 @@ onUnmounted(() => {
               </label>
             </div>
 
-            <div v-if="testResult" class="p-3 rounded-lg text-xs" :class="testSuccess ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'">
+            <div
+              v-if="testResult"
+              class="p-3 rounded-lg text-xs"
+              :class="isTestingConnection
+                ? 'bg-sky-500/10 border border-sky-500/20 text-sky-400 animate-pulse'
+                : testSuccess
+                ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+                : 'bg-red-500/10 border border-red-500/20 text-red-400'"
+            >
               {{ testResult }}
             </div>
 
@@ -1669,9 +1681,10 @@ onUnmounted(() => {
               <button
                 type="button"
                 @click="handleTestConnection"
-                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition"
+                :disabled="isTestingConnection"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
               >
-                Test Connection
+                {{ isTestingConnection ? 'Testing...' : 'Test Connection' }}
               </button>
 
               <button
