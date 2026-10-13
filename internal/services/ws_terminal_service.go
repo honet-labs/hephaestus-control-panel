@@ -127,9 +127,9 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 		}
 	}()
 
-	// Goroutine 2: WebSocket Ping Heartbeat ticker (every 15s) to keep proxy/browser alive
+	// Goroutine 2: WebSocket Ping Heartbeat ticker (every 8s) to keep Cloudflare / reverse proxy alive
 	go func() {
-		pingTicker := time.NewTicker(15 * time.Second)
+		pingTicker := time.NewTicker(8 * time.Second)
 		defer pingTicker.Stop()
 		for {
 			select {
@@ -138,6 +138,7 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			case <-pingTicker.C:
 				wsMu.Lock()
 				_ = ws.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
+				_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "ping"})
 				wsMu.Unlock()
 			}
 		}
@@ -214,6 +215,8 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 				}
 			case "ping":
 				_ = writeWs(domain.WsTerminalMessage{Type: "pong"})
+			case "pong":
+				// Heartbeat pong received from client, read deadline automatically refreshed
 			case "disconnect":
 				return
 			case "auth":

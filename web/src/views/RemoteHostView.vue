@@ -872,43 +872,53 @@ const resetZoomTerminal = () => {
 const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
   stopSessionHeartbeat(session);
 
-  // Use inline Web Worker for heartbeat: browser NEVER throttles Web Worker timers when minimized
+  // Use Web Worker for heartbeat: browser NEVER throttles Web Worker timers when minimized or tab is in background
   try {
-    const workerScript = `
-      let timer = null;
-      self.onmessage = function(e) {
-        if (e.data === 'start') {
-          if (timer) clearInterval(timer);
-          timer = setInterval(function() {
-            self.postMessage('ping');
-          }, 8000); // Pulse every 8s to guarantee proxy / cloudflare keep-alive
-        } else if (e.data === 'stop') {
-          if (timer) clearInterval(timer);
-          timer = null;
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker('/terminal-worker.js');
+    } catch (_) {
+      // Fallback to inline Blob worker if static file is unavailable
+      const workerScript = `
+        let timer = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (timer) clearInterval(timer);
+            timer = setInterval(function() {
+              self.postMessage('ping');
+            }, 5000);
+          } else if (e.data === 'stop') {
+            if (timer) clearInterval(timer);
+            timer = null;
+          }
+        };
+      `;
+      const blob = new Blob([workerScript], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob));
+    }
+
+    if (worker) {
+      worker.onmessage = (e) => {
+        if (e.data === 'ping' && session.ws === ws && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          } catch (_) {}
         }
       };
-    `;
-    const blob = new Blob([workerScript], { type: 'application/javascript' });
-    const worker = new Worker(URL.createObjectURL(blob));
-    worker.onmessage = (e) => {
-      if (e.data === 'ping' && session.ws === ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        } catch (_) {}
-      }
-    };
-    worker.postMessage('start');
-    session.heartbeatWorker = worker;
-  } catch (_) {
-    // Fallback to standard setInterval if Web Worker is restricted
-    session.heartbeatTimer = setInterval(() => {
-      if (session.ws === ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        } catch (_) {}
-      }
-    }, 6000);
-  }
+      worker.postMessage('start');
+      session.heartbeatWorker = worker;
+      return;
+    }
+  } catch (_) {}
+
+  // Fallback to standard setInterval if Web Worker is restricted
+  session.heartbeatTimer = setInterval(() => {
+    if (session.ws === ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } catch (_) {}
+    }
+  }, 5000);
 };
 
 const stopSessionHeartbeat = (session: OpenSession) => {
@@ -1019,6 +1029,13 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
         }
       } else if (msg.type === 'error') {
         session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
+      } else if (msg.type === 'ping') {
+        // Echo back pong to server to keep connection alive
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'pong' }));
+          } catch (_) {}
+        }
       } else if (msg.type === 'disconnected') {
         session.connecting = false;
         session.connected = false;
