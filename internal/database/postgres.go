@@ -491,6 +491,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		-- Restore visibility of existing sheets so they remain accessible across updates
 		UPDATE topology_sheets SET visibility = 'public' WHERE id IN (1, 3, 4);
 
+		-- Ensure source and destination labels exist for topology edges
+		ALTER TABLE topology_edges ADD COLUMN IF NOT EXISTS source_label VARCHAR(100);
+		ALTER TABLE topology_edges ADD COLUMN IF NOT EXISTS target_label VARCHAR(100);
+
 		-- Topology Sheet-scoped Node Positions (Prevents position scrambling across sheets)
 		CREATE TABLE IF NOT EXISTS topology_sheet_nodes (
 			sheet_id INTEGER NOT NULL REFERENCES topology_sheets(id) ON DELETE CASCADE,

@@ -108,6 +108,8 @@ interface Edge {
   sourceId: string;
   targetId: string;
   label?: string;
+  sourceLabel?: string;
+  targetLabel?: string;
   edgeType?: string;
   sheetId?: number | null;
 }
@@ -181,6 +183,8 @@ const linkForm = ref<any>({
   id: undefined,
   sourceId: '',
   targetId: '',
+  sourceLabel: '',
+  targetLabel: '',
   edgeType: 'Ethernet',
   label: 'Ethernet',
 });
@@ -655,10 +659,13 @@ const handleOpenEditDevice = (dev: Device) => {
 // Open Add Link Modal
 const handleOpenAddLink = () => {
   isEditLink.value = false;
+  const currentSource = linkForm.value.sourceId || '';
   linkForm.value = {
     id: undefined,
-    sourceId: '',
+    sourceId: currentSource,
     targetId: '',
+    sourceLabel: '',
+    targetLabel: '',
     edgeType: 'Ethernet',
     label: 'Ethernet',
   };
@@ -672,6 +679,8 @@ const handleOpenEditEdge = (edge: any) => {
     id: edge.id,
     sourceId: edge.sourceId,
     targetId: edge.targetId,
+    sourceLabel: edge.sourceLabel || '',
+    targetLabel: edge.targetLabel || '',
     edgeType: edge.edgeType || 'Ethernet',
     label: edge.label || edge.edgeType || 'Ethernet',
   };
@@ -695,8 +704,10 @@ const handleSaveLink = async () => {
     const payload: any = {
       sourceId: linkForm.value.sourceId,
       targetId: linkForm.value.targetId,
+      sourceLabel: linkForm.value.sourceLabel ? linkForm.value.sourceLabel.trim() : '',
+      targetLabel: linkForm.value.targetLabel ? linkForm.value.targetLabel.trim() : '',
       edgeType: linkForm.value.edgeType,
-      label: linkForm.value.label,
+      label: linkForm.value.label ? linkForm.value.label.trim() : '',
       sheetId: activeSheetId.value,
     };
     if (isEditLink.value && linkForm.value.id) {
@@ -706,7 +717,7 @@ const handleSaveLink = async () => {
     if (res.data.success) {
       isLinkModalOpen.value = false;
       isEditLink.value = false;
-      linkForm.value = { id: undefined, sourceId: '', targetId: '', edgeType: 'Ethernet', label: 'Ethernet' };
+      linkForm.value = { id: undefined, sourceId: '', targetId: '', sourceLabel: '', targetLabel: '', edgeType: 'Ethernet', label: 'Ethernet' };
       await fetchGraph();
       if (selectedEdge.value && payload.id && selectedEdge.value.id === payload.id) {
         const fresh = renderedEdges.value.find(e => e.id === payload.id);
@@ -1188,6 +1199,8 @@ const renderedEdges = computed(() => {
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     const nx = -dy / len;
     const ny = dx / len;
+    const ux = dx / len;
+    const uy = dy / len;
 
     // Calculate parallel link curvature offset
     const pairKey = [sId, tId].sort().join(':::');
@@ -1209,10 +1222,22 @@ const renderedEdges = computed(() => {
     let path = '';
     let midX = (x1 + x2) / 2;
     let midY = (y1 + y2) / 2;
+    let srcX = x1;
+    let srcY = y1;
+    let tgtX = x2;
+    let tgtY = y2;
+
+    // Device circle radius is 30. Position source/target labels ~56px from node centers along the curve
+    const ts = Math.min(0.32, Math.max(0.12, 56 / len));
+    const tt = Math.max(0.68, Math.min(0.88, 1 - 56 / len));
 
     if (offset === 0) {
       // Direct clean straight line for single links (perfect connection between device centers)
       path = `M ${x1} ${y1} L ${x2} ${y2}`;
+      srcX = x1 + ux * (len * ts);
+      srcY = y1 + uy * (len * ts);
+      tgtX = x1 + ux * (len * tt);
+      tgtY = y1 + uy * (len * tt);
     } else {
       // Smooth quadratic bezier curve for parallel multi-links to fan them out cleanly
       const ctrlX = midX + nx * offset * 1.5;
@@ -1221,7 +1246,21 @@ const renderedEdges = computed(() => {
       // Midpoint on quadratic bezier at t = 0.5:
       midX = 0.25 * x1 + 0.5 * ctrlX + 0.25 * x2;
       midY = 0.25 * y1 + 0.5 * ctrlY + 0.25 * y2;
+
+      // Parametric points on quadratic bezier for endpoints
+      srcX = (1 - ts) * (1 - ts) * x1 + 2 * (1 - ts) * ts * ctrlX + ts * ts * x2;
+      srcY = (1 - ts) * (1 - ts) * y1 + 2 * (1 - ts) * ts * ctrlY + ts * ts * y2;
+      tgtX = (1 - tt) * (1 - tt) * x1 + 2 * (1 - tt) * tt * ctrlX + tt * tt * x2;
+      tgtY = (1 - tt) * (1 - tt) * y1 + 2 * (1 - tt) * tt * ctrlY + tt * tt * y2;
     }
+
+    // Dynamic width calculation for pill badges
+    const centerText = edge.label || edge.edgeType || '';
+    const centerLabelWidth = Math.max(56, Math.min(140, centerText.length * 6.8 + 18));
+    const srcText = edge.sourceLabel || '';
+    const srcLabelWidth = Math.max(30, Math.min(120, srcText.length * 6.2 + 14));
+    const tgtText = edge.targetLabel || '';
+    const tgtLabelWidth = Math.max(30, Math.min(120, tgtText.length * 6.2 + 14));
 
     return {
       ...edge,
@@ -1235,6 +1274,13 @@ const renderedEdges = computed(() => {
       path,
       midX,
       midY,
+      srcX,
+      srcY,
+      tgtX,
+      tgtY,
+      centerLabelWidth,
+      srcLabelWidth,
+      tgtLabelWidth,
       valid: true,
     };
   });
@@ -1743,18 +1789,52 @@ onUnmounted(() => {
                 fill="none"
               />
 
-              <!-- Edge Label Badge -->
+              <!-- Source Label Badge (Near Source Device) -->
               <g
-                v-if="edge.valid && (edge.label || edge.edgeType)"
+                v-if="edge.valid && showLabels && edge.sourceLabel"
+                :transform="`translate(${edge.srcX}, ${edge.srcY})`"
+                class="cursor-pointer select-none"
+                @click.stop="handleEdgeClick(edge)"
+                @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
+              >
+                <rect
+                  :x="-edge.srcLabelWidth / 2"
+                  y="-8"
+                  :width="edge.srcLabelWidth"
+                  height="16"
+                  rx="8"
+                  :class="[
+                    'transition-colors shadow-xs',
+                    selectedEdge?.id === edge.id
+                      ? 'fill-blue-600 stroke-blue-400 stroke-1'
+                      : 'fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1 hover:stroke-blue-400'
+                  ]"
+                />
+                <text
+                  x="0"
+                  y="3"
+                  text-anchor="middle"
+                  :class="[
+                    'text-[8px] font-mono font-medium pointer-events-none',
+                    selectedEdge?.id === edge.id ? 'fill-white font-bold' : 'fill-slate-600 dark:fill-slate-400'
+                  ]"
+                >
+                  {{ edge.sourceLabel }}
+                </text>
+              </g>
+
+              <!-- Center Edge Label Badge -->
+              <g
+                v-if="edge.valid && showLabels && (edge.label || edge.edgeType)"
                 :transform="`translate(${edge.midX}, ${edge.midY})`"
                 class="cursor-pointer select-none"
                 @click.stop="handleEdgeClick(edge)"
                 @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
               >
                 <rect
-                  x="-30"
+                  :x="-edge.centerLabelWidth / 2"
                   y="-10"
-                  width="60"
+                  :width="edge.centerLabelWidth"
                   height="20"
                   rx="10"
                   :class="[
@@ -1774,6 +1854,40 @@ onUnmounted(() => {
                   ]"
                 >
                   {{ edge.label || edge.edgeType }}
+                </text>
+              </g>
+
+              <!-- Target / Destination Label Badge (Near Target Device) -->
+              <g
+                v-if="edge.valid && showLabels && edge.targetLabel"
+                :transform="`translate(${edge.tgtX}, ${edge.tgtY})`"
+                class="cursor-pointer select-none"
+                @click.stop="handleEdgeClick(edge)"
+                @contextmenu.stop="handleEdgeContextMenu(edge, $event)"
+              >
+                <rect
+                  :x="-edge.tgtLabelWidth / 2"
+                  y="-8"
+                  :width="edge.tgtLabelWidth"
+                  height="16"
+                  rx="8"
+                  :class="[
+                    'transition-colors shadow-xs',
+                    selectedEdge?.id === edge.id
+                      ? 'fill-blue-600 stroke-blue-400 stroke-1'
+                      : 'fill-white dark:fill-[#171a21] stroke-slate-300 dark:stroke-slate-700/80 stroke-1 hover:stroke-blue-400'
+                  ]"
+                />
+                <text
+                  x="0"
+                  y="3"
+                  text-anchor="middle"
+                  :class="[
+                    'text-[8px] font-mono font-medium pointer-events-none',
+                    selectedEdge?.id === edge.id ? 'fill-white font-bold' : 'fill-slate-600 dark:fill-slate-400'
+                  ]"
+                >
+                  {{ edge.targetLabel }}
                 </text>
               </g>
             </g>
@@ -2050,6 +2164,14 @@ onUnmounted(() => {
             <div class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
               <span class="text-slate-500">Label</span>
               <span class="text-slate-700 dark:text-slate-300">{{ selectedEdge.label || '-' }}</span>
+            </div>
+            <div v-if="selectedEdge.sourceLabel" class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
+              <span class="text-slate-500">Source Port</span>
+              <span class="text-slate-700 dark:text-slate-300 font-semibold">{{ selectedEdge.sourceLabel }}</span>
+            </div>
+            <div v-if="selectedEdge.targetLabel" class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
+              <span class="text-slate-500">Destination Port</span>
+              <span class="text-slate-700 dark:text-slate-300 font-semibold">{{ selectedEdge.targetLabel }}</span>
             </div>
             <div v-if="selectedEdge.id" class="flex justify-between py-1 border-b border-slate-200 dark:border-slate-800/60">
               <span class="text-slate-500">Link ID</span>
@@ -2453,13 +2575,38 @@ onUnmounted(() => {
             </select>
           </div>
 
+          <div class="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-[#111317] p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div>
+              <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                Source Label (Port / Interface)
+              </label>
+              <input
+                v-model="linkForm.sourceLabel"
+                class="w-full bg-white dark:bg-[#0c101c] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 text-xs"
+                placeholder="e.g. eth0, sfp1, port 1"
+              />
+              <span class="text-[10px] text-slate-400 mt-0.5 block">Label near source device</span>
+            </div>
+            <div>
+              <label class="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                Destination Label (Port / Interface)
+              </label>
+              <input
+                v-model="linkForm.targetLabel"
+                class="w-full bg-white dark:bg-[#0c101c] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 text-xs"
+                placeholder="e.g. eno1, sfp2, port 24"
+              />
+              <span class="text-[10px] text-slate-400 mt-0.5 block">Label near destination device</span>
+            </div>
+          </div>
+
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-slate-600 dark:text-slate-400 mb-1">Link Type</label>
               <select
                 v-model="linkForm.edgeType"
                 @change="onLinkTypeChange"
-                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-brand-500"
+                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="Ethernet">Ethernet</option>
                 <option value="VPN">VPN</option>
@@ -2468,10 +2615,10 @@ onUnmounted(() => {
               </select>
             </div>
             <div>
-              <label class="block text-slate-600 dark:text-slate-400 mb-1">Label</label>
+              <label class="block text-slate-600 dark:text-slate-400 mb-1">Center Label</label>
               <input
                 v-model="linkForm.label"
-                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-brand-500"
+                class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
                 placeholder="Ethernet / VPN / Fiber"
               />
             </div>

@@ -65,6 +65,8 @@ import {
   Users,
   AlertCircle,
   KeyRound,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -692,6 +694,9 @@ const ensureTerminalReady = async (session: OpenSession) => {
   if (!session.term) {
     initXterm(session);
   } else {
+    if (session.term.options.fontSize !== terminalFontSize.value) {
+      session.term.options.fontSize = terminalFontSize.value;
+    }
     setTimeout(() => {
       try {
         session.fitAddon?.fit();
@@ -789,6 +794,78 @@ const clearTerminal = (session: OpenSession) => {
     session.term.clear();
     session.term.focus();
   }
+};
+
+// Terminal Font Size & Zoom Controls
+const DEFAULT_TERMINAL_FONT_SIZE = 13;
+const MIN_TERMINAL_FONT_SIZE = 9;
+const MAX_TERMINAL_FONT_SIZE = 28;
+
+const loadTerminalFontSize = (): number => {
+  try {
+    const saved = localStorage.getItem('hcp_terminal_font_size');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= MIN_TERMINAL_FONT_SIZE && parsed <= MAX_TERMINAL_FONT_SIZE) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+  return DEFAULT_TERMINAL_FONT_SIZE;
+};
+
+const terminalFontSize = ref<number>(loadTerminalFontSize());
+const zoomHudMessage = ref<string>('');
+let zoomHudTimer: any = null;
+
+const showZoomHud = (size: number) => {
+  zoomHudMessage.value = `Terminal Font: ${size}px`;
+  if (zoomHudTimer) clearTimeout(zoomHudTimer);
+  zoomHudTimer = setTimeout(() => {
+    zoomHudMessage.value = '';
+  }, 1200);
+};
+
+const setTerminalFontSize = (size: number) => {
+  const clamped = Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, size));
+  terminalFontSize.value = clamped;
+  try {
+    localStorage.setItem('hcp_terminal_font_size', String(clamped));
+  } catch (e) {}
+
+  showZoomHud(clamped);
+
+  openSessions.value.forEach((sess) => {
+    if (sess.term) {
+      sess.term.options.fontSize = clamped;
+      if (sess.fitAddon && sess.activeView === 'terminal') {
+        try {
+          sess.fitAddon.fit();
+          if (sess.ws && sess.ws.readyState === WebSocket.OPEN && sess.term.cols > 0 && sess.term.rows > 0) {
+            sess.ws.send(
+              JSON.stringify({
+                type: 'resize',
+                cols: sess.term.cols,
+                rows: sess.term.rows,
+              })
+            );
+          }
+        } catch (e) {}
+      }
+    }
+  });
+};
+
+const zoomInTerminal = () => {
+  setTerminalFontSize(terminalFontSize.value + 1);
+};
+
+const zoomOutTerminal = () => {
+  setTerminalFontSize(terminalFontSize.value - 1);
+};
+
+const resetZoomTerminal = () => {
+  setTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE);
 };
 
 // Background-immune Heartbeat Management for Terminal Sessions
@@ -1038,7 +1115,7 @@ const initXterm = (session: OpenSession) => {
 
   const term = new Terminal({
     cursorBlink: true,
-    fontSize: 13,
+    fontSize: terminalFontSize.value || DEFAULT_TERMINAL_FONT_SIZE,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
     theme: themeStore.isDark ? darkTerminalTheme : lightTerminalTheme,
     allowProposedApi: true,
@@ -1049,6 +1126,47 @@ const initXterm = (session: OpenSession) => {
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
   term.open(container);
+
+  // Attach key event handler for zoom shortcuts inside xterm.js
+  term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === '=' || event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd') {
+        if (event.type === 'keydown') {
+          zoomInTerminal();
+        }
+        return false;
+      }
+      if (event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract') {
+        if (event.type === 'keydown') {
+          zoomOutTerminal();
+        }
+        return false;
+      }
+      if (event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0') {
+        if (event.type === 'keydown') {
+          resetZoomTerminal();
+        }
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Support Ctrl + MouseWheel zoom on terminal container
+  container.addEventListener(
+    'wheel',
+    (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          zoomInTerminal();
+        } else if (e.deltaY > 0) {
+          zoomOutTerminal();
+        }
+      }
+    },
+    { passive: false }
+  );
 
   // Initial fit attempt
   try {
@@ -1495,6 +1613,20 @@ const closeAllContextMenus = () => {
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     closeAllContextMenus();
+  }
+
+  // Keyboard shortcuts for terminal zoom (Ctrl/Cmd + Plus, Minus, 0)
+  if ((e.ctrlKey || e.metaKey) && activeSession.value?.activeView === 'terminal') {
+    if (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+      e.preventDefault();
+      zoomInTerminal();
+    } else if (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+      e.preventDefault();
+      zoomOutTerminal();
+    } else if (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') {
+      e.preventDefault();
+      resetZoomTerminal();
+    }
   }
 };
 
@@ -3578,6 +3710,34 @@ onUnmounted(() => {
             <!-- 1. TERMINAL VIEW (Always mounted, no blank screens) -->
             <div v-show="session.activeView === 'terminal'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden">
               <div class="absolute top-3 right-5 z-20 flex items-center gap-2">
+                <!-- Terminal Font Zoom Controls -->
+                <div
+                  v-if="session.term"
+                  class="flex items-center rounded border border-slate-300/80 dark:border-slate-700 bg-white/90 dark:bg-[#1b1e26]/90 text-slate-600 dark:text-slate-300 font-mono text-[11px] shadow-xs backdrop-blur-xs overflow-hidden"
+                >
+                  <button
+                    @click="zoomOutTerminal"
+                    title="Zoom Out (Ctrl + - or Ctrl + Scroll Down)"
+                    class="px-1.5 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer border-r border-slate-300/60 dark:border-slate-700 flex items-center justify-center"
+                  >
+                    <ZoomOut class="w-3 h-3" />
+                  </button>
+                  <button
+                    @click="resetZoomTerminal"
+                    title="Reset Zoom to 13px (Ctrl + 0)"
+                    class="px-2 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-semibold transition cursor-pointer text-[10px]"
+                  >
+                    {{ terminalFontSize }}px
+                  </button>
+                  <button
+                    @click="zoomInTerminal"
+                    title="Zoom In (Ctrl + + or Ctrl + Scroll Up)"
+                    class="px-1.5 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer border-l border-slate-300/60 dark:border-slate-700 flex items-center justify-center"
+                  >
+                    <ZoomIn class="w-3 h-3" />
+                  </button>
+                </div>
+
                 <!-- Clear Terminal Button -->
                 <button
                   v-if="session.term"
@@ -3619,6 +3779,23 @@ onUnmounted(() => {
                 </div>
               </div>
               <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden"></div>
+
+              <!-- Floating Zoom HUD Indicator -->
+              <transition
+                enter-active-class="transition duration-150 ease-out"
+                enter-from-class="opacity-0 translate-y-1"
+                enter-to-class="opacity-100 translate-y-0"
+                leave-active-class="transition duration-200 ease-in"
+                leave-from-class="opacity-100 translate-y-0"
+                leave-to-class="opacity-0 translate-y-1"
+              >
+                <div
+                  v-if="zoomHudMessage"
+                  class="absolute bottom-5 right-6 z-30 px-3 py-1.5 rounded-lg bg-slate-900/90 dark:bg-black/90 text-white text-xs font-mono border border-slate-700/60 shadow-xl backdrop-blur-md pointer-events-none"
+                >
+                  {{ zoomHudMessage }}
+                </div>
+              </transition>
             </div>
 
             <!-- 2. UTILIZATION VIEW -->
