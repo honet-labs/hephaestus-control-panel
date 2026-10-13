@@ -43,33 +43,11 @@ func (s *VpsService) GetMetrics(ctx context.Context, hostID string) (map[string]
 
 	cmd := `nproc 2>/dev/null || echo 1; echo "===CPU==="; (top -bn1 2>/dev/null | grep -Ei "%Cpu|CPU:" | head -1) || echo ""; echo "===SYS==="; (cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d= -f2- | tr -d '"') || uname -s; uname -r; uname -m; hostname; (uptime -p 2>/dev/null || uptime); echo "===LOAD==="; uptime 2>/dev/null; echo "===MEM==="; free -m 2>/dev/null; echo "===DF==="; (df -hP -x tmpfs -x devtmpfs -x squashfs 2>/dev/null || df -hP 2>/dev/null); echo "===NET==="; cat /proc/net/dev 2>/dev/null`
 	stdout, _, _, err := s.sshService.ExecuteCommand(cfg, cmd)
-	if err != nil || strings.TrimSpace(stdout) == "" {
-		return map[string]interface{}{
-			"hostname":      cfg.Name,
-			"ip":            cfg.Host,
-			"osName":        "Linux",
-			"kernel":        "-",
-			"arch":          "-",
-			"uptime":        "-",
-			"cpuUsage":      0.0,
-			"cpuCores":      1,
-			"memPercent":    0.0,
-			"memUsed":       "0 B",
-			"memTotal":      "0 B",
-			"memFree":       "0 B",
-			"memAvailable":  "0 B",
-			"swapUsed":      "0 B",
-			"swapTotal":     "0 B",
-			"swapPercent":   0.0,
-			"loadAverage":   "0.00 / 0.00 / 0.00",
-			"disksCount":    0,
-			"disks":         []map[string]interface{}{},
-			"netRxBytes":    0.0,
-			"netTxBytes":    0.0,
-			"netDownloadMb": 0.0,
-			"netUploadMb":   0.0,
-			"netTotalMb":    0.0,
-		}, nil
+	if err != nil {
+		return nil, fmt.Errorf("ssh execution failed on %s (%s): %w", cfg.Name, cfg.Host, err)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		return nil, fmt.Errorf("empty stdout from ssh command on %s (%s)", cfg.Name, cfg.Host)
 	}
 
 	cores := 1

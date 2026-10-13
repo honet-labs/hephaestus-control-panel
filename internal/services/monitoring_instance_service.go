@@ -172,8 +172,8 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 		s.cacheMu.Unlock()
 	}()
 
-	// Query with 15-second timeout context to prevent any hang
-	pollCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// Query with 30-second timeout context to accommodate both Prometheus queries and SSH roundtrips
+	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -194,38 +194,70 @@ func (s *MonitoringInstanceService) pollAllMetricsOnce(ctx context.Context) {
 		}
 
 		start := time.Now()
-		s.BatchGetLiveMetrics(pollCtx, instances)
 
-		// Poll SSH metrics for instances linked to Remote Hosts that need SSH telemetry
-		s.pollSSHInstances(pollCtx, instances)
+		// Step A: Poll Prometheus metrics with dedicated 14-second context
+		promCtx, promCancel := context.WithTimeout(pollCtx, 14*time.Second)
+		s.BatchGetLiveMetrics(promCtx, instances)
+		promCancel()
 
+		// Step B: Poll SSH metrics with dedicated 15-second context (never starved by Prometheus queries)
+		// Targets SSH instances and acts as seamless fallback for Prometheus instances with no telemetry
+		sshCtx, sshCancel := context.WithTimeout(pollCtx, 15*time.Second)
+		s.pollSSHInstances(sshCtx, instances)
+		sshCancel()
+
+		now := time.Now()
 		s.cacheMu.Lock()
 		for _, inst := range instances {
-			if inst.LiveMetrics != nil {
-				s.metricsCache[inst.ID] = inst.LiveMetrics
-
-				// Persist live metrics snapshot to DB for quick cold restarts
-				_ = s.instRepo.SaveLiveMetrics(pollCtx, inst.ID, inst.LiveMetrics)
-
-				// Save history point into DB
-				var cpuVal, memVal, diskVal, netVal float64
-				if inst.LiveMetrics.CPUPct != nil {
-					cpuVal = *inst.LiveMetrics.CPUPct
+			if inst.LiveMetrics == nil {
+				// Clean N/A placeholder if both Prometheus and SSH failed or were unconfigured
+				inst.LiveMetrics = &domain.InstanceLiveMetrics{
+					IsOnline:         false,
+					AgentVersion:     "N/A",
+					HasOTel:          false,
+					CPUPct:           nil,
+					CPUCount:         0,
+					CPUPhysicalCount: 0,
+					MemPct:           nil,
+					MemUsedBytes:     0,
+					MemFreeBytes:     0,
+					MemTotalBytes:    0,
+					DiskPct:          nil,
+					Disks:            []domain.InstanceDiskMetric{},
+					NetDownloadMB:    0,
+					NetUploadMB:      0,
+					NetTotalMB:       0,
+					UptimeHuman:      "N/A",
+					OSVersion:        "N/A",
+					LastUpdated:      now,
 				}
-				if inst.LiveMetrics.MemPct != nil {
-					memVal = *inst.LiveMetrics.MemPct
-				}
-				if inst.LiveMetrics.DiskPct != nil {
-					diskVal = *inst.LiveMetrics.DiskPct
-				}
-				netVal = inst.LiveMetrics.NetTotalMB
-
-				src := "prometheus"
-				if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && inst.Port == 22 && inst.RemoteHostID != nil && *inst.RemoteHostID != "") {
-					src = "ssh"
-				}
-				_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, inst.LiveMetrics.NetDownloadMB, inst.LiveMetrics.NetUploadMB, src)
 			}
+
+			s.metricsCache[inst.ID] = inst.LiveMetrics
+
+			// Persist live metrics snapshot to DB for quick cold restarts
+			_ = s.instRepo.SaveLiveMetrics(pollCtx, inst.ID, inst.LiveMetrics)
+
+			// Save history point into DB
+			var cpuVal, memVal, diskVal, netVal float64
+			if inst.LiveMetrics.CPUPct != nil {
+				cpuVal = *inst.LiveMetrics.CPUPct
+			}
+			if inst.LiveMetrics.MemPct != nil {
+				memVal = *inst.LiveMetrics.MemPct
+			}
+			if inst.LiveMetrics.DiskPct != nil {
+				diskVal = *inst.LiveMetrics.DiskPct
+			}
+			netVal = inst.LiveMetrics.NetTotalMB
+
+			src := "prometheus"
+			if inst.MetricSource == "ssh" || (inst.MetricSource != "prometheus" && inst.Port == 22 && inst.RemoteHostID != nil && *inst.RemoteHostID != "") {
+				src = "ssh"
+			} else if inst.LiveMetrics.AgentVersion == "SSH (Fallback)" || inst.LiveMetrics.AgentVersion == "SSH (Agentless)" {
+				src = "ssh"
+			}
+			_ = s.instRepo.SaveMetricsHistory(pollCtx, inst.ID, cpuVal, memVal, diskVal, netVal, inst.LiveMetrics.NetDownloadMB, inst.LiveMetrics.NetUploadMB, src)
 		}
 		s.lastPolledAt = time.Now()
 		s.pollCycleCount++
@@ -2023,8 +2055,8 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 	now := time.Now()
 
 	for _, inst := range instances {
-		// Never query or match Prometheus metrics for instances designated for SSH
-		if inst.MetricSource == "ssh" || (inst.RemoteHostID != nil && *inst.RemoteHostID != "" && inst.MetricSource != "prometheus") {
+		// Never query or match Prometheus metrics for instances explicitly designated for SSH
+		if inst.MetricSource == "ssh" {
 			continue
 		}
 
@@ -2037,6 +2069,15 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		instNameLower := strings.ToLower(inst.Name)
 		instHostLower := strings.ToLower(inst.Host)
 
+		instTargetHost := ""
+		if instTarget != "" {
+			if th, _, err := net.SplitHostPort(instTarget); err == nil {
+				instTargetHost = strings.TrimSpace(th)
+			} else {
+				instTargetHost = instTarget
+			}
+		}
+
 		// Tier 1: Exact PrometheusTarget match (e.g. 10.20.3.36:8889 or 10.20.3.6:9100)
 		if instTarget != "" {
 			for _, h := range collector.hosts {
@@ -2047,13 +2088,26 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 
-		// Tier 2: IP match (with target compatibility check)
+		// Tier 1b: Target host match without port (e.g. 10.20.3.36:8889 matches 10.20.3.36:9100)
+		if matched == nil && instTargetHost != "" {
+			for _, h := range collector.hosts {
+				hTargetHost := ""
+				if th, _, err := net.SplitHostPort(h.instanceTarget); err == nil {
+					hTargetHost = strings.TrimSpace(th)
+				} else {
+					hTargetHost = h.instanceTarget
+				}
+				if hTargetHost != "" && strings.EqualFold(instTargetHost, hTargetHost) {
+					matched = h
+					break
+				}
+			}
+		}
+
+		// Tier 2: IP match (matches across any scraped port, e.g. 10.20.3.6 matches 10.20.3.6:9100)
 		if matched == nil && instIP != "" {
 			for _, h := range collector.hosts {
 				if h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":") || h.instanceTarget == instIP {
-					if instTarget != "" && h.instanceTarget != "" && !strings.EqualFold(instTarget, h.instanceTarget) {
-						continue
-					}
 					matched = h
 					break
 				}
@@ -2064,7 +2118,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		if matched == nil {
 			for _, h := range collector.hosts {
 				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower) || strings.Contains(hLower, instNameLower)) {
 					if instIP != "" && (h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":")) {
 						matched = h
 						break
@@ -2077,7 +2131,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		if matched == nil {
 			for _, h := range collector.hosts {
 				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower)) {
+				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower) || strings.Contains(hLower, instNameLower)) {
 					matched = h
 					break
 				}
@@ -2105,6 +2159,11 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		hasMetrics := matched != nil && (isOnline || matched.cpuPct != nil || matched.memPct != nil || len(matched.disks) > 0)
 
 		if !hasMetrics {
+			// If instance is linked to Remote Host, do NOT set an offline placeholder yet;
+			// allow pollSSHInstances to collect telemetry via SSH!
+			if inst.RemoteHostID != nil && *inst.RemoteHostID != "" {
+				continue
+			}
 			inst.LiveMetrics = &domain.InstanceLiveMetrics{
 				IsOnline:         false,
 				AgentVersion:     "N/A",
@@ -2818,6 +2877,7 @@ func (s *MonitoringInstanceService) GetContainerHistory(
 // ==================== SSH METRICS POLLING ENGINE ====================
 
 // pollSSHInstances polls telemetry for instances that are configured for SSH metric collection
+// or acts as seamless fallback for Prometheus instances when Prometheus returns no telemetry.
 func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instances []*domain.MonitoringInstance) {
 	if s.vpsService == nil {
 		return
@@ -2825,13 +2885,20 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 
 	var targets []*domain.MonitoringInstance
 	for _, inst := range instances {
-		if inst.MetricSource == "prometheus" {
-			continue
-		}
 		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
 			continue
 		}
-		targets = append(targets, inst)
+		// Target 1: Configured specifically for SSH
+		if inst.MetricSource == "ssh" {
+			targets = append(targets, inst)
+			continue
+		}
+		// Target 2: Configured for Prometheus (or empty), but Prometheus returned no data or is offline
+		if inst.MetricSource == "prometheus" || inst.MetricSource == "" {
+			if inst.LiveMetrics == nil || !inst.LiveMetrics.IsOnline || inst.LiveMetrics.CPUPct == nil {
+				targets = append(targets, inst)
+			}
+		}
 	}
 
 	if len(targets) == 0 {
@@ -2857,12 +2924,15 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 				return
 			}
 
-			// Strict 8-second context timeout per host
-			hostCtx, hostCancel := context.WithTimeout(ctx, 8*time.Second)
+			// Strict 10-second context timeout per host
+			hostCtx, hostCancel := context.WithTimeout(ctx, 10*time.Second)
 			defer hostCancel()
 
 			liveMetrics, err := s.fetchInstanceSSHMetrics(hostCtx, target)
 			if err == nil && liveMetrics != nil {
+				if target.MetricSource == "prometheus" {
+					liveMetrics.AgentVersion = "SSH (Fallback)"
+				}
 				target.LiveMetrics = liveMetrics
 			} else if err != nil {
 				logger.Warn("MonitoringSSH", fmt.Sprintf("Failed to fetch SSH metrics for %s (%s): %v", target.Name, target.Host, err))

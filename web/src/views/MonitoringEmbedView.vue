@@ -302,9 +302,9 @@ const formatBytesHuman = (bytes: number | null | undefined): string => {
 };
 
 const isSshInstance = (inst: MonitoringInstance): boolean => {
-  if (inst.connectionMethod === 'ssh') return true;
-  if (inst.connectionMethod === 'prometheus') return false;
-  return inst.liveMetrics?.agentVersion === 'SSH (Agentless)';
+  if (inst.connectionMethod === 'ssh' || (inst as any).metricSource === 'ssh') return true;
+  if (inst.connectionMethod === 'prometheus' || (inst as any).metricSource === 'prometheus') return false;
+  return inst.liveMetrics?.agentVersion === 'SSH (Agentless)' || inst.liveMetrics?.agentVersion === 'SSH (Fallback)';
 };
 
 // Lifecycle

@@ -847,6 +847,26 @@ const closeHistoryModal = () => {
   }
 };
 
+const fetchingSshId = ref<string | null>(null);
+
+const fetchSSHMetrics = async (inst: MonitoringInstance) => {
+  activeDropdownId.value = null;
+  fetchingSshId.value = inst.id;
+  try {
+    const res = await axios.post(`/api/v1/monitoring/instances/${inst.id}/fetch-ssh`);
+    if (res.data?.success && res.data.data) {
+      inst.liveMetrics = res.data.data;
+      showNotice(`SSH telemetry updated for ${inst.name}`);
+    } else {
+      showNotice(res.data?.message || 'Failed to fetch metrics via SSH', 'error');
+    }
+  } catch (err: any) {
+    showNotice(err.response?.data?.details || err.response?.data?.error || 'Failed to fetch metrics via SSH', 'error');
+  } finally {
+    fetchingSshId.value = null;
+  }
+};
+
 const fetchHistoryData = async () => {
   if (!historyTarget.value) return;
   loadingHistory.value = true;
@@ -2196,6 +2216,17 @@ onUnmounted(() => {
                   <span>View History</span>
                 </button>
 
+                <!-- Fetch via SSH (if linked to Remote Host) -->
+                <button
+                  v-if="inst.remoteHostId"
+                  @click="fetchSSHMetrics(inst)"
+                  :disabled="fetchingSshId === inst.id"
+                  class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] text-left cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw class="w-3.5 h-3.5 text-slate-400" :class="{ 'animate-spin': fetchingSshId === inst.id }" />
+                  <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
+                </button>
+
                 <!-- Manage Shares (Owner/Manager only) -->
                 <button
                   v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"
@@ -2701,6 +2732,16 @@ onUnmounted(() => {
                         >
                           <History class="w-3.5 h-3.5 text-slate-400" />
                           <span>View History</span>
+                        </button>
+                        <!-- Fetch via SSH (if linked to Remote Host) -->
+                        <button
+                          v-if="inst.remoteHostId"
+                          @click="fetchSSHMetrics(inst)"
+                          :disabled="fetchingSshId === inst.id"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-[#1f283d] cursor-pointer disabled:opacity-50"
+                        >
+                          <RefreshCw class="w-3.5 h-3.5 text-slate-400" :class="{ 'animate-spin': fetchingSshId === inst.id }" />
+                          <span>{{ fetchingSshId === inst.id ? 'Fetching SSH...' : 'Fetch via SSH' }}</span>
                         </button>
                         <button
                           v-if="inst.isOwner || inst.userPermission === 'manage' || authStore.user?.role?.toUpperCase() === 'ADMIN'"

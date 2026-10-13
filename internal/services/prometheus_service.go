@@ -98,13 +98,17 @@ func (s *PrometheusService) resolveBaseURL(ctx context.Context, promCfg *domain.
 		return cached
 	}
 
+	s.promMu.Lock()
+	defer s.promMu.Unlock()
+	// Double-check under write lock
+	if s.cachedBaseURL != "" {
+		return s.cachedBaseURL
+	}
+
 	rawBase := strings.TrimSuffix(promCfg.ReloadURL, "/-/reload")
 	rawBase = strings.TrimRight(rawBase, "/")
 
 	var candidates []string
-	if rawBase != "" {
-		candidates = append(candidates, rawBase)
-	}
 
 	if u, err := url.Parse(rawBase); err == nil {
 		h := u.Hostname()
@@ -113,41 +117,68 @@ func (s *PrometheusService) resolveBaseURL(ctx context.Context, promCfg *domain.
 			port = "9090"
 		}
 		if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "" {
+			// In container environments, remote SSH host is far more likely than localhost
+			if promCfg.SSHHost != nil && *promCfg.SSHHost != "" && *promCfg.SSHHost != "localhost" && *promCfg.SSHHost != "127.0.0.1" {
+				candidates = append(candidates, fmt.Sprintf("http://%s:%s", *promCfg.SSHHost, port))
+			}
 			candidates = append(candidates,
 				fmt.Sprintf("http://host.docker.internal:%s", port),
 				fmt.Sprintf("http://172.17.0.1:%s", port),
+				rawBase,
 			)
-			if promCfg.SSHHost != nil && *promCfg.SSHHost != "" && *promCfg.SSHHost != "localhost" && *promCfg.SSHHost != "127.0.0.1" {
+		} else {
+			candidates = append(candidates, rawBase)
+			if promCfg.SSHHost != nil && *promCfg.SSHHost != "" && *promCfg.SSHHost != h {
 				candidates = append(candidates, fmt.Sprintf("http://%s:%s", *promCfg.SSHHost, port))
 			}
 		}
 	} else if promCfg.SSHHost != nil && *promCfg.SSHHost != "" {
 		candidates = append(candidates, fmt.Sprintf("http://%s:9090", *promCfg.SSHHost))
+		if rawBase != "" {
+			candidates = append(candidates, rawBase)
+		}
+	} else if rawBase != "" {
+		candidates = append(candidates, rawBase)
 	}
 
-	// Always fallback to rawBase if probing doesn't pick anything
+	// Always fallback to first candidate or rawBase
 	workingURL := rawBase
+	if len(candidates) > 0 {
+		workingURL = candidates[0]
+	}
+
+	// Probe each candidate with light query and tight timeout
 	for _, cand := range candidates {
-		probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
-		req, err := http.NewRequestWithContext(probeCtx, "GET", cand+"/-/healthy", nil)
-		if err == nil {
-			resp, rErr := s.httpClient.Do(req)
-			if rErr == nil {
-				resp.Body.Close()
-				if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-					workingURL = cand
-					cancel()
-					break
+		probeEndpoints := []string{
+			cand + "/api/v1/query?query=1",
+			cand + "/-/ready",
+			cand + "/-/healthy",
+		}
+		candidateOk := false
+		for _, ep := range probeEndpoints {
+			probeCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+			req, err := http.NewRequestWithContext(probeCtx, "GET", ep, nil)
+			if err == nil {
+				resp, rErr := s.httpClient.Do(req)
+				if rErr == nil {
+					resp.Body.Close()
+					if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+						workingURL = cand
+						candidateOk = true
+						cancel()
+						break
+					}
 				}
 			}
+			cancel()
 		}
-		cancel()
+		if candidateOk {
+			logger.Info("PrometheusService", fmt.Sprintf("Successfully connected to Prometheus at %s", workingURL))
+			break
+		}
 	}
 
-	s.promMu.Lock()
 	s.cachedBaseURL = workingURL
-	s.promMu.Unlock()
-
 	return workingURL
 }
 
