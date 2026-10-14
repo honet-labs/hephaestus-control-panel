@@ -416,6 +416,13 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 					if gErr == nil && len(pts) > 0 {
 						hPoints = pts
 						hSummary = sum
+					} else {
+						// Fallback to Prometheus for this host
+						pResp, pErr := s.queryPrometheusData(ctx, reqCopy)
+						if pErr == nil && pResp != nil && len(pResp.Points) > 0 {
+							hPoints = pResp.Points
+							hSummary = pResp.Summary
+						}
 					}
 				}
 				if len(hPoints) == 0 {
@@ -519,6 +526,16 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 			}, nil
 		}
 		logger.Warn("ReportService", fmt.Sprintf("Grafana live query failed: %v", err))
+
+		// Seamless fallback to direct Prometheus query if configured in HCP
+		promResp, promErr := s.queryPrometheusData(ctx, req)
+		if promErr == nil && promResp != nil && len(promResp.Points) > 0 {
+			logger.Info("ReportService", fmt.Sprintf("Grafana live query failed (%v), successfully fell back to direct Prometheus query", err))
+			promResp.SourceType = "grafana"
+			promResp.IsConnected = true
+			promResp.Message = fmt.Sprintf("Live data from Prometheus fallback (Grafana returned: %v)", err)
+			return promResp, nil
+		}
 
 		// If connected, never show fake baseline numbers that mislead the user
 		errMsg := "No data points returned for this time range and target host"
@@ -822,11 +839,70 @@ func (s *ReportService) fetchPrometheusLive(ctx context.Context, cfg *domain.Pro
 	return nil, domain.ReportWidgetSummary{}, fmt.Errorf("empty series returned for query across all endpoint candidates")
 }
 
+// resolveGrafanaDatasourceUID finds the appropriate Prometheus datasource UID if none provided
+func (s *ReportService) resolveGrafanaDatasourceUID(ctx context.Context, cfg *domain.GrafanaConfig, requestedUID string) string {
+	if strings.TrimSpace(requestedUID) != "" && requestedUID != "default" {
+		return strings.TrimSpace(requestedUID)
+	}
+	if strings.TrimSpace(cfg.DatasourceUID) != "" && cfg.DatasourceUID != "default" {
+		return strings.TrimSpace(cfg.DatasourceUID)
+	}
+
+	endpoint := strings.TrimRight(cfg.Host, "/") + "/api/datasources"
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return ""
+	}
+	if cfg.Token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var dsList []struct {
+		UID       string `json:"uid"`
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		IsDefault bool   `json:"isDefault"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&dsList); err != nil || len(dsList) == 0 {
+		return ""
+	}
+
+	for _, ds := range dsList {
+		if strings.EqualFold(ds.Type, "prometheus") && ds.IsDefault {
+			return ds.UID
+		}
+	}
+	for _, ds := range dsList {
+		if strings.EqualFold(ds.Type, "prometheus") {
+			return ds.UID
+		}
+	}
+	for _, ds := range dsList {
+		if ds.IsDefault {
+			return ds.UID
+		}
+	}
+	return dsList[0].UID
+}
+
 // fetchGrafanaLive attempts to execute query against Grafana API
 func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.GrafanaConfig, req domain.ReportQueryDataRequest) ([]domain.ReportDataPoint, domain.ReportWidgetSummary, error) {
 	dsUID := cfg.DatasourceUID
 	if customUID, ok := req.SourceConfig["datasourceUid"].(string); ok && strings.TrimSpace(customUID) != "" {
 		dsUID = strings.TrimSpace(customUID)
+	}
+	if dsUID == "" || dsUID == "default" {
+		dsUID = s.resolveGrafanaDatasourceUID(ctx, cfg, dsUID)
 	}
 
 	targetHost, _ := req.SourceConfig["targetHost"].(string)
@@ -886,37 +962,58 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 		}
 	}
 
+	now := time.Now()
+	var startTime time.Time
 	stepMs := 120000 // default 2m
 	switch req.TimeRange {
 	case "1h":
+		startTime = now.Add(-1 * time.Hour)
 		stepMs = 30000 // 30s
 	case "6h":
+		startTime = now.Add(-6 * time.Hour)
 		stepMs = 60000 // 1m
 	case "24h":
+		startTime = now.Add(-24 * time.Hour)
 		stepMs = 120000 // 2m
 	case "7d":
+		startTime = now.Add(-7 * 24 * time.Hour)
 		stepMs = 900000 // 15m
 	case "30d":
+		startTime = now.Add(-30 * 24 * time.Hour)
 		stepMs = 3600000 // 1h
+	default:
+		startTime = now.Add(-24 * time.Hour)
+	}
+
+	fromMs := strconv.FormatInt(startTime.UnixMilli(), 10)
+	toMs := strconv.FormatInt(now.UnixMilli(), 10)
+
+	queryItem := map[string]interface{}{
+		"refId":         "A",
+		"expr":          expr,
+		"format":        "time_series",
+		"instant":       false,
+		"range":         true,
+		"intervalMs":    stepMs,
+		"maxDataPoints": 1000,
+	}
+	if dsUID != "" {
+		queryItem["datasource"] = map[string]interface{}{
+			"type": "prometheus",
+			"uid":  dsUID,
+		}
+	} else {
+		queryItem["datasource"] = map[string]interface{}{
+			"type": "prometheus",
+		}
 	}
 
 	queryPayload := map[string]interface{}{
 		"queries": []map[string]interface{}{
-			{
-				"refId": "A",
-				"datasource": map[string]string{
-					"uid": dsUID,
-				},
-				"expr":          expr,
-				"format":        "time_series",
-				"instant":       false,
-				"range":         true,
-				"intervalMs":    stepMs,
-				"maxDataPoints": 1000,
-			},
+			queryItem,
 		},
-		"from": s.parseTimeRangeStart(req.TimeRange),
-		"to":   "now",
+		"from": fromMs,
+		"to":   toMs,
 	}
 
 	bodyBytes, _ := json.Marshal(queryPayload)
@@ -981,13 +1078,33 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			lastErr = fmt.Errorf("grafana returned status %d from %s", resp.StatusCode, endpoint)
+			errBody := strings.TrimSpace(string(errBytes))
+			logger.Warn("ReportService", fmt.Sprintf("Grafana returned status %d from %s: %s", resp.StatusCode, endpoint, errBody))
+
+			var gErr struct {
+				Message string `json:"message"`
+				Results map[string]struct {
+					Error  string `json:"error"`
+					Status int    `json:"status"`
+				} `json:"results"`
+			}
+			detail := errBody
+			if json.Unmarshal(errBytes, &gErr) == nil {
+				if gErr.Message != "" {
+					detail = gErr.Message
+				} else if rA, ok := gErr.Results["A"]; ok && rA.Error != "" {
+					detail = rA.Error
+				}
+			}
+			lastErr = fmt.Errorf("grafana returned status %d from %s: %s", resp.StatusCode, endpoint, detail)
 			continue
 		}
 
 		var parsed struct {
 			Results map[string]struct {
+				Error  string `json:"error"`
 				Frames []struct {
 					Schema struct {
 						Fields []struct {
@@ -999,6 +1116,10 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 						Values [][]interface{} `json:"values"`
 					} `json:"data"`
 				} `json:"frames"`
+				Series []struct {
+					Name   string          `json:"name"`
+					Points [][]interface{} `json:"points"`
+				} `json:"series"`
 			} `json:"results"`
 		}
 
@@ -1011,6 +1132,9 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 
 		var points []domain.ReportDataPoint
 		for _, res := range parsed.Results {
+			if res.Error != "" && len(points) == 0 {
+				lastErr = fmt.Errorf("%s", res.Error)
+			}
 			for _, frame := range res.Frames {
 				if len(frame.Data.Values) >= 2 {
 					timeVals := frame.Data.Values[0]
@@ -1034,6 +1158,30 @@ func (s *ReportService) fetchGrafanaLive(ctx context.Context, cfg *domain.Grafan
 							Label:     tm.UTC().Format("15:04"),
 							Value:     math.Round(vFloat*100) / 100,
 						})
+					}
+				}
+			}
+			// Fallback: check legacy series format if frames was empty
+			if len(points) == 0 && len(res.Series) > 0 {
+				for _, sItem := range res.Series {
+					for _, pt := range sItem.Points {
+						if len(pt) >= 2 {
+							vFloat, _ := pt[0].(float64)
+							tFloat, _ := pt[1].(float64)
+							if math.IsNaN(vFloat) || math.IsInf(vFloat, 0) {
+								continue
+							}
+							tSec := int64(tFloat / 1000)
+							if tFloat < 1e11 {
+								tSec = int64(tFloat)
+							}
+							tm := time.Unix(tSec, 0)
+							points = append(points, domain.ReportDataPoint{
+								Timestamp: tm.UTC().Format(time.RFC3339),
+								Label:     tm.UTC().Format("15:04"),
+								Value:     math.Round(vFloat*100) / 100,
+							})
+						}
 					}
 				}
 			}

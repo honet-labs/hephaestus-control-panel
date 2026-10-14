@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -438,6 +438,21 @@ const fetchGrafanaDatasources = async (grafanaId?: string) => {
     loadingGrafanaDS.value = false;
   }
 };
+
+watch(
+  () => widgetForm.value.sourceType,
+  async (newType) => {
+    if (newType === 'grafana') {
+      if (grafanaDatasources.value.length === 0) {
+        await fetchGrafanaDatasources(widgetForm.value.grafanaId);
+      }
+      if (!widgetForm.value.datasourceUid && grafanaDatasources.value.length > 0) {
+        const def = grafanaDatasources.value.find((d: any) => d.isDefault) || grafanaDatasources.value[0];
+        widgetForm.value.datasourceUid = def.uid;
+      }
+    }
+  }
+);
 
 // -----------------------------------------------------------------------------
 // Fetch & Manage Reports
