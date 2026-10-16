@@ -231,6 +231,8 @@ func main() {
 		api.GET("/remote-host/:id/sftp/list", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.SftpList)
 		api.POST("/remote-host/:id/sftp/upload", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.SftpUpload)
 		api.GET("/remote-host/:id/sftp/download", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.SftpDownload)
+		api.DELETE("/remote-host/:id/sftp/delete", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.SftpDelete)
+		api.POST("/remote-host/:id/sftp/mkdir", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.SftpMkdir)
 		api.POST("/remote-host/sftp/transfer-remote", middleware.RequirePermission("remote_servers", "manage"), remoteHostHandler.SftpTransferRemote)
 		api.GET("/remote-host/:id/metrics", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetMetrics)
 		api.GET("/remote-host/:id/processes", middleware.RequirePermission("remote_servers", "read"), remoteHostHandler.GetProcesses)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -191,33 +192,57 @@ func (s *SSHService) getSftpClient(cfg *domain.RemoteHostConfig) (*sftp.Client, 
 	return sftpClient, sshClient, nil
 }
 
-func (s *SSHService) SftpListDir(ctx context.Context, hostID, remotePath string) ([]domain.SftpFileEntry, error) {
+type sessionReadCloser struct {
+	io.Reader
+	session *ssh.Session
+}
+
+func (s *sessionReadCloser) Close() error {
+	if s.session != nil {
+		_ = s.session.Close()
+	}
+	return nil
+}
+
+func (s *SSHService) SftpListDir(ctx context.Context, hostID, remotePath string) ([]domain.SftpFileEntry, string, error) {
 	cfg, err := s.remoteRepo.GetRawByID(ctx, hostID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	sftpClient, _, err := s.getSftpClient(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	cleanPath := sanitizeRemotePath(remotePath)
+	// Resolve home directory if empty or "~"
+	cleanPath := strings.TrimSpace(remotePath)
+	if cleanPath == "" || cleanPath == "~" {
+		if wd, err := sftpClient.Getwd(); err == nil && wd != "" {
+			cleanPath = wd
+		} else {
+			cleanPath = "/"
+		}
+	} else {
+		cleanPath = sanitizeRemotePath(cleanPath)
+	}
+
 	files, err := sftpClient.ReadDir(cleanPath)
 	if err != nil {
-		return nil, err
+		return nil, cleanPath, err
 	}
 
 	var entries []domain.SftpFileEntry
 	for _, f := range files {
 		entries = append(entries, domain.SftpFileEntry{
-			Name:    f.Name(),
-			IsDir:   f.IsDir(),
-			Size:    f.Size(),
-			ModTime: f.ModTime(),
+			Name:        f.Name(),
+			IsDir:       f.IsDir(),
+			Size:        f.Size(),
+			ModTime:     f.ModTime(),
+			Permissions: f.Mode().String(),
 		})
 	}
-	return entries, nil
+	return entries, cleanPath, nil
 }
 
 func (s *SSHService) SftpUpload(ctx context.Context, hostID, remotePath string, reader io.Reader) error {
@@ -226,23 +251,64 @@ func (s *SSHService) SftpUpload(ctx context.Context, hostID, remotePath string, 
 		return err
 	}
 
-	sftpClient, _, err := s.getSftpClient(cfg)
+	sftpClient, client, err := s.getSftpClient(cfg)
 	if err != nil {
 		return err
 	}
 
 	cleanPath := sanitizeRemotePath(remotePath)
-	dir := filepath.Dir(cleanPath)
+	dir := path.Dir(cleanPath)
 	_ = sftpClient.MkdirAll(dir)
 
+	// 1. Direct write attempt
 	dstFile, err := sftpClient.Create(cleanPath)
-	if err != nil {
+	if err == nil {
+		defer dstFile.Close()
+		_, err = io.Copy(dstFile, reader)
 		return err
 	}
-	defer dstFile.Close()
 
-	_, err = io.Copy(dstFile, reader)
-	return err
+	// 2. Privileged upload fallback via /tmp (world-writable) + sudo mv
+	tmpFileName := fmt.Sprintf("/tmp/.hcp_upload_%d_%s", time.Now().UnixNano(), path.Base(cleanPath))
+	tmpDstFile, err := sftpClient.Create(tmpFileName)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file '%s': %w", cleanPath, err)
+	}
+	if _, err := io.Copy(tmpDstFile, reader); err != nil {
+		_ = tmpDstFile.Close()
+		_ = sftpClient.Remove(tmpFileName)
+		return fmt.Errorf("failed to stream upload data: %w", err)
+	}
+	_ = tmpDstFile.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		_ = sftpClient.Remove(tmpFileName)
+		return fmt.Errorf("failed to create SSH session on host: %w", err)
+	}
+	defer session.Close()
+
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	escapedTmp := strings.ReplaceAll(tmpFileName, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	mvCmd := fmt.Sprintf(`%s
+dir=$(dirname '%s')
+_run_sudo mkdir -p "$dir"
+_run_sudo mv -f '%s' '%s'
+_run_sudo chmod 644 '%s'
+status=$?
+rm -f '%s'
+exit $status`, sudoWrapper, escapedCleanPath, escapedTmp, escapedCleanPath, escapedCleanPath, escapedTmp)
+
+	if err := session.Run(mvCmd); err != nil {
+		_ = sftpClient.Remove(tmpFileName)
+		return fmt.Errorf("failed to save file to '%s' via sudo: %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
+	}
+
+	return nil
 }
 
 func (s *SSHService) SftpDownload(ctx context.Context, hostID, remotePath string) (io.ReadCloser, int64, error) {
@@ -292,7 +358,6 @@ func (s *SSHService) SftpDownloadWithConfig(cfg *domain.RemoteHostConfig, remote
 	return srcFile, stat.Size(), nil
 }
 
-
 func (s *SSHService) SftpTransferRemoteToRemote(ctx context.Context, srcHostID, srcPath, dstHostID, dstPath string) error {
 	srcCfg, err := s.remoteRepo.GetRawByID(ctx, srcHostID)
 	if err != nil {
@@ -303,36 +368,191 @@ func (s *SSHService) SftpTransferRemoteToRemote(ctx context.Context, srcHostID, 
 		return fmt.Errorf("destination host not found: %w", err)
 	}
 
-	srcSftp, _, err := s.getSftpClient(srcCfg)
+	srcSftp, srcClient, err := s.getSftpClient(srcCfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to source SFTP: %w", err)
+		return fmt.Errorf("failed to connect to source SFTP [%s]: %w", srcCfg.Name, err)
 	}
-	dstSftp, _, err := s.getSftpClient(dstCfg)
+	dstSftp, dstClient, err := s.getSftpClient(dstCfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to destination SFTP: %w", err)
+		return fmt.Errorf("failed to connect to destination SFTP [%s]: %w", dstCfg.Name, err)
 	}
 
 	cleanSrc := sanitizeRemotePath(srcPath)
 	cleanDst := sanitizeRemotePath(dstPath)
 
-	srcFile, err := srcSftp.Open(cleanSrc)
+	// Check if source exists and is not a folder
+	srcStat, err := srcSftp.Stat(cleanSrc)
 	if err != nil {
-		return fmt.Errorf("failed to open source file '%s': %w", cleanSrc, err)
+		return fmt.Errorf("source file '%s' not found on [%s]: %w", cleanSrc, srcCfg.Name, err)
 	}
-	defer srcFile.Close()
+	if srcStat.IsDir() {
+		return fmt.Errorf("'%s' is a directory; transferring folders directly is not supported yet (please transfer individual files or compress first)", cleanSrc)
+	}
 
-	dstDir := filepath.Dir(cleanDst)
+	// If cleanDst is an existing directory or ends with a slash, append the source filename
+	if dstStat, err := dstSftp.Stat(cleanDst); (err == nil && dstStat.IsDir()) || strings.HasSuffix(dstPath, "/") {
+		cleanDst = path.Join(cleanDst, path.Base(cleanSrc))
+	}
+
+	dstDir := path.Dir(cleanDst)
 	_ = dstSftp.MkdirAll(dstDir)
 
-	dstFile, err := dstSftp.Create(cleanDst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file '%s': %w", cleanDst, err)
+	// 1. Open Source Reader (with sudo elevation fallback if read permission restricted)
+	var srcReader io.ReadCloser
+	srcFile, err := srcSftp.Open(cleanSrc)
+	if err == nil {
+		srcReader = srcFile
+	} else {
+		srcSession, sessErr := srcClient.NewSession()
+		if sessErr != nil {
+			return fmt.Errorf("failed to open source file '%s': %w", cleanSrc, err)
+		}
+		escapedSrc := strings.ReplaceAll(cleanSrc, "'", "'\\''")
+		sudoWrapper := buildSudoWrapper(srcCfg.Password)
+		cmd := fmt.Sprintf(`%s
+_run_sudo cat '%s'`, sudoWrapper, escapedSrc)
+		stdout, pipeErr := srcSession.StdoutPipe()
+		if pipeErr != nil {
+			_ = srcSession.Close()
+			return fmt.Errorf("failed to read source file via sudo '%s': %w", cleanSrc, pipeErr)
+		}
+		if startErr := srcSession.Start(cmd); startErr != nil {
+			_ = srcSession.Close()
+			return fmt.Errorf("failed to execute sudo cat for '%s': %w", cleanSrc, startErr)
+		}
+		srcReader = &sessionReadCloser{Reader: stdout, session: srcSession}
 	}
-	defer dstFile.Close()
+	defer srcReader.Close()
 
-	buf := make([]byte, 128*1024)
-	_, err = io.CopyBuffer(dstFile, srcFile, buf)
-	return err
+	// 2. Attempt direct write to Destination via SFTP
+	dstFile, err := dstSftp.Create(cleanDst)
+	if err == nil {
+		buf := make([]byte, 256*1024)
+		_, copyErr := io.CopyBuffer(dstFile, srcReader, buf)
+		_ = dstFile.Close()
+		if copyErr == nil {
+			return nil
+		}
+	}
+
+	// 3. Fallback: Write to /tmp on destination (world-writable 1777), then sudo mv
+	_ = srcReader.Close()
+
+	var srcReader2 io.ReadCloser
+	srcFile2, err2 := srcSftp.Open(cleanSrc)
+	if err2 == nil {
+		srcReader2 = srcFile2
+	} else {
+		srcSession2, sessErr := srcClient.NewSession()
+		if sessErr != nil {
+			return fmt.Errorf("failed to reopen source file '%s': %w", cleanSrc, err2)
+		}
+		escapedSrc := strings.ReplaceAll(cleanSrc, "'", "'\\''")
+		sudoWrapper := buildSudoWrapper(srcCfg.Password)
+		cmd := fmt.Sprintf(`%s
+_run_sudo cat '%s'`, sudoWrapper, escapedSrc)
+		stdout, pipeErr := srcSession2.StdoutPipe()
+		if pipeErr != nil {
+			_ = srcSession2.Close()
+			return fmt.Errorf("failed to pipe source file: %w", pipeErr)
+		}
+		if startErr := srcSession2.Start(cmd); startErr != nil {
+			_ = srcSession2.Close()
+			return fmt.Errorf("failed to start sudo cat: %w", startErr)
+		}
+		srcReader2 = &sessionReadCloser{Reader: stdout, session: srcSession2}
+	}
+	defer srcReader2.Close()
+
+	tmpFileName := fmt.Sprintf("/tmp/.hcp_transfer_%d_%s", time.Now().UnixNano(), path.Base(cleanDst))
+	tmpDstFile, err := dstSftp.Create(tmpFileName)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file '%s' (direct SFTP error: %v, tmp error: %w)", cleanDst, err, err)
+	}
+
+	buf := make([]byte, 256*1024)
+	if _, err := io.CopyBuffer(tmpDstFile, srcReader2, buf); err != nil {
+		_ = tmpDstFile.Close()
+		_ = dstSftp.Remove(tmpFileName)
+		return fmt.Errorf("failed to stream file data to destination: %w", err)
+	}
+	_ = tmpDstFile.Close()
+
+	dstSession, err := dstClient.NewSession()
+	if err != nil {
+		_ = dstSftp.Remove(tmpFileName)
+		return fmt.Errorf("failed to create SSH session on destination [%s]: %w", dstCfg.Name, err)
+	}
+	defer dstSession.Close()
+
+	var stderrBuf bytes.Buffer
+	dstSession.Stderr = &stderrBuf
+	escapedCleanDst := strings.ReplaceAll(cleanDst, "'", "'\\''")
+	escapedTmp := strings.ReplaceAll(tmpFileName, "'", "'\\''")
+	dstSudoWrapper := buildSudoWrapper(dstCfg.Password)
+
+	mvCmd := fmt.Sprintf(`%s
+dir=$(dirname '%s')
+_run_sudo mkdir -p "$dir"
+_run_sudo mv -f '%s' '%s'
+_run_sudo chmod 644 '%s'
+status=$?
+rm -f '%s'
+exit $status`, dstSudoWrapper, escapedCleanDst, escapedTmp, escapedCleanDst, escapedCleanDst, escapedTmp)
+
+	if err := dstSession.Run(mvCmd); err != nil {
+		_ = dstSftp.Remove(tmpFileName)
+		return fmt.Errorf("failed to write destination file '%s' via sudo: %w (stderr: %s)", cleanDst, err, strings.TrimSpace(stderrBuf.String()))
+	}
+
+	return nil
+}
+
+func (s *SSHService) SftpDelete(ctx context.Context, hostID, remotePath string) error {
+	cfg, err := s.remoteRepo.GetRawByID(ctx, hostID)
+	if err != nil {
+		return err
+	}
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	return s.DeleteFile(cfg, cleanPath)
+}
+
+func (s *SSHService) SftpMkdir(ctx context.Context, hostID, remotePath string) error {
+	cfg, err := s.remoteRepo.GetRawByID(ctx, hostID)
+	if err != nil {
+		return err
+	}
+
+	sftpClient, client, err := s.getSftpClient(cfg)
+	if err != nil {
+		return err
+	}
+
+	cleanPath := sanitizeRemotePath(remotePath)
+	if err := sftpClient.MkdirAll(cleanPath); err == nil {
+		return nil
+	}
+
+	// Sudo fallback
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+	escapedCleanPath := strings.ReplaceAll(cleanPath, "'", "'\\''")
+	sudoWrapper := buildSudoWrapper(cfg.Password)
+
+	cmd := fmt.Sprintf(`%s
+_run_sudo mkdir -p '%s'`, sudoWrapper, escapedCleanPath)
+
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("failed to create directory '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
+	}
+	return nil
 }
 
 func (s *SSHService) SftpUploadWithConfig(cfg *domain.RemoteHostConfig, remotePath string, reader io.Reader) error {
@@ -532,6 +752,9 @@ func (s *SSHService) DeleteFile(cfg *domain.RemoteHostConfig, remotePath string)
 		if err := sftpClient.Remove(cleanPath); err == nil {
 			return nil
 		}
+		if err := sftpClient.RemoveDirectory(cleanPath); err == nil {
+			return nil
+		}
 	}
 
 	// 2. Privileged delete via shell session with sudo elevation
@@ -548,10 +771,10 @@ func (s *SSHService) DeleteFile(cfg *domain.RemoteHostConfig, remotePath string)
 	sudoWrapper := buildSudoWrapper(cfg.Password)
 
 	cmd := fmt.Sprintf(`%s
-_run_sudo rm -f '%s'`, sudoWrapper, escapedCleanPath)
+_run_sudo rm -rf '%s'`, sudoWrapper, escapedCleanPath)
 
 	if err := session.Run(cmd); err != nil {
-		return fmt.Errorf("failed to delete file '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
+		return fmt.Errorf("failed to delete item '%s': %w (stderr: %s)", cleanPath, err, strings.TrimSpace(stderrBuf.String()))
 	}
 	return nil
 }
@@ -622,10 +845,11 @@ func (s *SSHService) SftpListDirWithConfig(cfg *domain.RemoteHostConfig, remoteP
 			var entries []domain.SftpFileEntry
 			for _, f := range files {
 				entries = append(entries, domain.SftpFileEntry{
-					Name:    f.Name(),
-					IsDir:   f.IsDir(),
-					Size:    f.Size(),
-					ModTime: f.ModTime(),
+					Name:        f.Name(),
+					IsDir:       f.IsDir(),
+					Size:        f.Size(),
+					ModTime:     f.ModTime(),
+					Permissions: f.Mode().String(),
 				})
 			}
 			return entries, nil
@@ -685,9 +909,10 @@ func (s *SSHService) idleConnectionCleaner() {
 }
 
 func sanitizeRemotePath(p string) string {
-	if p == "" {
+	if p == "" || p == "~" {
 		return "/"
 	}
 	p = strings.ReplaceAll(p, "\x00", "")
-	return filepath.ToSlash(filepath.Clean(p))
+	p = strings.ReplaceAll(p, "\\", "/")
+	return path.Clean(p)
 }

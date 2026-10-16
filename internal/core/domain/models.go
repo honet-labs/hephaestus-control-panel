@@ -351,10 +351,11 @@ type RemoteHostShare struct {
 }
 
 type SftpFileEntry struct {
-	Name    string    `json:"name"`
-	IsDir   bool      `json:"isDir"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"modTime"`
+	Name        string    `json:"name"`
+	IsDir       bool      `json:"isDir"`
+	Size        int64     `json:"size"`
+	ModTime     time.Time `json:"modTime"`
+	Permissions string    `json:"permissions,omitempty"`
 }
 
 type WsTerminalMessage struct {

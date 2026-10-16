@@ -521,13 +521,13 @@ func (h *RemoteHostHandler) SftpList(c *gin.Context) {
 		return
 	}
 
-	remotePath := c.DefaultQuery("path", "/")
-	files, err := h.sshService.SftpListDir(c.Request.Context(), hostID, remotePath)
+	remotePath := c.Query("path")
+	files, resolvedPath, err := h.sshService.SftpListDir(c.Request.Context(), hostID, remotePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error(), "currentPath": resolvedPath})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": files, "currentPath": remotePath})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": files, "currentPath": resolvedPath})
 }
 
 func (h *RemoteHostHandler) SftpUpload(c *gin.Context) {
@@ -609,6 +609,48 @@ func (h *RemoteHostHandler) SftpTransferRemote(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Server-to-Server file transfer completed successfully."})
+}
+
+func (h *RemoteHostHandler) SftpDelete(c *gin.Context) {
+	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
+	remotePath := c.Query("path")
+	if remotePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "path is required"})
+		return
+	}
+
+	if err := h.sshService.SftpDelete(c.Request.Context(), hostID, remotePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Item deleted successfully."})
+}
+
+func (h *RemoteHostHandler) SftpMkdir(c *gin.Context) {
+	hostID := c.Param("id")
+	if !h.ensureAccess(c, hostID, "manage") {
+		return
+	}
+
+	var req struct {
+		Path string `json:"path" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "path is required"})
+		return
+	}
+
+	if err := h.sshService.SftpMkdir(c.Request.Context(), hostID, req.Path); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Directory created successfully."})
 }
 
 // Telemetry & Systems Endpoints
