@@ -248,6 +248,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	rows, _ := strconv.Atoi(c.DefaultQuery("rows", "24"))
 	queryHostID := c.Query("hostId")
 	queryToken := c.Query("token")
+	querySessionID := c.Query("sessionId")
 	if queryToken == "" {
 		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
 			queryToken = cookie
@@ -308,6 +309,9 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		} else if authMsg.HostID != "" {
 			hostID = authMsg.HostID
 		}
+		if authMsg.SessionID != "" {
+			querySessionID = authMsg.SessionID
+		}
 		if authMsg.Cols > 0 {
 			cols = authMsg.Cols
 		}
@@ -344,7 +348,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 
-	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID)
+	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID, querySessionID)
 }
 
 // HandleWebSocketDesktop upgrades WebSocket for Remote Desktop and tunnels Guacamole protocol

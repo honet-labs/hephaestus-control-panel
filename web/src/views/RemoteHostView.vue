@@ -182,6 +182,8 @@ interface OpenSession {
   ws?: WebSocket;
   connected: boolean;
   connecting?: boolean;
+  isIdle?: boolean;
+  lastActivity?: number;
   heartbeatTimer?: any;
   heartbeatWorker?: Worker;
   reconnectAttempts?: number;
@@ -752,6 +754,9 @@ const closeSession = (sessionOrIdx: OpenSession | number | string, event?: Mouse
     }
     if (s.ws) {
       try {
+        if (s.ws.readyState === WebSocket.OPEN) {
+          s.ws.send(JSON.stringify({ type: 'disconnect' }));
+        }
         s.ws.onopen = null;
         s.ws.onmessage = null;
         s.ws.onerror = null;
@@ -872,6 +877,27 @@ const resetZoomTerminal = () => {
   setTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE);
 };
 
+// MobaXterm-style Terminal Idle Detection
+let idleCheckerInterval: any = null;
+const startIdleDetection = () => {
+  if (idleCheckerInterval) clearInterval(idleCheckerInterval);
+  idleCheckerInterval = setInterval(() => {
+    const now = Date.now();
+    openSessions.value.forEach((sess) => {
+      if (sess.connected && sess.lastActivity) {
+        sess.isIdle = (now - sess.lastActivity) > 12000;
+      }
+    });
+  }, 3000);
+};
+
+const stopIdleDetection = () => {
+  if (idleCheckerInterval) {
+    clearInterval(idleCheckerInterval);
+    idleCheckerInterval = null;
+  }
+};
+
 // Background-immune Heartbeat Management for Terminal Sessions
 const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
   stopSessionHeartbeat(session);
@@ -957,16 +983,12 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
   session.connecting = true;
   session.connected = false;
 
-  if (isReconnect && session.term) {
-    session.term.write('\r\n\x1b[33m[Reconnecting to ' + session.host.name + '...]\x1b[0m\r\n');
-  }
-
   // Open WebSocket with token and detected terminal dimensions
   const token = authStore.token || sessionStorage.getItem('hcp_session') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const initialCols = session.term && session.term.cols > 0 ? session.term.cols : 80;
   const initialRows = session.term && session.term.rows > 0 ? session.term.rows : 24;
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&cols=${initialCols}&rows=${initialRows}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}`;
   const ws = new WebSocket(wsUrl);
   session.ws = ws;
 
@@ -976,21 +998,27 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     session.connected = true;
     session.reconnectAttempts = 0;
     session.reconnectPendingOnVisible = false;
+    session.lastActivity = Date.now();
+    session.isIdle = false;
 
-    if (session.term) {
+    // Only display connection banner on the initial fresh session launch, not on re-attaches/reconnects
+    if (session.term && !isReconnect && !session.term.buffer.active.cursorY) {
       session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+    }
+    if (session.term) {
       try {
         session.fitAddon?.fit();
         session.term.focus();
       } catch (e) {}
     }
 
-    // Send auth handshake
+    // Send auth handshake with sessionId for persistent session re-attach
     ws.send(
       JSON.stringify({
         type: 'auth',
         token: token,
         hostConfigId: session.host.id,
+        sessionId: session.id,
         cols: session.term?.cols || initialCols,
         rows: session.term?.rows || initialRows,
       })
@@ -1012,6 +1040,8 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
 
   ws.onmessage = (ev) => {
     if (session.ws !== ws) return;
+    session.lastActivity = Date.now();
+    session.isIdle = false;
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'data' && msg.data) {
@@ -1034,7 +1064,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       } else if (msg.type === 'error') {
         session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'ping') {
-        // Echo back pong to server to keep connection alive
+        // Echo back pong to server to keep Cloudflare connection alive
         if (ws.readyState === WebSocket.OPEN) {
           try {
             ws.send(JSON.stringify({ type: 'pong' }));
@@ -1070,10 +1100,9 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     }
 
     // If browser window is currently minimized / tab is hidden:
-    // DO NOT run an uncontrolled reconnect loop that spams the terminal buffer!
+    // Mark as pending re-attach silently when window is restored
     if (document.hidden) {
       session.reconnectPendingOnVisible = true;
-      session.term?.write('\r\n\x1b[33m[Connection suspended while browser is minimized. Reconnecting automatically when window is restored...]\x1b[0m\r\n');
       return;
     }
 
@@ -1081,14 +1110,13 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     session.reconnectAttempts = (session.reconnectAttempts || 0) + 1;
     if (session.reconnectAttempts <= 5) {
       const delay = Math.min(1500 * Math.pow(1.5, session.reconnectAttempts - 1), 6000);
-      session.term?.write(`\r\n\x1b[33m[Connection dropped. Reconnecting automatically (${session.reconnectAttempts}/5)...]\x1b[0m\r\n`);
       setTimeout(() => {
         if (!session.connected && session.term && session.ws === ws && !document.hidden) {
           reconnectTerminal(session);
         }
       }, delay);
     } else {
-      session.term?.write('\r\n\x1b[31m[Auto-reconnect limit reached. Click Reconnect to resume session]\x1b[0m\r\n');
+      session.term?.write('\r\n\x1b[31m[Connection interrupted. Click Reconnect to resume]\x1b[0m\r\n');
     }
   };
 
@@ -1107,7 +1135,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
 const reconnectTerminal = (session: OpenSession) => {
   // If term already exists in container, reconnect WebSocket directly without wiping buffer or disposing term
   if (session.term && session.fitAddon) {
-    connectWsTerminal(session, true);
+    connectWsTerminal(session, false);
   } else {
     initXterm(session);
   }
@@ -1200,6 +1228,8 @@ const initXterm = (session: OpenSession) => {
 
   // Set up listeners on terminal to send data and resize dynamically to active WebSocket
   term.onData((data) => {
+    session.lastActivity = Date.now();
+    session.isIdle = false;
     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
       session.ws.send(JSON.stringify({ type: 'input', data }));
     }
@@ -1280,18 +1310,25 @@ const handleVisibilityOrFocus = () => {
   if (document.visibilityState === 'visible') {
     openSessions.value.forEach((sess) => {
       if (sess.activeView === 'terminal' && sess.term) {
-        // If connection was suspended while minimized or dropped, resume cleanly
+        // If connection is already open and healthy, refit dimensions and do NOT reconnect!
+        if (sess.ws && sess.ws.readyState === WebSocket.OPEN) {
+          sess.connected = true;
+          sess.connecting = false;
+          sess.reconnectPendingOnVisible = false;
+          try {
+            sess.fitAddon?.fit();
+            if (sess.term.cols > 0 && sess.term.rows > 0) {
+              sess.ws.send(JSON.stringify({ type: 'resize', cols: sess.term.cols, rows: sess.term.rows }));
+            }
+          } catch (_) {}
+          return;
+        }
+
+        // If connection was disconnected while in background, seamlessly re-attach to backend persistent session
         if (sess.reconnectPendingOnVisible || (!sess.connected && !sess.connecting)) {
           sess.reconnectPendingOnVisible = false;
           sess.reconnectAttempts = 0;
-          sess.term.write('\r\n\x1b[36m[Window restored. Resuming connection to ' + sess.host.name + '...]\x1b[0m\r\n');
           reconnectTerminal(sess);
-        } else if (sess.ws && sess.ws.readyState === WebSocket.OPEN) {
-          try {
-            sess.ws.send(JSON.stringify({ type: 'ping' }));
-          } catch (_) {
-            reconnectTerminal(sess);
-          }
         }
       }
     });
@@ -3347,6 +3384,7 @@ watch(activeSessionIndex, async (newIdx) => {
 onMounted(async () => {
   await fetchHosts();
   await restorePersistedSessions();
+  startIdleDetection();
   window.addEventListener('click', closeAllContextMenus);
   window.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('resize', handleWindowResize);
@@ -3356,6 +3394,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopIdleDetection();
   window.removeEventListener('click', closeAllContextMenus);
   window.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('resize', handleWindowResize);
@@ -3541,7 +3580,7 @@ onUnmounted(() => {
                   <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
                   <span
                     class="w-1.5 h-1.5 rounded-full transition-all shrink-0"
-                    :class="sItem.session.connected ? '' : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
+                    :class="sItem.session.connected ? (sItem.session.isIdle ? 'animate-pulse' : '') : (sItem.session.connecting ? 'animate-pulse' : 'ring-1 ring-red-500')"
                     :style="{ backgroundColor: sItem.session.connected ? cluster.group.color : (sItem.session.connecting ? cluster.group.color : '#ef4444') }"
                   ></span>
                   <span class="truncate whitespace-nowrap text-[11px]">{{ sItem.session.displayName || sItem.session.host.name }}</span>
@@ -3591,7 +3630,7 @@ onUnmounted(() => {
               <GripVertical class="w-2.5 h-2.5 opacity-20 group-hover/tab:opacity-70 text-slate-400 cursor-grab shrink-0" />
               <span
                 class="w-2 h-2 rounded-full transition-colors shrink-0"
-                :class="cluster.session.connected ? 'bg-emerald-500' : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
+                :class="cluster.session.connected ? (cluster.session.isIdle ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500') : (cluster.session.connecting ? 'bg-amber-500 animate-pulse' : 'bg-red-500')"
               ></span>
               <span class="truncate whitespace-nowrap text-[11px]">{{ cluster.session.displayName || cluster.session.host.name }}</span>
 
@@ -4138,13 +4177,26 @@ onUnmounted(() => {
                   <span>Clear</span>
                 </button>
 
-                <span
-                  v-if="session.connected"
-                  class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-mono dark:border-emerald-500/30 flex items-center gap-1.5 shadow-sm"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Connected
-                </span>
+                <div v-if="session.connected" class="flex items-center gap-1.5">
+                  <span
+                    v-if="session.isIdle"
+                    class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-mono dark:border-emerald-500/30 flex items-center gap-1.5 shadow-sm transition-all"
+                    title="Session is idle. Cloudflare Tunnel & SSH Keep-Alive packets are actively maintaining connection."
+                  >
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span>Idle &middot; Keep-Alive</span>
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-mono dark:border-emerald-500/30 flex items-center gap-1.5 shadow-sm transition-all"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span>Connected</span>
+                  </span>
+                </div>
                 <span
                   v-else-if="session.connecting"
                   class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-mono dark:border-amber-500/30 flex items-center gap-1.5 shadow-sm"
@@ -4167,7 +4219,40 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
-              <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden"></div>
+              <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden relative"></div>
+
+              <!-- MobaXterm-style Idle & Keep-Alive Terminal HUD Animation -->
+              <transition
+                enter-active-class="transition duration-300 ease-out"
+                enter-from-class="opacity-0 translate-y-2 scale-95"
+                enter-to-class="opacity-100 translate-y-0 scale-100"
+                leave-active-class="transition duration-200 ease-in"
+                leave-from-class="opacity-100 translate-y-0 scale-100"
+                leave-to-class="opacity-0 translate-y-2 scale-95"
+              >
+                <div
+                  v-if="session.connected && session.isIdle"
+                  class="absolute bottom-5 right-6 z-20 flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-900/85 dark:bg-[#0c101b]/90 text-slate-300 text-[11px] font-mono border border-slate-700/60 dark:border-slate-800/80 shadow-xl backdrop-blur-md select-none pointer-events-none"
+                >
+                  <!-- Beacon Radar Pulse -->
+                  <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+
+                  <!-- Equalizer / Heartbeat wave bars (MobaXterm style) -->
+                  <div class="flex items-end gap-0.5 h-3">
+                    <span class="w-0.5 h-2 bg-emerald-400/70 rounded-full animate-pulse"></span>
+                    <span class="w-0.5 h-3 bg-emerald-400 rounded-full animate-pulse [animation-delay:150ms]"></span>
+                    <span class="w-0.5 h-1.5 bg-emerald-400/50 rounded-full animate-pulse [animation-delay:300ms]"></span>
+                    <span class="w-0.5 h-2.5 bg-emerald-400/90 rounded-full animate-pulse [animation-delay:450ms]"></span>
+                  </div>
+
+                  <span class="text-[10px] text-slate-300 tracking-wider font-semibold uppercase">
+                    Idle &middot; Keep-Alive Active
+                  </span>
+                </div>
+              </transition>
 
               <!-- Floating Zoom HUD Indicator -->
               <transition
@@ -4180,7 +4265,7 @@ onUnmounted(() => {
               >
                 <div
                   v-if="zoomHudMessage"
-                  class="absolute bottom-5 right-6 z-30 px-3 py-1.5 rounded-lg bg-slate-900/90 dark:bg-black/90 text-white text-xs font-mono border border-slate-700/60 shadow-xl backdrop-blur-md pointer-events-none"
+                  class="absolute bottom-5 left-6 z-30 px-3 py-1.5 rounded-lg bg-slate-900/90 dark:bg-black/90 text-white text-xs font-mono border border-slate-700/60 shadow-xl backdrop-blur-md pointer-events-none"
                 >
                   {{ zoomHudMessage }}
                 </div>

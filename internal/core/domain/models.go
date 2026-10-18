@@ -366,6 +366,7 @@ type WsTerminalMessage struct {
 	Token        string `json:"token,omitempty"`
 	HostID       string `json:"hostId,omitempty"`
 	HostConfigID string `json:"hostConfigId,omitempty"`
+	SessionID    string `json:"sessionId,omitempty"`
 	Message      string `json:"message,omitempty"`
 }
 
