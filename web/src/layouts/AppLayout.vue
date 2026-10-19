@@ -17,7 +17,6 @@ import {
   LogOut,
   ChevronRight,
   ChevronDown,
-  Command,
   Menu,
   X,
   PanelLeftClose,
@@ -276,22 +275,8 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Quick Jump / Search button in sidebar -->
-        <div class="px-4 py-3 shrink-0">
-          <button
-            @click="triggerSearch"
-            class="w-full flex items-center justify-between px-3 py-1.5 text-xs bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-slate-700 dark:text-slate-400 rounded-lg hover:border-slate-400/50 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-          >
-            <span class="flex items-center gap-1.5">
-              <Command class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-              Quick search...
-            </span>
-            <kbd class="text-[10px] font-mono bg-white dark:bg-[#1a2336] text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700">Ctrl+K</kbd>
-          </button>
-        </div>
-
         <!-- Section Label -->
-        <div class="px-4 pt-1 pb-1">
+        <div class="px-4 pt-3 pb-1">
           <p class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">OPERATIONAL MODULES</p>
         </div>
 
