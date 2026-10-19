@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -877,22 +878,83 @@ func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, in
 					SSHKey:   cfg.SSHKey,
 				}
 
+				configDir := "/etc/prometheus"
+				if cfg.Path != "" {
+					configDir = path.Dir(cfg.Path)
+				}
+				if configDir == "" || configDir == "." {
+					configDir = "/etc/prometheus"
+				}
+
 				checkToolCmd := "which promtool 2>/dev/null || which /usr/local/bin/promtool 2>/dev/null"
 				toolOut, _, _, err := s.sshService.ExecuteCommand(remoteCfg, checkToolCmd)
 				toolPath := strings.TrimSpace(toolOut)
 				if err == nil && toolPath != "" {
-					tmpFile := fmt.Sprintf("/tmp/prom_check_%d.yml", time.Now().UnixNano())
-					if writeErr := s.sshService.WriteFile(remoteCfg, tmpFile, content); writeErr == nil {
-						cmd := fmt.Sprintf("%s check config %s", toolPath, tmpFile)
+					// Attempt to write temp check file in the real prometheus config directory
+					// so promtool can locate relative rule files (e.g. first_rules.yml)
+					tmpFile := fmt.Sprintf("%s/.prom_check_%d.yml", configDir, time.Now().UnixNano())
+					writeErr := s.sshService.WriteFile(remoteCfg, tmpFile, content)
+					if writeErr != nil {
+						// Fallback to /tmp if configDir is not directly writable
+						tmpFile = fmt.Sprintf("/tmp/prom_check_%d.yml", time.Now().UnixNano())
+						writeErr = s.sshService.WriteFile(remoteCfg, tmpFile, content)
+					}
+
+					if writeErr == nil {
+						cmd := fmt.Sprintf("cd %s && %s check config %s", configDir, toolPath, tmpFile)
 						checkOut, checkErrOut, _, checkErr := s.sshService.ExecuteCommand(remoteCfg, cmd)
 						_ = s.sshService.DeleteFile(remoteCfg, tmpFile)
 
 						combinedOutput := strings.TrimSpace(checkOut + "\n" + checkErrOut)
 						if checkErr != nil || strings.Contains(strings.ToLower(combinedOutput), "failed") {
-							issues = append(issues, PrometheusValidationIssue{
-								Type:    "error",
-								Message: fmt.Sprintf("promtool check error: %s", combinedOutput),
-							})
+							// Determine if the failure is solely due to missing rule files / external paths
+							lines := strings.Split(combinedOutput, "\n")
+							var realErrors []string
+							var missingFileNotices []string
+
+							for _, l := range lines {
+								tl := strings.TrimSpace(l)
+								if tl == "" {
+									continue
+								}
+								if strings.Contains(tl, "does not point to an existing file") || strings.Contains(tl, "no such file or directory") {
+									missingFileNotices = append(missingFileNotices, tl)
+								} else if strings.Contains(strings.ToLower(tl), "failed") {
+									if idx := strings.Index(tl, "FAILED:"); idx != -1 {
+										rest := strings.TrimSpace(tl[idx+7:])
+										if rest != "" {
+											if strings.Contains(rest, "does not point to an existing file") || strings.Contains(rest, "no such file or directory") {
+												missingFileNotices = append(missingFileNotices, rest)
+											} else {
+												realErrors = append(realErrors, rest)
+											}
+										}
+									} else {
+										realErrors = append(realErrors, tl)
+									}
+								} else {
+									realErrors = append(realErrors, tl)
+								}
+							}
+
+							if len(realErrors) > 0 {
+								issues = append(issues, PrometheusValidationIssue{
+									Type:    "error",
+									Message: fmt.Sprintf("promtool check error: %s", strings.Join(realErrors, "; ")),
+								})
+							}
+							if len(missingFileNotices) > 0 {
+								issues = append(issues, PrometheusValidationIssue{
+									Type:    "warning",
+									Message: fmt.Sprintf("promtool check notice: %s. Configuration syntax is valid, but verify that external rule files exist on the host.", strings.Join(missingFileNotices, "; ")),
+								})
+							}
+							if len(realErrors) == 0 && len(missingFileNotices) == 0 {
+								issues = append(issues, PrometheusValidationIssue{
+									Type:    "error",
+									Message: fmt.Sprintf("promtool check error: %s", combinedOutput),
+								})
+							}
 						} else {
 							issues = append(issues, PrometheusValidationIssue{
 								Type:    "info",

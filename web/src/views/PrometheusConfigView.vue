@@ -146,10 +146,7 @@ const alertmanagerConfig = ref<AlertmanagerSettings>({
   endpoints: ['alertmanager:9093']
 });
 
-const ruleFiles = ref<string[]>([
-  'first_rules.yml',
-  'second_rules.yml'
-]);
+const ruleFiles = ref<string[]>([]);
 
 const scrapeJobs = ref<ScrapeJob[]>([
   {
@@ -425,6 +422,8 @@ const parseYamlIntoModel = (content: string) => {
     let inRelabel = false;
     let currentRelabelRule: RelabelConfigItem | null = null;
 
+    const parsedRuleFiles: string[] = [];
+
     lines.forEach(line => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) return;
@@ -437,6 +436,9 @@ const parseYamlIntoModel = (content: string) => {
         currentSection = 'rules';
       } else if (line.startsWith('scrape_configs:')) {
         currentSection = 'scrape';
+      } else if (currentSection === 'rules' && trimmed.startsWith('-')) {
+        const rf = trimmed.replace(/^-/, '').trim().replace(/['"]/g, '');
+        if (rf) parsedRuleFiles.push(rf);
       } else if (currentSection === 'scrape' && trimmed.startsWith('- job_name:')) {
         if (activeParsedJob && activeParsedJob.job_name) {
           parsedJobs.push({
@@ -582,6 +584,8 @@ const parseYamlIntoModel = (content: string) => {
         relabel_configs: activeParsedJob.relabel_configs && activeParsedJob.relabel_configs.length > 0 ? activeParsedJob.relabel_configs : undefined
       });
     }
+
+    ruleFiles.value = parsedRuleFiles;
 
     if (parsedJobs.length > 0) {
       scrapeJobs.value = parsedJobs;
@@ -1184,6 +1188,40 @@ const executeAddJob = () => {
   setJobPreset('standard');
 
   showNotification('success', `Scrape job '${newJob.job_name}' created.`);
+};
+
+// ==================== LABEL ACTIONS FOR CURRENT JOB ====================
+const newLabelKey = ref('');
+const newLabelValue = ref('');
+
+const addLabelToCurrentJob = () => {
+  if (!currentJob.value) return;
+  const k = newLabelKey.value.trim();
+  const v = newLabelValue.value.trim();
+  if (!k) {
+    showNotification('warning', 'Label name cannot be empty.');
+    return;
+  }
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)) {
+    showNotification('error', `Invalid label name '${k}'. Prometheus labels must match [a-zA-Z_][a-zA-Z0-9_]*.`);
+    return;
+  }
+  if (!currentJob.value.labels) {
+    currentJob.value.labels = {};
+  }
+  currentJob.value.labels[k] = v;
+  newLabelKey.value = '';
+  newLabelValue.value = '';
+  showNotification('success', `Label '${k}: ${v}' added.`);
+};
+
+const quickAddLabel = (k: string, v: string) => {
+  if (!currentJob.value) return;
+  if (!currentJob.value.labels) {
+    currentJob.value.labels = {};
+  }
+  currentJob.value.labels[k] = v;
+  showNotification('success', `Label '${k}: ${v}' added.`);
 };
 
 // ==================== PARAMETER & RELABEL ACTIONS FOR CURRENT JOB ====================
@@ -2219,7 +2257,7 @@ onMounted(() => {
                   : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
               ]"
             >
-              Labels ({{ Object.keys(currentJob.labels).length }})
+              Labels ({{ Object.keys(currentJob.labels || {}).length }})
             </button>
             <button
               @click="activeJobTab = 'params'"
@@ -2340,19 +2378,98 @@ onMounted(() => {
           </div>
 
           <!-- Sub-tab Content: LABELS -->
-          <div v-if="activeJobTab === 'labels'" class="space-y-3 pt-1">
-            <p class="text-[11px] text-slate-500">Static labels applied to all targets in this scrape job.</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div v-for="(val, key) in currentJob.labels" :key="key" class="flex items-center gap-2 bg-slate-50 dark:bg-[#121826] p-2 rounded-lg border border-slate-200 dark:border-[#1b2234]">
+          <div v-if="activeJobTab === 'labels'" class="space-y-4 pt-1">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200">Static Labels</h4>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400">
+                  Static labels applied to all metrics scraped from targets in this job (e.g. <code class="font-mono">environment: production</code>).
+                </p>
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="flex items-center gap-1.5 shrink-0 flex-wrap">
+                <span class="text-[10px] text-slate-400">Presets:</span>
+                <button
+                  type="button"
+                  @click="quickAddLabel('environment', 'production')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer transition"
+                >
+                  + env: production
+                </button>
+                <button
+                  type="button"
+                  @click="quickAddLabel('service', currentJob.job_name || 'app')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer transition"
+                >
+                  + service: {{ currentJob.job_name || 'app' }}
+                </button>
+                <button
+                  type="button"
+                  @click="quickAddLabel('tier', 'frontend')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer transition"
+                >
+                  + tier: frontend
+                </button>
+                <button
+                  type="button"
+                  @click="quickAddLabel('region', 'id-jkt')"
+                  class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono cursor-pointer transition"
+                >
+                  + region: id-jkt
+                </button>
+              </div>
+            </div>
+
+            <!-- Existing Labels List -->
+            <div v-if="currentJob.labels && Object.keys(currentJob.labels).length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div
+                v-for="(val, key) in currentJob.labels"
+                :key="key"
+                class="flex items-center gap-2 bg-slate-50 dark:bg-[#121826] p-2 rounded-lg border border-slate-200 dark:border-[#1b2234]"
+              >
                 <span class="font-bold text-xs text-slate-700 dark:text-slate-300 font-mono">{{ key }}:</span>
                 <input
                   v-model="currentJob.labels[key]"
-                  class="flex-1 bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs font-mono"
+                  class="flex-1 bg-white dark:bg-[#0a0d14] border border-slate-200 dark:border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                 />
-                <button @click="delete currentJob.labels[key]" class="text-slate-400 hover:text-rose-500 p-1 cursor-pointer">
+                <button
+                  type="button"
+                  @click="delete currentJob.labels[key]"
+                  class="text-slate-400 hover:text-rose-500 p-1 cursor-pointer transition"
+                  title="Delete label"
+                >
                   <X class="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+
+            <div v-else class="py-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+              No static labels configured. Add static labels below to apply to all metrics scraped by this job.
+            </div>
+
+            <!-- Add Label Input Form -->
+            <div class="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-100 dark:border-[#1b2234]">
+              <input
+                v-model="newLabelKey"
+                placeholder="Label name (e.g. environment, service, region)"
+                @keydown.enter.prevent="addLabelToCurrentJob"
+                class="w-full sm:w-1/3 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <input
+                v-model="newLabelValue"
+                placeholder="Label value (e.g. production, haproxy, id-jkt)"
+                @keydown.enter.prevent="addLabelToCurrentJob"
+                class="w-full sm:flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                @click="addLabelToCurrentJob"
+                class="w-full sm:w-auto px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shrink-0"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>Add Label</span>
+              </button>
             </div>
           </div>
 
