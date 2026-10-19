@@ -57,7 +57,7 @@ install_dependencies() {
             apt-get update -y
             apt-get install -y ca-certificates curl gnupg lsb-release git openssl jq ufw \
                 iputils-ping net-tools snmp dnsutils traceroute socat tar gzip unzip \
-                tzdata procps iproute2 bc
+                tzdata procps iproute2 bc certbot
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then
@@ -82,8 +82,9 @@ install_dependencies() {
                 PKG_MGR="yum"
             fi
 
+            $PKG_MGR install -y epel-release || true
             $PKG_MGR install -y yum-utils git openssl jq curl iputils net-tools net-snmp-utils \
-                bind-utils traceroute tar gzip unzip socat tzdata procps-ng iproute bc cronie
+                bind-utils traceroute tar gzip unzip socat tzdata procps-ng iproute bc cronie certbot
 
             # Install Docker if not present
             if ! command -v docker &> /dev/null; then
@@ -339,6 +340,7 @@ EOF
 
 # Web & Server Ports
 HTTP_PORT=${INPUT_HTTP_PORT}
+HTTPS_PORT=${INPUT_HTTPS_PORT:-443}
 DB_EXTERNAL_PORT=${INPUT_DB_PORT}
 APP_ENV=production
 
@@ -390,27 +392,141 @@ EOF
     fi
 }
 
+# Setup SSL / TLS Certificates (Let's Encrypt / IP Magic Domain / Self-Signed)
+setup_ssl_certificates() {
+    echo -e "\n${BLUE}[Setup SSL/TLS Certificate]${NC}"
+    CERTS_DIR="$INSTALL_DIR/certs"
+    mkdir -p "$CERTS_DIR"
+
+    # Detect Local and Public IP
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    PUBLIC_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || echo "")
+
+    IS_PRIVATE_IP=false
+    if [[ "$LOCAL_IP" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.) ]]; then
+        IS_PRIVATE_IP=true
+    fi
+
+    echo -e "Detected IP Addresses:"
+    echo -e " - Local/Private IP : ${CYAN}${LOCAL_IP:-Unknown}${NC}"
+    if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$LOCAL_IP" ]; then
+        echo -e " - Public IP        : ${GREEN}${PUBLIC_IP}${NC}"
+    fi
+
+    IP_FOR_MAGIC="${PUBLIC_IP:-$LOCAL_IP}"
+    MAGIC_DOMAIN="${IP_FOR_MAGIC}.sslip.io"
+
+    echo ""
+    echo "Pilih opsi sertifikat SSL untuk Web Panel HCP:"
+    echo -e "1) ${BOLD}Let's Encrypt via IP Magic Domain${NC} (${CYAN}${MAGIC_DOMAIN}${NC}) - [Sertifikat resmi publik tanpa beli domain]"
+    echo -e "2) ${BOLD}Let's Encrypt dengan Custom Domain${NC} (misal: hcp.domainanda.com)"
+    echo -e "3) ${BOLD}Self-Signed Origin SSL${NC} (Default - Berlaku 10 tahun, instan tanpa perlu akses internet port 80)"
+
+    if [ -t 0 ]; then
+        read -p "Pilihan Anda [1/2/3, default: 3]: " SSL_CHOICE
+    else
+        SSL_CHOICE="3"
+    fi
+    SSL_CHOICE=${SSL_CHOICE:-3}
+
+    TARGET_DOMAIN=""
+    case "$SSL_CHOICE" in
+        1)
+            TARGET_DOMAIN="$MAGIC_DOMAIN"
+            ;;
+        2)
+            if [ -t 0 ]; then
+                read -p "Masukkan nama domain lengkap (FQDN): " TARGET_DOMAIN
+            else
+                TARGET_DOMAIN=""
+            fi
+            ;;
+        *)
+            TARGET_DOMAIN=""
+            ;;
+    esac
+
+    if [ -n "$TARGET_DOMAIN" ]; then
+        if [ "$IS_PRIVATE_IP" = true ] && [ "$SSL_CHOICE" = "1" ] && [ -z "$PUBLIC_IP" ]; then
+            echo -e "${YELLOW}[WARNING] IP $LOCAL_IP adalah IP privat lokal. Let's Encrypt memerlukan IP publik yang bisa diakses dari internet.${NC}"
+            echo -e "${YELLOW}Menggunakan Self-Signed Certificate...${NC}"
+            TARGET_DOMAIN=""
+        fi
+    fi
+
+    if [ -n "$TARGET_DOMAIN" ]; then
+        echo -e "\n${BLUE}Menerbitkan sertifikat Let's Encrypt untuk ${GREEN}${TARGET_DOMAIN}${BLUE}...${NC}"
+        if [ -t 0 ]; then
+            read -p "Masukkan alamat email untuk pendaftaran Let's Encrypt (opsional): " SSL_EMAIL
+        else
+            SSL_EMAIL=""
+        fi
+        EMAIL_FLAG="--register-unsafely-without-email"
+        if [ -n "$SSL_EMAIL" ]; then
+            EMAIL_FLAG="-m $SSL_EMAIL"
+        fi
+
+        if command -v certbot &> /dev/null; then
+            if certbot certonly --standalone -d "$TARGET_DOMAIN" --non-interactive --agree-tos $EMAIL_FLAG --keep-until-expiring 2>/dev/null; then
+                echo -e "${GREEN}[OK] Sertifikat Let's Encrypt berhasil diterbitkan untuk $TARGET_DOMAIN!${NC}"
+                cp -f "/etc/letsencrypt/live/$TARGET_DOMAIN/fullchain.pem" "$CERTS_DIR/cert.pem"
+                cp -f "/etc/letsencrypt/live/$TARGET_DOMAIN/privkey.pem" "$CERTS_DIR/key.pem"
+                chmod 644 "$CERTS_DIR/cert.pem"
+                chmod 600 "$CERTS_DIR/key.pem"
+                HCP_ACCESS_DOMAIN="$TARGET_DOMAIN"
+                return 0
+            else
+                echo -e "${YELLOW}[WARN] Validasi Let's Encrypt gagal (port 80 terblokir atau IP tidak dapat dijangkau dari internet).${NC}"
+                echo -e "${YELLOW}Mengalihkan otomatis ke Self-Signed Origin SSL agar instalasi tetap berjalan...${NC}"
+            fi
+        else
+            echo -e "${YELLOW}[WARN] Certbot tidak terpasang. Menggunakan Self-Signed SSL...${NC}"
+        fi
+    fi
+
+    # Fallback / Default: Robust Self-Signed Certificate
+    echo -e "Menyiapkan Self-Signed Origin TLS Certificate (Valid 10 tahun)..."
+    if [ ! -f "$CERTS_DIR/cert.pem" ] || [ ! -f "$CERTS_DIR/key.pem" ]; then
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+            -keyout "$CERTS_DIR/key.pem" \
+            -out "$CERTS_DIR/cert.pem" \
+            -subj "/C=ID/ST=Jakarta/L=Jakarta/O=HONET Labs/CN=hephaestus-panel" \
+            -addext "subjectAltName=DNS:localhost,IP:${LOCAL_IP:-127.0.0.1}" 2>/dev/null || \
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+            -keyout "$CERTS_DIR/key.pem" \
+            -out "$CERTS_DIR/cert.pem" \
+            -subj "/C=ID/ST=Jakarta/L=Jakarta/O=HONET Labs/CN=hephaestus-panel"
+        chmod 600 "$CERTS_DIR/key.pem"
+        chmod 644 "$CERTS_DIR/cert.pem"
+    fi
+    echo -e "${GREEN}[OK] SSL Certificate siap di $CERTS_DIR.${NC}"
+}
+
 # Setup Firewall Rules
 configure_firewall() {
     echo -e "\n${BLUE}[4/6] Checking Firewall Configuration...${NC}"
     HTTP_PORT=${HTTP_PORT:-80}
+    HTTPS_PORT=${HTTPS_PORT:-443}
 
     # UFW (Ubuntu/Debian)
     if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-        echo "Opening Web port $HTTP_PORT in UFW..."
-        ufw allow $HTTP_PORT/tcp comment "Hephaestus Control Panel (HCP) Web" || true
+        echo "Opening Web ports $HTTP_PORT and $HTTPS_PORT in UFW..."
+        ufw allow $HTTP_PORT/tcp comment "Hephaestus Control Panel (HCP) HTTP" || true
+        ufw allow $HTTPS_PORT/tcp comment "Hephaestus Control Panel (HCP) HTTPS" || true
         ufw reload || true
     fi
 
     # Firewalld (RHEL/Rocky/AlmaLinux)
     if command -v firewall-cmd &> /dev/null && systemctl is-active --quiet firewalld; then
-        echo "Opening Web port $HTTP_PORT in Firewalld..."
+        echo "Opening Web ports $HTTP_PORT and $HTTPS_PORT in Firewalld..."
         firewall-cmd --permanent --add-port=$HTTP_PORT/tcp || true
+        firewall-cmd --permanent --add-port=$HTTPS_PORT/tcp || true
         firewall-cmd --reload || true
     fi
 }
 
 setup_configuration
+setup_ssl_certificates
 configure_firewall
 
 # Build and Deploy Containers
@@ -454,10 +570,16 @@ fi
 echo -e "\n${GREEN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}[OK] HEPHAESTUS CONTROL PANEL (HCP) DEPLOYED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
-if [ "$HTTP_PORT" = "80" ]; then
-    echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
+if [ -n "$HCP_ACCESS_DOMAIN" ]; then
+    echo -e "Web Interface HTTPS  : ${GREEN}https://${HCP_ACCESS_DOMAIN}${NC} (Let's Encrypt Valid SSL)"
+    echo -e "Web Interface HTTP   : ${CYAN}http://${HCP_ACCESS_DOMAIN}${NC}"
 else
-    echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} (or http://localhost:${HTTP_PORT})"
+    echo -e "Web Interface HTTPS  : ${GREEN}https://${SERVER_IP}${NC} (or https://localhost)"
+    if [ "$HTTP_PORT" = "80" ]; then
+        echo -e "Web Interface HTTP   : ${CYAN}http://${SERVER_IP}${NC} (or http://localhost)"
+    else
+        echo -e "Web Interface HTTP   : ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} (or http://localhost:${HTTP_PORT})"
+    fi
 fi
 echo -e "Architecture         : Multi-Container (hephaestus-panel, hephaestus-engine, hephaestus-database, hephaestus-guacd)"
 echo -e "PostgreSQL Database  : ${DB_NAME:-hephaestus} (External Port: ${DB_EXTERNAL_PORT:-5432})"
@@ -470,10 +592,10 @@ echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
 echo -e "Restart Stack        : ${CYAN}docker compose restart${NC}"
 echo "------------------------------------------------------------------------------"
 echo -e "${BOLD}Next Steps:${NC}"
-if [ "$HTTP_PORT" = "80" ]; then
-    echo -e "1. Open ${CYAN}http://${SERVER_IP}${NC} in your web browser."
+if [ -n "$HCP_ACCESS_DOMAIN" ]; then
+    echo -e "1. Open ${GREEN}https://${HCP_ACCESS_DOMAIN}${NC} in your web browser."
 else
-    echo -e "1. Open ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} in your web browser."
+    echo -e "1. Open ${GREEN}https://${SERVER_IP}${NC} or ${CYAN}http://${SERVER_IP}${NC} in your web browser."
 fi
 echo -e "2. The initial ${BOLD}Setup Wizard${NC} will open automatically."
 echo -e "3. Create your Master Administrator credentials to start managing infrastructure."

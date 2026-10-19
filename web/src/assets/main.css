@@ -47,6 +47,12 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  input,
+  select,
+  textarea {
+    font-variant-ligatures: none !important;
+  }
 }
 
 /* ===================================================================

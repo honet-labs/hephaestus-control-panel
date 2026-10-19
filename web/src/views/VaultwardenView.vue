@@ -1286,7 +1286,7 @@ onUnmounted(() => {
                 v-model="formMasterPassword"
                 :type="showMasterPassword ? 'text' : 'password'"
                 placeholder="••••••••••••••••"
-                class="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono"
+                class="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono [font-variant-ligatures:none]"
               />
               <button
                 type="button"
@@ -1528,7 +1528,7 @@ onUnmounted(() => {
               <input
                 v-model="addForm.username"
                 placeholder="e.g. administrator, root, user@example.com"
-                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs"
               />
             </div>
 
@@ -1549,7 +1549,7 @@ onUnmounted(() => {
                   v-model="addForm.password"
                   :type="addForm.showPassword ? 'text' : 'password'"
                   placeholder="••••••••••••••••"
-                  class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg pl-3 pr-16 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+                  class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg pl-3 pr-16 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono [font-variant-ligatures:none]"
                 />
                 <button
                   type="button"
@@ -1567,7 +1567,7 @@ onUnmounted(() => {
               <input
                 v-model="addForm.uri"
                 placeholder="https://10.20.3.1:8006/"
-                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+                class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs"
               />
             </div>
           </template>
@@ -1579,7 +1579,7 @@ onUnmounted(() => {
               v-model="addForm.notes"
               rows="3"
               placeholder="Additional notes, recovery codes, server details..."
-              class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg p-3 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs font-mono"
+              class="w-full bg-slate-50 dark:bg-[#151c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg p-3 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 text-xs"
             ></textarea>
           </div>
 
