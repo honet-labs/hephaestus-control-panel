@@ -610,6 +610,73 @@ const serverValidationIssues = ref<ValidationResultItem[]>([]);
 const isValidating = ref(false);
 const showValidationResults = ref(false);
 
+// Duration Helpers & Timeout Validation
+const parseDurationSeconds = (d?: string): number => {
+  if (!d) return 0;
+  const match = d.trim().match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d|w|y)$/);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = match[2];
+  switch (unit) {
+    case 'ms': return num / 1000;
+    case 's': return num;
+    case 'm': return num * 60;
+    case 'h': return num * 3600;
+    case 'd': return num * 86400;
+    case 'w': return num * 604800;
+    case 'y': return num * 31536000;
+    default: return num;
+  }
+};
+
+const isTimeoutTooHigh = (job?: ScrapeJob | null): boolean => {
+  if (!job) return false;
+  const intervalSec = parseDurationSeconds(job.scrape_interval) || parseDurationSeconds(globalConfig.value.scrape_interval) || 15;
+  const timeoutSec = parseDurationSeconds(job.scrape_timeout) || parseDurationSeconds(globalConfig.value.scrape_timeout) || 10;
+  return timeoutSec > intervalSec;
+};
+
+const getRecommendedTimeout = (job?: ScrapeJob | null): string => {
+  if (!job) return '10s';
+  const intervalSec = parseDurationSeconds(job.scrape_interval) || parseDurationSeconds(globalConfig.value.scrape_interval) || 15;
+  if (intervalSec <= 10) {
+    const safe = Math.max(1, Math.floor(intervalSec * 0.8));
+    return `${safe}s`;
+  }
+  return '10s';
+};
+
+const autoFixTimeout = (job: ScrapeJob) => {
+  const rec = getRecommendedTimeout(job);
+  job.scrape_timeout = rec;
+  showNotification('success', `Adjusted scrape timeout for '${job.job_name}' to ${rec}.`);
+};
+
+const autoFixAllJobTimeouts = () => {
+  let count = 0;
+  scrapeJobs.value.forEach(job => {
+    if (isTimeoutTooHigh(job)) {
+      job.scrape_timeout = getRecommendedTimeout(job);
+      count++;
+    }
+  });
+  if (count > 0) {
+    showNotification('success', `Automatically fixed timeouts for ${count} job(s).`);
+    serverValidationIssues.value = [];
+  }
+};
+
+const hasTimeoutError = computed(() => {
+  return validationItems.value.some(v =>
+    v.type === 'error' && (
+      v.message.toLowerCase().includes('scrape timeout greater than') ||
+      v.message.toLowerCase().includes('scrape timeout') ||
+      v.message.toLowerCase().includes('timeout (') ||
+      v.message.toLowerCase().includes('cannot be greater than scrape_interval')
+    )
+  );
+});
+
 const activeYamlContent = computed(() => {
   return viewMode.value === 'raw' ? rawEditorYaml.value : currentGeneratedYaml.value;
 });
@@ -790,6 +857,18 @@ const clientValidationItems = computed<ValidationResultItem[]>(() => {
       }
     }
   });
+
+  if (viewMode.value === 'visual') {
+    scrapeJobs.value.forEach(job => {
+      if (isTimeoutTooHigh(job)) {
+        items.push({
+          type: 'error',
+          jobName: job.job_name,
+          message: `Job '${job.job_name}': Timeout (${job.scrape_timeout}) is greater than Scrape Interval (${job.scrape_interval || '15s'}). Prometheus requires Timeout <= Scrape Interval.`
+        });
+      }
+    });
+  }
 
   return items;
 });
@@ -1416,6 +1495,14 @@ const handleSaveAndRestart = async () => {
     showNotification('error', 'Please select a Prometheus instance first.');
     return;
   }
+  if (viewMode.value === 'visual') {
+    const invalidJob = scrapeJobs.value.find(j => isTimeoutTooHigh(j));
+    if (invalidJob) {
+      showNotification('error', `Cannot deploy: Job '${invalidJob.job_name}' has Timeout (${invalidJob.scrape_timeout}) greater than Scrape Interval (${invalidJob.scrape_interval || '15s'}). Please reduce timeout.`);
+      selectedJobId.value = invalidJob.id;
+      return;
+    }
+  }
   if (errorCount.value > 0) {
     showNotification('error', `Cannot deploy: resolve ${errorCount.value} critical errors before restarting.`);
     return;
@@ -1646,6 +1733,14 @@ onMounted(() => {
           </div>
 
           <div class="flex items-center gap-3">
+            <button
+              v-if="hasTimeoutError"
+              type="button"
+              @click="autoFixAllJobTimeouts"
+              class="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold transition cursor-pointer flex items-center gap-1 shadow-xs"
+            >
+              Auto-Fix Timeouts
+            </button>
             <span v-if="lastValidatedTime" class="text-[10px] text-slate-500 dark:text-slate-400">
               Last validated: {{ lastValidatedTime }}
             </span>
@@ -2230,8 +2325,33 @@ onMounted(() => {
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Timeout *</label>
               <input
                 v-model="currentJob.scrape_timeout"
-                class="w-full bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                :class="[
+                  'w-full bg-slate-50 dark:bg-[#121826] border rounded-lg px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-white focus:outline-none',
+                  isTimeoutTooHigh(currentJob)
+                    ? 'border-rose-400 dark:border-rose-500/70 bg-rose-50/20'
+                    : 'border-slate-200 dark:border-[#1b2234] focus:border-blue-500'
+                ]"
               />
+            </div>
+
+            <!-- Timeout Too High Warning Banner -->
+            <div
+              v-if="isTimeoutTooHigh(currentJob)"
+              class="md:col-span-12 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+            >
+              <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300">
+                <AlertCircle class="w-4 h-4 shrink-0 text-rose-500" />
+                <span>
+                  <strong>Timeout Error:</strong> Timeout (<code>{{ currentJob.scrape_timeout }}</code>) cannot be greater than Scrape Interval (<code>{{ currentJob.scrape_interval || '15s' }}</code>). Prometheus requires timeout &le; interval.
+                </span>
+              </div>
+              <button
+                type="button"
+                @click="autoFixTimeout(currentJob)"
+                class="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-md transition cursor-pointer shrink-0 shadow-xs"
+              >
+                Auto-fix: Set Timeout to {{ getRecommendedTimeout(currentJob) }}
+              </button>
             </div>
           </div>
 

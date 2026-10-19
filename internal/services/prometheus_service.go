@@ -811,6 +811,50 @@ func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, in
 					}
 				}
 
+				// Validate scrape_timeout <= scrape_interval
+				var jobIntervalSec float64 = 15.0
+				var jobTimeoutSec float64 = 10.0
+				if gMap, ok := rawMap["global"].(map[string]interface{}); ok {
+					if gInt, ok := gMap["scrape_interval"]; ok {
+						if parsed := parsePromDurationSeconds(fmt.Sprintf("%v", gInt)); parsed > 0 {
+							jobIntervalSec = parsed
+						}
+					}
+					if gTo, ok := gMap["scrape_timeout"]; ok {
+						if parsed := parsePromDurationSeconds(fmt.Sprintf("%v", gTo)); parsed > 0 {
+							jobTimeoutSec = parsed
+						}
+					}
+				}
+				hasExplicitInterval := false
+				if intVal, exists := jobMap["scrape_interval"]; exists {
+					hasExplicitInterval = true
+					if parsed := parsePromDurationSeconds(fmt.Sprintf("%v", intVal)); parsed > 0 {
+						jobIntervalSec = parsed
+					}
+				}
+				hasExplicitTimeout := false
+				if toVal, exists := jobMap["scrape_timeout"]; exists {
+					hasExplicitTimeout = true
+					if parsed := parsePromDurationSeconds(fmt.Sprintf("%v", toVal)); parsed > 0 {
+						jobTimeoutSec = parsed
+					}
+				}
+				if (hasExplicitTimeout || hasExplicitInterval) && jobTimeoutSec > jobIntervalSec {
+					timeoutDisplay := fmt.Sprintf("%v", jobMap["scrape_timeout"])
+					if !hasExplicitTimeout {
+						timeoutDisplay = fmt.Sprintf("%.0fs (global)", jobTimeoutSec)
+					}
+					intervalDisplay := fmt.Sprintf("%v", jobMap["scrape_interval"])
+					if !hasExplicitInterval {
+						intervalDisplay = fmt.Sprintf("%.0fs (global)", jobIntervalSec)
+					}
+					issues = append(issues, PrometheusValidationIssue{
+						Type:    "error",
+						Message: fmt.Sprintf("Job '%s': scrape timeout (%s) is greater than scrape interval (%s). Prometheus requires scrape_timeout <= scrape_interval.", jobName, timeoutDisplay, intervalDisplay),
+					})
+				}
+
 				if stRaw, ok := jobMap["static_configs"]; ok {
 					if stList, ok := stRaw.([]interface{}); ok {
 						targetsSeen := make(map[string]bool)
@@ -917,6 +961,15 @@ func (s *PrometheusService) ValidateYAML(ctx context.Context, content string, in
 								if tl == "" {
 									continue
 								}
+								// Strip internal check file prefix if present for cleaner error message
+								if strings.Contains(tl, "prom_check_") {
+									if idx := strings.LastIndex(tl, ": "); idx != -1 {
+										cleaned := strings.TrimSpace(tl[idx+2:])
+										if cleaned != "" {
+											tl = cleaned
+										}
+									}
+								}
 								if strings.Contains(tl, "does not point to an existing file") || strings.Contains(tl, "no such file or directory") {
 									missingFileNotices = append(missingFileNotices, tl)
 								} else if strings.Contains(strings.ToLower(tl), "failed") {
@@ -994,4 +1047,37 @@ func isValidPrometheusDuration(v string) bool {
 	}
 	re := regexp.MustCompile(`^[0-9]+(\.[0-9]+)?(ms|s|m|h|d|w|y)$`)
 	return re.MatchString(v)
+}
+
+func parsePromDurationSeconds(v string) float64 {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	re := regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)(ms|s|m|h|d|w|y)$`)
+	matches := re.FindStringSubmatch(v)
+	if len(matches) < 3 {
+		return 0
+	}
+	var num float64
+	fmt.Sscanf(matches[1], "%f", &num)
+	unit := matches[2]
+	switch unit {
+	case "ms":
+		return num / 1000.0
+	case "s":
+		return num
+	case "m":
+		return num * 60.0
+	case "h":
+		return num * 3600.0
+	case "d":
+		return num * 86400.0
+	case "w":
+		return num * 604800.0
+	case "y":
+		return num * 31536000.0
+	default:
+		return num
+	}
 }
