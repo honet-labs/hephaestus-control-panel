@@ -103,10 +103,25 @@ const validationResult = ref<{
   line?: number;
 } | null>(null);
 
+let validationDismissTimer: any = null;
 // Reset validation result when YAML content changes
 watch(yamlContent, () => {
   if (validationResult.value) {
     validationResult.value = null;
+  }
+});
+
+// Auto-dismiss successful validation banner after 5 seconds
+watch(validationResult, (newVal) => {
+  if (validationDismissTimer) {
+    clearTimeout(validationDismissTimer);
+    validationDismissTimer = null;
+  }
+  if (newVal && newVal.valid) {
+    validationDismissTimer = setTimeout(() => {
+      validationResult.value = null;
+      validationDismissTimer = null;
+    }, 5000);
   }
 });
 
@@ -514,42 +529,34 @@ const validateConfig = async () => {
 
     if (res.data?.success && res.data.data) {
       validationResult.value = res.data.data;
-      if (res.data.data.valid) {
-        feedbackMsg.value = {
-          type: 'success',
-          title: 'Validate OK',
-          detail: res.data.data.message || 'Configuration is valid and ready to apply.',
-        };
-      } else {
-        feedbackMsg.value = {
-          type: 'error',
-          title: 'Validation Failed',
-          detail: res.data.data.message || 'OpenTelemetry collector detected configuration errors.',
-        };
+      if (!res.data.data.valid) {
         const errLine = res.data.data.line || extractLineFromError(res.data.data.error || res.data.data.output || '');
         if (errLine) {
           setTimeout(() => jumpToLine(errLine), 60);
         }
       }
     } else {
-      feedbackMsg.value = {
-        type: 'error',
-        title: 'Validation Failed',
-        detail: res.data?.error || 'Validation command encountered an error.',
+      const errMsg = res.data?.error || 'Validation command encountered an error.';
+      const errLine = extractLineFromError(errMsg);
+      validationResult.value = {
+        valid: false,
+        message: 'Validation failed',
+        error: errMsg,
+        line: errLine,
       };
-      const errLine = extractLineFromError(res.data?.error || '');
       if (errLine) {
         setTimeout(() => jumpToLine(errLine), 60);
       }
     }
   } catch (err: any) {
     const errMsg = err.response?.data?.error || err.message || 'Failed to connect to host for validation.';
-    feedbackMsg.value = {
-      type: 'error',
-      title: 'Validation Error',
-      detail: errMsg,
-    };
     const errLine = extractLineFromError(errMsg);
+    validationResult.value = {
+      valid: false,
+      message: 'Validation failed',
+      error: errMsg,
+      line: errLine,
+    };
     if (errLine) {
       setTimeout(() => jumpToLine(errLine), 60);
     }
