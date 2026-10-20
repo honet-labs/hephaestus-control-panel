@@ -1125,9 +1125,6 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     session.connecting = false;
     session.connected = false;
     stopSessionHeartbeat(session);
-    if (!document.hidden && (!session.reconnectAttempts || session.reconnectAttempts <= 1)) {
-      session.term?.write('\r\n\x1b[31m[WebSocket connection dropped]\x1b[0m\r\n');
-    }
   };
 };
 

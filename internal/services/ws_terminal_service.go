@@ -134,7 +134,14 @@ func (p *persistentSSHSession) startKeepAlive() {
 				// 1. Send non-blocking OpenSSH keepalive to target VPS
 				_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
 
-				// 2. Send ping to WebSocket / Cloudflare Tunnel if WebSocket is active
+				// 2. Send native WebSocket Ping control frame (Opcode 0x9) for Cloudflare Tunnel / Edge keepalive
+				p.wsMu.Lock()
+				if p.activeWs != nil {
+					_ = p.activeWs.WriteControl(websocket.PingMessage, []byte("hcp"), time.Now().Add(5*time.Second))
+				}
+				p.wsMu.Unlock()
+
+				// 3. Send application ping to WebSocket client
 				_ = p.writeWs(domain.WsTerminalMessage{Type: "ping"})
 			}
 		}
