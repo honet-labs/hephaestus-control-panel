@@ -3,6 +3,8 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"go-hephaestus/internal/services"
 
