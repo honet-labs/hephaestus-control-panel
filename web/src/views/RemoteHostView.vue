@@ -806,7 +806,7 @@ const clearTerminal = (session: OpenSession) => {
 };
 
 // Terminal Font Size & Zoom Controls
-const DEFAULT_TERMINAL_FONT_SIZE = 13;
+const DEFAULT_TERMINAL_FONT_SIZE = 15;
 const MIN_TERMINAL_FONT_SIZE = 9;
 const MAX_TERMINAL_FONT_SIZE = 28;
 
@@ -816,6 +816,11 @@ const loadTerminalFontSize = (): number => {
     if (saved) {
       const parsed = parseInt(saved, 10);
       if (!isNaN(parsed) && parsed >= MIN_TERMINAL_FONT_SIZE && parsed <= MAX_TERMINAL_FONT_SIZE) {
+        // Automatically migrate users from older default (13px or 14px) to the new 15px default
+        if (parsed === 13 || parsed === 14) {
+          localStorage.setItem('hcp_terminal_font_size', String(DEFAULT_TERMINAL_FONT_SIZE));
+          return DEFAULT_TERMINAL_FONT_SIZE;
+        }
         return parsed;
       }
     }
@@ -4149,7 +4154,7 @@ onUnmounted(() => {
                   </button>
                   <button
                     @click="resetZoomTerminal"
-                    title="Reset Zoom to 13px (Ctrl + 0)"
+                    title="Reset Zoom to 15px (Ctrl + 0)"
                     class="px-2 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-semibold transition cursor-pointer text-[10px]"
                   >
                     {{ terminalFontSize }}px
