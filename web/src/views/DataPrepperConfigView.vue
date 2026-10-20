@@ -465,8 +465,25 @@ const confirmDelete = async () => {
   }
 };
 
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const textarea = editorRef.value;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const spaces = '  ';
+
+    yamlContent.value = yamlContent.value.substring(0, start) + spaces + yamlContent.value.substring(end);
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + spaces.length;
+    }, 0);
+  }
+};
+
 const lineNumbers = computed(() => {
-  if (!yamlContent.value) return [];
+  if (!yamlContent.value) return Array.from({ length: 20 }, (_, i) => i + 1);
   const count = yamlContent.value.split('\n').length;
   return Array.from({ length: Math.max(count, 20) }, (_, i) => i + 1);
 });
@@ -679,8 +696,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- YAML Code Editor Card (Only shown when instance and pipeline exists) -->
-    <div v-if="instances.length > 0 && yamlContent" class="bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm flex flex-col">
+    <!-- YAML Code Editor Card (Shown whenever an instance and pipeline file is selected, even if empty) -->
+    <div v-if="instances.length > 0 && selectedPipelineFile" class="bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm flex flex-col">
       <!-- Editor Top Sub-bar -->
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-[#1b2234] bg-slate-50 dark:bg-[#121826] text-xs">
         <div class="flex items-center gap-2">
@@ -764,8 +781,10 @@ onMounted(() => {
             v-model="yamlContent"
             :readonly="!canManage"
             @scroll="syncScroll"
+            @keydown="handleKeyDown"
             class="flex-1 p-3 bg-white dark:bg-transparent text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none resize-none font-mono text-[11px] leading-relaxed whitespace-pre overflow-y-auto selection:bg-blue-500/20 dark:selection:bg-blue-600/40 outline-none"
             style="border: none !important; box-shadow: none !important;"
+            placeholder="# Paste or type Data Prepper pipeline YAML configuration..."
             spellcheck="false"
           ></textarea>
         </div>
