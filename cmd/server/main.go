@@ -389,6 +389,7 @@ func main() {
 		// Data Prepper (Feature: dataprepper_config)
 		api.GET("/dataprepper/pipelines", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ListPipelines)
 		api.GET("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.GetPipelineFile)
+		api.GET("/dataprepper/pipeline/history", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ListHistory)
 		api.POST("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.SavePipelineFile)
 		api.DELETE("/dataprepper/pipeline", middleware.RequirePermission("dataprepper_config", "manage"), dpHandler.DeletePipelineFile)
 		api.POST("/dataprepper/validate", middleware.RequirePermission("dataprepper_config", "read"), dpHandler.ValidateYAML)

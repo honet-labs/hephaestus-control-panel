@@ -14,6 +14,7 @@ import (
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -229,7 +230,71 @@ type DataPrepperSaveResult struct {
 	Restart ServiceRestartResult `json:"restart"`
 }
 
-func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, fileName, content string) (*DataPrepperSaveResult, error) {
+type DataPrepperHistoryItem struct {
+	ID            string    `json:"id"`
+	InstanceID    string    `json:"instanceId"`
+	PipelineFile  string    `json:"pipelineFile"`
+	Content       string    `json:"content"`
+	CreatedBy     string    `json:"createdBy"`
+	ChangeSummary string    `json:"changeSummary"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+// SaveHistory records a backup of configuration content
+func (s *DataPrepperService) SaveHistory(ctx context.Context, h DataPrepperHistoryItem) error {
+	pool, err := database.GetPool()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(h.ID) == "" {
+		h.ID = uuid.New().String()
+	}
+	query := `
+		INSERT INTO dataprepper_pipeline_history (id, instance_id, pipeline_file, content, created_by, change_summary, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+	`
+	_, err = pool.Exec(ctx, query, h.ID, h.InstanceID, h.PipelineFile, h.Content, h.CreatedBy, h.ChangeSummary)
+	return err
+}
+
+// ListHistory returns version history snapshots for a given pipeline file
+func (s *DataPrepperService) ListHistory(ctx context.Context, instanceID, fileName string, limit int) ([]DataPrepperHistoryItem, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+	cleanFileName := filepath.Base(fileName)
+	query := `
+		SELECT id, instance_id, pipeline_file, content, COALESCE(created_by, ''), COALESCE(change_summary, ''), created_at
+		FROM dataprepper_pipeline_history
+		WHERE instance_id = $1 AND pipeline_file = $2
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+	rows, err := pool.Query(ctx, query, instanceID, cleanFileName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []DataPrepperHistoryItem
+	for rows.Next() {
+		var item DataPrepperHistoryItem
+		if err := rows.Scan(&item.ID, &item.InstanceID, &item.PipelineFile, &item.Content, &item.CreatedBy, &item.ChangeSummary, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, item)
+	}
+	if list == nil {
+		list = []DataPrepperHistoryItem{}
+	}
+	return list, nil
+}
+
+func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, fileName, content string, username string, changeSummary string) (*DataPrepperSaveResult, error) {
 	cfg, err := s.GetActiveConfig(ctx, instanceID)
 	if err != nil {
 		return nil, err
@@ -237,6 +302,26 @@ func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, f
 
 	cleanFileName := filepath.Base(fileName)
 	targetPath := filepath.ToSlash(filepath.Join(cfg.PipelinesDir, cleanFileName))
+
+	// Backup current file to history before writing new content
+	oldContent, _ := s.GetPipelineFile(ctx, instanceID, cleanFileName)
+	if strings.TrimSpace(oldContent) != "" {
+		summary := changeSummary
+		if strings.TrimSpace(summary) == "" {
+			if username != "" {
+				summary = fmt.Sprintf("Automatic backup before deploy by %s", username)
+			} else {
+				summary = "Automatic backup before deploy"
+			}
+		}
+		_ = s.SaveHistory(ctx, DataPrepperHistoryItem{
+			InstanceID:    instanceID,
+			PipelineFile:  cleanFileName,
+			Content:       oldContent,
+			CreatedBy:     username,
+			ChangeSummary: summary,
+		})
+	}
 
 	mode := strings.ToLower(cfg.Mode)
 	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {

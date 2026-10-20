@@ -445,6 +445,17 @@ CREATE TABLE IF NOT EXISTS opentelemetry_config_history (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS dataprepper_pipeline_history (
+    id VARCHAR(50) PRIMARY KEY,
+    instance_id VARCHAR(50) NOT NULL,
+    pipeline_file VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    created_by VARCHAR(100),
+    change_summary VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_dp_history_instance_file ON dataprepper_pipeline_history(instance_id, pipeline_file);
+
 -- 26. VaultwardenConfigs - Vaultwarden / Bitwarden service integration configuration
 CREATE TABLE IF NOT EXISTS vaultwarden_configs (
     id VARCHAR(50) PRIMARY KEY,

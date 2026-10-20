@@ -1687,60 +1687,78 @@ onMounted(async () => {
       v-if="showHistoryModal"
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
     >
-      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        <div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#161d2d]/50">
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-5xl h-[85vh] min-h-[580px] shadow-2xl overflow-hidden flex flex-col">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#1b2234] bg-slate-50/50 dark:bg-[#161d2d]/50 shrink-0">
           <div class="flex items-center gap-2">
             <History class="w-4 h-4 text-slate-400 dark:text-slate-500" />
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">Configuration History & Rollbacks</h2>
+            <span v-if="historyList.length > 0" class="text-xs text-slate-400">({{ historyList.length }} snapshots)</span>
           </div>
           <button @click="showHistoryModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-12 flex-1 overflow-hidden">
+        <div class="grid grid-cols-1 md:grid-cols-12 flex-1 min-h-0 overflow-hidden">
           <!-- Left history list -->
-          <div class="md:col-span-5 border-r border-slate-200 dark:border-[#1b2234] overflow-y-auto p-2 space-y-1 max-h-[500px]">
-            <div v-if="historyList.length === 0 && !loadingHistory" class="p-6 text-center text-xs text-slate-500">
-              No version history recorded yet. Snapshots are created automatically upon every config save.
+          <div class="md:col-span-4 border-r border-slate-200 dark:border-[#1b2234] overflow-y-auto p-3 space-y-2 h-full bg-slate-50/30 dark:bg-[#0c1019]">
+            <div v-if="loadingHistory" class="p-8 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+              <Loader2 class="w-5 h-5 animate-spin text-slate-500" />
+              <span>Loading version history...</span>
+            </div>
+            <div v-else-if="historyList.length === 0" class="p-8 text-center text-xs text-slate-500">
+              No version history recorded yet. Snapshots are created automatically before every config deployment.
             </div>
             <div
+              v-else
               v-for="item in historyList"
               :key="item.id"
               @click="previewHistoryItem = item"
               :class="[
-                previewHistoryItem?.id === item.id ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800' : 'bg-transparent border-transparent hover:bg-slate-50 dark:hover:bg-[#121826]',
-                'p-2.5 rounded-xl border transition cursor-pointer text-left space-y-1'
+                previewHistoryItem?.id === item.id 
+                  ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 shadow-xs' 
+                  : 'bg-white dark:bg-[#121826] border-slate-200 dark:border-[#1b2234] hover:border-slate-300 dark:hover:border-slate-700',
+                'p-3 rounded-xl border transition cursor-pointer text-left space-y-1'
               ]"
             >
               <div class="flex items-center justify-between text-[11px]">
                 <span class="font-bold text-slate-800 dark:text-slate-200 font-mono">{{ formatDate(item.createdAt) }}</span>
               </div>
-              <p class="text-[11px] text-slate-500 truncate">{{ item.changeSummary || 'Automatic backup before deploy' }}</p>
-              <span class="text-[9px] text-slate-400">By {{ item.createdBy || 'system' }}</span>
+              <p class="text-xs text-slate-600 dark:text-slate-400 truncate">{{ item.changeSummary || 'Automatic backup before deploy' }}</p>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                <span>By {{ item.createdBy || 'system' }}</span>
+                <span>{{ (item.content?.length || 0).toLocaleString() }} bytes</span>
+              </div>
             </div>
           </div>
 
           <!-- Right preview container -->
-          <div class="md:col-span-7 p-3 flex flex-col bg-slate-50 dark:bg-[#0a0d15] text-slate-800 dark:text-slate-200 font-mono text-[11px] max-h-[500px]">
-            <div v-if="previewHistoryItem" class="flex-1 flex flex-col space-y-2 overflow-hidden">
-              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                <span class="text-slate-500 dark:text-slate-400 text-[10px]">Snapshot Preview ({{ previewHistoryItem.content.length }} bytes)</span>
+          <div class="md:col-span-8 p-4 flex flex-col bg-slate-50 dark:bg-[#0a0d15] text-slate-800 dark:text-slate-200 font-mono text-[11px] h-full min-h-0">
+            <div v-if="previewHistoryItem" class="flex-1 min-h-0 flex flex-col space-y-3">
+              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5 shrink-0">
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans">Snapshot Preview</span>
+                    <span class="text-[10px] text-slate-500 font-mono">{{ (previewHistoryItem.content?.length || 0).toLocaleString() }} bytes</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400 font-sans">{{ formatDate(previewHistoryItem.createdAt) }} — {{ previewHistoryItem.changeSummary || 'Automatic backup' }}</p>
+                </div>
                 <button
                   @click="restoreHistoryVersion(previewHistoryItem)"
-                  class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold transition cursor-pointer"
+                  class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs font-sans"
                 >
-                  Restore This Version
+                  <RotateCw class="w-3.5 h-3.5" />
+                  <span>Restore This Version</span>
                 </button>
               </div>
               <textarea
                 readonly
                 :value="previewHistoryItem.content"
-                class="flex-1 w-full bg-white dark:bg-transparent text-slate-800 dark:text-slate-200 resize-none p-2 focus:outline-none text-[11px] leading-relaxed overflow-y-auto whitespace-pre font-mono"
-                style="border: none !important; box-shadow: none !important;"
+                class="flex-1 min-h-0 w-full bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-xl text-slate-800 dark:text-slate-200 resize-none p-3.5 focus:outline-none text-xs leading-relaxed overflow-y-auto whitespace-pre font-mono shadow-inner"
               ></textarea>
             </div>
-            <div v-else class="flex-1 flex items-center justify-center text-slate-500 italic">
+            <div v-else class="flex-1 flex items-center justify-center text-slate-500 italic font-sans text-xs">
               Select a version snapshot to preview.
             </div>
           </div>
