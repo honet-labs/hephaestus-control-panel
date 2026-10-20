@@ -114,6 +114,33 @@ func (h *DataPrepperHandler) DeletePipelineFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Pipeline '%s' deleted and Data Prepper service restarted.", file)})
 }
 
+func (h *DataPrepperHandler) RenamePipelineFile(c *gin.Context) {
+	var req struct {
+		InstanceID string `json:"instanceId"`
+		OldFile    string `json:"oldFile" binding:"required"`
+		NewFile    string `json:"newFile" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	cleanNew := filepath.Base(strings.TrimSpace(req.NewFile))
+	if !strings.HasSuffix(cleanNew, ".yaml") && !strings.HasSuffix(cleanNew, ".yml") {
+		cleanNew += ".yaml"
+	}
+
+	if err := h.dpService.RenamePipelineFile(c.Request.Context(), req.InstanceID, req.OldFile, cleanNew); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"newFile": cleanNew,
+		"message": fmt.Sprintf("Pipeline '%s' renamed to '%s' successfully.", req.OldFile, cleanNew),
+	})
+}
+
 func (h *DataPrepperHandler) ValidateYAML(c *gin.Context) {
 	var req struct {
 		Content string `json:"content"`

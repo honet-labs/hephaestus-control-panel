@@ -388,6 +388,75 @@ func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID,
 	return nil
 }
 
+// RenamePipelineFile renames an existing pipeline file and updates historical references
+func (s *DataPrepperService) RenamePipelineFile(ctx context.Context, instanceID, oldFileName, newFileName string) error {
+	cfg, err := s.GetActiveConfig(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	cleanOld := filepath.Base(strings.TrimSpace(oldFileName))
+	cleanNew := filepath.Base(strings.TrimSpace(newFileName))
+
+	if cleanOld == "" || cleanOld == "." || cleanOld == "/" {
+		return fmt.Errorf("invalid current pipeline file name")
+	}
+	if cleanNew == "" || cleanNew == "." || cleanNew == "/" {
+		return fmt.Errorf("invalid new pipeline file name")
+	}
+
+	// Ensure extension is .yaml or .yml
+	if !strings.HasSuffix(cleanNew, ".yaml") && !strings.HasSuffix(cleanNew, ".yml") {
+		cleanNew += ".yaml"
+	}
+
+	if cleanOld == cleanNew {
+		return nil
+	}
+
+	oldPath := filepath.ToSlash(filepath.Join(cfg.PipelinesDir, cleanOld))
+	newPath := filepath.ToSlash(filepath.Join(cfg.PipelinesDir, cleanNew))
+
+	mode := strings.ToLower(cfg.Mode)
+	if mode == "local" || cfg.SSHHost == nil || *cfg.SSHHost == "" {
+		if _, err := os.Stat(newPath); err == nil {
+			return fmt.Errorf("target file '%s' already exists", cleanNew)
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return fmt.Errorf("failed to rename local file from '%s' to '%s': %w", cleanOld, cleanNew, err)
+		}
+	} else {
+		remoteCfg := s.makeRemoteHostConfig(cfg)
+		// Check if target file already exists remotely
+		checkCmd := fmt.Sprintf("test -f '%s' && echo 'EXISTS' || echo 'NOT_FOUND'", newPath)
+		stdout, _, _, err := s.sshService.ExecuteElevatedCommand(remoteCfg, checkCmd)
+		if err == nil && strings.TrimSpace(stdout) == "EXISTS" {
+			return fmt.Errorf("target file '%s' already exists on remote host", cleanNew)
+		}
+
+		// Perform elevated rename
+		mvCmd := fmt.Sprintf("_run_sudo mv '%s' '%s'", oldPath, newPath)
+		_, stderr, exitCode, err := s.sshService.ExecuteElevatedCommand(remoteCfg, mvCmd)
+		if err != nil || exitCode != 0 {
+			return fmt.Errorf("failed to rename remote file: %s (exit code %d)", stderr, exitCode)
+		}
+	}
+
+	// Update historical records to reflect new file name
+	pool, err := database.GetPool()
+	if err == nil {
+		_, _ = pool.Exec(ctx, `
+			UPDATE dataprepper_pipeline_history 
+			SET pipeline_file = $1 
+			WHERE instance_id = $2 AND pipeline_file = $3
+		`, cleanNew, instanceID, cleanOld)
+	}
+
+	// Restart service to load the renamed pipeline
+	_ = s.RestartService(ctx, cfg)
+	return nil
+}
+
 // RestartService restarts the Data Prepper service via systemd or docker
 func (s *DataPrepperService) RestartService(ctx context.Context, cfg *domain.DataPrepperConfig) ServiceRestartResult {
 	result := ServiceRestartResult{Attempted: true}

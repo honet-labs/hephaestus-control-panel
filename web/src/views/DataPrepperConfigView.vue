@@ -15,6 +15,7 @@ import {
   History,
   X,
   Loader2,
+  Edit3,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -106,6 +107,51 @@ const restoreHistoryVersion = (item: DataPrepperHistoryItem) => {
   showHistoryModal.value = false;
   validationMessage.value = `Snapshot from ${formatDate(item.createdAt)} restored into editor. Click "SAVE & RESTART" to apply.`;
   isValidationSuccess.value = true;
+};
+
+// Rename File
+const showRenameModal = ref(false);
+const renameTargetOld = ref('');
+const renameTargetNew = ref('');
+const renaming = ref(false);
+const renameError = ref<string | null>(null);
+
+const openRenameModal = () => {
+  if (!selectedPipelineFile.value) return;
+  renameTargetOld.value = selectedPipelineFile.value;
+  renameTargetNew.value = selectedPipelineFile.value;
+  renameError.value = null;
+  showRenameModal.value = true;
+};
+
+const executeRename = async () => {
+  if (!renameTargetNew.value.trim() || !selectedInstanceId.value) return;
+  renaming.value = true;
+  renameError.value = null;
+
+  try {
+    const res = await axios.post('/api/v1/dataprepper/pipeline/rename', {
+      instanceId: selectedInstanceId.value,
+      oldFile: renameTargetOld.value,
+      newFile: renameTargetNew.value.trim(),
+    });
+
+    if (res.data?.success) {
+      const newName = res.data.newFile || renameTargetNew.value.trim();
+      showRenameModal.value = false;
+      validationMessage.value = res.data.message || `Pipeline renamed to "${newName}" successfully.`;
+      isValidationSuccess.value = true;
+      await fetchPipelineFiles();
+      selectedPipelineFile.value = newName;
+      await loadPipelineContent(newName);
+    } else {
+      renameError.value = res.data?.error || 'Failed to rename file.';
+    }
+  } catch (err: any) {
+    renameError.value = err.response?.data?.error || err.message || 'Failed to rename file.';
+  } finally {
+    renaming.value = false;
+  }
 };
 
 // Auto-dismiss notification after 3 seconds
@@ -427,6 +473,16 @@ onMounted(() => {
 
           <button
             v-if="canManage && pipelineFiles.length > 0 && selectedPipelineFile"
+            @click="openRenameModal"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+            title="Rename selected pipeline file"
+          >
+            <Edit3 class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <span>RENAME FILE</span>
+          </button>
+
+          <button
+            v-if="canManage && pipelineFiles.length > 0 && selectedPipelineFile"
             @click="handleDeleteClick"
             :disabled="deleting || loading"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-300 disabled:cursor-not-allowed shadow-xs"
@@ -473,7 +529,17 @@ onMounted(() => {
       <div v-else-if="instances.length > 0 && yamlContent" class="space-y-3">
         <!-- Editor Header Toolbar -->
         <div class="flex items-center justify-between text-xs flex-wrap gap-2">
-          <span class="font-mono text-slate-800 dark:text-slate-200 font-bold text-xs">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-slate-800 dark:text-slate-200 font-bold text-xs">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
+            <button
+              v-if="canManage && selectedPipelineFile"
+              @click="openRenameModal"
+              class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+              title="Rename file"
+            >
+              <Edit3 class="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           <div class="flex items-center gap-2 flex-wrap">
             <button
@@ -714,6 +780,67 @@ onMounted(() => {
               Select a version snapshot to preview.
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+    <!-- ==================== RENAME FILE MODAL ==================== -->
+    <div
+      v-if="showRenameModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
+          <div class="flex items-center gap-2">
+            <Edit3 class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Rename Pipeline File</h3>
+          </div>
+          <button @click="showRenameModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <div class="space-y-1">
+            <label class="text-xs text-slate-500 dark:text-slate-400">Current Filename</label>
+            <div class="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-[#0f1219] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 truncate">
+              {{ renameTargetOld }}
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs text-slate-700 dark:text-slate-300 font-medium">New Filename</label>
+            <input
+              v-model="renameTargetNew"
+              @keydown.enter="executeRename"
+              type="text"
+              placeholder="e.g. otc-docker-logs.yaml"
+              class="w-full font-mono text-xs px-3 py-2 bg-white dark:bg-[#0a0d15] border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              autofocus
+            />
+            <p class="text-[11px] text-slate-400">Must end with .yaml or .yml. Data Prepper service will restart automatically.</p>
+          </div>
+
+          <div v-if="renameError" class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-500 text-xs font-medium">
+            {{ renameError }}
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-[#1b2234]">
+          <button
+            @click="showRenameModal = false"
+            class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            @click="executeRename"
+            :disabled="renaming || !renameTargetNew.trim() || renameTargetNew.trim() === renameTargetOld"
+            class="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            <Loader2 v-if="renaming" class="w-3.5 h-3.5 animate-spin" />
+            <Edit3 v-else class="w-3.5 h-3.5" />
+            <span>{{ renaming ? 'Renaming...' : 'Rename File' }}</span>
+          </button>
         </div>
       </div>
     </div>
