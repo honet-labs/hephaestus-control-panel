@@ -17,6 +17,9 @@ import {
   Loader2,
   Edit3,
   ArrowRight,
+  FileCode,
+  Copy,
+  CheckCircle2,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -172,11 +175,27 @@ watch(validationMessage, (newVal) => {
 });
 
 const yamlContent = ref('');
+const initialLoadedContent = ref('');
+const hasUnsavedChanges = computed(() => yamlContent.value !== initialLoadedContent.value);
 const saving = ref(false);
 const deleting = ref(false);
 const showDeleteConfirm = ref(false);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
 const gutterRef = ref<HTMLDivElement | null>(null);
+const copied = ref(false);
+
+const copyYamlToClipboard = async () => {
+  if (!yamlContent.value) return;
+  try {
+    await navigator.clipboard.writeText(yamlContent.value);
+    copied.value = true;
+    setTimeout(() => {
+      copied.value = false;
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to copy YAML:', e);
+  }
+};
 
 // Reset error line when content changes
 watch(yamlContent, () => {
@@ -287,11 +306,14 @@ const loadPipelineContent = async (fileName: string) => {
     const res = await axios.get(`/api/v1/dataprepper/pipeline?instanceId=${selectedInstanceId.value}&file=${encodeURIComponent(fileName)}`).catch(() => null);
     if (res && res.data && res.data.success && res.data.data?.content) {
       yamlContent.value = res.data.data.content;
+      initialLoadedContent.value = res.data.data.content;
     } else {
       yamlContent.value = `# Data Prepper Pipeline: ${fileName}\nversion: "2"\n`;
+      initialLoadedContent.value = yamlContent.value;
     }
   } catch (err) {
     yamlContent.value = `# Data Prepper Pipeline: ${fileName}\nversion: "2"\n`;
+    initialLoadedContent.value = yamlContent.value;
   } finally {
     loading.value = false;
   }
@@ -375,6 +397,7 @@ const handleSave = async () => {
       changeSummary: configSummary.value.trim() || undefined,
     });
     if (res.data?.success) {
+      initialLoadedContent.value = yamlContent.value;
       configSummary.value = '';
       const data = res.data.data;
       if (data?.restart) {
@@ -456,263 +479,270 @@ onMounted(() => {
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
-    <div class="border-b border-slate-800 pb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-tight">Data Prepper Pipelines</h1>
-        <p class="text-xs text-slate-400 mt-0.5">
-          Edit and validate Data Prepper pipeline YAML files.
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+          Data Prepper Pipelines
+        </h1>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          Edit, validate, and manage Data Prepper pipeline YAML configurations.
         </p>
       </div>
 
-      <!-- Go to Connections button -->
-      <button
-        @click="router.push('/connections')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-      >
-        <ExternalLink class="w-3.5 h-3.5" />
-        <span>GO TO CONNECTIONS</span>
-      </button>
+      <!-- Header Action Buttons -->
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          @click="fetchInstances"
+          :disabled="loading"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#121826] hover:bg-slate-50 dark:hover:bg-[#1a2336] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#1b2234] transition shadow-xs cursor-pointer disabled:opacity-50"
+          title="Refresh Data Prepper instances and pipelines"
+        >
+          <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
+          <span class="hidden sm:inline">Refresh</span>
+        </button>
+
+        <button
+          @click="router.push('/connections')"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+        >
+          <ExternalLink class="w-3.5 h-3.5" />
+          <span>Go to Connections</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Main Card Body -->
-    <div class="p-6 bg-[#171a23] border border-slate-800 rounded-2xl space-y-6 shadow-xl">
-      <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">DATA PREPPER PIPELINES</h2>
-
-      <!-- Top Controls: Instance & Pipeline File -->
-      <div class="space-y-4 text-xs">
-        <!-- Instance Dropdown Row -->
+    <!-- Top Controls: Instance & Pipeline File Management Card -->
+    <div class="bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl p-4 shadow-sm space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <!-- Left: Instance & Pipeline Dropdowns -->
         <div class="flex flex-wrap items-center gap-3">
-          <span class="text-slate-400 font-medium min-w-[140px]">Data Prepper Instance:</span>
-          
-          <select
-            v-if="instances.length > 0"
-            v-model="selectedInstanceId"
-            @change="fetchPipelineFiles"
-            class="bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-semibold focus:outline-none focus:border-brand-500 text-xs min-w-[240px]"
-          >
-            <option v-for="inst in instances" :key="inst.id" :value="inst.id">
-              {{ inst.name }}
-            </option>
-          </select>
-          <span v-else class="text-slate-500 italic">No Data Prepper connection registered</span>
+          <!-- Instance Selector -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Instance:</span>
+            <select
+              v-if="instances.length > 0"
+              v-model="selectedInstanceId"
+              @change="fetchPipelineFiles"
+              class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#222d42] rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-semibold focus:outline-none focus:border-blue-500 min-w-[200px]"
+            >
+              <option v-for="inst in instances" :key="inst.id" :value="inst.id">
+                {{ inst.name }}
+              </option>
+            </select>
+            <span v-else class="text-xs text-slate-400 italic">No connection registered</span>
+            <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-slate-100 dark:bg-[#192233] text-slate-600 dark:text-slate-400 text-[10px] font-mono border border-slate-200 dark:border-[#222d42]">
+              SSH
+            </span>
+          </div>
 
-          <button
-            @click="fetchInstances"
-            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-            title="Refresh Instances"
-          >
-            <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
-          </button>
+          <!-- Divider dot -->
+          <span v-if="instances.length > 0 && pipelineFiles.length > 0" class="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
 
-          <span v-if="instances.length > 0" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono border border-slate-700/60">
-            SSH
-          </span>
+          <!-- Pipeline File Selector -->
+          <div v-if="instances.length > 0" class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Pipeline:</span>
+            <select
+              v-if="pipelineFiles.length > 0"
+              v-model="selectedPipelineFile"
+              @change="loadPipelineContent(selectedPipelineFile)"
+              class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#222d42] rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-white font-mono font-semibold focus:outline-none focus:border-blue-500 min-w-[200px]"
+            >
+              <option v-for="file in pipelineFiles" :key="file" :value="file">
+                {{ file }}
+              </option>
+            </select>
+            <span v-else class="text-xs text-slate-400 italic">No pipelines found</span>
+          </div>
         </div>
 
-        <!-- Pipeline File Selector Row (Only when instances exist) -->
-        <div v-if="instances.length > 0" class="flex flex-wrap items-center gap-3">
-          <span class="text-slate-400 font-medium min-w-[140px]">Pipeline File:</span>
-
-          <select
-            v-if="pipelineFiles.length > 0"
-            v-model="selectedPipelineFile"
-            @change="loadPipelineContent(selectedPipelineFile)"
-            class="bg-[#0f1219] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono font-semibold focus:outline-none focus:border-brand-500 text-xs min-w-[240px]"
-          >
-            <option v-for="file in pipelineFiles" :key="file" :value="file">
-              {{ file }}
-            </option>
-          </select>
-          <span v-else class="text-slate-500 italic">No pipeline files found on remote host</span>
-
+        <!-- Right: Pipeline File Management Actions (Unified Single Place) -->
+        <div v-if="instances.length > 0" class="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <!-- New Pipeline -->
           <button
             v-if="canManage"
             @click="isCreatingNewFile = !isCreatingNewFile"
-            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+            title="Create new pipeline YAML file"
           >
-            <Plus class="w-3.5 h-3.5" />
-            <span>NEW FILE</span>
+            <Plus class="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>New Pipeline</span>
           </button>
 
+          <!-- Rename Pipeline -->
           <button
             v-if="canManage && pipelineFiles.length > 0 && selectedPipelineFile"
             @click="openRenameModal"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer"
             title="Rename selected pipeline file"
           >
             <Edit3 class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-            <span>RENAME FILE</span>
+            <span>Rename</span>
           </button>
 
+          <!-- History / Rollback -->
+          <button
+            v-if="pipelineFiles.length > 0 && selectedPipelineFile"
+            @click="openHistoryModal"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer"
+            title="View configuration snapshot history & rollback"
+          >
+            <History class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <span>History</span>
+          </button>
+
+          <!-- Delete Pipeline -->
           <button
             v-if="canManage && pipelineFiles.length > 0 && selectedPipelineFile"
             @click="handleDeleteClick"
             :disabled="deleting || loading"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-300 disabled:cursor-not-allowed shadow-xs"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-900/60 transition cursor-pointer disabled:opacity-50"
             title="Delete selected pipeline file"
           >
             <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-            <span class="text-rose-700 dark:text-rose-300 font-semibold">DELETE FILE</span>
-          </button>
-        </div>
-
-        <!-- New File Input Dialog Inline -->
-        <div v-if="isCreatingNewFile" class="flex items-center gap-2 p-3 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-xl max-w-md shadow-sm">
-          <input
-            v-model="newFileName"
-            placeholder="e.g. metrics-pipeline.yaml"
-            class="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 text-xs font-mono focus:outline-none"
-          />
-          <button @click="handleCreateFile" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold cursor-pointer">
-            Create
-          </button>
-          <button @click="isCreatingNewFile = false" class="px-2 py-1 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-xs cursor-pointer">
-            Cancel
+            <span>Delete</span>
           </button>
         </div>
       </div>
 
-      <!-- IF NO INSTANCE REGISTERED (Clean Empty State) -->
-      <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-white dark:bg-[#0e1118] border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-3 shadow-sm">
-        <Server class="w-8 h-8 text-slate-500 dark:text-slate-600 mx-auto mb-2" />
-        <p class="text-xs font-bold text-slate-900 dark:text-slate-300">No Data Prepper Connection Found</p>
-        <p class="text-[11px] text-slate-500 max-w-md mx-auto">
-          You have not registered any Data Prepper instance in Connections yet. Please add a Data Prepper connection first to manage pipelines.
-        </p>
-        <button
-          @click="router.push('/connections')"
-          class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2 cursor-pointer shadow-sm"
-        >
-          <Plus class="w-3.5 h-3.5" />
-          <span>Add Data Prepper Connection</span>
+      <!-- Inline New File Dialog -->
+      <div v-if="isCreatingNewFile" class="flex items-center gap-2 p-3 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#222d42] rounded-xl max-w-md shadow-xs animate-in fade-in">
+        <input
+          v-model="newFileName"
+          placeholder="e.g. metrics-pipeline.yaml"
+          class="flex-1 bg-white dark:bg-[#0a0d15] border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-900 dark:text-white placeholder-slate-400 text-xs font-mono focus:outline-none focus:border-blue-500"
+          @keyup.enter="handleCreateFile"
+        />
+        <button @click="handleCreateFile" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold cursor-pointer">
+          Create
+        </button>
+        <button @click="isCreatingNewFile = false" class="px-2 py-1 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-xs cursor-pointer">
+          Cancel
         </button>
       </div>
+    </div>
 
-      <!-- YAML Editor Box (Only shown when instance and pipeline exists) -->
-      <div v-else-if="instances.length > 0 && yamlContent" class="space-y-3">
-        <!-- Editor Header Toolbar -->
-        <div class="flex items-center justify-between text-xs flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-slate-800 dark:text-slate-200 font-bold text-xs">{{ selectedPipelineFile || 'pipeline.yaml' }}</span>
-            <button
-              v-if="canManage && selectedPipelineFile"
-              @click="openRenameModal"
-              class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
-              title="Rename file"
-            >
-              <Edit3 class="w-3.5 h-3.5" />
-            </button>
-            <button
-              v-if="validationErrorLine"
-              @click="jumpToErrorLine(validationErrorLine)"
-              class="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 dark:text-rose-400 text-[11px] font-mono font-bold cursor-pointer transition"
-              :title="'Jump to line ' + validationErrorLine"
-            >
-              <AlertTriangle class="w-3 h-3 text-rose-500" />
-              <span>Line {{ validationErrorLine }}</span>
-              <ArrowRight class="w-3 h-3" />
-            </button>
-          </div>
+    <!-- Empty State: No Instances Found -->
+    <div v-if="instances.length === 0 && !loading" class="p-12 text-center bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl space-y-3 shadow-sm">
+      <Server class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+      <p class="text-xs font-bold text-slate-900 dark:text-slate-300">No Data Prepper Connection Found</p>
+      <p class="text-[11px] text-slate-500 max-w-md mx-auto">
+        You have not registered any Data Prepper instance in Connections yet. Please add a Data Prepper connection first to manage pipelines.
+      </p>
+      <button
+        @click="router.push('/connections')"
+        class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition mt-2 cursor-pointer shadow-sm shadow-blue-500/20"
+      >
+        <Plus class="w-3.5 h-3.5" />
+        <span>Add Data Prepper Connection</span>
+      </button>
+    </div>
 
-          <div class="flex items-center gap-2 flex-wrap">
-            <button
-              @click="handleValidate"
-              class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-            >
-              <Check class="w-3.5 h-3.5 text-emerald-500" />
-              <span>VALIDATE</span>
-            </button>
+    <!-- Validation & Restart Feedback Banner -->
+    <div
+      v-if="validationMessage"
+      :class="[
+        'p-3.5 rounded-xl border text-xs font-mono space-y-1 animate-in fade-in transition-all duration-200 shadow-xs',
+        isValidationSuccess
+          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+          : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
+      ]"
+    >
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center gap-2 font-semibold">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="isValidationSuccess ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-rose-500 dark:bg-rose-400'"></span>
+          <span class="break-all">{{ validationMessage }}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            v-if="!isValidationSuccess && validationErrorLine"
+            @click="jumpToErrorLine(validationErrorLine)"
+            class="flex items-center gap-1 px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 font-bold text-xs transition cursor-pointer"
+            title="Jump to error line in editor"
+          >
+            <span>Jump to Line {{ validationErrorLine }}</span>
+            <ArrowRight class="w-3.5 h-3.5" />
+          </button>
+          <button
+            @click="validationMessage = null; restartResult = null; validationErrorLine = null;"
+            class="opacity-60 hover:opacity-100 p-0.5 cursor-pointer text-sm leading-none font-bold"
+            title="Close notification"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div v-if="restartResult?.output" class="text-[11px] text-slate-700 dark:text-slate-300 pl-4 border-l border-slate-300 dark:border-slate-700/50 mt-1">
+        Status: {{ restartResult.output }}
+      </div>
+      <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-700 dark:text-rose-400 pl-4 border-l border-rose-300 dark:border-rose-700/50 mt-1">
+        Error: {{ restartResult.error }}
+      </div>
+    </div>
 
-            <button
-              @click="handleReset"
-              class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-            >
-              <RotateCw class="w-3.5 h-3.5 text-slate-400" />
-              <span>RESET</span>
-            </button>
-
-            <button
-              v-if="pipelineFiles.length > 0 && selectedPipelineFile"
-              @click="openHistoryModal"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-              title="View configuration snapshot history & rollbacks"
-            >
-              <History class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>HISTORY</span>
-            </button>
-
-            <button
-              v-if="canManage"
-              @click="handleDeleteClick"
-              :disabled="deleting || loading || !selectedPipelineFile"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-300 dark:border-rose-800/60 transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-300 disabled:cursor-not-allowed shadow-xs"
-              title="Delete selected pipeline file"
-            >
-              <Trash2 class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-              <span class="text-rose-700 dark:text-rose-300 font-semibold">DELETE</span>
-            </button>
-
-            <button
-              v-if="canManage"
-              @click="handleSave"
-              :disabled="saving || loading"
-              class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition cursor-pointer shadow-sm"
-            >
-              <Loader2 v-if="saving" class="w-3.5 h-3.5 animate-spin" />
-              <Save v-else class="w-3.5 h-3.5" />
-              <span>{{ saving ? 'RESTARTING SERVICE...' : 'SAVE & RESTART' }}</span>
-            </button>
-          </div>
+    <!-- YAML Code Editor Card (Only shown when instance and pipeline exists) -->
+    <div v-if="instances.length > 0 && yamlContent" class="bg-white dark:bg-[#0e121d] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm flex flex-col">
+      <!-- Editor Top Sub-bar -->
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-[#1b2234] bg-slate-50 dark:bg-[#121826] text-xs">
+        <div class="flex items-center gap-2">
+          <FileCode class="w-4 h-4 text-slate-400 dark:text-slate-500" />
+          <span class="font-mono font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+            {{ selectedPipelineFile || 'pipeline.yaml' }}
+          </span>
+          <span v-if="hasUnsavedChanges" class="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+            Unsaved Changes
+          </span>
+          <span v-if="!canManage" class="text-[10px] font-mono font-bold px-2 py-0.2 rounded bg-slate-200 dark:bg-[#1c2436] text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-[#28354f]">
+            READ ONLY
+          </span>
         </div>
 
-        <!-- Validation & Restart Feedback Banner -->
-        <div
-          v-if="validationMessage"
-          :class="[
-            'p-3 rounded-lg border text-xs font-mono space-y-1 animate-in fade-in transition-all duration-200 shadow-xs',
-            isValidationSuccess
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
-              : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
-          ]"
-        >
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div class="flex items-center gap-2 font-semibold">
-              <span class="w-2 h-2 rounded-full shrink-0" :class="isValidationSuccess ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-rose-500 dark:bg-rose-400'"></span>
-              <span>{{ validationMessage }}</span>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <button
-                v-if="!isValidationSuccess && validationErrorLine"
-                @click="jumpToErrorLine(validationErrorLine)"
-                class="flex items-center gap-1 px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 font-bold text-xs transition cursor-pointer"
-                title="Jump to error line in editor"
-              >
-                <span>Jump to Line {{ validationErrorLine }}</span>
-                <ArrowRight class="w-3.5 h-3.5" />
-              </button>
-              <button
-                @click="validationMessage = null; restartResult = null; validationErrorLine = null;"
-                class="opacity-60 hover:opacity-100 p-0.5 cursor-pointer text-sm leading-none font-bold"
-                title="Close notification"
-              >
-                &times;
-              </button>
-            </div>
+        <!-- Status & Tool Actions -->
+        <div class="flex items-center gap-3">
+          <!-- YAML Validation Status Indicator -->
+          <div v-if="!validationErrorLine && isValidationSuccess && validationMessage" class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium font-mono">
+            <CheckCircle2 class="w-3.5 h-3.5" />
+            <span>Valid YAML</span>
           </div>
-          <div v-if="restartResult?.output" class="text-[11px] text-slate-700 dark:text-slate-300 pl-4 border-l border-slate-300 dark:border-slate-700/50 mt-1">
-            Status: {{ restartResult.output }}
-          </div>
-          <div v-if="restartResult && !restartResult.success && restartResult.error" class="text-[11px] text-rose-700 dark:text-rose-400 pl-4 border-l border-rose-300 dark:border-rose-700/50 mt-1">
-            Error: {{ restartResult.error }}
-          </div>
-        </div>
+          <button
+            v-else-if="validationErrorLine"
+            @click="jumpToErrorLine(validationErrorLine)"
+            class="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 text-[11px] font-medium font-mono cursor-pointer bg-rose-500/10 hover:bg-rose-500/20 px-2 py-0.5 rounded transition"
+            :title="'Click to jump to line ' + validationErrorLine"
+          >
+            <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+            <span class="truncate max-w-[280px]">Error on Line {{ validationErrorLine }}</span>
+            <ArrowRight class="w-3 h-3 shrink-0" />
+          </button>
 
-        <!-- Textarea Code Editor with Line Numbers -->
-        <div class="flex bg-[#0b0e14] border border-slate-800 rounded-xl overflow-hidden font-mono text-xs select-text shadow-inner h-[calc(100vh-320px)] min-h-[460px] relative">
+          <!-- Reset Button -->
+          <button
+            @click="handleReset"
+            class="flex items-center gap-1 px-2 py-1 rounded bg-slate-200/60 dark:bg-[#1c2436] hover:bg-slate-300 dark:hover:bg-[#253047] text-slate-700 dark:text-slate-300 text-[11px] font-semibold transition cursor-pointer"
+            title="Reset pipeline back to last saved version"
+          >
+            <RotateCw class="w-3 h-3 text-slate-500 dark:text-slate-400" />
+            <span>Reset</span>
+          </button>
+
+          <!-- Copy Button -->
+          <button
+            @click="copyYamlToClipboard"
+            class="flex items-center gap-1 px-2 py-1 rounded bg-slate-200/60 dark:bg-[#1c2436] hover:bg-slate-300 dark:hover:bg-[#253047] text-slate-700 dark:text-slate-300 text-[11px] font-semibold transition cursor-pointer"
+            title="Copy YAML to clipboard"
+          >
+            <component :is="copied ? Check : Copy" class="w-3 h-3" />
+            <span>{{ copied ? 'Copied' : 'Copy' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Textarea Code Editor Area -->
+      <div class="relative bg-white dark:bg-[#090d16] font-mono text-xs">
+        <div class="flex min-h-[460px] max-h-[600px] h-[calc(100vh-380px)]">
           <!-- Line Numbers Gutter -->
           <div
             ref="gutterRef"
-            class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 min-w-[50px] leading-relaxed overflow-hidden shrink-0 pointer-events-none"
+            class="w-12 py-3 bg-slate-100 dark:bg-[#070a10] border-r border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-right pr-2.5 select-none overflow-hidden shrink-0 font-mono text-[11px] leading-relaxed pointer-events-none"
           >
             <div
               v-for="n in lineNumbers"
@@ -720,7 +750,7 @@ onMounted(() => {
               :class="[
                 'leading-relaxed transition-colors px-1',
                 validationErrorLine === n
-                  ? 'bg-rose-500/30 text-rose-400 font-bold border-r-2 border-rose-500 -mr-3.5 pr-2.5'
+                  ? 'bg-rose-500/25 text-rose-600 dark:text-rose-400 font-bold border-r-2 border-rose-500 -mr-2.5 pr-2'
                   : ''
               ]"
             >
@@ -734,57 +764,78 @@ onMounted(() => {
             v-model="yamlContent"
             :readonly="!canManage"
             @scroll="syncScroll"
-            class="flex-1 bg-transparent p-3.5 text-sky-400 font-mono text-xs focus:outline-none resize-none leading-relaxed selection:bg-brand-500/30 overflow-y-auto overflow-x-auto whitespace-pre outline-none h-full"
+            class="flex-1 p-3 bg-white dark:bg-transparent text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none resize-none font-mono text-[11px] leading-relaxed whitespace-pre overflow-y-auto selection:bg-blue-500/20 dark:selection:bg-blue-600/40 outline-none"
+            style="border: none !important; box-shadow: none !important;"
             spellcheck="false"
           ></textarea>
         </div>
-
-        <!-- Optional Change Summary Note -->
-        <div v-if="canManage" class="flex items-center gap-2 pt-1">
-          <input
-            v-model="configSummary"
-            type="text"
-            placeholder="Optional change note for history log (e.g. Added OpenSearch sink index)"
-            class="w-full sm:max-w-md px-3 py-1.5 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-          />
-        </div>
       </div>
 
-    </div>
-
-    <!-- Delete Confirmation Modal -->
-    <div
-      v-if="showDeleteConfirm"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-    >
-      <div class="bg-[#171a23] border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 font-sans animate-in fade-in zoom-in-95 duration-150">
-        <div class="flex items-center gap-3">
-          <div class="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
-            <AlertTriangle class="w-5 h-5" />
-          </div>
-          <div>
-            <h3 class="text-sm font-bold text-white">Delete Pipeline File</h3>
-            <p class="text-xs text-slate-400">This action will permanently delete the file from the remote host.</p>
-          </div>
+      <!-- Bottom Deployment Action Bar (Clean layout like OpenTelemetry) -->
+      <div class="p-3 bg-slate-50 dark:bg-[#121826] border-t border-slate-200 dark:border-[#1b2234] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <!-- Left: Optional Change Note Input -->
+        <div class="flex-1 max-w-md">
+          <input
+            v-if="canManage"
+            v-model="configSummary"
+            type="text"
+            placeholder="Optional commit / change note (e.g. Added OpenSearch sink index)"
+            class="w-full px-3 py-1.5 bg-white dark:bg-[#0a0d15] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
+          />
         </div>
 
-        <p class="text-xs text-slate-300 leading-relaxed">
-          Are you sure you want to delete
-          <span class="font-mono font-semibold text-rose-300 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/60">{{ selectedPipelineFile }}</span>?
-        </p>
+        <!-- Right: Action Buttons -->
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            @click="handleValidate"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#161d2c] hover:bg-slate-100 dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer shadow-xs"
+            title="Validate YAML syntax"
+          >
+            <Check class="w-3.5 h-3.5 text-emerald-500" />
+            <span>Validate YAML</span>
+          </button>
 
-        <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+          <button
+            v-if="canManage"
+            @click="handleSave"
+            :disabled="saving || loading || !selectedPipelineFile"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer shadow-sm shadow-blue-500/20"
+          >
+            <Loader2 v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+            <Save v-else class="w-3.5 h-3.5" />
+            <span>{{ saving ? 'Saving & Restarting...' : 'Save & Restart' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal (Standard HCP Modal) -->
+    <div
+      v-if="showDeleteConfirm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Pipeline File?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200 font-mono">{{ selectedPipelineFile }}</strong>? This action cannot be undone.
+          </p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-2">
           <button
             @click="showDeleteConfirm = false"
             :disabled="deleting"
-            class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#20242e] dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+            class="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
             Cancel
           </button>
           <button
             @click="confirmDelete"
             :disabled="deleting"
-            class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition disabled:opacity-50"
+            class="flex items-center gap-1.5 px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
           >
             <Loader2 v-if="deleting" class="w-3.5 h-3.5 animate-spin" />
             <Trash2 v-else class="w-3.5 h-3.5" />
