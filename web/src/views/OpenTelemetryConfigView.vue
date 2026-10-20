@@ -26,6 +26,7 @@ import {
   Layers,
   ArrowRight,
   Info,
+  Loader2,
 } from 'lucide-vue-next';
 
 interface OTelHost {
@@ -1133,10 +1134,11 @@ onMounted(async () => {
                 <button
                   @click="validateConfig"
                   :disabled="validating"
-                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
+                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
                   title="Validate configuration syntax and schema with otelcol validate"
                 >
-                  <CheckCheck class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': validating }" />
+                  <Loader2 v-if="validating" class="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-slate-400" />
+                  <CheckCheck v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                   <span>{{ validating ? 'Validating...' : 'Validate Config' }}</span>
                 </button>
 
@@ -1145,11 +1147,12 @@ onMounted(async () => {
                   v-if="canManage"
                   @click="restartCurrentService('restart')"
                   :disabled="restartingService"
-                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
+                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
                   title="Restart systemd service immediately"
                 >
-                  <Play class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': restartingService }" />
-                  <span>Restart Agent</span>
+                  <Loader2 v-if="restartingService" class="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-slate-400" />
+                  <Play v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>{{ restartingService ? 'Restarting...' : 'Restart Agent' }}</span>
                 </button>
 
                 <!-- Presets dropdown button -->
@@ -1227,8 +1230,9 @@ onMounted(async () => {
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
                   title="Deploy changes and restart agent service"
                 >
-                  <Save class="w-3.5 h-3.5" :class="{ 'animate-spin': saving }" />
-                  <span>Deploy & Restart</span>
+                  <Loader2 v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+                  <Save v-else class="w-3.5 h-3.5" />
+                  <span>{{ saving ? 'Deploying...' : 'Deploy & Restart' }}</span>
                 </button>
                 <button
                   v-if="canManage"
@@ -1237,8 +1241,9 @@ onMounted(async () => {
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
                   title="Restart collector systemd service immediately"
                 >
-                  <Play class="w-3.5 h-3.5" :class="{ 'animate-spin': restartingService }" />
-                  <span>Restart Service Now</span>
+                  <Loader2 v-if="restartingService" class="w-3.5 h-3.5 animate-spin" />
+                  <Play v-else class="w-3.5 h-3.5" />
+                  <span>{{ restartingService ? 'Restarting...' : 'Restart Service Now' }}</span>
                 </button>
                 <button
                   @click="validationResult = null"
@@ -1392,7 +1397,8 @@ onMounted(async () => {
                     class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-bold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
                     title="Validate configuration syntax and schema with otelcol validate"
                   >
-                    <CheckCheck class="w-4 h-4 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': validating }" />
+                    <Loader2 v-if="validating" class="w-4 h-4 animate-spin text-slate-500 dark:text-slate-400" />
+                    <CheckCheck v-else class="w-4 h-4 text-slate-500 dark:text-slate-400" />
                     <span>{{ validating ? 'Validating...' : 'Validate Config' }}</span>
                   </button>
 
@@ -1401,7 +1407,8 @@ onMounted(async () => {
                     :disabled="saving || !yamlValidation.valid"
                     class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 active:scale-98 text-white text-xs font-bold transition shadow-sm shadow-blue-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save class="w-4 h-4" :class="{ 'animate-spin': saving }" />
+                    <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
+                    <Save v-else class="w-4 h-4" />
                     <span>{{ saving ? 'Deploying & Restarting...' : 'Deploy & Restart Agent' }}</span>
                   </button>
                 </div>
@@ -1605,7 +1612,8 @@ onMounted(async () => {
             :disabled="testingInModal"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#121826] hover:bg-slate-100 dark:hover:bg-[#1c2436] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#1b2234] transition cursor-pointer disabled:opacity-50"
           >
-            <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': testingInModal }" />
+            <Loader2 v-if="testingInModal" class="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-slate-400" />
+            <RotateCw v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             <span>{{ testingInModal ? 'Testing...' : 'Test Connection' }}</span>
           </button>
 
@@ -1621,9 +1629,10 @@ onMounted(async () => {
               type="button"
               @click="saveHostForm"
               :disabled="savingHost"
-              class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+              class="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
             >
-              {{ savingHost ? 'Saving...' : 'Save Host Profile' }}
+              <Loader2 v-if="savingHost" class="w-3.5 h-3.5 animate-spin" />
+              <span>{{ savingHost ? 'Saving...' : 'Save Host Profile' }}</span>
             </button>
           </div>
         </div>

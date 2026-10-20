@@ -4717,7 +4717,8 @@ onUnmounted(() => {
                     class="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition shadow flex items-center gap-1.5"
                     title="Stop / Disable Firewall Service on Remote Host"
                   >
-                    <StopCircle class="w-3.5 h-3.5" :class="{ 'animate-spin': isFirewallToggling }" />
+                    <Loader2 v-if="isFirewallToggling" class="w-3.5 h-3.5 animate-spin" />
+                    <StopCircle v-else class="w-3.5 h-3.5" />
                     <span>Disable Firewall</span>
                   </button>
                   <button
@@ -4727,7 +4728,8 @@ onUnmounted(() => {
                     class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition shadow flex items-center gap-1.5"
                     title="Start / Enable Firewall Service on Remote Host"
                   >
-                    <PlayCircle class="w-3.5 h-3.5" :class="{ 'animate-spin': isFirewallToggling }" />
+                    <Loader2 v-if="isFirewallToggling" class="w-3.5 h-3.5 animate-spin" />
+                    <PlayCircle v-else class="w-3.5 h-3.5" />
                     <span>Enable Firewall</span>
                   </button>
 
