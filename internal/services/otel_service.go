@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +38,7 @@ type OTelValidationResult struct {
 	Output  string `json:"output,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Binary  string `json:"binary,omitempty"`
+	Line    int    `json:"line,omitempty"`
 }
 
 type OTelHostStatusResult struct {
@@ -298,10 +301,13 @@ func (s *OTelService) ValidateConfig(ctx context.Context, id string, content str
 	if hasContent {
 		var yamlObj interface{}
 		if err := yaml.Unmarshal([]byte(content), &yamlObj); err != nil {
+			errStr := err.Error()
+			lineNum := extractOTelYAMLErrorLine(errStr)
 			return &OTelValidationResult{
 				Valid:   false,
-				Message: "YAML syntax error: " + err.Error(),
+				Message: "YAML syntax error: " + errStr,
 				Error:   fmt.Sprintf("YAML syntax error: %v", err),
+				Line:    lineNum,
 			}, nil
 		}
 	}
@@ -403,13 +409,37 @@ func (s *OTelService) ValidateConfig(ctx context.Context, id string, content str
 		errMsg = execErr.Error()
 	}
 
+	lineNum := extractOTelYAMLErrorLine(errMsg, cleanOutput, stderr)
+
 	return &OTelValidationResult{
 		Valid:   false,
 		Message: "Configuration validation failed",
 		Output:  cleanOutput,
 		Error:   errMsg,
 		Binary:  detectedBin,
+		Line:    lineNum,
 	}, nil
+}
+
+func extractOTelYAMLErrorLine(errStrings ...string) int {
+	re := regexp.MustCompile(`(?i)(?:line\s+(\d+)|\.ya?ml:(\d+))`)
+	for _, errStr := range errStrings {
+		if errStr == "" {
+			continue
+		}
+		matches := re.FindStringSubmatch(errStr)
+		if len(matches) > 1 {
+			if matches[1] != "" {
+				line, _ := strconv.Atoi(matches[1])
+				return line
+			}
+			if len(matches) > 2 && matches[2] != "" {
+				line, _ := strconv.Atoi(matches[2])
+				return line
+			}
+		}
+	}
+	return 0
 }
 
 // RestartService restarts or reloads the OpenTelemetry systemd service

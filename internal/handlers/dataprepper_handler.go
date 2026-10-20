@@ -156,6 +156,12 @@ func (h *DataPrepperHandler) ValidateYAML(c *gin.Context) {
 		content = req.Yaml
 	}
 
-	valid, msg := h.dpService.ValidateYAML(content)
-	c.JSON(http.StatusOK, gin.H{"success": true, "valid": valid, "message": msg})
+	valid, msg, line := h.dpService.ValidateYAML(content)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"valid":   valid,
+		"message": msg,
+		"error":   msg,
+		"line":    line,
+	})
 }

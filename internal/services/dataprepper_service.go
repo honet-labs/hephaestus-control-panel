@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -530,11 +532,29 @@ fi
 	return result
 }
 
-func (s *DataPrepperService) ValidateYAML(content string) (bool, string) {
+func (s *DataPrepperService) ValidateYAML(content string) (bool, string, int) {
 	var body interface{}
 	err := yaml.Unmarshal([]byte(content), &body)
 	if err != nil {
-		return false, fmt.Sprintf("YAML syntax error: %v", err)
+		errStr := err.Error()
+		line := extractYAMLErrorLine(errStr)
+		return false, fmt.Sprintf("YAML syntax error: %v", err), line
 	}
-	return true, "Valid YAML syntax"
+	return true, "Valid YAML syntax", 0
+}
+
+func extractYAMLErrorLine(errStr string) int {
+	re := regexp.MustCompile(`(?i)(?:line\s+(\d+)|\.ya?ml:(\d+))`)
+	matches := re.FindStringSubmatch(errStr)
+	if len(matches) > 1 {
+		if matches[1] != "" {
+			line, _ := strconv.Atoi(matches[1])
+			return line
+		}
+		if len(matches) > 2 && matches[2] != "" {
+			line, _ := strconv.Atoi(matches[2])
+			return line
+		}
+	}
+	return 0
 }

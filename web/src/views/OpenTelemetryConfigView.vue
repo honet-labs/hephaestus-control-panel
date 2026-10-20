@@ -100,6 +100,7 @@ const validationResult = ref<{
   output?: string;
   error?: string;
   binary?: string;
+  line?: number;
 } | null>(null);
 
 // Reset validation result when YAML content changes
@@ -197,7 +198,7 @@ const lineNumbers = computed(() => {
 // Real-time YAML Syntax Validation
 const yamlValidation = computed(() => {
   if (!yamlContent.value || !yamlContent.value.trim()) {
-    return { valid: true, error: null };
+    return { valid: true, error: null, line: null };
   }
 
   const lines = yamlContent.value.split('\n');
@@ -205,7 +206,7 @@ const yamlValidation = computed(() => {
     const line = lines[i];
     // Tab characters check
     if (line.includes('\t')) {
-      return { valid: false, error: `Line ${i + 1}: Tab characters are forbidden in YAML. Use spaces.` };
+      return { valid: false, error: `Line ${i + 1}: Tab characters are forbidden in YAML. Use spaces.`, line: i + 1 };
     }
     // Basic colon spacing check
     const trimmed = line.trim();
@@ -216,15 +217,62 @@ const yamlValidation = computed(() => {
         if (afterColon !== ' ' && afterColon !== '\n' && afterColon !== '\r') {
           // Could be url like http:// or port :8080, check if key:value
           if (!trimmed.includes('://')) {
-            return { valid: false, error: `Line ${i + 1}: Missing space after colon in key-value mapping.` };
+            return { valid: false, error: `Line ${i + 1}: Missing space after colon in key-value mapping.`, line: i + 1 };
           }
         }
       }
     }
   }
 
-  return { valid: true, error: null };
+  return { valid: true, error: null, line: null };
 });
+
+const extractLineFromError = (msg: string): number | null => {
+  if (!msg) return null;
+  const match = msg.match(/(?:line\s+(\d+)|\.ya?ml:(\d+))/i);
+  if (match) {
+    return parseInt(match[1] || match[2], 10);
+  }
+  return null;
+};
+
+const activeErrorLine = computed<number | null>(() => {
+  // If remote validation returned error with line
+  if (validationResult.value && !validationResult.value.valid) {
+    if (typeof validationResult.value.line === 'number' && validationResult.value.line > 0) {
+      return validationResult.value.line;
+    }
+    const extracted = extractLineFromError(validationResult.value.error || validationResult.value.output || '');
+    if (extracted) return extracted;
+  }
+  // Otherwise check local client-side validation
+  if (!yamlValidation.value.valid) {
+    if (yamlValidation.value.line) return yamlValidation.value.line;
+    if (yamlValidation.value.error) {
+      const extracted = extractLineFromError(yamlValidation.value.error);
+      if (extracted) return extracted;
+    }
+  }
+  return null;
+});
+
+const jumpToLine = (line: number) => {
+  if (!editorRef.value || line < 1) return;
+  const lines = yamlContent.value.split('\n');
+  let charIndex = 0;
+  for (let i = 0; i < Math.min(line - 1, lines.length); i++) {
+    charIndex += lines[i].length + 1;
+  }
+  const lineLength = lines[line - 1] ? lines[line - 1].length : 0;
+  editorRef.value.focus();
+  editorRef.value.setSelectionRange(charIndex, charIndex + lineLength);
+  const approxLineHeight = 20; // leading-5 is 20px
+  const targetScroll = Math.max(0, (line - 4) * approxLineHeight);
+  editorRef.value.scrollTop = targetScroll;
+  if (gutterRef.value) {
+    gutterRef.value.scrollTop = targetScroll;
+  }
+};
 
 // Filtered host list
 const filteredHosts = computed(() => {
@@ -449,6 +497,9 @@ const validateConfig = async () => {
       title: 'Invalid YAML Syntax',
       detail: yamlValidation.value.error || 'Please fix syntax errors before validating.',
     };
+    if (activeErrorLine.value) {
+      jumpToLine(activeErrorLine.value);
+    }
     return;
   }
 
@@ -473,8 +524,12 @@ const validateConfig = async () => {
         feedbackMsg.value = {
           type: 'error',
           title: 'Validation Failed',
-          detail: 'OpenTelemetry collector detected configuration errors.',
+          detail: res.data.data.message || 'OpenTelemetry collector detected configuration errors.',
         };
+        const errLine = res.data.data.line || extractLineFromError(res.data.data.error || res.data.data.output || '');
+        if (errLine) {
+          setTimeout(() => jumpToLine(errLine), 60);
+        }
       }
     } else {
       feedbackMsg.value = {
@@ -482,13 +537,22 @@ const validateConfig = async () => {
         title: 'Validation Failed',
         detail: res.data?.error || 'Validation command encountered an error.',
       };
+      const errLine = extractLineFromError(res.data?.error || '');
+      if (errLine) {
+        setTimeout(() => jumpToLine(errLine), 60);
+      }
     }
   } catch (err: any) {
+    const errMsg = err.response?.data?.error || err.message || 'Failed to connect to host for validation.';
     feedbackMsg.value = {
       type: 'error',
       title: 'Validation Error',
-      detail: err.response?.data?.error || err.message || 'Failed to connect to host for validation.',
+      detail: errMsg,
     };
+    const errLine = extractLineFromError(errMsg);
+    if (errLine) {
+      setTimeout(() => jumpToLine(errLine), 60);
+    }
   } finally {
     validating.value = false;
   }
@@ -1281,7 +1345,16 @@ onMounted(async () => {
                   </p>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  v-if="activeErrorLine"
+                  @click="jumpToLine(activeErrorLine)"
+                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-bold transition cursor-pointer"
+                  title="Jump to error line in editor"
+                >
+                  <span>Line {{ activeErrorLine }}</span>
+                  <ArrowRight class="w-3.5 h-3.5" />
+                </button>
                 <button
                   @click="copyValidationError"
                   class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-semibold transition cursor-pointer"
@@ -1325,10 +1398,20 @@ onMounted(async () => {
 
               <!-- YAML Validation Status Indicator -->
               <div class="flex items-center gap-3">
-                <div v-if="yamlValidation.valid" class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium font-mono">
+                <div v-if="!activeErrorLine && yamlValidation.valid" class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium font-mono">
                   <CheckCircle2 class="w-3.5 h-3.5" />
                   <span>Valid YAML</span>
                 </div>
+                <button
+                  v-else-if="activeErrorLine"
+                  @click="jumpToLine(activeErrorLine)"
+                  class="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 text-[11px] font-medium font-mono cursor-pointer bg-rose-500/10 hover:bg-rose-500/20 px-2 py-0.5 rounded transition"
+                  :title="'Click to jump to line ' + activeErrorLine"
+                >
+                  <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+                  <span class="truncate max-w-[280px]">Error on Line {{ activeErrorLine }}</span>
+                  <ArrowRight class="w-3 h-3 shrink-0" />
+                </button>
                 <div v-else class="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 text-[11px] font-medium font-mono">
                   <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
                   <span class="truncate max-w-[280px]" :title="yamlValidation.error || ''">{{ yamlValidation.error }}</span>
@@ -1359,7 +1442,18 @@ onMounted(async () => {
                   ref="gutterRef"
                   class="w-12 py-3 bg-slate-100 dark:bg-[#070a10] border-r border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 text-right pr-2.5 select-none overflow-hidden shrink-0 font-mono text-[11px] leading-5"
                 >
-                  <div v-for="n in lineNumbers" :key="n">{{ n }}</div>
+                  <div
+                    v-for="n in lineNumbers"
+                    :key="n"
+                    :class="[
+                      'transition-colors',
+                      activeErrorLine === n
+                        ? 'bg-rose-500/25 text-rose-600 dark:text-rose-400 font-bold border-r-2 border-rose-500 -mr-2.5 pr-2'
+                        : ''
+                    ]"
+                  >
+                    {{ n }}
+                  </div>
                 </div>
 
                 <!-- Textarea Code Editor -->

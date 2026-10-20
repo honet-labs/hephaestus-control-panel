@@ -16,6 +16,7 @@ import {
   X,
   Loader2,
   Edit3,
+  ArrowRight,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -48,6 +49,7 @@ const newFileName = ref('');
 const loading = ref(false);
 const validationMessage = ref<string | null>(null);
 const isValidationSuccess = ref(true);
+const validationErrorLine = ref<number | null>(null);
 let validationTimer: ReturnType<typeof setTimeout> | null = null;
 
 // History & Rollbacks
@@ -154,13 +156,13 @@ const executeRename = async () => {
   }
 };
 
-// Auto-dismiss notification after 3 seconds
+// Auto-dismiss notification after 3 seconds only on success (errors remain visible)
 watch(validationMessage, (newVal) => {
   if (validationTimer) {
     clearTimeout(validationTimer);
     validationTimer = null;
   }
-  if (newVal) {
+  if (newVal && isValidationSuccess.value) {
     validationTimer = setTimeout(() => {
       validationMessage.value = null;
       restartResult.value = null;
@@ -175,6 +177,40 @@ const deleting = ref(false);
 const showDeleteConfirm = ref(false);
 const editorRef = ref<HTMLTextAreaElement | null>(null);
 const gutterRef = ref<HTMLDivElement | null>(null);
+
+// Reset error line when content changes
+watch(yamlContent, () => {
+  if (validationErrorLine.value !== null) {
+    validationErrorLine.value = null;
+  }
+});
+
+const extractLineFromError = (msg: string): number | null => {
+  if (!msg) return null;
+  const match = msg.match(/(?:line\s+(\d+)|\.ya?ml:(\d+))/i);
+  if (match) {
+    return parseInt(match[1] || match[2], 10);
+  }
+  return null;
+};
+
+const jumpToErrorLine = (line: number) => {
+  if (!editorRef.value || line < 1) return;
+  const lines = yamlContent.value.split('\n');
+  let charIndex = 0;
+  for (let i = 0; i < Math.min(line - 1, lines.length); i++) {
+    charIndex += lines[i].length + 1;
+  }
+  const lineLength = lines[line - 1] ? lines[line - 1].length : 0;
+  editorRef.value.focus();
+  editorRef.value.setSelectionRange(charIndex, charIndex + lineLength);
+  const approxLineHeight = 22;
+  const targetScroll = Math.max(0, (line - 4) * approxLineHeight);
+  editorRef.value.scrollTop = targetScroll;
+  if (gutterRef.value) {
+    gutterRef.value.scrollTop = targetScroll;
+  }
+};
 
 const syncScroll = () => {
   if (editorRef.value && gutterRef.value) {
@@ -262,17 +298,44 @@ const loadPipelineContent = async (fileName: string) => {
 };
 
 const handleValidate = async () => {
+  validationErrorLine.value = null;
   try {
     const res = await axios.post('/api/v1/dataprepper/validate', { yaml: yamlContent.value });
-    if (res.data.success) {
-      validationMessage.value = res.data.valid
-        ? 'Validation Success: Data Prepper pipeline YAML is valid & compliant.'
-        : (res.data.error || 'Invalid YAML schema');
-      isValidationSuccess.value = res.data.valid;
+    if (res.data?.success) {
+      isValidationSuccess.value = !!res.data.valid;
+      if (res.data.valid) {
+        validationMessage.value = 'Validation Success: Data Prepper pipeline YAML is valid & compliant.';
+        validationErrorLine.value = null;
+      } else {
+        const errMsg = res.data.message || res.data.error || 'Invalid YAML schema';
+        validationMessage.value = errMsg;
+        let line = typeof res.data.line === 'number' && res.data.line > 0 ? res.data.line : null;
+        if (!line) {
+          line = extractLineFromError(errMsg);
+        }
+        validationErrorLine.value = line;
+        if (line) {
+          setTimeout(() => jumpToErrorLine(line), 60);
+        }
+      }
+    } else {
+      validationMessage.value = res.data?.error || res.data?.message || 'Invalid YAML schema';
+      isValidationSuccess.value = false;
+      const line = extractLineFromError(validationMessage.value || '');
+      validationErrorLine.value = line;
+      if (line) {
+        setTimeout(() => jumpToErrorLine(line), 60);
+      }
     }
   } catch (err: any) {
-    validationMessage.value = err.response?.data?.error || 'Validation Success: YAML is structurally sound.';
-    isValidationSuccess.value = true;
+    const errMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Validation error.';
+    validationMessage.value = errMsg;
+    isValidationSuccess.value = false;
+    const line = extractLineFromError(errMsg);
+    validationErrorLine.value = line;
+    if (line) {
+      setTimeout(() => jumpToErrorLine(line), 60);
+    }
   }
 };
 
@@ -539,6 +602,16 @@ onMounted(() => {
             >
               <Edit3 class="w-3.5 h-3.5" />
             </button>
+            <button
+              v-if="validationErrorLine"
+              @click="jumpToErrorLine(validationErrorLine)"
+              class="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 dark:text-rose-400 text-[11px] font-mono font-bold cursor-pointer transition"
+              :title="'Jump to line ' + validationErrorLine"
+            >
+              <AlertTriangle class="w-3 h-3 text-rose-500" />
+              <span>Line {{ validationErrorLine }}</span>
+              <ArrowRight class="w-3 h-3" />
+            </button>
           </div>
 
           <div class="flex items-center gap-2 flex-wrap">
@@ -602,18 +675,29 @@ onMounted(() => {
               : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
           ]"
         >
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
             <div class="flex items-center gap-2 font-semibold">
               <span class="w-2 h-2 rounded-full shrink-0" :class="isValidationSuccess ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-rose-500 dark:bg-rose-400'"></span>
               <span>{{ validationMessage }}</span>
             </div>
-            <button
-              @click="validationMessage = null; restartResult = null"
-              class="opacity-60 hover:opacity-100 p-0.5 cursor-pointer text-sm leading-none font-bold"
-              title="Close notification"
-            >
-              &times;
-            </button>
+            <div class="flex items-center gap-2 shrink-0">
+              <button
+                v-if="!isValidationSuccess && validationErrorLine"
+                @click="jumpToErrorLine(validationErrorLine)"
+                class="flex items-center gap-1 px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-800 dark:text-rose-200 font-bold text-xs transition cursor-pointer"
+                title="Jump to error line in editor"
+              >
+                <span>Jump to Line {{ validationErrorLine }}</span>
+                <ArrowRight class="w-3.5 h-3.5" />
+              </button>
+              <button
+                @click="validationMessage = null; restartResult = null; validationErrorLine = null;"
+                class="opacity-60 hover:opacity-100 p-0.5 cursor-pointer text-sm leading-none font-bold"
+                title="Close notification"
+              >
+                &times;
+              </button>
+            </div>
           </div>
           <div v-if="restartResult?.output" class="text-[11px] text-slate-700 dark:text-slate-300 pl-4 border-l border-slate-300 dark:border-slate-700/50 mt-1">
             Status: {{ restartResult.output }}
@@ -630,7 +714,18 @@ onMounted(() => {
             ref="gutterRef"
             class="bg-[#12151e] border-r border-slate-800/80 p-3.5 text-right select-none text-slate-600 min-w-[50px] leading-relaxed overflow-hidden shrink-0 pointer-events-none"
           >
-            <div v-for="n in lineNumbers" :key="n" class="leading-relaxed">{{ n }}</div>
+            <div
+              v-for="n in lineNumbers"
+              :key="n"
+              :class="[
+                'leading-relaxed transition-colors px-1',
+                validationErrorLine === n
+                  ? 'bg-rose-500/30 text-rose-400 font-bold border-r-2 border-rose-500 -mr-3.5 pr-2.5'
+                  : ''
+              ]"
+            >
+              {{ n }}
+            </div>
           </div>
 
           <!-- Code Textarea Area -->
