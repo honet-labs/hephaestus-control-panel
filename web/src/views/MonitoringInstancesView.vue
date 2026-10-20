@@ -225,7 +225,7 @@ const dockerContainers = ref<DockerContainerMetric[]>([]);
 const loadingContainers = ref(false);
 const containerSearch = ref('');
 const containerHostFilter = ref('ALL');
-const containerSortBy = ref<'name' | 'cpu' | 'mem' | 'host'>('cpu');
+const containerSortBy = ref<'usage' | 'name' | 'cpu' | 'mem' | 'host'>('usage');
 const containerSortDir = ref<'asc' | 'desc'>('desc');
 const containerViewMode = ref<'grid' | 'table'>('grid');
 
@@ -1742,7 +1742,17 @@ const filteredContainers = computed(() => {
 
   return [...list].sort((a, b) => {
     let diff = 0;
-    if (containerSortBy.value === 'cpu') {
+    if (containerSortBy.value === 'usage') {
+      const usageA = Math.max(a.cpuPct ?? 0, a.memPct ?? 0);
+      const usageB = Math.max(b.cpuPct ?? 0, b.memPct ?? 0);
+      const tierA = usageA >= criticalThreshold.value ? 0 : usageA >= warningThreshold.value ? 1 : 2;
+      const tierB = usageB >= criticalThreshold.value ? 0 : usageB >= warningThreshold.value ? 1 : 2;
+      if (tierA !== tierB) {
+        diff = tierB - tierA; // inverted by desc
+      } else {
+        diff = usageA - usageB;
+      }
+    } else if (containerSortBy.value === 'cpu') {
       diff = (a.cpuPct ?? 0) - (b.cpuPct ?? 0);
     } else if (containerSortBy.value === 'mem') {
       diff = (a.memPct ?? 0) - (b.memPct ?? 0);
@@ -3226,6 +3236,7 @@ onUnmounted(() => {
             v-model="containerSortBy"
             class="px-2.5 py-1.5 text-xs bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none focus:border-blue-500 transition cursor-pointer"
           >
+            <option value="usage">Sort: Highest Usage (CPU / RAM)</option>
             <option value="cpu">Sort: CPU Usage</option>
             <option value="mem">Sort: Memory Usage</option>
             <option value="name">Sort: Container Name</option>
@@ -3483,6 +3494,10 @@ onUnmounted(() => {
                 v-for="c in paginatedTableContainers"
                 :key="c.id"
                 class="hover:bg-slate-50/60 dark:hover:bg-[#161c2d]/40 transition"
+                :class="[
+                  Math.max(c.cpuPct ?? 0, c.memPct ?? 0) >= criticalThreshold ? 'bg-rose-50/20 dark:bg-rose-950/10' : '',
+                  Math.max(c.cpuPct ?? 0, c.memPct ?? 0) >= warningThreshold && Math.max(c.cpuPct ?? 0, c.memPct ?? 0) < criticalThreshold ? 'bg-amber-50/20 dark:bg-amber-950/10' : ''
+                ]"
               >
                 <!-- Container Name & Image -->
                 <td class="py-3 px-4">

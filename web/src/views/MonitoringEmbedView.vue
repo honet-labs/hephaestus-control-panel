@@ -189,7 +189,38 @@ const refreshData = async (silent = false) => {
   }
 };
 
-// Filtered Lists
+const warningThreshold = computed(() => {
+  const w = Number(route.query.warning);
+  return !isNaN(w) && w > 0 ? w : 80;
+});
+
+const criticalThreshold = computed(() => {
+  const c = Number(route.query.critical);
+  return !isNaN(c) && c > 0 ? c : 90;
+});
+
+const getServerStatus = (inst: MonitoringInstance) => {
+  if (!inst.liveMetrics?.isOnline) {
+    return { severity: 'offline' as const, maxUsage: -1, tier: 3 };
+  }
+  const cpu = typeof inst.liveMetrics.cpuPct === 'number' ? inst.liveMetrics.cpuPct : 0;
+  const memory = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
+  const disk = getOverallDisk(inst).pct ?? 0;
+  const maxUsage = Math.max(cpu, memory, disk);
+
+  let severity: 'critical' | 'warning' | 'normal' = 'normal';
+  let tier = 2;
+  if (maxUsage >= criticalThreshold.value) {
+    severity = 'critical';
+    tier = 0;
+  } else if (maxUsage >= warningThreshold.value) {
+    severity = 'warning';
+    tier = 1;
+  }
+  return { severity, maxUsage, tier };
+};
+
+// Filtered and Sorted Lists: High usage & critical/warning always placed first
 const displayedServers = computed(() => {
   let list = instances.value;
 
@@ -212,7 +243,18 @@ const displayedServers = computed(() => {
     );
   }
 
-  return list;
+  return [...list].sort((a, b) => {
+    const statusA = getServerStatus(a);
+    const statusB = getServerStatus(b);
+
+    if (statusA.tier !== statusB.tier) {
+      return statusA.tier - statusB.tier;
+    }
+    if (Math.abs(statusB.maxUsage - statusA.maxUsage) > 0.05) {
+      return statusB.maxUsage - statusA.maxUsage;
+    }
+    return a.name.localeCompare(b.name);
+  });
 });
 
 const displayedContainers = computed(() => {
@@ -237,7 +279,20 @@ const displayedContainers = computed(() => {
     );
   }
 
-  return list;
+  return [...list].sort((a, b) => {
+    const usageA = Math.max(a.cpuPct ?? 0, a.memPct ?? 0);
+    const usageB = Math.max(b.cpuPct ?? 0, b.memPct ?? 0);
+    const tierA = usageA >= criticalThreshold.value ? 0 : usageA >= warningThreshold.value ? 1 : 2;
+    const tierB = usageB >= criticalThreshold.value ? 0 : usageB >= warningThreshold.value ? 1 : 2;
+
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+    if (Math.abs(usageB - usageA) > 0.05) {
+      return usageB - usageA;
+    }
+    return a.containerName.localeCompare(b.containerName);
+  });
 });
 
 // Helper to identify virtual, loop, snap, boot, and non-storage mounts
@@ -400,6 +455,10 @@ onUnmounted(() => {
               v-for="inst in displayedServers"
               :key="inst.id"
               class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d] transition"
+              :class="[
+                getServerStatus(inst).severity === 'critical' ? 'bg-rose-50/30 dark:bg-rose-950/20' : '',
+                getServerStatus(inst).severity === 'warning' ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
+              ]"
             >
               <!-- System Name Column -->
               <td class="py-3.5 px-3.5 whitespace-nowrap">
@@ -585,6 +644,10 @@ onUnmounted(() => {
               v-for="c in displayedContainers"
               :key="c.id"
               class="hover:bg-slate-50/80 dark:hover:bg-[#151c2d] transition"
+              :class="[
+                Math.max(c.cpuPct ?? 0, c.memPct ?? 0) >= criticalThreshold ? 'bg-rose-50/30 dark:bg-rose-950/20' : '',
+                Math.max(c.cpuPct ?? 0, c.memPct ?? 0) >= warningThreshold && Math.max(c.cpuPct ?? 0, c.memPct ?? 0) < criticalThreshold ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
+              ]"
             >
               <!-- Container Name & Image -->
               <td class="py-3.5 px-3.5">
