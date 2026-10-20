@@ -348,6 +348,9 @@ func (s *DataPrepperService) SavePipelineFile(ctx context.Context, instanceID, f
 		return nil, err
 	}
 
+	// Brief pause to allow remote sshd socket cleanup and avoid rapid connection throttling
+	time.Sleep(300 * time.Millisecond)
+
 	res := &DataPrepperSaveResult{
 		Success: true,
 		File:    cleanFileName,
@@ -386,6 +389,7 @@ func (s *DataPrepperService) DeletePipelineFile(ctx context.Context, instanceID,
 	if err := s.sshService.DeleteFile(remoteCfg, targetPath); err != nil {
 		return err
 	}
+	time.Sleep(300 * time.Millisecond)
 	_ = s.RestartService(ctx, cfg)
 	return nil
 }
@@ -455,6 +459,7 @@ func (s *DataPrepperService) RenamePipelineFile(ctx context.Context, instanceID,
 	}
 
 	// Restart service to load the renamed pipeline
+	time.Sleep(300 * time.Millisecond)
 	_ = s.RestartService(ctx, cfg)
 	return nil
 }

@@ -88,17 +88,40 @@ func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
 		Timeout:   15 * time.Second,
 		KeepAlive: 15 * time.Second,
 	}
-	conn, err := netDialer.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
+
+	var lastErr error
+	maxAttempts := 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			// Delay before retrying transient connection drops or sshd throttles
+			time.Sleep(time.Duration((attempt-1)*400) * time.Millisecond)
+		}
+
+		conn, err := netDialer.Dial("tcp", addr)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+		if err != nil {
+			_ = conn.Close()
+			lastErr = err
+
+			// If authentication failed due to invalid credentials, do not retry
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "unable to authenticate") || strings.Contains(errStr, "password authentication failed") {
+				return nil, err
+			}
+
+			// If it's a transient drop (EOF, handshake failed, connection reset), retry
+			continue
+		}
+
+		return ssh.NewClient(ncc, chans, reqs), nil
 	}
 
-	ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	return ssh.NewClient(ncc, chans, reqs), nil
+	return nil, lastErr
 }
 
 func (s *SSHService) ExecuteCommand(cfg *domain.RemoteHostConfig, command string) (string, string, int, error) {
