@@ -629,7 +629,15 @@ func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint s
 		return nil, err
 	}
 	if len(body) > 0 && method != "GET" && method != "HEAD" {
-		req.Header.Set("Content-Type", "application/json")
+		if strings.Contains(endpoint, "_bulk") {
+			req.Header.Set("Content-Type", "application/x-ndjson")
+			if !bytes.HasSuffix(body, []byte("\n")) {
+				reqBody = bytes.NewBuffer(append(body, '\n'))
+				req.Body = io.NopCloser(reqBody)
+			}
+		} else {
+			req.Header.Set("Content-Type", "application/json")
+		}
 	}
 	if cfg.Username != "" {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
