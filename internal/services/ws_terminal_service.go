@@ -161,7 +161,7 @@ func NewWsTerminalService(sshService *SSHService) *WsTerminalService {
 	}
 }
 
-func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *domain.RemoteHostConfig, initialCols, initialRows int, userID int, sessionID string) {
+func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *domain.RemoteHostConfig, initialCols, initialRows int, userID int, sessionID string, forceNew bool) {
 	if sessionID == "" {
 		sessionID = cfg.ID
 	}
@@ -170,34 +170,40 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 	s.sessionsMu.Lock()
 	pSess, exists := s.sessions[sessionKey]
 	if exists && !pSess.closed {
-		// Re-attach to existing live session
-		pSess.mu.Lock()
-		if pSess.detachTimer != nil {
-			pSess.detachTimer.Stop()
-			pSess.detachTimer = nil
-		}
-		// Close previous stale ws if any
-		pSess.wsMu.Lock()
-		if pSess.activeWs != nil && pSess.activeWs != ws {
-			_ = pSess.activeWs.Close()
-		}
-		pSess.activeWs = ws
-		pSess.wsMu.Unlock()
+		if forceNew {
+			logger.Info("SSH", fmt.Sprintf("Force closing stale terminal session for clean reconnect: %s", sessionKey))
+			pSess.closeSession()
+			delete(s.sessions, sessionKey)
+		} else {
+			// Re-attach to existing live session
+			pSess.mu.Lock()
+			if pSess.detachTimer != nil {
+				pSess.detachTimer.Stop()
+				pSess.detachTimer = nil
+			}
+			// Close previous stale ws if any
+			pSess.wsMu.Lock()
+			if pSess.activeWs != nil && pSess.activeWs != ws {
+				_ = pSess.activeWs.Close()
+			}
+			pSess.activeWs = ws
+			pSess.wsMu.Unlock()
 
-		if initialCols > 0 && initialRows > 0 && pSess.session != nil {
-			_ = pSess.session.WindowChange(initialRows, initialCols)
+			if initialCols > 0 && initialRows > 0 && pSess.session != nil {
+				_ = pSess.session.WindowChange(initialRows, initialCols)
+			}
+			pSess.mu.Unlock()
+			s.sessionsMu.Unlock()
+
+			logger.Info("SSH", fmt.Sprintf("Re-attached client to persistent terminal session: %s", sessionKey))
+			_ = pSess.writeWs(domain.WsTerminalMessage{
+				Type:    "connected",
+				Message: fmt.Sprintf("Re-attached to active session: %s (%s)", cfg.Name, cfg.Host),
+			})
+
+			s.runWsReadLoop(pSess, ws)
+			return
 		}
-		pSess.mu.Unlock()
-		s.sessionsMu.Unlock()
-
-		logger.Info("SSH", fmt.Sprintf("Re-attached client to persistent terminal session: %s", sessionKey))
-		_ = pSess.writeWs(domain.WsTerminalMessage{
-			Type:    "connected",
-			Message: fmt.Sprintf("Re-attached to active session: %s (%s)", cfg.Name, cfg.Host),
-		})
-
-		s.runWsReadLoop(pSess, ws)
-		return
 	}
 	s.sessionsMu.Unlock()
 
@@ -364,11 +370,11 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 				// User explicitly closed session (e.g. closed tab)
 				p.closeSession()
 				return
-			case "auth":
+			case "auth", "reconnect":
 				if msg.Cols > 0 && msg.Rows > 0 && p.session != nil {
 					_ = p.session.WindowChange(msg.Rows, msg.Cols)
 				}
-				_ = p.writeWs(domain.WsTerminalMessage{Type: "connected"})
+				_ = p.writeWs(domain.WsTerminalMessage{Type: "connected", Message: "Terminal stream ready."})
 			}
 		} else {
 			if p.stdinPipe != nil {

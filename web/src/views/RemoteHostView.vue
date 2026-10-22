@@ -223,6 +223,14 @@ const isSftpFullScreen = ref(true);
 const hosts = ref<RemoteHost[]>([]);
 const openSessions = ref<OpenSession[]>([]);
 const activeSessionIndex = ref<number>(-1); // -1 means Server List view
+const reconnectMenuSessionId = ref<string | null>(null);
+const toggleReconnectMenu = (sessionId: string) => {
+  if (reconnectMenuSessionId.value === sessionId) {
+    reconnectMenuSessionId.value = null;
+  } else {
+    reconnectMenuSessionId.value = sessionId;
+  }
+};
 const isHostModalOpen = ref(false);
 const isGroupModalOpen = ref(false);
 const isSftpModalOpen = ref(false);
@@ -971,7 +979,7 @@ const stopSessionHeartbeat = (session: OpenSession) => {
 };
 
 // Connect WebSocket Stream for Terminal Session
-const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) => {
+const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, forceNew: boolean = false) => {
   // Teardown previous heartbeat & ws if present
   stopSessionHeartbeat(session);
   if (session.ws) {
@@ -993,7 +1001,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const initialCols = session.term && session.term.cols > 0 ? session.term.cols : 80;
   const initialRows = session.term && session.term.rows > 0 ? session.term.rows : 24;
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}${forceNew ? '&forceNew=true' : ''}`;
   const ws = new WebSocket(wsUrl);
   session.ws = ws;
 
@@ -1006,11 +1014,13 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
     session.lastActivity = Date.now();
     session.isIdle = false;
 
-    // Only display connection banner on the initial fresh session launch, not on re-attaches/reconnects
-    if (session.term && !isReconnect && !session.term.buffer.active.cursorY) {
-      session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
-    }
+    // Display connection banner
     if (session.term) {
+      if (isReconnect) {
+        session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+      } else if (!session.term.buffer.active.cursorY) {
+        session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
+      }
       try {
         session.fitAddon?.fit();
         session.term.focus();
@@ -1026,6 +1036,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
         sessionId: session.id,
         cols: session.term?.cols || initialCols,
         rows: session.term?.rows || initialRows,
+        forceNew: forceNew,
       })
     );
 
@@ -1060,10 +1071,14 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
         session.connected = true;
         session.reconnectAttempts = 0;
         session.reconnectPendingOnVisible = false;
-        // On connected ack, ensure remote PTY matches client dimensions
-        if (session.term && session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
+        // On connected ack, ensure remote PTY matches client dimensions and focus terminal
+        if (session.term) {
           try {
-            ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
+            session.fitAddon?.fit();
+            session.term.focus();
+            if (session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
+            }
           } catch (e) {}
         }
       } else if (msg.type === 'error') {
@@ -1117,7 +1132,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
       const delay = Math.min(1500 * Math.pow(1.5, session.reconnectAttempts - 1), 6000);
       setTimeout(() => {
         if (!session.connected && session.term && session.ws === ws && !document.hidden) {
-          reconnectTerminal(session);
+          reconnectTerminal(session, false);
         }
       }, delay);
     } else {
@@ -1134,10 +1149,22 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false) =
 };
 
 // Reconnect Terminal preserving output history & scrollback buffer
-const reconnectTerminal = (session: OpenSession) => {
+const reconnectTerminal = (session: OpenSession, forceNew: boolean = false) => {
+  session.connecting = true;
+  session.connected = false;
+  reconnectMenuSessionId.value = null;
+
+  if (session.term) {
+    if (forceNew) {
+      session.term.write('\r\n\x1b[33m[Resetting terminal shell and reconnecting...]\x1b[0m\r\n');
+    } else {
+      session.term.write('\r\n\x1b[33m[Reconnecting to terminal stream...]\x1b[0m\r\n');
+    }
+  }
+
   // If term already exists in container, reconnect WebSocket directly without wiping buffer or disposing term
   if (session.term && session.fitAddon) {
-    connectWsTerminal(session, false);
+    connectWsTerminal(session, true, forceNew);
   } else {
     initXterm(session);
   }
@@ -1233,7 +1260,14 @@ const initXterm = (session: OpenSession) => {
     session.lastActivity = Date.now();
     session.isIdle = false;
     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(JSON.stringify({ type: 'input', data }));
+      try {
+        session.ws.send(JSON.stringify({ type: 'input', data }));
+      } catch (err) {
+        console.warn('Failed to send terminal input data:', err);
+        session.connected = false;
+      }
+    } else if (session.connected) {
+      session.connected = false;
     }
   });
 
@@ -1668,11 +1702,19 @@ const closeOtherSessions = (keepGlobalIndex: number) => {
 const closeAllContextMenus = () => {
   tabContextMenu.value.show = false;
   groupMenu.value.show = false;
+  reconnectMenuSessionId.value = null;
 };
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     closeAllContextMenus();
+  }
+
+  // Keyboard shortcut to reconnect active terminal (Ctrl/Cmd + Shift + R)
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'R' || e.key === 'r') && activeSession.value?.activeView === 'terminal') {
+    e.preventDefault();
+    reconnectTerminal(activeSession.value, false);
+    return;
   }
 
   // Keyboard shortcuts for terminal zoom (Ctrl/Cmd + Plus, Minus, 0)
@@ -4179,6 +4221,65 @@ onUnmounted(() => {
                   <span>Clear</span>
                 </button>
 
+                <!-- Reconnect Action Button (Always Available & Accessible) -->
+                <div class="relative flex items-center">
+                  <button
+                    @click="reconnectTerminal(session, false)"
+                    :disabled="session.connecting"
+                    title="Reconnect terminal session (Preserves buffer & reconnects stream)"
+                    :class="[
+                      'flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono transition cursor-pointer shadow-xs backdrop-blur-xs disabled:opacity-50 border',
+                      !session.connected && !session.connecting
+                        ? 'bg-blue-600 hover:bg-blue-500 text-white font-bold border-blue-600 rounded-r-none border-r-0'
+                        : 'bg-white/90 hover:bg-slate-100 dark:bg-[#1b1e26]/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300/80 dark:border-slate-700 rounded-r-none border-r-0'
+                    ]"
+                  >
+                    <RotateCw :class="['w-3 h-3 text-slate-400 dark:text-slate-500', session.connecting ? 'animate-spin' : '']" />
+                    <span>{{ session.connecting ? 'Connecting...' : 'Reconnect' }}</span>
+                  </button>
+                  <button
+                    @click.stop="toggleReconnectMenu(session.id)"
+                    :title="'More reconnect options (Reset Shell)'"
+                    :class="[
+                      'px-1 py-0.5 rounded-r text-[10px] transition cursor-pointer border',
+                      !session.connected && !session.connecting
+                        ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600 border-l-blue-400'
+                        : 'bg-white/90 hover:bg-slate-100 dark:bg-[#1b1e26]/90 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-300/80 dark:border-slate-700 border-l-slate-200 dark:border-l-slate-700'
+                    ]"
+                  >
+                    <ChevronDown class="w-3 h-3" />
+                  </button>
+
+                  <!-- Reconnect Options Dropdown Menu -->
+                  <div
+                    v-if="reconnectMenuSessionId === session.id"
+                    class="absolute right-0 top-full mt-1.5 z-30 bg-white dark:bg-[#1a1d26] border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 w-52 text-xs font-sans text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95 duration-100"
+                    @click.stop
+                  >
+                    <button
+                      @click="reconnectTerminal(session, false)"
+                      class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      <RotateCw class="w-3.5 h-3.5 text-slate-400" />
+                      <div>
+                        <div class="font-medium text-[11px]">Reconnect Stream</div>
+                        <div class="text-[10px] text-slate-400">Re-attaches to live shell & buffer</div>
+                      </div>
+                    </button>
+                    <button
+                      @click="reconnectTerminal(session, true)"
+                      class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                    >
+                      <RefreshCw class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <div>
+                        <div class="font-medium text-[11px]">Reset Shell (Force New)</div>
+                        <div class="text-[10px] text-slate-400">Kills stuck processes & spawns fresh shell</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Status Indicator Pill -->
                 <div v-if="session.connected" class="flex items-center gap-1.5">
                   <span
                     v-if="session.isIdle"
@@ -4206,22 +4307,19 @@ onUnmounted(() => {
                   <Loader2 class="w-3 h-3 animate-spin text-amber-500" />
                   Connecting...
                 </span>
-                <div v-else class="flex items-center gap-2">
-                  <span class="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/10 dark:text-red-400 text-[10px] font-mono dark:border-red-500/30 flex items-center gap-1.5 shadow-sm">
-                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                    Disconnected
-                  </span>
-                  <button
-                    @click="reconnectTerminal(session)"
-                    title="Reconnect (Preserve terminal history & buffer)"
-                    class="flex items-center gap-1 px-2.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 dark:bg-brand-500 dark:hover:bg-brand-600 text-white text-[11px] font-medium shadow-md transition cursor-pointer"
-                  >
-                    <RotateCw class="w-3 h-3" />
-                    <span>Reconnect</span>
-                  </button>
-                </div>
+                <span
+                  v-else
+                  class="px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/10 dark:text-red-400 text-[10px] font-mono dark:border-red-500/30 flex items-center gap-1.5 shadow-sm"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                  Disconnected
+                </span>
               </div>
-              <div :id="`terminal-container-${session.id}`" class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden relative"></div>
+              <div
+                :id="`terminal-container-${session.id}`"
+                @click="session.term?.focus()"
+                class="terminal-wrapper flex-1 w-full h-full min-h-0 min-w-0 overflow-hidden relative cursor-text"
+              ></div>
 
               <!-- MobaXterm-style Idle & Keep-Alive Terminal HUD Animation -->
               <transition
@@ -6345,6 +6443,24 @@ onUnmounted(() => {
       </button>
 
       <div class="my-1 border-t border-slate-800/80"></div>
+
+      <!-- Reconnect Tab -->
+      <button
+        @click="reconnectTerminal(tabContextMenu.session, false); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 hover:text-white transition text-xs"
+      >
+        <RotateCw class="w-3.5 h-3.5 text-slate-400" />
+        <span>Reconnect tab</span>
+      </button>
+
+      <!-- Reset Shell (Force New) -->
+      <button
+        @click="reconnectTerminal(tabContextMenu.session, true); closeAllContextMenus()"
+        class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-700/60 text-amber-400 hover:text-amber-300 transition text-xs"
+      >
+        <RefreshCw class="w-3.5 h-3.5 text-amber-400" />
+        <span>Reset shell (Force new)</span>
+      </button>
 
       <!-- Duplicate Tab -->
       <button

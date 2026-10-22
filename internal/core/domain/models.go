@@ -377,6 +377,7 @@ type WsTerminalMessage struct {
 	HostConfigID string `json:"hostConfigId,omitempty"`
 	SessionID    string `json:"sessionId,omitempty"`
 	Message      string `json:"message,omitempty"`
+	ForceNew     bool   `json:"forceNew,omitempty"`
 }
 
 type RemoteHostFirewallRule struct {
