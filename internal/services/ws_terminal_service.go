@@ -69,9 +69,11 @@ func (p *persistentSSHSession) closeSession() {
 	}
 	p.mu.Unlock()
 
-	p.service.sessionsMu.Lock()
-	delete(p.service.sessions, p.key)
-	p.service.sessionsMu.Unlock()
+	p.wsMu.Lock()
+	p.activeWs = nil
+	p.wsMu.Unlock()
+
+	p.service.removeSession(p.key, p)
 	logger.Info("SSH", fmt.Sprintf("Persistent terminal session closed for key: %s", p.key))
 }
 
@@ -161,6 +163,14 @@ func NewWsTerminalService(sshService *SSHService) *WsTerminalService {
 	}
 }
 
+func (s *WsTerminalService) removeSession(key string, expected *persistentSSHSession) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	if current, ok := s.sessions[key]; ok && current == expected {
+		delete(s.sessions, key)
+	}
+}
+
 func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *domain.RemoteHostConfig, initialCols, initialRows int, userID int, sessionID string, forceNew bool) {
 	if sessionID == "" {
 		sessionID = cfg.ID
@@ -192,8 +202,11 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			} else {
 				logger.Info("SSH", fmt.Sprintf("Force closing stale terminal session for clean reconnect: %s", sessionKey))
 			}
-			pSess.closeSession()
 			delete(s.sessions, sessionKey)
+			s.sessionsMu.Unlock()
+
+			// Safely close old session asynchronously so no deadlock or delay occurs
+			go pSess.closeSession()
 		} else {
 			// Re-attach to existing live session
 			pSess.mu.Lock()
@@ -229,8 +242,9 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			s.runWsReadLoop(pSess, ws)
 			return
 		}
+	} else {
+		s.sessionsMu.Unlock()
 	}
-	s.sessionsMu.Unlock()
 
 	// New SSH session required
 	client, err := s.sshService.Dial(cfg)
