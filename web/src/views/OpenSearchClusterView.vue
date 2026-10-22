@@ -28,6 +28,10 @@ import {
   Copy,
   Check,
   Code2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Download,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import { useAuthStore } from '../stores/auth';
@@ -338,19 +342,136 @@ const clusterNodes = computed(() => {
   return Object.values(map);
 });
 
-// Filtered indices (with Health Filter tab support)
+// Indices Sorting State
+const indexSortKey = ref<'default' | 'storeSize' | 'priStoreSize' | 'docs' | 'name'>('default');
+const indexSortOrder = ref<'asc' | 'desc'>('desc');
+
+const toggleSort = (key: 'storeSize' | 'priStoreSize' | 'docs' | 'name') => {
+  if (indexSortKey.value === key) {
+    if (indexSortOrder.value === 'desc') {
+      indexSortOrder.value = 'asc';
+    } else {
+      indexSortKey.value = 'default';
+      indexSortOrder.value = 'desc';
+    }
+  } else {
+    indexSortKey.value = key;
+    indexSortOrder.value = 'desc';
+  }
+};
+
+const sortSelectValue = computed({
+  get() {
+    if (indexSortKey.value === 'default') return 'default';
+    return `${indexSortKey.value}_${indexSortOrder.value}`;
+  },
+  set(val: string) {
+    if (val === 'default') {
+      indexSortKey.value = 'default';
+      indexSortOrder.value = 'desc';
+    } else {
+      const [key, order] = val.split('_') as ['storeSize' | 'priStoreSize' | 'docs' | 'name', 'asc' | 'desc'];
+      indexSortKey.value = key;
+      indexSortOrder.value = order;
+    }
+  }
+});
+
+// Filtered and sorted indices (with Health Filter tab & Size/Docs/Name Sort support)
 const filteredIndices = computed(() => {
-  let list = indicesList.value;
+  let list = indicesList.value.slice();
   if (indexHealthFilter.value === 'unhealthy') {
     list = list.filter(idx => (idx.health || '').toLowerCase() === 'yellow' || (idx.health || '').toLowerCase() === 'red');
   } else if (indexHealthFilter.value === 'green') {
     list = list.filter(idx => (idx.health || '').toLowerCase() === 'green');
   }
 
-  if (!indexSearch.value) return list;
-  const q = indexSearch.value.toLowerCase();
-  return list.filter(idx => (idx.index || idx.name || '').toLowerCase().includes(q));
+  if (indexSearch.value) {
+    const q = indexSearch.value.toLowerCase();
+    list = list.filter(idx => (idx.index || idx.name || '').toLowerCase().includes(q));
+  }
+
+  if (indexSortKey.value === 'default') {
+    return list;
+  }
+
+  return list.sort((a, b) => {
+    let valA = 0;
+    let valB = 0;
+
+    if (indexSortKey.value === 'storeSize') {
+      valA = parseBytesString(a['store.size'] || a.storeSize || 0);
+      valB = parseBytesString(b['store.size'] || b.storeSize || 0);
+    } else if (indexSortKey.value === 'priStoreSize') {
+      valA = parseBytesString(a['pri.store.size'] || a.priStoreSize || 0);
+      valB = parseBytesString(b['pri.store.size'] || b.priStoreSize || 0);
+    } else if (indexSortKey.value === 'docs') {
+      valA = Number(a['docs.count'] || a.docsCount || 0);
+      valB = Number(b['docs.count'] || b.docsCount || 0);
+    } else if (indexSortKey.value === 'name') {
+      const nameA = (a.index || a.name || '').toLowerCase();
+      const nameB = (b.index || b.name || '').toLowerCase();
+      return indexSortOrder.value === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+    }
+
+    if (indexSortOrder.value === 'asc') {
+      return valA - valB;
+    } else {
+      return valB - valA;
+    }
+  });
 });
+
+// Export filtered & sorted indices to CSV
+const exportIndicesToCsv = () => {
+  if (filteredIndices.value.length === 0) return;
+
+  const headers = [
+    'Health',
+    'Status',
+    'Index',
+    'UUID',
+    'Primary',
+    'Replica',
+    'Docs Count',
+    'Docs Deleted',
+    'Store Size',
+    'Primary Size',
+  ];
+
+  const escapeCsv = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const rows = filteredIndices.value.map(idx => [
+    escapeCsv(idx.health || 'green'),
+    escapeCsv(idx.status || 'open'),
+    escapeCsv(idx.index || idx.name || ''),
+    escapeCsv(idx.uuid || ''),
+    escapeCsv(idx.pri || idx.primary || 1),
+    escapeCsv(idx.rep || idx.replica || 0),
+    escapeCsv(idx['docs.count'] || idx.docsCount || 0),
+    escapeCsv(idx['docs.deleted'] || idx.docsDeleted || 0),
+    escapeCsv(idx['store.size'] || idx.storeSize || '0b'),
+    escapeCsv(idx['pri.store.size'] || idx.priStoreSize || '0b'),
+  ]);
+
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const clusterName = (clusterHealth.value?.cluster_name || 'opensearch').toLowerCase().replace(/\s+/g, '-');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${clusterName}-indices-${timestamp}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
 // Filtered shards for All Shards table (with State Filter support)
 const filteredShards = computed(() => {
@@ -1176,10 +1297,10 @@ onUnmounted(() => {
       <!-- TAB 3: INDICES -->
       <!-- ================================================================= -->
       <div v-if="activeTab === 'indices'" class="space-y-4">
-        <!-- Search bar & Health Filter Tabs -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <!-- Search bar, Health Filter, Sort & Export to CSV -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div class="flex flex-wrap items-center gap-3">
-            <div class="relative w-72">
+            <div class="relative w-64 sm:w-72">
               <Search class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
               <input
                 v-model="indexSearch"
@@ -1213,9 +1334,40 @@ onUnmounted(() => {
                 Healthy ({{ greenIndices.length }})
               </button>
             </div>
+
+            <!-- Sort By Selector -->
+            <div class="flex items-center gap-1.5 bg-[#14161b] px-2.5 py-1 rounded-lg border border-slate-800 text-xs">
+              <ArrowUpDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <select
+                v-model="sortSelectValue"
+                class="bg-transparent text-slate-300 focus:outline-none cursor-pointer font-sans text-[11px]"
+              >
+                <option value="default" class="bg-[#1b1e26] text-slate-300">Sort: Default</option>
+                <option value="storeSize_desc" class="bg-[#1b1e26] text-slate-300">Store Size: Highest First</option>
+                <option value="storeSize_asc" class="bg-[#1b1e26] text-slate-300">Store Size: Lowest First</option>
+                <option value="priStoreSize_desc" class="bg-[#1b1e26] text-slate-300">Primary Size: Highest First</option>
+                <option value="priStoreSize_asc" class="bg-[#1b1e26] text-slate-300">Primary Size: Lowest First</option>
+                <option value="docs_desc" class="bg-[#1b1e26] text-slate-300">Docs Count: Highest First</option>
+                <option value="docs_asc" class="bg-[#1b1e26] text-slate-300">Docs Count: Lowest First</option>
+                <option value="name_asc" class="bg-[#1b1e26] text-slate-300">Index Name: A - Z</option>
+                <option value="name_desc" class="bg-[#1b1e26] text-slate-300">Index Name: Z - A</option>
+              </select>
+            </div>
           </div>
 
-          <span class="text-xs text-slate-400 font-mono">Showing {{ filteredIndices.length }} of {{ indicesList.length }} indices</span>
+          <!-- Right side: Export to CSV and Indices Count -->
+          <div class="flex items-center gap-3 self-end md:self-auto shrink-0">
+            <button
+              @click="exportIndicesToCsv"
+              :disabled="filteredIndices.length === 0"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14161b] hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-[11px] font-semibold transition shadow-sm disabled:opacity-50 cursor-pointer"
+              title="Export filtered & sorted indices to CSV"
+            >
+              <Download class="w-3.5 h-3.5 text-slate-400" />
+              <span>Export CSV</span>
+            </button>
+            <span class="text-xs text-slate-400 font-mono">Showing {{ filteredIndices.length }} of {{ indicesList.length }} indices</span>
+          </div>
         </div>
 
         <div class="bg-[#1b1e26] border border-slate-800/80 rounded-xl overflow-hidden shadow-xl">
@@ -1225,14 +1377,42 @@ onUnmounted(() => {
                 <tr>
                   <th class="py-3 px-6">Health</th>
                   <th class="py-3 px-4">Status</th>
-                  <th class="py-3 px-4">Index</th>
+                  <th class="py-3 px-4 cursor-pointer hover:text-white transition select-none group" @click="toggleSort('name')">
+                    <div class="flex items-center gap-1">
+                      <span>Index</span>
+                      <ArrowUp v-if="indexSortKey === 'name' && indexSortOrder === 'asc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowDown v-else-if="indexSortKey === 'name' && indexSortOrder === 'desc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowUpDown v-else class="w-3 h-3 text-slate-600 group-hover:text-slate-400 opacity-60" />
+                    </div>
+                  </th>
                   <th class="py-3 px-4">UUID</th>
                   <th class="py-3 px-4">Primary</th>
                   <th class="py-3 px-4">Replica</th>
-                  <th class="py-3 px-4">Docs Count</th>
+                  <th class="py-3 px-4 cursor-pointer hover:text-white transition select-none group" @click="toggleSort('docs')">
+                    <div class="flex items-center gap-1">
+                      <span>Docs Count</span>
+                      <ArrowUp v-if="indexSortKey === 'docs' && indexSortOrder === 'asc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowDown v-else-if="indexSortKey === 'docs' && indexSortOrder === 'desc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowUpDown v-else class="w-3 h-3 text-slate-600 group-hover:text-slate-400 opacity-60" />
+                    </div>
+                  </th>
                   <th class="py-3 px-4">Docs Deleted</th>
-                  <th class="py-3 px-4">Store Size</th>
-                  <th class="py-3 px-6">Primary Size</th>
+                  <th class="py-3 px-4 cursor-pointer hover:text-white transition select-none group" @click="toggleSort('storeSize')">
+                    <div class="flex items-center gap-1">
+                      <span>Store Size</span>
+                      <ArrowUp v-if="indexSortKey === 'storeSize' && indexSortOrder === 'asc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowDown v-else-if="indexSortKey === 'storeSize' && indexSortOrder === 'desc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowUpDown v-else class="w-3 h-3 text-slate-600 group-hover:text-slate-400 opacity-60" />
+                    </div>
+                  </th>
+                  <th class="py-3 px-6 cursor-pointer hover:text-white transition select-none group" @click="toggleSort('priStoreSize')">
+                    <div class="flex items-center gap-1">
+                      <span>Primary Size</span>
+                      <ArrowUp v-if="indexSortKey === 'priStoreSize' && indexSortOrder === 'asc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowDown v-else-if="indexSortKey === 'priStoreSize' && indexSortOrder === 'desc'" class="w-3 h-3 text-brand-400" />
+                      <ArrowUpDown v-else class="w-3 h-3 text-slate-600 group-hover:text-slate-400 opacity-60" />
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody v-if="filteredIndices.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
