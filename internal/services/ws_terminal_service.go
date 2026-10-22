@@ -170,8 +170,28 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 	s.sessionsMu.Lock()
 	pSess, exists := s.sessions[sessionKey]
 	if exists && !pSess.closed {
-		if forceNew {
-			logger.Info("SSH", fmt.Sprintf("Force closing stale terminal session for clean reconnect: %s", sessionKey))
+		// Verify if the session and SSH channel are genuinely responsive
+		var isHealthy bool
+		if pSess.client != nil && pSess.session != nil && pSess.stdinPipe != nil {
+			targetRows := initialRows
+			targetCols := initialCols
+			if targetRows <= 0 {
+				targetRows = 24
+			}
+			if targetCols <= 0 {
+				targetCols = 80
+			}
+			if err := pSess.session.WindowChange(targetRows, targetCols); err == nil {
+				isHealthy = true
+			}
+		}
+
+		if forceNew || !isHealthy {
+			if !isHealthy {
+				logger.Warn("SSH", fmt.Sprintf("Terminal session %s is unresponsive or dead, recycling for fresh connection", sessionKey))
+			} else {
+				logger.Info("SSH", fmt.Sprintf("Force closing stale terminal session for clean reconnect: %s", sessionKey))
+			}
 			pSess.closeSession()
 			delete(s.sessions, sessionKey)
 		} else {
@@ -200,6 +220,11 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 				Type:    "connected",
 				Message: fmt.Sprintf("Re-attached to active session: %s (%s)", cfg.Name, cfg.Host),
 			})
+
+			// Wake up the shell and redraw prompt so terminal does not sit on an empty dead line
+			if pSess.stdinPipe != nil {
+				_, _ = io.WriteString(pSess.stdinPipe, "\r")
+			}
 
 			s.runWsReadLoop(pSess, ws)
 			return
@@ -356,7 +381,12 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 			switch msg.Type {
 			case "input", "stdin":
 				if p.stdinPipe != nil {
-					_, _ = io.WriteString(p.stdinPipe, msg.Data)
+					if _, err := io.WriteString(p.stdinPipe, msg.Data); err != nil {
+						logger.Warn("SSH", fmt.Sprintf("Failed to write to stdin pipe (%v), recycling dead session %s", err, p.key))
+						p.closeSession()
+						_ = p.writeWs(domain.WsTerminalMessage{Type: "disconnected", Message: "SSH session connection terminated."})
+						return
+					}
 				}
 			case "resize":
 				if msg.Cols > 0 && msg.Rows > 0 && p.session != nil {
@@ -378,7 +408,12 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 			}
 		} else {
 			if p.stdinPipe != nil {
-				_, _ = p.stdinPipe.Write(message)
+				if _, err := p.stdinPipe.Write(message); err != nil {
+					logger.Warn("SSH", fmt.Sprintf("Failed to write raw bytes to stdin pipe (%v), recycling dead session %s", err, p.key))
+					p.closeSession()
+					_ = p.writeWs(domain.WsTerminalMessage{Type: "disconnected", Message: "SSH session connection terminated."})
+					return
+				}
 			}
 		}
 	}

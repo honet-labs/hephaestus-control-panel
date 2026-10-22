@@ -1025,6 +1025,12 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
         session.fitAddon?.fit();
         session.term.focus();
       } catch (e) {}
+      setTimeout(() => {
+        try {
+          session.fitAddon?.fit();
+          session.term?.focus();
+        } catch (_) {}
+      }, 50);
     }
 
     // Send auth handshake with sessionId for persistent session re-attach
@@ -1713,7 +1719,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   // Keyboard shortcut to reconnect active terminal (Ctrl/Cmd + Shift + R)
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'R' || e.key === 'r') && activeSession.value?.activeView === 'terminal') {
     e.preventDefault();
-    reconnectTerminal(activeSession.value, false);
+    reconnectTerminal(activeSession.value, true);
     return;
   }
 
@@ -4231,9 +4237,9 @@ onUnmounted(() => {
                   ]"
                 >
                   <button
-                    @click="reconnectTerminal(session, false)"
+                    @click="reconnectTerminal(session, true)"
                     :disabled="session.connecting"
-                    title="Reconnect terminal session (Preserves buffer & reconnects stream)"
+                    title="Reconnect terminal session (Restores responsive shell & preserves scrollback history)"
                     :class="[
                       'flex items-center gap-1.5 px-2.5 py-0.5 rounded-l transition cursor-pointer disabled:opacity-50 text-[11px] font-mono leading-tight',
                       !session.connected && !session.connecting
@@ -4260,27 +4266,27 @@ onUnmounted(() => {
                   <!-- Reconnect Options Dropdown Menu -->
                   <div
                     v-if="reconnectMenuSessionId === session.id"
-                    class="absolute right-0 top-full mt-1.5 z-30 bg-white dark:bg-[#1a1d26] border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 w-52 text-xs font-sans text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95 duration-100"
+                    class="absolute right-0 top-full mt-1.5 z-30 bg-white dark:bg-[#1a1d26] border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 w-56 text-xs font-sans text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95 duration-100"
                     @click.stop
                   >
                     <button
-                      @click="reconnectTerminal(session, false)"
+                      @click="reconnectTerminal(session, true)"
                       class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                     >
-                      <RotateCw class="w-3.5 h-3.5 text-slate-400" />
+                      <RotateCw class="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <div>
-                        <div class="font-medium text-[11px]">Reconnect Stream</div>
-                        <div class="text-[10px] text-slate-400">Re-attaches to live shell & buffer</div>
+                        <div class="font-medium text-[11px]">Reset Shell & Reconnect</div>
+                        <div class="text-[10px] text-slate-400">Spawns fresh shell, preserves scroll history</div>
                       </div>
                     </button>
                     <button
-                      @click="reconnectTerminal(session, true)"
-                      class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                      @click="reconnectTerminal(session, false)"
+                      class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
                     >
-                      <RefreshCw class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <RefreshCw class="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <div>
-                        <div class="font-medium text-[11px]">Reset Shell (Force New)</div>
-                        <div class="text-[10px] text-slate-400">Kills stuck processes & spawns fresh shell</div>
+                        <div class="font-medium text-[11px]">Re-attach Live Stream</div>
+                        <div class="text-[10px] text-slate-400">Re-attaches to background running task</div>
                       </div>
                     </button>
                   </div>
