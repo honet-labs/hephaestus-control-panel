@@ -4222,29 +4222,36 @@ onUnmounted(() => {
                 </button>
 
                 <!-- Reconnect Action Button (Always Available & Accessible) -->
-                <div class="relative flex items-center">
+                <div
+                  class="relative inline-flex items-stretch rounded border font-mono text-[11px] shadow-xs backdrop-blur-xs transition"
+                  :class="[
+                    !session.connected && !session.connecting
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-slate-300/80 dark:border-slate-700 bg-white/90 dark:bg-[#1b1e26]/90 text-slate-700 dark:text-slate-300'
+                  ]"
+                >
                   <button
                     @click="reconnectTerminal(session, false)"
                     :disabled="session.connecting"
                     title="Reconnect terminal session (Preserves buffer & reconnects stream)"
                     :class="[
-                      'flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono transition cursor-pointer shadow-xs backdrop-blur-xs disabled:opacity-50 border',
+                      'flex items-center gap-1.5 px-2.5 py-0.5 rounded-l transition cursor-pointer disabled:opacity-50 text-[11px] font-mono leading-tight',
                       !session.connected && !session.connecting
-                        ? 'bg-blue-600 hover:bg-blue-500 text-white font-bold border-blue-600 rounded-r-none border-r-0'
-                        : 'bg-white/90 hover:bg-slate-100 dark:bg-[#1b1e26]/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-300/80 dark:border-slate-700 rounded-r-none border-r-0'
+                        ? 'hover:bg-blue-500 font-bold'
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-700'
                     ]"
                   >
-                    <RotateCw :class="['w-3 h-3 text-slate-400 dark:text-slate-500', session.connecting ? 'animate-spin' : '']" />
+                    <RotateCw :class="['w-3 h-3', !session.connected && !session.connecting ? 'text-white' : 'text-slate-400 dark:text-slate-500', session.connecting ? 'animate-spin' : '']" />
                     <span>{{ session.connecting ? 'Connecting...' : 'Reconnect' }}</span>
                   </button>
                   <button
                     @click.stop="toggleReconnectMenu(session.id)"
                     :title="'More reconnect options (Reset Shell)'"
                     :class="[
-                      'px-1 py-0.5 rounded-r text-[10px] transition cursor-pointer border',
+                      'flex items-center justify-center px-1.5 rounded-r transition cursor-pointer border-l text-[10px]',
                       !session.connected && !session.connecting
-                        ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600 border-l-blue-400'
-                        : 'bg-white/90 hover:bg-slate-100 dark:bg-[#1b1e26]/90 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-300/80 dark:border-slate-700 border-l-slate-200 dark:border-l-slate-700'
+                        ? 'border-blue-500/60 hover:bg-blue-500 text-white'
+                        : 'border-slate-300/60 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'
                     ]"
                   >
                     <ChevronDown class="w-3 h-3" />
