@@ -521,6 +521,7 @@ func main() {
 		api.GET("/docker/containers/:id/logs", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetLogs)
 		api.GET("/docker/containers/:id/stats", middleware.RequirePermission("infrastructure", "read"), dockerHandler.GetStats)
 		api.POST("/docker/containers/deploy", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeployContainer)
+		api.POST("/docker/containers/deploy-stream", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeployContainerStream)
 		api.GET("/docker/images", middleware.RequirePermission("infrastructure", "read"), dockerHandler.ListImages)
 		api.POST("/docker/images/pull", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.PullImage)
 		api.DELETE("/docker/images/:id", middleware.RequirePermission("infrastructure", "manage"), dockerHandler.DeleteImage)

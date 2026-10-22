@@ -107,6 +107,13 @@ const deployError = ref('');
 const showNoConnectionModal = ref(false);
 const copiedCodeType = ref<string | null>(null);
 
+// Deployment streaming logs and timing
+const deployLogs = ref<Array<{ timestamp: string; step: string; status: string; message: string }>>([]);
+const deployTimerSec = ref(0);
+const deployTerminalRef = ref<HTMLElement | null>(null);
+const copiedLogs = ref(false);
+let deployTimerInterval: any = null;
+
 // App catalog list
 const apps: AppItem[] = [
   {
@@ -749,7 +756,7 @@ const goToContainers = () => {
   router.push('/infrastructure/containers');
 };
 
-// Execute docker deploy
+// Execute docker deploy with real-time stream logs
 const handleInstallToDocker = async () => {
   if (dockerConnections.value.length === 0) {
     showNoConnectionModal.value = true;
@@ -764,6 +771,13 @@ const handleInstallToDocker = async () => {
   isDeploying.value = true;
   deployError.value = '';
   deploySuccess.value = false;
+  deployLogs.value = [];
+  deployTimerSec.value = 0;
+
+  if (deployTimerInterval) clearInterval(deployTimerInterval);
+  deployTimerInterval = setInterval(() => {
+    deployTimerSec.value++;
+  }, 1000);
 
   const ports = deployForm.value.portsText
     .split('\n')
@@ -790,27 +804,132 @@ const handleInstallToDocker = async () => {
     visibility: 'private',
   };
 
+  const addLog = (step: string, status: string, message: string, timestamp?: string) => {
+    const timeStr = timestamp || new Date().toLocaleTimeString('en-US', { hour12: false });
+    deployLogs.value.push({ step, status, message, timestamp: timeStr });
+    if (deployLogs.value.length > 300) {
+      deployLogs.value.shift();
+    }
+    setTimeout(() => {
+      if (deployTerminalRef.value) {
+        deployTerminalRef.value.scrollTop = deployTerminalRef.value.scrollHeight;
+      }
+    }, 20);
+  };
+
+  addLog('init', 'info', `Connecting to deployment service for '${payload.name}'...`);
+
   try {
-    const res = await axios.post(
-      `/api/v1/docker/containers/deploy?connectionId=${selectedConnectionId.value}`,
-      payload
+    const token = authStore.token || localStorage.getItem('token') || '';
+    const response = await fetch(
+      `/api/v1/docker/containers/deploy-stream?connectionId=${selectedConnectionId.value}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+        },
+        body: JSON.stringify(payload),
+      }
     );
 
-    if (res.data?.success) {
-      deploySuccess.value = true;
-      deployResultId.value = res.data.containerId || 'OK';
-    } else {
-      deployError.value = res.data?.error || 'Failed to deploy container';
+    if (!response.ok) {
+      let errMsg = `Server returned HTTP ${response.status} ${response.statusText}`;
+      try {
+        const errJson = await response.json();
+        if (errJson.error) errMsg = errJson.error;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    if (!response.body) {
+      throw new Error('No streaming response body received from server');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const item = JSON.parse(dataStr);
+              addLog(item.step || 'deploy', item.status || 'info', item.message || '', item.timestamp);
+              if (item.status === 'error') {
+                deployError.value = item.message;
+              }
+              if (item.step === 'complete' && item.status === 'success') {
+                deploySuccess.value = true;
+                deployResultId.value = item.containerId || 'OK';
+              }
+            } catch {
+              addLog('deploy', 'info', dataStr);
+            }
+          }
+        }
+      }
+    }
+
+    // Process leftover buffer
+    if (buffer.trim()) {
+      const lines = buffer.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const item = JSON.parse(line.slice(6).trim());
+            addLog(item.step || 'deploy', item.status || 'info', item.message || '', item.timestamp);
+            if (item.step === 'complete' && item.status === 'success') {
+              deploySuccess.value = true;
+              deployResultId.value = item.containerId || 'OK';
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (!deploySuccess.value && !deployError.value) {
+      const last = deployLogs.value[deployLogs.value.length - 1];
+      if (last && (last.status === 'success' || last.step === 'complete')) {
+        deploySuccess.value = true;
+        deployResultId.value = 'OK';
+      } else {
+        deployError.value = 'Deployment completed but container status uncertain. Check containers list.';
+      }
     }
   } catch (err: any) {
-    deployError.value =
-      err.response?.data?.error ||
-      err.response?.data?.details ||
-      err.message ||
-      'Deployment failed. Please check Docker daemon logs and connection.';
+    const errorText = err.message || 'Deployment stream interrupted';
+    deployError.value = errorText;
+    addLog('error', 'error', errorText);
   } finally {
+    if (deployTimerInterval) {
+      clearInterval(deployTimerInterval);
+      deployTimerInterval = null;
+    }
     isDeploying.value = false;
   }
+};
+
+const copyLogsText = async () => {
+  const text = deployLogs.value
+    .map((l) => `[${l.timestamp}] [${l.step.toUpperCase()}] ${l.message}`)
+    .join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedLogs.value = true;
+    setTimeout(() => { copiedLogs.value = false; }, 2000);
+  } catch {}
 };
 
 // Watch for modal open
@@ -824,7 +943,14 @@ watch(
       selectedApp.value = null;
       deploySuccess.value = false;
       deployError.value = '';
+      deployLogs.value = [];
+      deployTimerSec.value = 0;
       showNoConnectionModal.value = false;
+    } else {
+      if (deployTimerInterval) {
+        clearInterval(deployTimerInterval);
+        deployTimerInterval = null;
+      }
     }
   }
 );
@@ -847,6 +973,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
+  if (deployTimerInterval) clearInterval(deployTimerInterval);
 });
 </script>
 
@@ -1270,6 +1397,110 @@ onUnmounted(() => {
                 </div>
               </div>
 
+              <!-- Live Deployment Progress Console -->
+              <div
+                v-if="isDeploying || deployLogs.length > 0"
+                class="rounded-xl border border-slate-800 dark:border-[#1e273d] bg-slate-900 dark:bg-[#0c101c] overflow-hidden shadow-lg animate-in fade-in"
+              >
+                <!-- Terminal Header -->
+                <div class="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/70 dark:bg-[#070b14] border-b border-slate-800 dark:border-[#1a2336]">
+                  <div class="flex items-center gap-2">
+                    <Terminal class="w-4 h-4 text-slate-400" />
+                    <span class="text-xs font-bold text-slate-200">
+                      Deployment Console
+                    </span>
+                    <span
+                      v-if="isDeploying"
+                      class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    >
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Deploying ({{ deployTimerSec }}s)
+                    </span>
+                    <span
+                      v-else-if="deploySuccess"
+                      class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    >
+                      Completed in {{ deployTimerSec }}s
+                    </span>
+                    <span
+                      v-else-if="deployError"
+                      class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                    >
+                      Failed after {{ deployTimerSec }}s
+                    </span>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <button
+                      @click="copyLogsText"
+                      :disabled="deployLogs.length === 0"
+                      class="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer disabled:opacity-40"
+                      title="Copy all logs"
+                    >
+                      <Check v-if="copiedLogs" class="w-3.5 h-3.5 text-emerald-400" />
+                      <Copy v-else class="w-3.5 h-3.5" />
+                      <span>{{ copiedLogs ? 'Copied' : 'Copy' }}</span>
+                    </button>
+                    <button
+                      v-if="!isDeploying"
+                      @click="deployLogs = []"
+                      class="px-2 py-1 text-[11px] font-medium text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition cursor-pointer"
+                      title="Clear console"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Terminal Body -->
+                <div
+                  ref="deployTerminalRef"
+                  class="h-52 overflow-y-auto p-3.5 font-mono text-[11px] leading-relaxed select-text space-y-1 bg-slate-950 dark:bg-[#070a12]"
+                >
+                  <div
+                    v-for="(log, idx) in deployLogs"
+                    :key="idx"
+                    class="flex items-start gap-2 break-all"
+                  >
+                    <span class="text-slate-500 select-none shrink-0 font-mono text-[10px]">
+                      {{ log.timestamp }}
+                    </span>
+                    <span
+                      :class="[
+                        'px-1.5 py-0.2 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 select-none border',
+                        log.status === 'error' || log.step === 'error'
+                          ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                          : log.status === 'success' || log.step === 'complete'
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : log.step === 'pull'
+                          ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                          : log.step === 'create' || log.step === 'start'
+                          ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700',
+                      ]"
+                    >
+                      {{ log.step }}
+                    </span>
+                    <span
+                      :class="[
+                        'flex-1',
+                        log.status === 'error'
+                          ? 'text-rose-300'
+                          : log.status === 'success'
+                          ? 'text-emerald-300'
+                          : 'text-slate-300',
+                      ]"
+                    >
+                      {{ log.message }}
+                    </span>
+                  </div>
+                  <div v-if="isDeploying" class="flex items-center gap-2 pt-1 text-slate-500">
+                    <RefreshCw class="w-3 h-3 animate-spin text-slate-400" />
+                    <span class="animate-pulse text-[10px]">Processing deployment task...</span>
+                  </div>
+                </div>
+              </div>
+
               <!-- Deployment Form Card -->
               <div
                 class="bg-white dark:bg-[#111728] border border-slate-200 dark:border-[#1f283d] rounded-xl p-5 space-y-4"
@@ -1413,7 +1644,7 @@ onUnmounted(() => {
                   >
                     <RefreshCw v-if="isDeploying" class="w-4 h-4 animate-spin" />
                     <Play v-else class="w-4 h-4" />
-                    <span>{{ isDeploying ? 'Deploying Container...' : !canDeploy ? 'Read-Only (No Deploy)' : 'Install to Docker' }}</span>
+                    <span>{{ isDeploying ? `Deploying Container (${deployTimerSec}s)...` : !canDeploy ? 'Read-Only (No Deploy)' : 'Install to Docker' }}</span>
                   </button>
                 </div>
               </div>

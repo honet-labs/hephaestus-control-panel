@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -1019,14 +1020,27 @@ func (s *DockerService) RemoveImage(ctx context.Context, connectionID, imageID s
 // -------------------------------------------------------------
 
 func (s *DockerService) DeployContainer(ctx context.Context, connectionID string, req domain.DeployContainerRequest) (string, error) {
+	return s.DeployContainerStream(ctx, connectionID, req, func(step, status, message string) {})
+}
+
+// DeployContainerStream deploys a container while streaming live deployment progress events
+func (s *DockerService) DeployContainerStream(ctx context.Context, connectionID string, req domain.DeployContainerRequest, logFn func(step, status, message string)) (string, error) {
 	req.Normalize()
+
+	if logFn == nil {
+		logFn = func(step, status, message string) {}
+	}
+
+	logFn("init", "info", "Initializing container deployment specification...")
 
 	conn, err := s.resolveConnection(ctx, connectionID)
 	if err != nil {
+		logFn("init", "error", fmt.Sprintf("Failed to resolve Docker connection: %v", err))
 		return "", err
 	}
 
 	if strings.TrimSpace(req.Image) == "" {
+		logFn("init", "error", "Docker image name is required")
 		return "", errors.New("image is required")
 	}
 
@@ -1035,7 +1049,47 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		cmdParts = strings.Fields(req.Command)
 	}
 
+	// -------------------------------------------------------------
+	// Remote Host / SSH Deployment
+	// -------------------------------------------------------------
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		remoteHost, err := s.getRemoteHost(ctx, conn)
+		if err != nil {
+			logFn("ssh", "error", fmt.Sprintf("Failed to resolve remote host: %v", err))
+			return "", err
+		}
+
+		logFn("check", "info", fmt.Sprintf("Connected to remote host '%s' via SSH.", remoteHost.Name))
+
+		// 1. Pull Image on Remote Host with Live Streaming
+		logFn("pull", "info", fmt.Sprintf("Checking and pulling image '%s' on remote host...", req.Image))
+		pullScript := fmt.Sprintf("docker pull %s", shellQuote(req.Image))
+		if conn.SocketPath != "" {
+			pullScript = fmt.Sprintf("DOCKER_HOST=unix://%s %s", shellQuote(conn.SocketPath), pullScript)
+		}
+
+		_, errPull := s.sshService.ExecuteCommandStream(remoteHost, pullScript, func(line string) {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				logFn("pull", "progress", trimmed)
+			}
+		})
+		if errPull != nil {
+			logFn("pull", "error", fmt.Sprintf("Warning: docker pull encountered issue: %v, attempting to continue...", errPull))
+		} else {
+			logFn("pull", "success", fmt.Sprintf("Image '%s' ready on remote host.", req.Image))
+		}
+
+		// 2. Remove existing container if name collision
+		if req.Name != "" {
+			rmScript := fmt.Sprintf("docker rm -f %s 2>/dev/null || true", shellQuote(req.Name))
+			if conn.SocketPath != "" {
+				rmScript = fmt.Sprintf("DOCKER_HOST=unix://%s %s", shellQuote(conn.SocketPath), rmScript)
+			}
+			_, _ = s.sshService.ExecuteCommand(remoteHost, rmScript)
+		}
+
+		// 3. Run Container
 		action := "run -d"
 		if req.StartAfter != nil && !*req.StartAfter {
 			action = "create"
@@ -1090,8 +1144,10 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 			args = append(args, shellQuote(part))
 		}
 
+		logFn("create", "info", fmt.Sprintf("Creating and starting container '%s' on remote host...", req.Name))
 		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, strings.Join(args, " "))
 		if err != nil {
+			logFn("create", "error", fmt.Sprintf("Deployment failed: %v (stderr: %s)", err, stderr))
 			return "", fmt.Errorf("deploy container failed: %w (stderr: %s)", err, stderr)
 		}
 		containerID := strings.TrimSpace(stdout)
@@ -1103,17 +1159,106 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 			Username:      req.OwnerUsername,
 			Visibility:    req.Visibility,
 		})
+		logFn("create", "success", fmt.Sprintf("Container started successfully! Container ID: %s", containerID))
 		return containerID, nil
 	}
 
-	// Deploy on Local Docker Engine
-	client, baseURL := s.getLocalHTTPClient(conn)
-	createURL := fmt.Sprintf("%s/v1.43/containers/create", baseURL)
-	if req.Name != "" {
-		createURL += fmt.Sprintf("?name=%s", req.Name)
+	// -------------------------------------------------------------
+	// Local Docker Socket Deployment
+	// -------------------------------------------------------------
+	logFn("connect", "info", fmt.Sprintf("Connecting to Docker socket '%s'...", conn.SocketPath))
+	client, baseURL := s.getLocalStreamingHTTPClient(conn)
+
+	// Step 1: Check if image exists locally in Docker Engine
+	inspectURL := fmt.Sprintf("%s/v1.43/images/%s/json", baseURL, url.PathEscape(req.Image))
+	inspectReq, err := http.NewRequestWithContext(ctx, "GET", inspectURL, nil)
+	imageExists := false
+	if err == nil {
+		inspectResp, inspectErr := client.Do(inspectReq)
+		if inspectErr == nil {
+			if inspectResp.StatusCode == http.StatusOK {
+				imageExists = true
+			}
+			inspectResp.Body.Close()
+		}
 	}
 
-	// Parse Port bindings
+	// Step 2: If image does not exist, pull image with streaming logs
+	if !imageExists {
+		logFn("pull", "info", fmt.Sprintf("Image '%s' not found locally. Initiating Docker pull from registry...", req.Image))
+		pullURL := fmt.Sprintf("%s/v1.43/images/create?fromImage=%s", baseURL, url.QueryEscape(req.Image))
+		pullReq, err := http.NewRequestWithContext(ctx, "POST", pullURL, nil)
+		if err != nil {
+			logFn("pull", "error", fmt.Sprintf("Failed to construct pull request: %v", err))
+			return "", err
+		}
+
+		pullResp, err := client.Do(pullReq)
+		if err != nil {
+			logFn("pull", "error", fmt.Sprintf("Failed to contact Docker registry: %v", err))
+			return "", fmt.Errorf("failed to pull image: %w", err)
+		}
+		defer pullResp.Body.Close()
+
+		if pullResp.StatusCode >= 400 {
+			errBytes, _ := io.ReadAll(pullResp.Body)
+			logFn("pull", "error", fmt.Sprintf("Registry returned HTTP %d: %s", pullResp.StatusCode, string(errBytes)))
+			return "", fmt.Errorf("docker pull returned %d: %s", pullResp.StatusCode, string(errBytes))
+		}
+
+		decoder := json.NewDecoder(pullResp.Body)
+		type pullItem struct {
+			Status   string `json:"status"`
+			ID       string `json:"id"`
+			Progress string `json:"progress"`
+			Error    string `json:"error"`
+		}
+
+		lastLogTime := time.Now()
+		for decoder.More() {
+			var item pullItem
+			if err := decoder.Decode(&item); err == nil {
+				if item.Error != "" {
+					logFn("pull", "error", item.Error)
+					return "", fmt.Errorf("image pull failed: %s", item.Error)
+				}
+				line := item.Status
+				if item.ID != "" {
+					line = fmt.Sprintf("[%s] %s", item.ID, item.Status)
+				}
+				if item.Progress != "" {
+					line += " " + item.Progress
+				}
+				if time.Since(lastLogTime) > 300*time.Millisecond || item.Progress == "" {
+					logFn("pull", "progress", line)
+					lastLogTime = time.Now()
+				}
+			}
+		}
+		logFn("pull", "success", fmt.Sprintf("Image '%s' downloaded and verified successfully.", req.Image))
+	} else {
+		logFn("pull", "success", fmt.Sprintf("Image '%s' is already present locally in Docker cache.", req.Image))
+	}
+
+	// Step 3: Remove existing container with same name if already stopped or exists
+	if req.Name != "" {
+		rmURL := fmt.Sprintf("%s/v1.43/containers/%s?force=true&v=true", baseURL, url.PathEscape(req.Name))
+		rmReq, _ := http.NewRequestWithContext(ctx, "DELETE", rmURL, nil)
+		if rmResp, err := client.Do(rmReq); err == nil {
+			if rmResp.StatusCode == http.StatusOK || rmResp.StatusCode == http.StatusNoContent {
+				logFn("clean", "info", fmt.Sprintf("Removed existing container with name '%s'", req.Name))
+			}
+			rmResp.Body.Close()
+		}
+	}
+
+	// Step 4: Create container
+	logFn("create", "info", fmt.Sprintf("Configuring and creating container '%s'...", req.Name))
+	createURL := fmt.Sprintf("%s/v1.43/containers/create", baseURL)
+	if req.Name != "" {
+		createURL += fmt.Sprintf("?name=%s", url.QueryEscape(req.Name))
+	}
+
 	exposedPorts := make(map[string]struct{})
 	portMap := make(map[string][]map[string]string)
 	for _, p := range req.PortBindings {
@@ -1175,18 +1320,27 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 	bodyJSON, _ := json.Marshal(payload)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", createURL, bytes.NewBuffer(bodyJSON))
 	if err != nil {
+		logFn("create", "error", fmt.Sprintf("Failed to build container create payload: %v", err))
 		return "", err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		logFn("create", "error", fmt.Sprintf("Docker daemon error on create: %v", err))
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		errBody, _ := io.ReadAll(resp.Body)
+		logFn("create", "error", fmt.Sprintf("Failed to create container (%d): %s", resp.StatusCode, string(errBody)))
+		return "", fmt.Errorf("failed to create container (%d): %s", resp.StatusCode, string(errBody))
+	}
+
 	var result struct {
-		ID string `json:"Id"`
+		ID       string   `json:"Id"`
+		Warnings []string `json:"Warnings"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
@@ -1206,11 +1360,26 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		Visibility:    req.Visibility,
 	})
 
-	// Automatically start created container unless startAfter is explicitly false
+	logFn("create", "success", fmt.Sprintf("Container created successfully! ID: %s", result.ID[:12]))
+
+	// Step 5: Automatically start container
 	if req.StartAfter == nil || *req.StartAfter {
+		logFn("start", "info", fmt.Sprintf("Starting container '%s'...", req.Name))
 		startURL := fmt.Sprintf("%s/v1.43/containers/%s/start", baseURL, result.ID)
 		startReq, _ := http.NewRequestWithContext(ctx, "POST", startURL, nil)
-		_, _ = client.Do(startReq)
+		startResp, err := client.Do(startReq)
+		if err != nil {
+			logFn("start", "error", fmt.Sprintf("Failed to start container: %v", err))
+			return result.ID, fmt.Errorf("container created but failed to start: %w", err)
+		}
+		defer startResp.Body.Close()
+
+		if startResp.StatusCode >= 400 {
+			errBody, _ := io.ReadAll(startResp.Body)
+			logFn("start", "error", fmt.Sprintf("Start error (%d): %s", startResp.StatusCode, string(errBody)))
+			return result.ID, fmt.Errorf("container created but start failed (%d): %s", startResp.StatusCode, string(errBody))
+		}
+		logFn("start", "success", fmt.Sprintf("Container '%s' is now running healthy!", req.Name))
 	}
 
 	return result.ID, nil
@@ -1520,14 +1689,14 @@ func (s *DockerService) GetSystemInfo(ctx context.Context, connectionID string) 
 // Internal HTTP Helpers
 // -------------------------------------------------------------
 
-func (s *DockerService) getLocalHTTPClient(conn *domain.DockerConnection) (*http.Client, string) {
+func (s *DockerService) getLocalHTTPClientWithTimeout(conn *domain.DockerConnection, timeout time.Duration) (*http.Client, string) {
 	socketPath := conn.SocketPath
 	if socketPath == "" {
 		socketPath = "/var/run/docker.sock"
 	}
 
 	if conn.HostType == "tcp" && conn.TcpURL != "" {
-		return &http.Client{Timeout: 20 * time.Second}, strings.TrimRight(conn.TcpURL, "/")
+		return &http.Client{Timeout: timeout}, strings.TrimRight(conn.TcpURL, "/")
 	}
 
 	transport := &http.Transport{
@@ -1540,8 +1709,16 @@ func (s *DockerService) getLocalHTTPClient(conn *domain.DockerConnection) (*http
 
 	return &http.Client{
 		Transport: transport,
-		Timeout:   30 * time.Second,
+		Timeout:   timeout,
 	}, "http://localhost"
+}
+
+func (s *DockerService) getLocalHTTPClient(conn *domain.DockerConnection) (*http.Client, string) {
+	return s.getLocalHTTPClientWithTimeout(conn, 30*time.Second)
+}
+
+func (s *DockerService) getLocalStreamingHTTPClient(conn *domain.DockerConnection) (*http.Client, string) {
+	return s.getLocalHTTPClientWithTimeout(conn, 0)
 }
 
 func (s *DockerService) doLocalPost(ctx context.Context, conn *domain.DockerConnection, endpoint string, body io.Reader) error {

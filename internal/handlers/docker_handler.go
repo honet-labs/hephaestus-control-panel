@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
@@ -771,6 +773,62 @@ func (h *DockerHandler) DeployContainer(c *gin.Context) {
 		"message":     "Container deployed successfully",
 		"containerId": id,
 	})
+}
+
+func (h *DockerHandler) DeployContainerStream(c *gin.Context) {
+	connectionID := c.Query("connectionId")
+	var req domain.DeployContainerRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid container deployment specification: " + err.Error()})
+		return
+	}
+
+	// Inject creator user identity
+	if userVal, exists := c.Get("user"); exists {
+		if u, ok := userVal.(*domain.User); ok {
+			req.UserID = &u.ID
+			req.OwnerUsername = u.Username
+		}
+	}
+
+	// Set SSE / streaming headers with X-Accel-Buffering to prevent Nginx 504 Gateway Timeout
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	sendMsg := func(step string, status string, message string) {
+		payload := map[string]interface{}{
+			"step":      step,
+			"status":    status, // "info", "progress", "success", "error"
+			"message":   message,
+			"timestamp": time.Now().Format("15:04:05"),
+		}
+		data, _ := json.Marshal(payload)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		c.Writer.Flush()
+	}
+
+	sendMsg("start", "info", "Starting container deployment pipeline...")
+
+	id, err := h.dockerService.DeployContainerStream(c.Request.Context(), connectionID, req, sendMsg)
+	if err != nil {
+		sendMsg("error", "error", err.Error())
+		return
+	}
+
+	completePayload := map[string]interface{}{
+		"step":        "complete",
+		"status":      "success",
+		"message":     fmt.Sprintf("Container deployed and started successfully! ID: %s", id),
+		"containerId": id,
+		"timestamp":   time.Now().Format("15:04:05"),
+	}
+	compData, _ := json.Marshal(completePayload)
+	fmt.Fprintf(c.Writer, "data: %s\n\n", compData)
+	c.Writer.Flush()
 }
 
 func (h *DockerHandler) InspectContainer(c *gin.Context) {

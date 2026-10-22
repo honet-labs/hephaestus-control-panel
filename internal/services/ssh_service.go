@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -152,6 +153,69 @@ func (s *SSHService) ExecuteCommand(cfg *domain.RemoteHostConfig, command string
 	}
 
 	return stdoutBuf.String(), stderrBuf.String(), exitCode, nil
+}
+
+// ExecuteCommandStream runs a command and streams each line of stdout/stderr in real-time
+func (s *SSHService) ExecuteCommandStream(cfg *domain.RemoteHostConfig, command string, onLine func(line string)) (int, error) {
+	client, err := s.Dial(cfg)
+	if err != nil {
+		return -1, err
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return -1, err
+	}
+	defer session.Close()
+
+	stdoutPipe, err := session.StdoutPipe()
+	if err != nil {
+		return -1, err
+	}
+	stderrPipe, err := session.StderrPipe()
+	if err != nil {
+		return -1, err
+	}
+
+	if err := session.Start(command); err != nil {
+		return -1, err
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			if onLine != nil {
+				onLine(scanner.Text())
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			if onLine != nil {
+				onLine(scanner.Text())
+			}
+		}
+	}()
+
+	wg.Wait()
+	err = session.Wait()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*ssh.ExitError); ok {
+			exitCode = exitErr.ExitStatus()
+		} else {
+			exitCode = 1
+		}
+	}
+	return exitCode, nil
 }
 
 // ExecuteElevatedCommand executes a command with the sudo wrapper prepended
