@@ -1053,7 +1053,7 @@ func (s *DockerService) DeployContainerStream(ctx context.Context, connectionID 
 	// Remote Host / SSH Deployment
 	// -------------------------------------------------------------
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.getRemoteHost(ctx, conn)
+		remoteHost, err := s.resolveRemoteHost(ctx, conn)
 		if err != nil {
 			logFn("ssh", "error", fmt.Sprintf("Failed to resolve remote host: %v", err))
 			return "", err
@@ -1082,11 +1082,8 @@ func (s *DockerService) DeployContainerStream(ctx context.Context, connectionID 
 
 		// 2. Remove existing container if name collision
 		if req.Name != "" {
-			rmScript := fmt.Sprintf("docker rm -f %s 2>/dev/null || true", shellQuote(req.Name))
-			if conn.SocketPath != "" {
-				rmScript = fmt.Sprintf("DOCKER_HOST=unix://%s %s", shellQuote(conn.SocketPath), rmScript)
-			}
-			_, _ = s.sshService.ExecuteCommand(remoteHost, rmScript)
+			rmArgs := fmt.Sprintf("rm -f %s", shellQuote(req.Name))
+			_, _, _ = s.runRemoteDockerCommand(ctx, conn, rmArgs)
 		}
 
 		// 3. Run Container
