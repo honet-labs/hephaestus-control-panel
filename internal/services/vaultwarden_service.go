@@ -30,9 +30,22 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
+type vwCachedSession struct {
+	ServerURL   string
+	AccessToken string
+	UserEncKey  []byte
+	UserMacKey  []byte
+	ExpiresAt   time.Time
+}
+
 type VaultwardenService struct {
-	repo       *repository.VaultwardenRepository
-	httpClient *http.Client
+	repo        *repository.VaultwardenRepository
+	httpClient  *http.Client
+	sessionMu   sync.RWMutex
+	sessions    map[string]*vwCachedSession // key: serverURL + "|" + email
+	lockoutMu   sync.RWMutex
+	lockoutTime map[string]time.Time        // key: serverURL + "|" + email -> lockout expiration
+	loginMu     sync.Mutex                  // serializes login attempts to prevent concurrent bursts
 }
 
 func NewVaultwardenService(repo *repository.VaultwardenRepository) *VaultwardenService {
@@ -41,13 +54,29 @@ func NewVaultwardenService(repo *repository.VaultwardenRepository) *VaultwardenS
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 		},
+		sessions:    make(map[string]*vwCachedSession),
+		lockoutTime: make(map[string]time.Time),
 	}
 }
 
-// StartBackgroundSync starts periodic background synchronization every 5 minutes
+func (s *VaultwardenService) getCacheKey(serverURL, email string) string {
+	return strings.ToLower(strings.TrimRight(serverURL, "/")) + "|" + strings.ToLower(strings.TrimSpace(email))
+}
+
+// InvalidateSession purges cached authentication tokens for the specified Vaultwarden instance
+func (s *VaultwardenService) InvalidateSession(serverURL, email string) {
+	key := s.getCacheKey(serverURL, email)
+	s.sessionMu.Lock()
+	delete(s.sessions, key)
+	s.sessionMu.Unlock()
+	logger.Info("Vaultwarden", fmt.Sprintf("Authentication session invalidated for '%s'", email))
+}
+
+// StartBackgroundSync starts periodic background synchronization every 15 minutes
 func (s *VaultwardenService) StartBackgroundSync(stopChan <-chan struct{}) {
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		// 15-minute sync interval to prevent tripping Vaultwarden's login rate limit
+		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -58,13 +87,26 @@ func (s *VaultwardenService) StartBackgroundSync(stopChan <-chan struct{}) {
 				configs, err := s.repo.ListAllActiveConfigs(context.Background())
 				if err == nil {
 					for _, c := range configs {
+						// Skip if synced recently (within 10 minutes)
+						if c.LastSyncedAt != nil && time.Since(*c.LastSyncedAt) < 10*time.Minute {
+							continue
+						}
+						// Skip if currently in 429 lockout
+						cacheKey := s.getCacheKey(c.ServerURL, c.Email)
+						s.lockoutMu.RLock()
+						lockout, isLocked := s.lockoutTime[cacheKey]
+						s.lockoutMu.RUnlock()
+						if isLocked && time.Now().Before(lockout) {
+							continue
+						}
+
 						uid := 0
 						if c.UserID != nil {
 							uid = *c.UserID
 						}
 						_, syncErr := s.SyncVault(context.Background(), uid, "ADMIN", c.ID)
 						if syncErr != nil {
-							logger.Warn("Vaultwarden", fmt.Sprintf("Background auto-sync failed for config %s: %v", c.Name, syncErr))
+							logger.Warn("Vaultwarden", fmt.Sprintf("Background auto-sync skipped/failed for config %s: %v", c.Name, syncErr))
 						}
 					}
 				}
@@ -461,6 +503,50 @@ type vwAuthContext struct {
 func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverURL, email, password string) (*vwAuthContext, error) {
 	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	email = strings.ToLower(strings.TrimSpace(email))
+	cacheKey := s.getCacheKey(serverURL, email)
+
+	// Step 0A: Check if active 429 rate-limit lockout is in effect
+	s.lockoutMu.RLock()
+	lockout, isLocked := s.lockoutTime[cacheKey]
+	s.lockoutMu.RUnlock()
+	if isLocked && time.Now().Before(lockout) {
+		remaining := int(time.Until(lockout).Seconds())
+		if remaining <= 0 {
+			remaining = 1
+		}
+		return nil, fmt.Errorf("Vaultwarden rate limit active: server requested cooldown due to too many login requests (HTTP 429). Please wait %d seconds before retrying", remaining)
+	}
+
+	// Step 0B: Check if we have a valid non-expired cached session
+	s.sessionMu.RLock()
+	sess, hasSess := s.sessions[cacheKey]
+	s.sessionMu.RUnlock()
+	if hasSess && sess != nil && time.Now().Before(sess.ExpiresAt) {
+		logger.Debug("Vaultwarden", fmt.Sprintf("Using active cached access token for '%s' (expires in %v)", email, time.Until(sess.ExpiresAt).Round(time.Second)))
+		return &vwAuthContext{
+			ServerURL:   sess.ServerURL,
+			AccessToken: sess.AccessToken,
+			UserEncKey:  sess.UserEncKey,
+			UserMacKey:  sess.UserMacKey,
+		}, nil
+	}
+
+	// Step 0C: Synchronize login attempts to prevent concurrent bursts to /identity/connect/token
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	// Double-check under login lock in case another goroutine just completed login
+	s.sessionMu.RLock()
+	sess, hasSess = s.sessions[cacheKey]
+	s.sessionMu.RUnlock()
+	if hasSess && sess != nil && time.Now().Before(sess.ExpiresAt) {
+		return &vwAuthContext{
+			ServerURL:   sess.ServerURL,
+			AccessToken: sess.AccessToken,
+			UserEncKey:  sess.UserEncKey,
+			UserMacKey:  sess.UserMacKey,
+		}, nil
+	}
 
 	// Step 1: Prelogin (get KDF algorithm & iterations)
 	prelogin, err := s.doPrelogin(ctx, serverURL, email)
@@ -480,6 +566,13 @@ func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverU
 	// Step 4: OAuth2 Login Token & User Encrypted Key
 	tokenResp, err := s.doLogin(ctx, serverURL, email, authPasswordHash)
 	if err != nil {
+		if strings.Contains(err.Error(), "429") || strings.Contains(strings.ToLower(err.Error()), "too many login requests") {
+			s.lockoutMu.Lock()
+			s.lockoutTime[cacheKey] = time.Now().Add(60 * time.Second)
+			s.lockoutMu.Unlock()
+			logger.Warn("Vaultwarden", fmt.Sprintf("Authentication rate limit reached (429) for '%s' at '%s'. 60s cooldown engaged to prevent account lockout", email, serverURL))
+			return nil, fmt.Errorf("authentication failed: rate limit exceeded (HTTP 429: Too many login requests). 60s cooldown engaged to protect account. Please wait before retrying")
+		}
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -488,6 +581,35 @@ func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverU
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt user symmetric key: %w", err)
 	}
+
+	// Cache session with TTL buffer
+	expiresIn := tokenResp.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 3600
+	}
+	ttlSec := expiresIn - 180
+	if ttlSec <= 60 {
+		ttlSec = expiresIn
+	}
+
+	expiresAt := time.Now().Add(time.Duration(ttlSec) * time.Second)
+
+	s.sessionMu.Lock()
+	s.sessions[cacheKey] = &vwCachedSession{
+		ServerURL:   serverURL,
+		AccessToken: tokenResp.AccessToken,
+		UserEncKey:  userEncKey,
+		UserMacKey:  userMacKey,
+		ExpiresAt:   expiresAt,
+	}
+	s.sessionMu.Unlock()
+
+	// Clear any previous lockout upon successful login
+	s.lockoutMu.Lock()
+	delete(s.lockoutTime, cacheKey)
+	s.lockoutMu.Unlock()
+
+	logger.Info("Vaultwarden", fmt.Sprintf("Successfully authenticated '%s' with Vaultwarden. Session cached for %d seconds", email, ttlSec))
 
 	return &vwAuthContext{
 		ServerURL:   serverURL,
@@ -506,7 +628,18 @@ func (s *VaultwardenService) fetchAndDecryptVault(ctx context.Context, serverURL
 	// Step 6: Sync Vault Data
 	syncData, err := s.doSync(ctx, authCtx.ServerURL, authCtx.AccessToken)
 	if err != nil {
-		return nil, nil, fmt.Errorf("vault sync failed: %w", err)
+		// If 401 Unauthorized, token might have been invalidated on remote server: invalidate and retry once
+		if strings.Contains(err.Error(), "401") {
+			logger.Warn("Vaultwarden", fmt.Sprintf("Access token rejected (401) for '%s'. Invalidating session and re-authenticating...", email))
+			s.InvalidateSession(serverURL, email)
+			authCtx, err = s.authenticateAndGetKeys(ctx, serverURL, email, password)
+			if err == nil {
+				syncData, err = s.doSync(ctx, authCtx.ServerURL, authCtx.AccessToken)
+			}
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("vault sync failed: %w", err)
+		}
 	}
 
 	userEncKey := authCtx.UserEncKey

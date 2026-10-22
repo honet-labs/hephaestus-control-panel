@@ -123,6 +123,9 @@ func (h *VaultwardenHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 
+	// Invalidate any existing cached session for this instance to ensure fresh authentication
+	h.vwService.InvalidateSession(serverURL, email)
+
 	// Trigger initial background sync if autoSync requested
 	if input.AutoSync && input.MasterPassword != "" {
 		go func() {

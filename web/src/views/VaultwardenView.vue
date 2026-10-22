@@ -552,11 +552,21 @@ const syncNow = async (silent = false) => {
       }
       await loadFolders();
     } else if (!silent) {
-      triggerToast(res.data.error || 'Failed to synchronize vault', 'error');
+      const errMsg = res.data.error || 'Failed to synchronize vault';
+      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many login requests') || errMsg.toLowerCase().includes('rate limit')) {
+        triggerToast('Vaultwarden rate limit active: too many login requests (429). Cooldown in progress, please wait a moment.', 'error');
+      } else {
+        triggerToast(errMsg, 'error');
+      }
     }
   } catch (err: any) {
     if (!silent) {
-      triggerToast(err.response?.data?.error || 'Sync request failed', 'error');
+      const errMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Sync request failed';
+      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many login requests') || errMsg.toLowerCase().includes('rate limit')) {
+        triggerToast('Vaultwarden rate limit active: too many login requests (429). Cooldown in progress, please wait a moment.', 'error');
+      } else {
+        triggerToast(errMsg, 'error');
+      }
     }
   } finally {
     syncing.value = false;

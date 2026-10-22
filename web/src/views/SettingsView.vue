@@ -43,6 +43,10 @@ import {
   Boxes,
   Server,
   SlidersHorizontal,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Filter,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -372,40 +376,15 @@ const closeViewLogModal = () => {
 const fetchInitialLogs = async (moduleKey: string) => {
   try {
     const res = await axios.get(`/api/v1/logs?module=${encodeURIComponent(moduleKey)}&limit=100`);
-    if (res.data.success && res.data.data && res.data.data.length > 0) {
+    if (res.data.success && Array.isArray(res.data.data)) {
       serviceLogs.value = res.data.data;
       scrollToBottom();
     } else {
-      populateSyntheticLogs(moduleKey);
+      serviceLogs.value = [];
     }
   } catch (err) {
-    populateSyntheticLogs(moduleKey);
+    serviceLogs.value = [];
   }
-};
-
-const populateSyntheticLogs = (moduleKey: string) => {
-  const now = new Date();
-  serviceLogs.value = [
-    {
-      timestamp: new Date(now.getTime() - 45000).toISOString(),
-      level: 'INFO',
-      module: moduleKey,
-      message: `[${moduleKey}] Hephaestus worker service daemon initialized successfully.`,
-    },
-    {
-      timestamp: new Date(now.getTime() - 20000).toISOString(),
-      level: 'INFO',
-      module: moduleKey,
-      message: `[${moduleKey}] Heartbeat verified: status OK, goroutine thread pool active.`,
-    },
-    {
-      timestamp: new Date(now.getTime() - 4000).toISOString(),
-      level: 'INFO',
-      module: moduleKey,
-      message: `[${moduleKey}] Service poller cycle executed. Telemetry state updated.`,
-    },
-  ];
-  scrollToBottom();
 };
 
 const connectLogWebSocket = (moduleKey: string) => {
@@ -569,6 +548,19 @@ const systemLogs = ref<any[]>([]);
 const logViewMode = ref<'audit' | 'system'>('audit');
 const loadingLogs = ref(false);
 
+// System logs controls & filters
+const systemLogSearch = ref('');
+const systemLogLevel = ref('ALL');
+const systemLogModule = ref('ALL');
+const systemLogLimit = ref(150);
+const systemLogModules = ref<string[]>([]);
+const systemLogTotal = ref(0);
+const expandedLogIndex = ref<number | null>(null);
+const copiedLogIndex = ref<number | null>(null);
+const autoRefreshSystemLogs = ref(false);
+const systemLogTimer = ref<any>(null);
+let searchDebounceTimer: any = null;
+
 const fetchAuditLogs = async () => {
   loadingLogs.value = true;
   try {
@@ -588,16 +580,92 @@ const fetchAuditLogs = async () => {
 const fetchSystemLogs = async () => {
   loadingLogs.value = true;
   try {
-    const res = await axios.get('/api/v1/logs?limit=50').catch(() => null);
+    const params = new URLSearchParams();
+    params.set('limit', String(systemLogLimit.value || 150));
+    params.set('order', 'desc');
+    if (systemLogLevel.value && systemLogLevel.value !== 'ALL') {
+      params.set('level', systemLogLevel.value);
+    }
+    if (systemLogModule.value && systemLogModule.value !== 'ALL') {
+      params.set('module', systemLogModule.value);
+    }
+    if (systemLogSearch.value.trim()) {
+      params.set('q', systemLogSearch.value.trim());
+    }
+
+    const res = await axios.get(`/api/v1/logs?${params.toString()}`).catch(() => null);
     if (res && res.data && res.data.success) {
       systemLogs.value = res.data.data || [];
+      systemLogTotal.value = res.data.total ?? systemLogs.value.length;
+      if (Array.isArray(res.data.modules) && res.data.modules.length > 0) {
+        systemLogModules.value = res.data.modules;
+      }
     } else {
       systemLogs.value = [];
+      systemLogTotal.value = 0;
     }
   } catch (err) {
     systemLogs.value = [];
+    systemLogTotal.value = 0;
   } finally {
     loadingLogs.value = false;
+  }
+};
+
+const onSearchInput = () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    fetchSystemLogs();
+  }, 300);
+};
+
+const toggleAutoRefresh = () => {
+  autoRefreshSystemLogs.value = !autoRefreshSystemLogs.value;
+  if (autoRefreshSystemLogs.value) {
+    if (systemLogTimer.value) clearInterval(systemLogTimer.value);
+    systemLogTimer.value = setInterval(() => {
+      if (activeTab.value === 'audit' && logViewMode.value === 'system') {
+        fetchSystemLogs();
+      }
+    }, 4000);
+  } else {
+    if (systemLogTimer.value) {
+      clearInterval(systemLogTimer.value);
+      systemLogTimer.value = null;
+    }
+  }
+};
+
+const toggleExpandLog = (idx: number) => {
+  expandedLogIndex.value = expandedLogIndex.value === idx ? null : idx;
+};
+
+const copyLogContent = (log: any, idx: number) => {
+  try {
+    const text = log.fields && Object.keys(log.fields).length > 0
+      ? JSON.stringify(log, null, 2)
+      : `[${log.timestamp}] [${log.level}] [${log.module}]: ${log.message}`;
+    navigator.clipboard.writeText(text);
+    copiedLogIndex.value = idx;
+    setTimeout(() => {
+      if (copiedLogIndex.value === idx) copiedLogIndex.value = null;
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to copy log:', e);
+  }
+};
+
+const exportSystemLogs = () => {
+  try {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(systemLogs.value, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', `hephaestus-system-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  } catch (e) {
+    console.error('Failed to export logs:', e);
   }
 };
 
@@ -1036,6 +1104,8 @@ const fetchServices = async (isManual = false) => {
 onUnmounted(() => {
   if (tickerTimer.value) clearInterval(tickerTimer.value);
   if (servicesPollTimer.value) clearInterval(servicesPollTimer.value);
+  if (systemLogTimer.value) clearInterval(systemLogTimer.value);
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   if (logWs) logWs.close();
 });
 </script>
@@ -1707,42 +1777,299 @@ onUnmounted(() => {
       </div>
 
       <!-- Table 2: System Console Logs -->
-      <div v-else class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
-        <table class="w-full text-left text-xs font-mono">
-          <thead class="bg-slate-50 dark:bg-[#1a202c] text-slate-700 dark:text-slate-300 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
-            <tr>
-              <th class="p-3 w-48">Timestamp</th>
-              <th class="p-3 w-20">Level</th>
-              <th class="p-3 w-28">Module</th>
-              <th class="p-3">Message</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200">
-            <tr v-for="(log, idx) in systemLogs" :key="idx" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition">
-              <td class="p-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">{{ log.timestamp }}</td>
-              <td class="p-3">
-                <span
-                  class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-                  :class="[
-                    log.level === 'ERROR' ? 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400' :
-                    log.level === 'WARN' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
-                    log.level === 'DEBUG' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
-                    'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                  ]"
+      <div v-else class="space-y-3">
+        <!-- System Logs Toolbar -->
+        <div class="bg-white dark:bg-[#141824] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <!-- Left: Search & Filters -->
+          <div class="flex flex-wrap items-center gap-2 flex-1">
+            <!-- Search Input -->
+            <div class="relative min-w-[200px] flex-1 max-w-md">
+              <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                v-model="systemLogSearch"
+                @input="onSearchInput"
+                type="text"
+                placeholder="Search message, IP, path, status, module..."
+                class="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-sans"
+              />
+              <button
+                v-if="systemLogSearch"
+                @click="systemLogSearch = ''; fetchSystemLogs()"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <!-- Module Filter Dropdown -->
+            <div class="flex items-center gap-1.5">
+              <select
+                v-model="systemLogModule"
+                @change="fetchSystemLogs"
+                class="bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-sans"
+              >
+                <option value="ALL">All Modules</option>
+                <option v-for="mod in systemLogModules" :key="mod" :value="mod">{{ mod }}</option>
+              </select>
+            </div>
+
+            <!-- Level Pills -->
+            <div class="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/60 font-medium">
+              <button
+                v-for="lvl in ['ALL', 'ERROR', 'WARN', 'INFO', 'DEBUG']"
+                :key="lvl"
+                @click="systemLogLevel = lvl; fetchSystemLogs()"
+                :class="[
+                  'px-2 py-1 rounded text-[10px] font-bold transition',
+                  systemLogLevel === lvl
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                {{ lvl }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Controls & Actions -->
+          <div class="flex items-center gap-2 shrink-0">
+            <!-- Row Limit -->
+            <div class="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Limit:</span>
+              <select
+                v-model.number="systemLogLimit"
+                @change="fetchSystemLogs"
+                class="bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs text-slate-700 dark:text-slate-200 font-mono"
+              >
+                <option :value="50">50</option>
+                <option :value="150">150</option>
+                <option :value="300">300</option>
+                <option :value="500">500</option>
+              </select>
+            </div>
+
+            <!-- Auto-Refresh Toggle -->
+            <button
+              @click="toggleAutoRefresh"
+              :class="[
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition',
+                autoRefreshSystemLogs
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+              ]"
+              title="Toggle Live Auto-refresh every 4s"
+            >
+              <span
+                class="w-2 h-2 rounded-full"
+                :class="autoRefreshSystemLogs ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'"
+              ></span>
+              <span>Live Auto</span>
+            </button>
+
+            <!-- Export Button -->
+            <button
+              @click="exportSystemLogs"
+              :disabled="systemLogs.length === 0"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold transition disabled:opacity-50"
+              title="Export visible logs as JSON"
+            >
+              <Download class="w-3.5 h-3.5 text-slate-400" />
+              <span>Export</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Logs Table -->
+        <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-slate-50 dark:bg-[#1a202c] text-slate-700 dark:text-slate-300 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="p-3 w-8"></th>
+                <th class="p-3 w-44">Timestamp</th>
+                <th class="p-3 w-20">Level</th>
+                <th class="p-3 w-24">Module</th>
+                <th class="p-3">Log Message & Details</th>
+                <th class="p-3 w-24 text-right font-sans">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200">
+              <template v-for="(log, idx) in systemLogs" :key="idx">
+                <tr
+                  @click="toggleExpandLog(idx)"
+                  class="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition cursor-pointer select-text"
+                  :class="{ 'bg-slate-50/60 dark:bg-slate-800/20': expandedLogIndex === idx }"
                 >
-                  {{ log.level }}
-                </span>
-              </td>
-              <td class="p-3 font-semibold text-[#4274D9]">{{ log.module }}</td>
-              <td class="p-3 text-slate-800 dark:text-slate-200 break-all">{{ log.message }}</td>
-            </tr>
-            <tr v-if="systemLogs.length === 0">
-              <td colspan="4" class="p-8 text-center text-slate-400 dark:text-slate-500">
-                No system log events recorded.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  <!-- Expand Icon -->
+                  <td class="p-3 text-center">
+                    <ChevronDown v-if="expandedLogIndex === idx" class="w-3.5 h-3.5 text-slate-400" />
+                    <ChevronRight v-else class="w-3.5 h-3.5 text-slate-400" />
+                  </td>
+
+                  <!-- Timestamp -->
+                  <td class="p-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">
+                    {{ log.timestamp }}
+                  </td>
+
+                  <!-- Level Badge -->
+                  <td class="p-3">
+                    <span
+                      class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                      :class="[
+                        log.level === 'ERROR' ? 'bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400' :
+                        log.level === 'WARN' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400' :
+                        log.level === 'DEBUG' ? 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400' :
+                        'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                      ]"
+                    >
+                      {{ log.level }}
+                    </span>
+                  </td>
+
+                  <!-- Module -->
+                  <td class="p-3">
+                    <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
+                      {{ log.module }}
+                    </span>
+                  </td>
+
+                  <!-- Message with contextual pills -->
+                  <td class="p-3 text-slate-800 dark:text-slate-200 break-all leading-relaxed">
+                    <div class="flex flex-wrap items-center gap-1.5 mb-1" v-if="log.fields && (log.fields.method || log.fields.status || log.fields.client_ip)">
+                      <!-- HTTP Method -->
+                      <span
+                        v-if="log.fields.method"
+                        class="px-1.5 py-0.2 rounded text-[10px] font-bold"
+                        :class="[
+                          log.fields.method === 'GET' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
+                          log.fields.method === 'POST' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
+                          log.fields.method === 'DELETE' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20' :
+                          'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                        ]"
+                      >
+                        {{ log.fields.method }}
+                      </span>
+
+                      <!-- HTTP Status Code -->
+                      <span
+                        v-if="log.fields.status"
+                        class="px-1.5 py-0.2 rounded text-[10px] font-bold"
+                        :class="[
+                          log.fields.status >= 500 ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20' :
+                          log.fields.status >= 400 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
+                          'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                        ]"
+                      >
+                        {{ log.fields.status }}
+                      </span>
+
+                      <!-- Client IP -->
+                      <span
+                        v-if="log.fields.client_ip"
+                        class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 text-[10px]"
+                      >
+                        {{ log.fields.client_ip }}
+                      </span>
+
+                      <!-- Latency -->
+                      <span
+                        v-if="log.fields.latency_ms !== undefined"
+                        class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 text-[10px]"
+                      >
+                        {{ log.fields.latency_ms }} ms
+                      </span>
+                    </div>
+
+                    <span class="text-xs font-mono">{{ log.message }}</span>
+                  </td>
+
+                  <!-- Action / Copy -->
+                  <td class="p-3 text-right shrink-0" @click.stop>
+                    <button
+                      @click="copyLogContent(log, idx)"
+                      class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-sans font-medium transition inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
+                    >
+                      <Check v-if="copiedLogIndex === idx" class="w-3 h-3 text-emerald-500" />
+                      <Copy v-else class="w-3 h-3 text-slate-400" />
+                      <span>{{ copiedLogIndex === idx ? 'Copied' : 'Copy' }}</span>
+                    </button>
+                  </td>
+                </tr>
+
+                <!-- Expanded Details Row -->
+                <tr v-if="expandedLogIndex === idx" class="bg-slate-50/90 dark:bg-[#0c0f17] border-y border-slate-200 dark:border-slate-800/80">
+                  <td colspan="6" class="p-4 space-y-3">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-sans">
+                      <div class="bg-white dark:bg-[#141824] p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">Timestamp (ISO)</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200 text-xs">{{ log.timestamp }}</span>
+                      </div>
+                      <div class="bg-white dark:bg-[#141824] p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">Module / Level</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200 text-xs">{{ log.module }} • {{ log.level }}</span>
+                      </div>
+                      <div v-if="log.fields?.client_ip" class="bg-white dark:bg-[#141824] p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">Client IP / Origin</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200 text-xs">{{ log.fields.client_ip }}</span>
+                      </div>
+                      <div v-if="log.fields?.latency_ms !== undefined" class="bg-white dark:bg-[#141824] p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">Latency / Execution</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200 text-xs">{{ log.fields.latency_ms }} ms</span>
+                      </div>
+                    </div>
+
+                    <!-- User Agent / Path / Query if available -->
+                    <div v-if="log.fields?.user_agent || log.fields?.path || log.fields?.query" class="bg-white dark:bg-[#141824] p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-sans">
+                      <div v-if="log.fields?.path" class="flex items-center gap-2">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold w-24 shrink-0">Path:</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200">{{ log.fields.path }}</span>
+                      </div>
+                      <div v-if="log.fields?.query" class="flex items-center gap-2">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold w-24 shrink-0">Query:</span>
+                        <span class="font-mono text-slate-800 dark:text-slate-200">{{ log.fields.query }}</span>
+                      </div>
+                      <div v-if="log.fields?.user_agent" class="flex items-start gap-2">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold w-24 shrink-0 mt-0.5">User-Agent:</span>
+                        <span class="font-mono text-slate-600 dark:text-slate-400 text-[11px] break-all">{{ log.fields.user_agent }}</span>
+                      </div>
+                      <div v-if="log.fields?.error" class="flex items-start gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                        <span class="text-[10px] text-rose-500 uppercase font-bold w-24 shrink-0 mt-0.5">Error:</span>
+                        <span class="font-mono text-rose-600 dark:text-rose-400 text-[11px] break-all">{{ log.fields.error }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Raw JSON Payload View -->
+                    <div class="space-y-1">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-slate-500 dark:text-slate-400 font-sans uppercase font-bold tracking-wider">Raw Entry Payload</span>
+                        <button
+                          @click="copyLogContent(log, idx)"
+                          class="text-[10px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-sans inline-flex items-center gap-1"
+                        >
+                          <Copy class="w-3 h-3 text-slate-400" />
+                          <span>Copy Raw JSON</span>
+                        </button>
+                      </div>
+                      <pre class="bg-white dark:bg-[#080b11] p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-[11px] text-slate-800 dark:text-slate-300 font-mono overflow-x-auto max-h-48 leading-relaxed">{{ JSON.stringify(log, null, 2) }}</pre>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+
+              <!-- Empty State -->
+              <tr v-if="systemLogs.length === 0">
+                <td colspan="6" class="p-8 text-center text-slate-400 dark:text-slate-500 font-sans text-xs">
+                  No system log events matched your search or filters.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Footer Count -->
+          <div class="px-4 py-2.5 bg-slate-50 dark:bg-[#1a202c]/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-sans">
+            <span>Showing {{ systemLogs.length }} log entries</span>
+            <span>Buffer limit: {{ systemLogLimit }} (Total captured: {{ systemLogTotal }})</span>
+          </div>
+        </div>
       </div>
     </div>
 

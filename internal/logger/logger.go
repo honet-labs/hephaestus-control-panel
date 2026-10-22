@@ -22,17 +22,19 @@ type LogEntry struct {
 }
 
 var (
-	appLogger    zerolog.Logger
-	errorLogger  zerolog.Logger
-	subscribers  = make(map[chan LogEntry]struct{})
-	subLock      sync.RWMutex
-	recentBuffer []LogEntry
-	bufferLock   sync.RWMutex
-	maxBuffer    = 200
+	appLogger     zerolog.Logger
+	errorLogger   zerolog.Logger
+	subscribers   = make(map[chan LogEntry]struct{})
+	subLock       sync.RWMutex
+	recentBuffer  []LogEntry
+	bufferLock    sync.RWMutex
+	maxBuffer     = 3000
+	activeLogsDir = ""
 )
 
 // InitLogger initializes the structured logger with console, file rotation, and in-memory pub-sub
 func InitLogger(logsDir string) {
+	activeLogsDir = logsDir
 	_ = os.MkdirAll(logsDir, 0755)
 
 	appLogPath := filepath.Join(logsDir, "app.log")
@@ -107,6 +109,11 @@ func GetRecentLogs() []LogEntry {
 	copied := make([]LogEntry, len(recentBuffer))
 	copy(copied, recentBuffer)
 	return copied
+}
+
+// GetLogsDir returns the configured logs directory path
+func GetLogsDir() string {
+	return activeLogsDir
 }
 
 func Info(module, msg string, fields ...map[string]interface{}) {
