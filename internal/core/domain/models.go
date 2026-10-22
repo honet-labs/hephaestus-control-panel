@@ -210,11 +210,20 @@ type OpenSearchConfig struct {
 	IsActive  bool      `json:"isActive"`
 	UserID    *int      `json:"userId,omitempty"`
 	OwnerUsername string `json:"ownerUsername,omitempty"`
-	Visibility string   `json:"visibility"`
-	IsOwner   bool      `json:"isOwner"`
-	UserPermission string `json:"userPermission,omitempty"`
-	SharesCount int     `json:"sharesCount"`
-	CreatedAt time.Time `json:"createdAt"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+type OpenSearchQueryResult struct {
+	StatusCode int                    `json:"statusCode"`
+	StatusText string                 `json:"statusText"`
+	LatencyMs  int64                  `json:"latencyMs"`
+	Headers    map[string]string      `json:"headers,omitempty"`
+	Data       interface{}            `json:"data"`
+	Raw        string                 `json:"raw"`
 }
 
 // ==================== SNMP DOMAIN ====================

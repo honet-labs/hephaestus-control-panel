@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -593,4 +594,82 @@ func (s *OpenSearchService) TestConnection(ctx context.Context, host string, por
 		return nil, fmt.Errorf("OpenSearch returned non-JSON response (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 	return result, nil
+}
+
+// ExecuteQuery executes a direct query or command against the active OpenSearch cluster (Dev Tools / Query Workbench)
+func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint string, body []byte) (*domain.OpenSearchQueryResult, error) {
+	cfg, err := s.GetActiveConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("no active OpenSearch configuration found: %w", err)
+	}
+
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		method = "GET"
+	}
+
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.HasPrefix(endpoint, "/") {
+		endpoint = "/" + endpoint
+	}
+
+	scheme := "http"
+	if cfg.UseSSL {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, cfg.Host, cfg.Port, endpoint)
+
+	var reqBody io.Reader
+	if len(body) > 0 && method != "GET" && method != "HEAD" {
+		reqBody = bytes.NewBuffer(body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 0 && method != "GET" && method != "HEAD" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if cfg.Username != "" {
+		req.SetBasicAuth(cfg.Username, cfg.Password)
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifySSL},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   35 * time.Second,
+	}
+
+	startTime := time.Now()
+	resp, err := client.Do(req)
+	latencyMs := time.Since(startTime).Milliseconds()
+	if err != nil {
+		return nil, fmt.Errorf("failed to reach OpenSearch cluster at %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read OpenSearch response: %w", err)
+	}
+
+	res := &domain.OpenSearchQueryResult{
+		StatusCode: resp.StatusCode,
+		StatusText: resp.Status,
+		LatencyMs:  latencyMs,
+		Raw:        string(bodyBytes),
+	}
+
+	// Try to decode JSON
+	var parsed interface{}
+	if jsonErr := json.Unmarshal(bodyBytes, &parsed); jsonErr == nil {
+		res.Data = parsed
+	} else {
+		res.Data = string(bodyBytes)
+	}
+
+	return res, nil
 }

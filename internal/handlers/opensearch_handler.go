@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -302,6 +303,51 @@ func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": res, "message": "Successfully connected to OpenSearch cluster."})
+}
+
+func (h *OpenSearchHandler) ExecuteQuery(c *gin.Context) {
+	var req struct {
+		Method   string      `json:"method"`
+		Endpoint string      `json:"endpoint"`
+		Body     interface{} `json:"body"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload format: " + err.Error()})
+		return
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(req.Method))
+	if method == "" {
+		method = "GET"
+	}
+	endpoint := strings.TrimSpace(req.Endpoint)
+	if endpoint == "" {
+		endpoint = "/_search"
+	}
+
+	var bodyBytes []byte
+	if req.Body != nil {
+		switch v := req.Body.(type) {
+		case string:
+			bodyBytes = []byte(v)
+		default:
+			bodyBytes, _ = json.Marshal(v)
+		}
+	}
+
+	res, err := h.openSearchService.ExecuteQuery(c.Request.Context(), method, endpoint, bodyBytes)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    res,
+	})
 }
 
 type PrometheusHandler struct {

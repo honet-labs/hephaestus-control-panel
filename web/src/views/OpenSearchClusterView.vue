@@ -32,6 +32,12 @@ import {
   ArrowUp,
   ArrowDown,
   Download,
+  Play,
+  Send,
+  Braces,
+  Sparkles,
+  Trash2,
+  History,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import { useAuthStore } from '../stores/auth';
@@ -109,7 +115,7 @@ const openEmbedPreview = () => {
 };
 
 // Active Navigation Tab
-const activeTab = ref<'overview' | 'nodes' | 'indices' | 'shards' | 'connection' | 'logs'>('overview');
+const activeTab = ref<'overview' | 'nodes' | 'indices' | 'shards' | 'query' | 'connection' | 'logs'>('overview');
 
 // Auto-Refresh state
 const refreshIntervalSec = ref(30);
@@ -471,6 +477,220 @@ const exportIndicesToCsv = () => {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+// =================================================================
+// TAB: DEV TOOLS / OPENSEARCH QUERY WORKBENCH
+// =================================================================
+const queryMethod = ref<'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'>('GET');
+const queryEndpoint = ref('/_search');
+const queryBody = ref('{\n  "query": {\n    "match_all": {}\n  },\n  "size": 20\n}');
+const queryLoading = ref(false);
+const queryError = ref('');
+const queryResult = ref<{
+  statusCode: number;
+  statusText: string;
+  latencyMs: number;
+  data: any;
+  raw: string;
+} | null>(null);
+const copiedQueryResult = ref(false);
+const queryHistory = ref<Array<{ method: string; endpoint: string; body: string; timestamp: string; status: number }>>([]);
+const selectedPresetKey = ref('');
+
+interface QueryPreset {
+  id: string;
+  name: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD';
+  endpoint: string;
+  body: string;
+  description: string;
+}
+
+const QUERY_PRESETS: QueryPreset[] = [
+  {
+    id: 'search_all',
+    name: 'Search All Documents (Match All)',
+    method: 'GET',
+    endpoint: '/_search',
+    body: '{\n  "query": {\n    "match_all": {}\n  },\n  "size": 20\n}',
+    description: 'Retrieve the first 20 indexed documents across all indices',
+  },
+  {
+    id: 'search_filtered',
+    name: 'Search with Bool Filter & Sort',
+    method: 'POST',
+    endpoint: '/_search',
+    body: '{\n  "size": 25,\n  "query": {\n    "bool": {\n      "must": [\n        { "match_all": {} }\n      ]\n    }\n  },\n  "sort": [\n    { "@timestamp": { "order": "desc", "unmapped_type": "boolean" } }\n  ]\n}',
+    description: 'Full query DSL structure with boolean conditions and timestamp sort',
+  },
+  {
+    id: 'count_docs',
+    name: 'Count Documents (Cluster-wide)',
+    method: 'GET',
+    endpoint: '/_count',
+    body: '{\n  "query": {\n    "match_all": {}\n  }\n}',
+    description: 'Get exact count of all matched documents',
+  },
+  {
+    id: 'cluster_health',
+    name: 'Cluster Health (Pretty JSON)',
+    method: 'GET',
+    endpoint: '/_cluster/health?pretty',
+    body: '',
+    description: 'Cluster status, shard totals, and unassigned state',
+  },
+  {
+    id: 'cluster_stats',
+    name: 'Cluster Statistics & Node Hardware',
+    method: 'GET',
+    endpoint: '/_cluster/stats?pretty',
+    body: '',
+    description: 'Node memory, CPU, filesystem usage, and plugin counts',
+  },
+  {
+    id: 'cat_indices',
+    name: 'Cat Indices (Sorted by Size)',
+    method: 'GET',
+    endpoint: '/_cat/indices?v&s=store.size:desc',
+    body: '',
+    description: 'Tabular view of all indices sorted by store size descending',
+  },
+  {
+    id: 'cat_shards',
+    name: 'Cat Shards Allocation',
+    method: 'GET',
+    endpoint: '/_cat/shards?v',
+    body: '',
+    description: 'Inspect exact shard placements across cluster nodes',
+  },
+  {
+    id: 'cat_nodes',
+    name: 'Cat Nodes Hardware Summary',
+    method: 'GET',
+    endpoint: '/_cat/nodes?v&h=name,ip,disk.used_percent,cpu,load_1m,node.role',
+    body: '',
+    description: 'View real-time node resource pressure and roles',
+  },
+  {
+    id: 'aggs_terms',
+    name: 'Terms Aggregation (Top Indices Breakdown)',
+    method: 'POST',
+    endpoint: '/_search',
+    body: '{\n  "size": 0,\n  "aggs": {\n    "top_indices": {\n      "terms": {\n        "field": "_index",\n        "size": 15\n      }\n    }\n  }\n}',
+    description: 'Aggregate document distribution across top indices',
+  },
+  {
+    id: 'cluster_settings',
+    name: 'Cluster Settings (Persistent / Transient)',
+    method: 'GET',
+    endpoint: '/_cluster/settings?include_defaults=false',
+    body: '',
+    description: 'View active custom cluster configurations',
+  },
+];
+
+const applyPreset = (presetId: string) => {
+  const p = QUERY_PRESETS.find(item => item.id === presetId);
+  if (!p) return;
+  queryMethod.value = p.method;
+  queryEndpoint.value = p.endpoint;
+  queryBody.value = p.body;
+  selectedPresetKey.value = presetId;
+};
+
+const formatJsonQuery = () => {
+  if (!queryBody.value.trim()) return;
+  try {
+    const parsed = JSON.parse(queryBody.value);
+    queryBody.value = JSON.stringify(parsed, null, 2);
+  } catch (err: any) {
+    queryError.value = `JSON Syntax Error: ${err.message}`;
+    setTimeout(() => {
+      if (queryError.value.startsWith('JSON Syntax Error')) queryError.value = '';
+    }, 4000);
+  }
+};
+
+const executeOpenSearchQuery = async () => {
+  queryLoading.value = true;
+  queryError.value = '';
+  try {
+    let parsedBody: any = null;
+    const trimmed = queryBody.value.trim();
+    if (trimmed && queryMethod.value !== 'GET' && queryMethod.value !== 'HEAD') {
+      try {
+        parsedBody = JSON.parse(trimmed);
+      } catch (e: any) {
+        queryError.value = `Invalid JSON syntax in request body: ${e.message}`;
+        queryLoading.value = false;
+        return;
+      }
+    }
+
+    const res = await axios.post('/api/v1/opensearch/query', {
+      method: queryMethod.value,
+      endpoint: queryEndpoint.value.trim() || '/_search',
+      body: parsedBody,
+    });
+
+    if (res.data && res.data.success && res.data.data) {
+      queryResult.value = res.data.data;
+      // Add to query history (capped at 8)
+      queryHistory.value.unshift({
+        method: queryMethod.value,
+        endpoint: queryEndpoint.value.trim() || '/_search',
+        body: queryBody.value,
+        timestamp: new Date().toLocaleTimeString(),
+        status: res.data.data.statusCode,
+      });
+      if (queryHistory.value.length > 8) {
+        queryHistory.value.pop();
+      }
+    } else {
+      queryError.value = res.data?.error || 'Failed to execute OpenSearch query';
+      queryResult.value = null;
+    }
+  } catch (err: any) {
+    queryError.value = err.response?.data?.error || err.message || 'Error connecting to OpenSearch API';
+    queryResult.value = null;
+  } finally {
+    queryLoading.value = false;
+  }
+};
+
+const copyResponseJson = async () => {
+  if (!queryResult.value) return;
+  try {
+    const str = typeof queryResult.value.data === 'string'
+      ? queryResult.value.data
+      : JSON.stringify(queryResult.value.data, null, 2);
+    await navigator.clipboard.writeText(str);
+    copiedQueryResult.value = true;
+    setTimeout(() => { copiedQueryResult.value = false; }, 2000);
+  } catch (_) {}
+};
+
+const clearResponse = () => {
+  queryResult.value = null;
+  queryError.value = '';
+};
+
+// Jump from Index list to Query Workbench directly
+const navigateToQueryIndex = (indexName: string) => {
+  activeTab.value = 'query';
+  queryMethod.value = 'POST';
+  queryEndpoint.value = `/${indexName}/_search`;
+  queryBody.value = JSON.stringify(
+    {
+      size: 25,
+      query: { match_all: {} },
+      sort: [{ "@timestamp": { order: "desc", unmapped_type: "boolean" } }]
+    },
+    null,
+    2
+  );
+  executeOpenSearchQuery();
 };
 
 // Filtered shards for All Shards table (with State Filter support)
@@ -956,6 +1176,7 @@ onUnmounted(() => {
           { id: 'nodes', label: 'Nodes' },
           { id: 'indices', label: 'Indices' },
           { id: 'shards', label: 'Shards & Allocation' },
+          { id: 'query', label: 'Dev Tools / Query' },
           { id: 'connection', label: 'Connection' },
           { id: 'logs', label: 'Logs' }
         ]"
@@ -1413,6 +1634,7 @@ onUnmounted(() => {
                       <ArrowUpDown v-else class="w-3 h-3 text-slate-600 group-hover:text-slate-400 opacity-60" />
                     </div>
                   </th>
+                  <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody v-if="filteredIndices.length > 0" class="divide-y divide-slate-800/60 font-mono text-[11px]">
@@ -1441,11 +1663,21 @@ onUnmounted(() => {
                   <td class="py-3 px-4 text-slate-500">{{ formatNumber(idx['docs.deleted'] || idx.docsDeleted || 0) }}</td>
                   <td class="py-3 px-4 text-slate-300">{{ idx['store.size'] || idx.storeSize || '-' }}</td>
                   <td class="py-3 px-6 text-slate-300">{{ idx['pri.store.size'] || idx.priStoreSize || '-' }}</td>
+                  <td class="py-3 px-4 text-right font-sans" @click.stop>
+                    <button
+                      @click="navigateToQueryIndex(idx.index || idx.name)"
+                      class="px-2.5 py-1 rounded bg-[#14161b] hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10px] font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                      title="Open in Query Workbench"
+                    >
+                      <Terminal class="w-3 h-3 text-slate-400" />
+                      <span>Query</span>
+                    </button>
+                  </td>
                 </tr>
               </tbody>
               <tbody v-else>
                 <tr>
-                  <td colspan="10" class="text-center py-8 text-slate-500 text-xs font-sans">
+                  <td colspan="11" class="text-center py-8 text-slate-500 text-xs font-sans">
                     No indices found.
                   </td>
                 </tr>
@@ -1789,6 +2021,282 @@ onUnmounted(() => {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================= -->
+      <!-- TAB: DEV TOOLS / OPENSEARCH QUERY WORKBENCH -->
+      <!-- ================================================================= -->
+      <div v-if="activeTab === 'query'" class="space-y-4">
+        <!-- Workbench Header & Quick Actions -->
+        <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl p-4 sm:p-5 shadow-lg space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3.5">
+            <div>
+              <div class="flex items-center gap-2">
+                <Terminal class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">
+                  OpenSearch Dev Tools & Query Workbench
+                </h2>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Execute OpenSearch REST APIs and Query DSL commands directly against your cluster.
+              </p>
+            </div>
+
+            <!-- Preset Queries Dropdown -->
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500 dark:text-slate-400 font-medium">Query Preset:</span>
+              <select
+                v-model="selectedPresetKey"
+                @change="applyPreset(selectedPresetKey)"
+                class="bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer max-w-[280px]"
+              >
+                <option value="" disabled class="bg-white dark:bg-[#1b1e26] text-slate-400">Select query template...</option>
+                <option
+                  v-for="preset in QUERY_PRESETS"
+                  :key="preset.id"
+                  :value="preset.id"
+                  class="bg-white dark:bg-[#1b1e26] text-slate-800 dark:text-slate-200"
+                >
+                  [{{ preset.method }}] {{ preset.name }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- HTTP Command Bar: Method + Endpoint + Run Button -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <!-- HTTP Method Select -->
+            <select
+              v-model="queryMethod"
+              class="bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold uppercase focus:outline-none focus:border-blue-500 cursor-pointer font-mono"
+              :class="{
+                'text-blue-600 dark:text-blue-400': queryMethod === 'GET',
+                'text-emerald-600 dark:text-emerald-400': queryMethod === 'POST',
+                'text-amber-600 dark:text-amber-400': queryMethod === 'PUT',
+                'text-rose-600 dark:text-rose-400': queryMethod === 'DELETE',
+                'text-purple-600 dark:text-purple-400': queryMethod === 'HEAD',
+              }"
+            >
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="HEAD">HEAD</option>
+            </select>
+
+            <!-- Endpoint Input -->
+            <div class="relative flex-1">
+              <input
+                v-model="queryEndpoint"
+                type="text"
+                placeholder="/_search, /_cat/indices?v, /my-index/_search"
+                @keydown.enter.prevent="executeOpenSearchQuery"
+                class="w-full bg-slate-100 dark:bg-[#14161b] border border-slate-300 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
+
+            <!-- Format JSON Button -->
+            <button
+              type="button"
+              @click="formatJsonQuery"
+              :disabled="!queryBody.trim()"
+              class="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-[#14161b] dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-40"
+              title="Format JSON Request Body"
+            >
+              <Sparkles class="w-3.5 h-3.5 text-slate-400" />
+              <span class="hidden sm:inline">Beautify JSON</span>
+            </button>
+
+            <!-- Execute Button -->
+            <button
+              type="button"
+              @click="executeOpenSearchQuery"
+              :disabled="queryLoading"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 shrink-0"
+              title="Execute Query (Ctrl + Enter)"
+            >
+              <RotateCw v-if="queryLoading" class="w-3.5 h-3.5 animate-spin" />
+              <Play v-else class="w-3.5 h-3.5 fill-current" />
+              <span>{{ queryLoading ? 'Executing...' : 'Run Query' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Query Error Banner -->
+        <div
+          v-if="queryError"
+          class="p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 rounded-xl text-xs text-rose-800 dark:text-rose-300 flex items-start justify-between gap-3 animate-in fade-in"
+        >
+          <div class="flex items-start gap-2.5">
+            <XCircle class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <span class="font-bold">Query Execution Failed</span>
+              <p class="font-mono text-[11px] break-all">{{ queryError }}</p>
+            </div>
+          </div>
+          <button
+            @click="queryError = ''"
+            class="text-rose-500 hover:text-rose-700 dark:hover:text-rose-200 cursor-pointer p-0.5"
+            title="Dismiss error"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Editor & Response Dual Split Panel -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Left: Request Body Editor -->
+          <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl overflow-hidden shadow-lg flex flex-col min-h-[500px]">
+            <div class="bg-slate-100 dark:bg-[#20242e] px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Braces class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Request Body</span>
+              </div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                JSON · Ctrl + Enter to run
+              </div>
+            </div>
+
+            <div class="p-3 flex-1 flex flex-col">
+              <textarea
+                v-model="queryBody"
+                @keydown.ctrl.enter.prevent="executeOpenSearchQuery"
+                @keydown.meta.enter.prevent="executeOpenSearchQuery"
+                rows="18"
+                spellcheck="false"
+                placeholder="{\n  &quot;query&quot;: {\n    &quot;match_all&quot;: {}\n  }\n}"
+                class="w-full flex-1 bg-slate-50 dark:bg-[#14161b] text-slate-900 dark:text-slate-100 font-mono text-xs p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-blue-500 resize-none selection:bg-blue-500/30"
+              ></textarea>
+            </div>
+
+            <!-- Request Body Helper Footnote -->
+            <div class="px-4 py-2 bg-slate-50 dark:bg-[#181b22] border-t border-slate-200 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span>Supports OpenSearch DSL queries, aggregations, filters, and _cat parameters</span>
+              <button
+                v-if="queryBody.trim()"
+                @click="queryBody = ''"
+                class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                Clear Body
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Response Inspector -->
+          <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl overflow-hidden shadow-lg flex flex-col min-h-[500px]">
+            <div class="bg-slate-100 dark:bg-[#20242e] px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Response</span>
+                
+                <!-- Status code badge -->
+                <div v-if="queryResult" class="flex items-center gap-1.5">
+                  <span
+                    class="px-2 py-0.5 rounded text-[10px] font-mono font-bold"
+                    :class="queryResult.statusCode >= 200 && queryResult.statusCode < 300 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'"
+                  >
+                    {{ queryResult.statusCode }} {{ queryResult.statusText }}
+                  </span>
+                  <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-mono">
+                    {{ queryResult.latencyMs }}ms
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="queryResult"
+                  @click="copyResponseJson"
+                  class="px-2.5 py-1 rounded bg-white hover:bg-slate-100 dark:bg-[#14161b] dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs font-medium transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  title="Copy formatted response to clipboard"
+                >
+                  <Check v-if="copiedQueryResult" class="w-3.5 h-3.5 text-emerald-500" />
+                  <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                  <span>{{ copiedQueryResult ? 'Copied' : 'Copy' }}</span>
+                </button>
+
+                <button
+                  v-if="queryResult"
+                  @click="clearResponse"
+                  class="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                  title="Clear Response"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Response Body Area -->
+            <div class="p-3 flex-1 flex flex-col">
+              <div v-if="queryLoading" class="flex-1 flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
+                <RotateCw class="w-6 h-6 animate-spin text-blue-500" />
+                <span class="text-xs font-mono">Sending request to OpenSearch...</span>
+              </div>
+
+              <div
+                v-else-if="queryResult"
+                class="flex-1 bg-slate-900 text-slate-100 dark:bg-[#11141c] dark:text-slate-200 font-mono text-xs p-4 rounded-lg border border-slate-800 overflow-auto max-h-[540px] select-text"
+              >
+                <pre class="whitespace-pre font-mono leading-relaxed">{{ typeof queryResult.data === 'string' ? queryResult.data : JSON.stringify(queryResult.data, null, 2) }}</pre>
+              </div>
+
+              <div
+                v-else
+                class="flex-1 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg flex flex-col items-center justify-center p-8 text-center space-y-2"
+              >
+                <Terminal class="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                <p class="text-xs font-semibold text-slate-700 dark:text-slate-300">No Query Executed Yet</p>
+                <p class="text-[11px] text-slate-400 max-w-sm">
+                  Select a query preset above or write your own method and endpoint, then press <strong class="text-slate-700 dark:text-slate-300">Run Query</strong> (or Ctrl+Enter).
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Collapsible Query History / Audit Log -->
+        <div v-if="queryHistory.length > 0" class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl p-4 shadow-lg space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
+            <div class="flex items-center gap-2">
+              <History class="w-4 h-4 text-slate-400" />
+              <h3 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Recent Queries History
+              </h3>
+            </div>
+            <button
+              @click="queryHistory = []"
+              class="text-[11px] text-slate-400 hover:text-rose-500 transition cursor-pointer"
+            >
+              Clear History
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+            <div
+              v-for="(hist, hIdx) in queryHistory"
+              :key="'hist-' + hIdx"
+              @click="queryMethod = hist.method as any; queryEndpoint = hist.endpoint; queryBody = hist.body"
+              class="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#14161b] hover:border-blue-500/50 cursor-pointer transition text-xs font-mono space-y-1 group"
+            >
+              <div class="flex items-center justify-between">
+                <span
+                  class="font-bold text-[10px]"
+                  :class="{
+                    'text-blue-500': hist.method === 'GET',
+                    'text-emerald-500': hist.method === 'POST',
+                    'text-amber-500': hist.method === 'PUT',
+                    'text-rose-500': hist.method === 'DELETE',
+                  }"
+                >
+                  {{ hist.method }}
+                </span>
+                <span class="text-[9px] text-slate-400">{{ hist.timestamp }}</span>
+              </div>
+              <div class="text-[11px] text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-500 transition">
+                {{ hist.endpoint }}
+              </div>
+            </div>
           </div>
         </div>
       </div>
