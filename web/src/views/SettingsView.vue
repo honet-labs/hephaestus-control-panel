@@ -1111,7 +1111,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-6xl mx-auto font-sans">
+  <div class="space-y-6 w-full font-sans">
     <!-- Header -->
     <div class="border-b border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
       <div>
@@ -1539,7 +1539,7 @@ onUnmounted(() => {
     <!-- ============================================================= -->
     <!-- TAB 4: POSTGRESQL CONNECTION -->
     <!-- ============================================================= -->
-    <div v-if="activeTab === 'database'" class="p-6 bg-[#171a23] border border-slate-800 rounded-xl space-y-4 max-w-3xl animate-in fade-in duration-150">
+    <div v-if="activeTab === 'database'" class="p-6 bg-[#171a23] border border-slate-800 rounded-xl space-y-4 max-w-5xl animate-in fade-in duration-150">
       <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
         <div>
           <h3 class="text-xs font-bold text-white uppercase tracking-wider">PostgreSQL Connection Settings</h3>
