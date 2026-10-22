@@ -96,6 +96,11 @@ func (s *DockerService) resolveRemoteHost(ctx context.Context, conn *domain.Dock
 	}, nil
 }
 
+// shellQuote wraps a string argument in single quotes with internal single quotes safely escaped for POSIX shells.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // -------------------------------------------------------------
 // Remote SSH Docker Helper
 // -------------------------------------------------------------
@@ -1037,13 +1042,13 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		}
 		args := []string{action}
 		if req.Name != "" {
-			args = append(args, fmt.Sprintf("--name %s", req.Name))
+			args = append(args, fmt.Sprintf("--name %s", shellQuote(req.Name)))
 		}
 		if req.RestartPolicy != "" && req.RestartPolicy != "no" {
-			args = append(args, fmt.Sprintf("--restart %s", req.RestartPolicy))
+			args = append(args, fmt.Sprintf("--restart %s", shellQuote(req.RestartPolicy)))
 		}
 		if req.NetworkMode != "" && req.NetworkMode != "bridge" {
-			args = append(args, fmt.Sprintf("--network %s", req.NetworkMode))
+			args = append(args, fmt.Sprintf("--network %s", shellQuote(req.NetworkMode)))
 		}
 		if req.CPULimit > 0 {
 			args = append(args, fmt.Sprintf("--cpus %g", req.CPULimit))
@@ -1054,35 +1059,35 @@ func (s *DockerService) DeployContainer(ctx context.Context, connectionID string
 		for _, p := range req.PortBindings {
 			p = strings.TrimSpace(p)
 			if p != "" {
-				args = append(args, fmt.Sprintf("-p %s", p))
+				args = append(args, fmt.Sprintf("-p %s", shellQuote(p)))
 			}
 		}
 		for _, v := range req.VolumeBindings {
 			v = strings.TrimSpace(v)
 			if v != "" {
-				args = append(args, fmt.Sprintf("-v %s", v))
+				args = append(args, fmt.Sprintf("-v %s", shellQuote(v)))
 			}
 		}
 		for _, e := range req.EnvVars {
 			e = strings.TrimSpace(e)
 			if e != "" {
-				args = append(args, fmt.Sprintf("-e %s", e))
+				args = append(args, fmt.Sprintf("-e %s", shellQuote(e)))
 			}
 		}
 
 		if req.Visibility != "" {
-			args = append(args, fmt.Sprintf("--label hephaestus.visibility=%s", req.Visibility))
+			args = append(args, fmt.Sprintf("--label %s", shellQuote("hephaestus.visibility="+req.Visibility)))
 		}
 		if req.UserID != nil {
-			args = append(args, fmt.Sprintf("--label hephaestus.creator_id=%d", *req.UserID))
+			args = append(args, fmt.Sprintf("--label %s", shellQuote(fmt.Sprintf("hephaestus.creator_id=%d", *req.UserID))))
 		}
 		if req.OwnerUsername != "" {
-			args = append(args, fmt.Sprintf("--label hephaestus.creator_username=%s", req.OwnerUsername))
+			args = append(args, fmt.Sprintf("--label %s", shellQuote("hephaestus.creator_username="+req.OwnerUsername)))
 		}
 
-		args = append(args, req.Image)
-		if len(cmdParts) > 0 {
-			args = append(args, strings.Join(cmdParts, " "))
+		args = append(args, shellQuote(req.Image))
+		for _, part := range cmdParts {
+			args = append(args, shellQuote(part))
 		}
 
 		stdout, stderr, err := s.runRemoteDockerCommand(ctx, conn, strings.Join(args, " "))
@@ -1910,12 +1915,12 @@ func (s *DockerService) CreateNetwork(ctx context.Context, connectionID string, 
 
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
 		var args []string
-		args = append(args, "network", "create", "--driver", req.Driver)
+		args = append(args, "network", "create", "--driver", shellQuote(req.Driver))
 		if req.Subnet != "" {
-			args = append(args, "--subnet", req.Subnet)
+			args = append(args, "--subnet", shellQuote(req.Subnet))
 		}
 		if req.Gateway != "" {
-			args = append(args, "--gateway", req.Gateway)
+			args = append(args, "--gateway", shellQuote(req.Gateway))
 		}
 		if req.Internal {
 			args = append(args, "--internal")
@@ -1923,7 +1928,7 @@ func (s *DockerService) CreateNetwork(ctx context.Context, connectionID string, 
 		if req.EnableIPv6 {
 			args = append(args, "--ipv6")
 		}
-		args = append(args, req.Name)
+		args = append(args, shellQuote(req.Name))
 
 		_, _, err := s.runRemoteDockerCommand(ctx, conn, strings.Join(args, " "))
 		return err

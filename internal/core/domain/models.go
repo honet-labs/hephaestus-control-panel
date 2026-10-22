@@ -865,6 +865,24 @@ func (r *DeployContainerRequest) Normalize() {
 	if len(r.EnvVars) == 0 && len(r.Environment) > 0 {
 		r.EnvVars = r.Environment
 	}
+	// Clean and normalize env vars (strip accidental outer quotes around values)
+	for i, e := range r.EnvVars {
+		e = strings.TrimSpace(e)
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			k := strings.TrimSpace(parts[0])
+			v := strings.TrimSpace(parts[1])
+			if (strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"")) ||
+				(strings.HasPrefix(v, "'") && strings.HasSuffix(v, "'")) {
+				if len(v) >= 2 {
+					v = v[1 : len(v)-1]
+				}
+			}
+			r.EnvVars[i] = k + "=" + v
+		} else {
+			r.EnvVars[i] = e
+		}
+	}
 	if r.MemoryLimitMB == 0 && r.MemoryLimit > 0 {
 		r.MemoryLimitMB = r.MemoryLimit / (1024 * 1024)
 	}
