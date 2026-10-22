@@ -35,6 +35,7 @@ fi
 # Locate Installation Directory
 SCRIPT_SRC="${BASH_SOURCE[0]:-$0}"
 INSTALL_DIR="$(cd "$(dirname "$SCRIPT_SRC")" && pwd)"
+SCRIPT_FILE="$INSTALL_DIR/$(basename "$SCRIPT_SRC")"
 cd "$INSTALL_DIR"
 
 # Safe Self-Reload after git pull to ensure script executes new code from start
@@ -42,11 +43,14 @@ if [ -z "$HCP_UPDATE_RELOADED" ]; then
     export HCP_UPDATE_RELOADED=1
     echo -e "\n${BLUE}[1/4] Fetching latest release from GitHub...${NC}"
     git stash || true
-    git fetch origin main
-    git reset --hard origin/main
-    echo -e "${GREEN}[OK] Repository updated to latest release. Reloading update script...${NC}"
-    chmod +x "$INSTALL_DIR/update-version.sh" || true
-    exec bash "$INSTALL_DIR/update-version.sh" "$@"
+    if git fetch origin main 2>/dev/null; then
+        git reset --hard origin/main || true
+        echo -e "${GREEN}[OK] Repository updated to latest release. Reloading update script...${NC}"
+    else
+        echo -e "${YELLOW}[!] Could not fetch from origin/main. Continuing with local version...${NC}"
+    fi
+    chmod +x "$SCRIPT_FILE" 2>/dev/null || true
+    exec bash "$SCRIPT_FILE" "$@"
 fi
 
 # Detect Compose Command
@@ -59,20 +63,13 @@ else
     exit 1
 fi
 
-# Verify REGISTRY_MIRROR health (bypass AWS Public ECR 429 Too Many Requests)
+# Sanitize deprecated or dead mirrors from .env (mirror.gcr.io is dead and causes build hangs)
 if [ -f .env ]; then
     CURRENT_MIRROR=$(grep -E "^REGISTRY_MIRROR=" .env | cut -d'=' -f2- || true)
-    if echo "$CURRENT_MIRROR" | grep -q "public.ecr.aws"; then
-        echo -e "${YELLOW}[*] Testing AWS Public ECR mirror connectivity...${NC}"
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 "https://public.ecr.aws/v2/docker/library/alpine/manifests/3.20" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "429" ] || [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "403" ]; then
-            echo -e "${YELLOW}[WARNING] AWS Public ECR returned HTTP ${HTTP_CODE} (Too Many Requests / Rate Limited).${NC}"
-            echo -e "${CYAN}[*] Switching REGISTRY_MIRROR in .env to standard Docker Hub to prevent build errors...${NC}"
-            sed -i 's|^REGISTRY_MIRROR=.*|REGISTRY_MIRROR=|g' .env
-            export REGISTRY_MIRROR=""
-        else
-            echo -e "${GREEN}[OK] AWS Public ECR mirror is accessible.${NC}"
-        fi
+    if echo "$CURRENT_MIRROR" | grep -qE "mirror\.gcr\.io|public\.ecr\.aws"; then
+        echo -e "${YELLOW}[*] Removing deprecated/rate-limited REGISTRY_MIRROR (${CURRENT_MIRROR}) from .env...${NC}"
+        sed -i 's|^REGISTRY_MIRROR=.*|REGISTRY_MIRROR=|g' .env
+        export REGISTRY_MIRROR=""
     fi
 fi
 
@@ -129,40 +126,24 @@ echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack...${NC}"
 BUILD_SUCCESS=false
 
 # Attempt 1: Standard build (fast, leverages local layer cache)
+export REGISTRY_MIRROR=""
 if $COMPOSE_CMD build; then
     BUILD_SUCCESS=true
 else
-    echo -e "${YELLOW}[!] Standard build failed or encountered registry rate limit.${NC}"
+    echo -e "${YELLOW}[!] Standard build failed. Retrying with --no-cache...${NC}"
 fi
 
-# Attempt 2 (Fallback): Try standard Docker Hub (REGISTRY_MIRROR="")
+# Attempt 2 (Fallback): Clean build (--no-cache)
 if [ "$BUILD_SUCCESS" = false ]; then
-    echo -e "${YELLOW}[*] Fallback Attempt 1: Retrying with standard Docker Hub registry...${NC}"
-    export REGISTRY_MIRROR=""
-    if [ -f .env ]; then
-        sed -i 's|^REGISTRY_MIRROR=.*|REGISTRY_MIRROR=|g' .env || true
-    fi
-    if REGISTRY_MIRROR="" $COMPOSE_CMD build; then
+    echo -e "${YELLOW}[*] Retrying with clean build (--no-cache)...${NC}"
+    if REGISTRY_MIRROR="" $COMPOSE_CMD build --no-cache; then
         BUILD_SUCCESS=true
     fi
 fi
 
-# Attempt 3 (Fallback): Try Google Container Registry mirror (mirror.gcr.io)
 if [ "$BUILD_SUCCESS" = false ]; then
-    echo -e "${YELLOW}[*] Fallback Attempt 2: Retrying with Google Container Registry mirror (mirror.gcr.io)...${NC}"
-    export REGISTRY_MIRROR="mirror.gcr.io/library/"
-    if [ -f .env ]; then
-        sed -i 's|^REGISTRY_MIRROR=.*|REGISTRY_MIRROR=mirror.gcr.io/library/|g' .env || true
-    fi
-    if REGISTRY_MIRROR="mirror.gcr.io/library/" $COMPOSE_CMD build; then
-        BUILD_SUCCESS=true
-    fi
-fi
-
-# Attempt 4 (Fallback): Clean build (--no-cache)
-if [ "$BUILD_SUCCESS" = false ]; then
-    echo -e "${YELLOW}[*] Fallback Attempt 3: Retrying with clean build (--no-cache)...${NC}"
-    $COMPOSE_CMD build --no-cache
+    echo -e "${RED}[ERROR] Docker build failed. Please inspect errors above.${NC}"
+    exit 1
 fi
 
 $COMPOSE_CMD up -d
