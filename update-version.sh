@@ -33,7 +33,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Locate Installation Directory
-INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_SRC="${BASH_SOURCE[0]:-$0}"
+INSTALL_DIR="$(cd "$(dirname "$SCRIPT_SRC")" && pwd)"
 cd "$INSTALL_DIR"
 
 # Safe Self-Reload after git pull to ensure script executes new code from start
@@ -44,7 +45,8 @@ if [ -z "$HCP_UPDATE_RELOADED" ]; then
     git fetch origin main
     git reset --hard origin/main
     echo -e "${GREEN}[OK] Repository updated to latest release. Reloading update script...${NC}"
-    exec "$0" "$@"
+    chmod +x "$INSTALL_DIR/update-version.sh" || true
+    exec bash "$INSTALL_DIR/update-version.sh" "$@"
 fi
 
 # Detect Compose Command
