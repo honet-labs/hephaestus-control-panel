@@ -1569,7 +1569,10 @@ onUnmounted(() => {
     </nav>
 
     <!-- Main Content Container (Uses natural browser window scrolling) -->
-    <main class="flex-1 p-3.5 sm:p-5 md:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+    <main
+      class="flex-1 p-3.5 sm:p-5 md:p-6 space-y-6 w-full"
+      :class="['query', 'shards', 'indices', 'logs'].includes(activeTab) ? 'max-w-none' : 'max-w-[1600px] mx-auto'"
+    >
       
       <!-- ================================================================= -->
       <!-- TAB 1: OVERVIEW -->
