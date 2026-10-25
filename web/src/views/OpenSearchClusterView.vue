@@ -1639,9 +1639,9 @@ onUnmounted(() => {
 
         <!-- Cluster Health & Activity Alert Banner -->
         <div
-          v-if="clusterHealth?.status !== 'green' || unassignedShards.length > 0 || inFlightShards.length > 0"
+          v-if="clusterHealth && (clusterHealth.status !== 'green' || unassignedShards.length > 0 || inFlightShards.length > 0)"
           class="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md"
-          :class="clusterHealth?.status === 'red' ? 'bg-red-950/20 border-red-500/30 text-red-300' : 'bg-amber-950/20 border-amber-500/30 text-amber-300'"
+          :class="clusterHealth.status === 'red' ? 'bg-red-950/20 border-red-500/30 text-red-300' : 'bg-amber-950/20 border-amber-500/30 text-amber-300'"
         >
           <div class="flex items-start sm:items-center gap-3">
             <div class="p-2 rounded-lg" :class="clusterHealth?.status === 'red' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'">

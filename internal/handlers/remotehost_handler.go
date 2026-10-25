@@ -5,11 +5,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
@@ -24,7 +26,43 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  64 * 1024,
 	WriteBufferSize: 64 * 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Origin checked in middleware or auth handshake
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			return true // Non-browser clients or direct same-origin
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		// Allow if Origin host matches request Host (same origin)
+		if strings.EqualFold(u.Host, r.Host) {
+			return true
+		}
+		// Check explicitly configured allowed origins
+		cfg := config.GetConfig()
+		if cfg != nil {
+			for _, allowed := range cfg.AllowedOrigins {
+				trimmed := strings.TrimSpace(allowed)
+				if trimmed == "" {
+					continue
+				}
+				if strings.EqualFold(origin, trimmed) {
+					return true
+				}
+				if au, err := url.Parse(trimmed); err == nil && au.Host != "" {
+					if strings.EqualFold(u.Host, au.Host) {
+						return true
+					}
+				}
+			}
+			if cfg.Env != "production" {
+				if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" ||
+					origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
+					return true
+				}
+			}
+		}
+		return false
 	},
 }
 
@@ -466,7 +504,13 @@ func (h *RemoteHostHandler) SftpUpload(c *gin.Context) {
 	}
 	defer file.Close()
 
-	remotePath := filepath.ToSlash(filepath.Join(targetDir, header.Filename))
+	safeFilename := filepath.Base(filepath.Clean(header.Filename))
+	if safeFilename == "." || safeFilename == "/" || safeFilename == "\\" || safeFilename == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid filename"})
+		return
+	}
+
+	remotePath := filepath.ToSlash(filepath.Join(targetDir, safeFilename))
 	if err := h.sshService.SftpUpload(c.Request.Context(), hostID, remotePath, file); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

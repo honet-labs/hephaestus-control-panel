@@ -17,10 +17,14 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
-func (h *AuthHandler) setSessionCookie(c *gin.Context, token string, maxAge int) {
+func setSessionCookie(c *gin.Context, token string, maxAge int) {
 	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie("hephaestus_session", token, maxAge, "/", "", isSecure, true)
+}
+
+func (h *AuthHandler) setSessionCookie(c *gin.Context, token string, maxAge int) {
+	setSessionCookie(c, token, maxAge)
 }
 
 type LoginRequest struct {
@@ -154,9 +158,7 @@ func (h *SetupHandler) CompleteSetup(c *gin.Context) {
 		return
 	}
 
-	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("hephaestus_session", token, 86400*7, "/", "", isSecure, true)
+	setSessionCookie(c, token, 86400*7)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Initial setup completed successfully.",

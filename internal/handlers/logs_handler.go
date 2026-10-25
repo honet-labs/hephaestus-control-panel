@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/services"
 
@@ -117,6 +118,23 @@ func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
 		user, err := h.authService.ValidateSession(c.Request.Context(), token)
 		if err != nil || user == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired session token"})
+			return
+		}
+
+		// Enforce permission: User must be admin or have "settings" feature read/manage permission
+		hasPerm := user.IsAdmin() || domain.IsAdminRole(user.Role)
+		if !hasPerm && user.Permissions != nil {
+			if wild, ok := user.Permissions["*"]; ok && strings.EqualFold(wild, "manage") {
+				hasPerm = true
+			} else if p, ok := user.Permissions["settings"]; ok {
+				pLower := strings.ToLower(p)
+				if pLower == "read" || pLower == "manage" {
+					hasPerm = true
+				}
+			}
+		}
+		if !hasPerm {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Forbidden: insufficient permissions to stream system logs"})
 			return
 		}
 	}

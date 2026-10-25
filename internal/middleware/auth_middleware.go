@@ -18,10 +18,14 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
-		} else if cookie, err := c.Cookie("hephaestus_session"); err == nil {
+		} else if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
 			token = cookie
 		} else if qToken := c.Query("token"); qToken != "" {
-			token = qToken
+			// Restrict query parameter token acceptance to WebSocket routes or download endpoints
+			// where browsers cannot attach custom HTTP authorization headers
+			if strings.HasPrefix(c.Request.URL.Path, "/ws/") || strings.Contains(c.Request.URL.Path, "/download") || strings.HasSuffix(c.Request.URL.Path, "/rdp") {
+				token = qToken
+			}
 		}
 
 		if token == "" {

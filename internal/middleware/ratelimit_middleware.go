@@ -38,28 +38,22 @@ var (
 	initOnce       sync.Once
 )
 
-// GetRealClientIP reliably extracts visitor IP behind Cloudflare, Nginx, or direct connection
+// GetRealClientIP reliably extracts visitor IP behind Nginx reverse proxy or direct connection,
+// while preventing spoofed CF-Connecting-IP / X-Forwarded-For headers from bypassing rate limits.
 func GetRealClientIP(c *gin.Context) string {
-	// 1. Cloudflare connecting IP (if present)
-	if cfIP := strings.TrimSpace(c.GetHeader("CF-Connecting-IP")); cfIP != "" {
-		if ip := net.ParseIP(cfIP); ip != nil {
-			return ip.String()
-		}
-	}
-
-	// 2. X-Real-IP set by Nginx reverse proxy
+	// 1. Authoritative X-Real-IP set by local trusted reverse proxy (Nginx)
 	if realIP := strings.TrimSpace(c.GetHeader("X-Real-IP")); realIP != "" {
 		if ip := net.ParseIP(realIP); ip != nil {
 			return ip.String()
 		}
 	}
 
-	// 3. Gin ClientIP() which uses trusted proxies and X-Forwarded-For
+	// 2. Gin ClientIP() which validates against trusted proxies and X-Forwarded-For
 	if clientIP := strings.TrimSpace(c.ClientIP()); clientIP != "" {
 		return clientIP
 	}
 
-	// 4. Fallback to raw RemoteAddr
+	// 3. Fallback to raw RemoteAddr
 	remoteHost, _, err := net.SplitHostPort(c.Request.RemoteAddr)
 	if err == nil && remoteHost != "" {
 		return remoteHost
