@@ -226,7 +226,8 @@ func (r *RemoteHostRepository) Save(ctx context.Context, cfg domain.RemoteHostCo
 		}
 	}
 	if cfg.SSHKey != nil && *cfg.SSHKey != "" && *cfg.SSHKey != "********" {
-		if enc, err := config.EncryptText(*cfg.SSHKey); err == nil {
+		cleanKey := strings.TrimSpace(*cfg.SSHKey)
+		if enc, err := config.EncryptText(cleanKey); err == nil {
 			encKey = &enc
 		}
 	}

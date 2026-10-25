@@ -69,6 +69,7 @@ import {
   LogOut,
   ArrowUpDown,
   Unlink,
+  Key,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -331,6 +332,7 @@ const selectProtocolPreset = (preset: 'ssh' | 'rdp') => {
       hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'ssh');
       hostForm.value.tags.push('rdp');
     }
+    hostForm.value.authType = 'password';
   } else {
     if (hostForm.value.port === 3389) {
       hostForm.value.port = 22;
@@ -342,8 +344,63 @@ const selectProtocolPreset = (preset: 'ssh' | 'rdp') => {
   }
 };
 
+const isTestingConnection = ref(false);
+const testResult = ref<{ success: boolean; message: string } | null>(null);
+
+const handleKeyFileUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) return;
+  const file = target.files[0];
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const content = e.target?.result as string;
+    if (content) {
+      hostForm.value.sshKey = content.trim();
+    }
+  };
+  reader.readAsText(file);
+  target.value = '';
+};
+
+const handleTestConnection = async () => {
+  if (!hostForm.value.host || !hostForm.value.username) {
+    testResult.value = { success: false, message: 'Host/IP and Username are required to test connection.' };
+    return;
+  }
+  isTestingConnection.value = true;
+  testResult.value = null;
+  try {
+    const payload = {
+      id: hostForm.value.id || '',
+      name: hostForm.value.name || 'Test Host',
+      host: hostForm.value.host,
+      port: Number(hostForm.value.port) || (selectedProtocolPreset.value === 'rdp' ? 3389 : 22),
+      username: hostForm.value.username,
+      authType: hostForm.value.authType || 'password',
+      password: hostForm.value.password || '',
+      sshKey: hostForm.value.sshKey || '',
+      tags: selectedProtocolPreset.value === 'rdp' ? ['rdp'] : (hostForm.value.tags || []),
+    };
+    const res = await axios.post('/api/v1/remote-host/test', payload);
+    if (res.data) {
+      testResult.value = {
+        success: !!res.data.success,
+        message: res.data.message || (res.data.success ? 'Connection successful!' : 'Connection failed'),
+      };
+    }
+  } catch (err: any) {
+    testResult.value = {
+      success: false,
+      message: err.response?.data?.error || err.response?.data?.message || err.message || 'Connection test failed',
+    };
+  } finally {
+    isTestingConnection.value = false;
+  }
+};
+
 const openAddHostModal = (preset: 'ssh' | 'rdp' = 'ssh') => {
   selectedProtocolPreset.value = preset;
+  testResult.value = null;
   hostForm.value = {
     id: '',
     name: '',
@@ -2756,6 +2813,7 @@ const handleRevokeShare = async (targetUserId: number) => {
 const openEditHostModal = (host: RemoteHost, event?: MouseEvent) => {
   if (event) event.stopPropagation();
   selectedProtocolPreset.value = isRdpHost(host) ? 'rdp' : 'ssh';
+  testResult.value = null;
   hostForm.value = {
     id: host.id,
     name: host.name,
@@ -3448,6 +3506,7 @@ onUnmounted(() => {
                       >
                         <SquareTerminal class="w-3 h-3 text-slate-500 dark:text-slate-400" />
                         <span>Linux SSH</span>
+                        <span v-if="host.authType === 'key'" class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">· Key</span>
                       </span>
                     </td>
 
@@ -5207,7 +5266,7 @@ onUnmounted(() => {
       v-if="isHostModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
     >
-      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+      <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
           <div class="flex items-center gap-2">
             <Server class="w-4 h-4 text-slate-500 dark:text-slate-400" />
@@ -5312,7 +5371,41 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div>
+          <!-- Authentication Method Toggle (SSH Only) -->
+          <div v-if="selectedProtocolPreset === 'ssh'">
+            <label class="block text-slate-600 dark:text-slate-400 mb-1.5 font-medium">Authentication Method</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="hostForm.authType = 'password'"
+                :class="[
+                  'flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-semibold transition cursor-pointer',
+                  hostForm.authType === 'password'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/30'
+                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Lock class="w-3.5 h-3.5 text-slate-400" />
+                <span>Password</span>
+              </button>
+              <button
+                type="button"
+                @click="hostForm.authType = 'key'"
+                :class="[
+                  'flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border text-xs font-semibold transition cursor-pointer',
+                  hostForm.authType === 'key'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/30'
+                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <Key class="w-3.5 h-3.5 text-slate-400" />
+                <span>SSH Key</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Password Field (RDP or SSH Password Mode) -->
+          <div v-if="selectedProtocolPreset === 'rdp' || hostForm.authType === 'password'">
             <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
               <span class="flex items-center gap-1.5">
                 <Lock class="w-3.5 h-3.5 text-slate-400" />
@@ -5328,22 +5421,103 @@ onUnmounted(() => {
             <p v-if="selectedProtocolPreset === 'rdp'" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
               Password dapat disimpan untuk memudahkan konfigurasi koneksi Remote Desktop Windows.
             </p>
+            <p v-else-if="hostForm.id" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Leave blank to keep existing saved password.
+            </p>
           </div>
 
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+          <!-- SSH Key Section (SSH Key Mode) -->
+          <div v-if="selectedProtocolPreset === 'ssh' && hostForm.authType === 'key'" class="space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-slate-600 dark:text-slate-400 font-medium">
+                  <span class="flex items-center gap-1.5">
+                    <Key class="w-3.5 h-3.5 text-slate-400" />
+                    <span>SSH Private Key (AES-256-GCM Encrypted)</span>
+                  </span>
+                </label>
+                <label class="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">
+                  <Upload class="w-3 h-3" />
+                  <span>Upload Key File</span>
+                  <input
+                    type="file"
+                    class="hidden"
+                    accept=".pem,.key,.id_rsa,.id_ed25519,.id_ecdsa,text/*"
+                    @change="handleKeyFileUpload"
+                  />
+                </label>
+              </div>
+              <textarea
+                v-model="hostForm.sshKey"
+                rows="4"
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-[11px] focus:outline-none focus:border-blue-500 resize-y"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+              ></textarea>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                <span v-if="hostForm.id">Leave blank to keep existing SSH key. Supports RSA, Ed25519, ECDSA keys.</span>
+                <span v-else>Paste private key in PEM/OpenSSH format or upload file. Encrypted before saving.</span>
+              </p>
+            </div>
+
+            <div>
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">
+                <span class="flex items-center gap-1.5">
+                  <Lock class="w-3.5 h-3.5 text-slate-400" />
+                  <span>Passphrase / Sudo Password (Optional)</span>
+                </span>
+              </label>
+              <input
+                v-model="hostForm.password"
+                type="password"
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                placeholder="Leave blank if key has no passphrase"
+              />
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Optional: Passphrase if private key is encrypted, or password used for sudo commands.
+              </p>
+            </div>
+          </div>
+
+          <!-- Connection Test Feedback Banner -->
+          <div
+            v-if="testResult"
+            :class="[
+              'p-2.5 rounded-lg text-xs flex items-start gap-2',
+              testResult.success
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30'
+            ]"
+          >
+            <CheckCircle2 v-if="testResult.success" class="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" />
+            <AlertCircle v-else class="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+            <span class="break-all">{{ testResult.message }}</span>
+          </div>
+
+          <div class="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
-              @click="isHostModalOpen = false"
-              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
+              @click="handleTestConnection"
+              :disabled="isTestingConnection || !hostForm.host || !hostForm.username"
+              class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
             >
-              Cancel
+              <Loader2 v-if="isTestingConnection" class="w-3.5 h-3.5 animate-spin" />
+              <span>{{ isTestingConnection ? 'Testing...' : 'Test Connection' }}</span>
             </button>
-            <button
-              type="submit"
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-xs transition"
-            >
-              Save Server
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="isHostModalOpen = false"
+                class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-transparent text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-xs transition"
+              >
+                Save Server
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/ssh"
 )
 
 var upgrader = websocket.Upgrader{
@@ -187,6 +188,27 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 	if req.GroupName == "" {
 		req.GroupName = "Default"
 	}
+	if req.AuthType == "" {
+		if req.SSHKey != nil && strings.TrimSpace(*req.SSHKey) != "" {
+			req.AuthType = "key"
+		} else {
+			req.AuthType = "password"
+		}
+	}
+
+	// Validate SSH private key syntax if key auth is selected and key is provided
+	if req.AuthType == "key" && req.SSHKey != nil && strings.TrimSpace(*req.SSHKey) != "" && *req.SSHKey != "********" {
+		keyBytes := []byte(strings.TrimSpace(*req.SSHKey))
+		var parseErr error
+		_, parseErr = ssh.ParsePrivateKey(keyBytes)
+		if parseErr != nil && req.Password != nil && *req.Password != "" && *req.Password != "********" {
+			_, parseErr = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(*req.Password))
+		}
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": fmt.Sprintf("Invalid SSH private key: %v", parseErr)})
+			return
+		}
+	}
 
 	if err := h.remoteRepo.Save(c.Request.Context(), req, userID, userRole); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": err.Error()})
@@ -271,6 +293,25 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 			"message": fmt.Sprintf("Successfully reached %s port %s from Hephaestus server.", protoName, targetAddr),
 		})
 		return
+	}
+
+	// If testing an existing host and credentials were left blank/masked, fetch saved credentials
+	if req.ID != "" {
+		needKey := req.AuthType == "key" && (req.SSHKey == nil || *req.SSHKey == "" || *req.SSHKey == "********")
+		needPass := (req.AuthType == "password" || req.AuthType == "") && (req.Password == nil || *req.Password == "" || *req.Password == "********")
+		if needKey || needPass {
+			if existing, err := h.remoteRepo.GetRawByID(c.Request.Context(), req.ID); err == nil && existing != nil {
+				if needKey && existing.SSHKey != nil {
+					req.SSHKey = existing.SSHKey
+				}
+				if (req.Password == nil || *req.Password == "" || *req.Password == "********") && existing.Password != nil {
+					req.Password = existing.Password
+				}
+				if req.AuthType == "" {
+					req.AuthType = existing.AuthType
+				}
+			}
+		}
 	}
 
 	success, msg := h.sshService.TestConnection(&req)

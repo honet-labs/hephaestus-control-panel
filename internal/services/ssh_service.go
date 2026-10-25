@@ -45,8 +45,21 @@ func NewSSHService(remoteRepo *repository.RemoteHostRepository) *SSHService {
 func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
-	if cfg.AuthType == "key" && cfg.SSHKey != nil && *cfg.SSHKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(*cfg.SSHKey))
+	if cfg.AuthType == "key" || (cfg.AuthType == "" && cfg.SSHKey != nil && strings.TrimSpace(*cfg.SSHKey) != "") {
+		if cfg.SSHKey == nil || strings.TrimSpace(*cfg.SSHKey) == "" {
+			return nil, errors.New("SSH private key is required for key authentication")
+		}
+
+		keyBytes := []byte(strings.TrimSpace(*cfg.SSHKey))
+		var signer ssh.Signer
+		var err error
+
+		// Try unencrypted private key first
+		signer, err = ssh.ParsePrivateKey(keyBytes)
+		if err != nil && cfg.Password != nil && *cfg.Password != "" {
+			// If key is encrypted with passphrase, decrypt using password field
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(*cfg.Password))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
 		}
@@ -54,7 +67,7 @@ func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.Clie
 	} else if cfg.Password != nil && *cfg.Password != "" {
 		authMethods = append(authMethods, ssh.Password(*cfg.Password))
 	} else {
-		return nil, errors.New("no authentication credentials provided")
+		return nil, errors.New("no authentication credentials provided (password or private key required)")
 	}
 
 	return &ssh.ClientConfig{
