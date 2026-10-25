@@ -53,7 +53,6 @@ import {
   ArrowUpRight,
   ArrowRight,
   Monitor,
-  Tv,
   Cloud,
   Check,
   RefreshCw,
@@ -64,7 +63,6 @@ import {
   Share2,
   Users,
   AlertCircle,
-  KeyRound,
   ZoomIn,
   ZoomOut,
   ChevronUp,
@@ -175,7 +173,7 @@ interface OpenSession {
   id: string;
   host: RemoteHost;
   displayName?: string;
-  activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp' | 'firewall' | 'desktop';
+  activeView: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp' | 'firewall';
   term?: Terminal;
   fitAddon?: FitAddon;
   resizeObserver?: ResizeObserver;
@@ -205,16 +203,6 @@ interface OpenSession {
   groupId?: string;
 }
 
-// Remote Desktop (RDP / VNC Guacamole) State
-const desktopProto = ref<Record<string, 'rdp' | 'vnc'>>({});
-const desktopSecurity = ref<Record<string, string>>({});
-const desktopConnected = ref<Record<string, boolean>>({});
-const desktopLoading = ref<Record<string, boolean>>({});
-const desktopError = ref<Record<string, string>>({});
-const desktopClients = ref<Record<string, any>>({});
-const desktopScale = ref<Record<string, number>>({});
-const desktopIsFullscreen = ref<Record<string, boolean>>({});
-const desktopObservers: Record<string, ResizeObserver> = {};
 const tabBarRef = ref<HTMLElement | null>(null);
 
 const tabGroups = ref<TabGroup[]>([]);
@@ -303,20 +291,15 @@ const toggleSelectAllHostsForGroup = () => {
   }
 };
 
-// Protocol Preset ('ssh' | 'rdp' | 'vnc')
-const selectedProtocolPreset = ref<'ssh' | 'rdp' | 'vnc'>('ssh');
+// Protocol Preset ('ssh' | 'rdp')
+const selectedProtocolPreset = ref<'ssh' | 'rdp'>('ssh');
 
 const isRdpHost = (h: RemoteHost) =>
   h.port === 3389 ||
   h.tags?.some((t: string) => t.toLowerCase() === 'rdp') ||
   (h as any).protocol === 'rdp';
-const isVncHost = (h: RemoteHost) =>
-  h.port === 5900 ||
-  h.tags?.some((t: string) => t.toLowerCase() === 'vnc') ||
-  (h as any).protocol === 'vnc';
 const getHostConnectionLabel = (h: RemoteHost) => {
   if (isRdpHost(h)) return `rdp, ${h.username || 'Administrator'}, ${h.host}:${h.port || 3389}`;
-  if (isVncHost(h)) return `vnc, ${h.username || 'client'}, ${h.host}:${h.port || 5900}`;
   return `ssh, ${h.username || 'root'}, ${h.host}:${h.port || 22}`;
 };
 
@@ -334,55 +317,44 @@ const hostForm = ref<any>({
   tags: [],
 });
 
-const selectProtocolPreset = (preset: 'ssh' | 'rdp' | 'vnc') => {
+const selectProtocolPreset = (preset: 'ssh' | 'rdp') => {
   selectedProtocolPreset.value = preset;
   if (!hostForm.value.tags) hostForm.value.tags = [];
   if (preset === 'rdp') {
-    if (hostForm.value.port === 22 || hostForm.value.port === 5900) {
+    if (hostForm.value.port === 22) {
       hostForm.value.port = 3389;
     }
     if (hostForm.value.username === 'root' || !hostForm.value.username) {
       hostForm.value.username = 'Administrator';
     }
     if (!hostForm.value.tags.includes('rdp')) {
-      hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'vnc' && t !== 'ssh');
+      hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'ssh');
       hostForm.value.tags.push('rdp');
     }
-  } else if (preset === 'vnc') {
-    if (hostForm.value.port === 22 || hostForm.value.port === 3389) {
-      hostForm.value.port = 5900;
-    }
-    if (hostForm.value.username === 'Administrator') {
-      hostForm.value.username = '';
-    }
-    if (!hostForm.value.tags.includes('vnc')) {
-      hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'rdp' && t !== 'ssh');
-      hostForm.value.tags.push('vnc');
-    }
   } else {
-    if (hostForm.value.port === 3389 || hostForm.value.port === 5900) {
+    if (hostForm.value.port === 3389) {
       hostForm.value.port = 22;
     }
     if (hostForm.value.username === 'Administrator' || !hostForm.value.username) {
       hostForm.value.username = 'root';
     }
-    hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'rdp' && t !== 'vnc');
+    hostForm.value.tags = hostForm.value.tags.filter((t: string) => t !== 'rdp');
   }
 };
 
-const openAddHostModal = (preset: 'ssh' | 'rdp' | 'vnc' = 'ssh') => {
+const openAddHostModal = (preset: 'ssh' | 'rdp' = 'ssh') => {
   selectedProtocolPreset.value = preset;
   hostForm.value = {
     id: '',
     name: '',
     host: '',
-    port: preset === 'rdp' ? 3389 : preset === 'vnc' ? 5900 : 22,
-    username: preset === 'rdp' ? 'Administrator' : preset === 'ssh' ? 'root' : '',
+    port: preset === 'rdp' ? 3389 : 22,
+    username: preset === 'rdp' ? 'Administrator' : 'root',
     authType: 'password',
     password: '',
     sshKey: '',
     groupName: 'Default',
-    tags: preset === 'rdp' ? ['rdp'] : preset === 'vnc' ? ['vnc'] : [],
+    tags: preset === 'rdp' ? ['rdp'] : [],
   };
   isHostModalOpen.value = true;
 };
@@ -572,8 +544,7 @@ const restorePersistedSessions = async () => {
       seenHostIds.add(sInfo.hostId);
       const host = hosts.value.find((h) => h.id === sInfo.hostId);
       if (host) {
-        const isDesktop = isRdpHost(host) || isVncHost(host);
-        const resolvedView: any = sInfo.activeView || (isDesktop ? 'desktop' : 'terminal');
+        const resolvedView: any = sInfo.activeView || 'terminal';
         const session: OpenSession = reactive({
           id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           host,
@@ -601,13 +572,7 @@ const restorePersistedSessions = async () => {
       if (targetIdx >= 0 && openSessions.value[targetIdx]) {
         await nextTick();
         const activeS = openSessions.value[targetIdx];
-        const isDesktop = isRdpHost(activeS.host) || isVncHost(activeS.host);
-        if (activeS.activeView === 'desktop' || isDesktop) {
-          activeS.activeView = 'desktop';
-          desktopProto.value[activeS.id] = isRdpHost(activeS.host) ? 'rdp' : 'vnc';
-          await nextTick();
-          await ensureDesktopReady(activeS);
-        } else if (activeS.activeView === 'terminal') {
+        if (activeS.activeView === 'terminal') {
           await ensureTerminalReady(activeS);
           fetchHostTelemetry(activeS);
         } else {
@@ -640,9 +605,10 @@ const fetchHosts = async () => {
 // MULTI-SESSION & DUPLICATE TABS SUPPORT
 // =================================================================
 const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: string) => {
-  const isDesktop = isRdpHost(host) || isVncHost(host);
-  const isVnc = isVncHost(host);
-  const defaultView: 'terminal' | 'desktop' = isDesktop ? 'desktop' : 'terminal';
+  if (isRdpHost(host)) {
+    downloadRdpFile(host);
+    return;
+  }
 
   if (!forceNew) {
     const existingIdx = openSessions.value.findIndex((s) => s.host.id === host.id);
@@ -650,11 +616,7 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
       activeSessionIndex.value = existingIdx;
       saveSessionsState();
       const existingSession = openSessions.value[existingIdx];
-      if (existingSession.activeView === 'desktop') {
-        await ensureDesktopReady(existingSession);
-      } else {
-        await ensureTerminalReady(existingSession);
-      }
+      await ensureTerminalReady(existingSession);
       return;
     }
   }
@@ -667,7 +629,7 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
     id: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     host,
     displayName: tabName,
-    activeView: defaultView,
+    activeView: 'terminal',
     connected: false,
     connecting: true,
     groupId: defaultGroupId,
@@ -677,14 +639,8 @@ const connectHost = async (host: RemoteHost, forceNew = false, defaultGroupId?: 
   activeSessionIndex.value = openSessions.value.length - 1;
   saveSessionsState();
 
-  if (defaultView === 'desktop') {
-    desktopProto.value[session.id] = isVnc ? 'vnc' : 'rdp';
-    await nextTick();
-    await ensureDesktopReady(session);
-  } else {
-    await ensureTerminalReady(session);
-    fetchHostTelemetry(session);
-  }
+  await ensureTerminalReady(session);
+  fetchHostTelemetry(session);
 };
 
 const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
@@ -778,18 +734,6 @@ const closeSession = (sessionOrIdx: OpenSession | number | string, event?: Mouse
         s.term.dispose();
       } catch (e) {}
       s.term = undefined;
-    }
-    if (desktopObservers[s.id]) {
-      try {
-        desktopObservers[s.id].disconnect();
-      } catch (e) {}
-      delete desktopObservers[s.id];
-    }
-    if (desktopClients.value[s.id]) {
-      try {
-        desktopClients.value[s.id].disconnect();
-      } catch (e) {}
-      delete desktopClients.value[s.id];
     }
   }
   openSessions.value.splice(idx, 1);
@@ -1314,21 +1258,13 @@ const initXterm = (session: OpenSession) => {
   connectWsTerminal(session, false);
 };
 
-// Watch activeSession changes to ensure fitted terminal or desktop
+// Watch activeSession changes to ensure fitted terminal
 watch(
   [activeSessionIndex, () => activeSession.value?.activeView],
   async () => {
     if (!activeSession.value) return;
     if (activeSession.value.activeView === 'terminal') {
       await ensureTerminalReady(activeSession.value);
-    } else if (activeSession.value.activeView === 'desktop') {
-      const isVnc = isVncHost(activeSession.value.host);
-      if (!desktopProto.value[activeSession.value.id]) {
-        desktopProto.value[activeSession.value.id] = isVnc ? 'vnc' : 'rdp';
-      }
-      await ensureDesktopReady(activeSession.value);
-      await nextTick();
-      scaleDesktop(activeSession.value.id);
     }
     saveSessionsState();
   }
@@ -1738,7 +1674,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   }
 };
 
-const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp' | 'firewall' | 'desktop') => {
+const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'dashboard' | 'processes' | 'services' | 'network' | 'sftp' | 'firewall') => {
   if (viewName === 'sftp') {
     openSftpModal(session.host.id);
     return;
@@ -1746,421 +1682,8 @@ const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'da
   session.activeView = viewName;
   if (viewName === 'terminal') {
     await ensureTerminalReady(session);
-  } else if (viewName === 'desktop') {
-    await ensureDesktopReady(session);
-    await nextTick();
-    scaleDesktop(session.id);
   } else {
     await fetchHostTelemetry(session);
-  }
-};
-
-// Remote Desktop (Guacamole HTML5 Canvas) Lifecycle Methods
-const parseGuacamoleError = (status: any): string => {
-  if (!status) return 'Remote desktop connection failed.';
-  if (status.message && typeof status.message === 'string' && status.message.trim().length > 0) {
-    if (status.message.toLowerCase().includes('disconnected by other connection')) {
-      return 'Disconnected by other connection (Sesi RDP terputus karena akun Windows ini sedang dibuka oleh sesi/aplikasi lain seperti mstsc atau tab lain)';
-    }
-    return status.message;
-  }
-  const code = typeof status === 'number' ? status : (status.code || 0);
-  const codeMap: Record<number, string> = {
-    0x0100: 'Operation successful',
-    0x0200: 'Operation successful',
-    0x0201: 'Unsupported remote desktop protocol or capability',
-    0x0202: 'Internal server error in guacd daemon',
-    0x0203: 'Remote desktop server is busy',
-    0x0204: 'Remote host connection timed out (target host offline or port unreachable)',
-    0x0205: 'Remote host connection error (connection refused or credentials rejected)',
-    0x0207: 'Target host unreachable or RDP security negotiation rejected by Windows (Upstream host not found)',
-    0x0208: 'Remote desktop server is currently unavailable or offline',
-    0x0209: 'Resource closed',
-    0x020A: 'Remote desktop host not found',
-    0x020B: 'Remote desktop host is unavailable or unreachable',
-    0x0300: 'Bad client request',
-    0x0301: 'Authentication failed: invalid username or password',
-    0x0303: 'Access forbidden: permission denied on remote host',
-    0x0308: 'Client connection timed out',
-    0x031D: 'Credentials or security negotiation rejected by remote Windows host'
-  };
-  return codeMap[code] || `Remote desktop error (Code: 0x${Number(code).toString(16).toUpperCase()})`;
-};
-
-const desktopIsScaling = ref<Record<string, boolean>>({});
-const desktopLastDims = ref<Record<string, { w: number; h: number; dw: number; dh: number; s: number }>>({});
-
-const scaleDesktop = (sessId: string) => {
-  if (desktopIsScaling.value[sessId]) return;
-  const client = desktopClients.value[sessId];
-  const container = document.getElementById(`desktop-container-${sessId}`);
-  if (!client || !container) return;
-
-  const display = client.getDisplay();
-  if (!display) return;
-
-  const dispWidth = display.getWidth();
-  const dispHeight = display.getHeight();
-  if (!dispWidth || !dispHeight) return;
-
-  const cWidth = container.clientWidth;
-  const cHeight = container.clientHeight;
-  if (!cWidth || !cHeight) return;
-
-  const rawScale = Math.min(cWidth / dispWidth, cHeight / dispHeight);
-  // Snap scale to 1.0 when viewport is approximately 1:1 (between 96% and 104%) to eliminate subpixel blur
-  const finalScale = (rawScale >= 0.96 && rawScale <= 1.04) ? 1.0 : Math.max(rawScale, 0.05);
-
-  const prev = desktopLastDims.value[sessId];
-  if (prev && prev.w === cWidth && prev.h === cHeight && prev.dw === dispWidth && prev.dh === dispHeight && prev.s === finalScale) {
-    return;
-  }
-
-  desktopIsScaling.value[sessId] = true;
-  requestAnimationFrame(() => {
-    try {
-      desktopScale.value[sessId] = finalScale;
-      display.scale(finalScale);
-
-      const wrapper = document.getElementById(`desktop-display-wrapper-${sessId}`);
-      if (wrapper) {
-        wrapper.style.width = `${Math.floor(dispWidth * finalScale)}px`;
-        wrapper.style.height = `${Math.floor(dispHeight * finalScale)}px`;
-      }
-      desktopLastDims.value[sessId] = {
-        w: cWidth,
-        h: cHeight,
-        dw: dispWidth,
-        dh: dispHeight,
-        s: finalScale,
-      };
-    } finally {
-      desktopIsScaling.value[sessId] = false;
-    }
-  });
-};
-
-const ensureDesktopReady = async (session: OpenSession, forceReconnect: boolean = false) => {
-  if (!session || !session.host?.id) return;
-  const sessId = session.id;
-
-  if (!desktopProto.value[sessId]) {
-    desktopProto.value[sessId] = isRdpHost(session.host) ? 'rdp' : ((session.host as any).protocol === 'vnc' ? 'vnc' : 'rdp');
-  }
-
-  if (desktopClients.value[sessId] && desktopConnected.value[sessId] && !forceReconnect) {
-    return;
-  }
-
-  await nextTick();
-  const container = document.getElementById(`desktop-container-${sessId}`);
-  const viewport = document.getElementById(`desktop-viewport-${sessId}`);
-  if (!container || !viewport) return;
-
-  if (desktopObservers[sessId]) {
-    try {
-      desktopObservers[sessId].disconnect();
-    } catch (_) {}
-  }
-
-  if (desktopClients.value[sessId]) {
-    try {
-      desktopClients.value[sessId].disconnect();
-    } catch (_) {}
-    desktopClients.value[sessId] = null;
-    // Brief delay to allow Windows RDP server to cleanly finalize previous session teardown
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  desktopLoading.value[sessId] = true;
-  desktopConnected.value[sessId] = false;
-  desktopError.value[sessId] = '';
-
-  try {
-    const GuacamoleModule = await import('guacamole-common-js');
-    const Guacamole = GuacamoleModule.default || GuacamoleModule;
-
-    const width = Math.max(container.clientWidth || window.innerWidth || 1920, 1024);
-    const height = Math.max(container.clientHeight || (window.innerHeight - 90) || 1080, 768);
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const protoType = desktopProto.value[sessId] || 'rdp';
-    const secMode = desktopSecurity.value[sessId] || 'any';
-    const token = authStore.token || localStorage.getItem('token') || sessionStorage.getItem('hcp_session') || '';
-
-    const wsBaseUrl = `${proto}//${window.location.host}/ws/remote-desktop`;
-    const connectParams = `token=${encodeURIComponent(token)}&hostId=${encodeURIComponent(session.host.id)}&proto=${encodeURIComponent(protoType)}&security=${encodeURIComponent(secMode)}&width=${width}&height=${height}&dpi=96`;
-
-    const tunnel = new Guacamole.WebSocketTunnel(wsBaseUrl);
-    const client = new Guacamole.Client(tunnel);
-
-    desktopClients.value[sessId] = client;
-
-    // Display Element Setup inside dedicated centered wrapper
-    // NOTE: Avoid flexbox on displayWrapper because displayElement uses CSS transform: scale() with (0,0) origin.
-    // Flexbox centering shifts displayElement to negative coordinates, clipping the entire canvas (blank screen bug).
-    // Instead, viewport handles centering via flex, while displayWrapper snugly frames the absolute-positioned displayElement.
-    viewport.innerHTML = '';
-    const displayWrapper = document.createElement('div');
-    displayWrapper.id = `desktop-display-wrapper-${sessId}`;
-    displayWrapper.style.position = 'relative';
-    displayWrapper.style.overflow = 'hidden';
-    displayWrapper.style.margin = 'auto';
-    displayWrapper.style.backgroundColor = '#000000';
-    displayWrapper.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)';
-    displayWrapper.style.borderRadius = '4px';
-
-    const display = client.getDisplay();
-    const displayElement = display.getElement();
-    displayElement.style.position = 'absolute';
-    displayElement.style.top = '0';
-    displayElement.style.left = '0';
-    displayElement.style.transformOrigin = '0 0';
-
-    displayWrapper.appendChild(displayElement);
-    viewport.appendChild(displayWrapper);
-
-    // Dynamic display scaling listener
-    display.onresize = () => {
-      scaleDesktop(sessId);
-    };
-
-    // Container resize observer to automatically scale canvas when viewport resizes
-    const ro = new ResizeObserver(() => {
-      scaleDesktop(sessId);
-    });
-    ro.observe(container);
-    desktopObservers[sessId] = ro;
-
-    // Mouse Handler with dynamic scaling translation & RAF throttling to eliminate browser UI freeze
-    const mouse = new Guacamole.Mouse(displayElement);
-    const sendScaledMouse = (mouseState: any) => {
-      const scale = desktopScale.value[sessId] || 1.0;
-      let scaledState: any;
-      if (Guacamole.Mouse && Guacamole.Mouse.State) {
-        scaledState = new Guacamole.Mouse.State(
-          Math.round(mouseState.x / scale),
-          Math.round(mouseState.y / scale),
-          mouseState.left,
-          mouseState.middle,
-          mouseState.right,
-          mouseState.up,
-          mouseState.down
-        );
-      } else {
-        scaledState = {
-          ...mouseState,
-          x: Math.round(mouseState.x / scale),
-          y: Math.round(mouseState.y / scale),
-        };
-      }
-      client.sendMouseState(scaledState);
-    };
-
-    let mouseMovePending = false;
-    let latestMouseMoveState: any = null;
-
-    mouse.onmousedown = (mouseState: any) => {
-      container.focus();
-      sendScaledMouse(mouseState);
-    };
-
-    mouse.onmouseup = (mouseState: any) => {
-      sendScaledMouse(mouseState);
-    };
-
-    mouse.onmousemove = (mouseState: any) => {
-      // CRITICAL: NEVER call container.focus() on mousemove as it triggers layout thrashing and freezes browser!
-      latestMouseMoveState = mouseState;
-      if (!mouseMovePending) {
-        mouseMovePending = true;
-        requestAnimationFrame(() => {
-          mouseMovePending = false;
-          if (latestMouseMoveState) {
-            sendScaledMouse(latestMouseMoveState);
-          }
-        });
-      }
-    };
-
-    // Touch Handler for tablet / mobile devices with RAF throttling
-    if ((Guacamole as any).Touch) {
-      try {
-        const touch = new (Guacamole as any).Touch(displayElement);
-        let touchMovePending = false;
-        let latestTouchState: any = null;
-
-        touch.ontouchstart = (touchState: any) => {
-          container.focus();
-          sendScaledMouse(touchState);
-        };
-
-        touch.ontouchend = (touchState: any) => {
-          sendScaledMouse(touchState);
-        };
-
-        touch.ontouchmove = (touchState: any) => {
-          latestTouchState = touchState;
-          if (!touchMovePending) {
-            touchMovePending = true;
-            requestAnimationFrame(() => {
-              touchMovePending = false;
-              if (latestTouchState) {
-                sendScaledMouse(latestTouchState);
-              }
-            });
-          }
-        };
-      } catch (_) {}
-    }
-
-    // Keyboard Handler attached to container
-    const keyboard = new Guacamole.Keyboard(container);
-    keyboard.onkeydown = (keysym: number) => {
-      client.sendKeyEvent(1, keysym);
-    };
-    keyboard.onkeyup = (keysym: number) => {
-      client.sendKeyEvent(0, keysym);
-    };
-
-    // Click on container or wrapper to refocus keyboard input
-    container.addEventListener('click', () => {
-      container.focus();
-    });
-
-    // Tunnel lifecycle listeners
-    tunnel.onerror = (status: any) => {
-      desktopLoading.value[sessId] = false;
-      desktopConnected.value[sessId] = false;
-      desktopError.value[sessId] = parseGuacamoleError(status);
-    };
-
-    tunnel.onstatechange = (state: number) => {
-      // Guacamole.Tunnel.State: 0=CONNECTING, 1=OPEN, 2=CLOSED, 3=UNSTABLE
-      if (state === 2) { // CLOSED
-        desktopLoading.value[sessId] = false;
-        desktopConnected.value[sessId] = false;
-        if (!desktopError.value[sessId]) {
-          desktopError.value[sessId] = 'WebSocket tunnel closed. Remote desktop host unreachable or credentials rejected.';
-        }
-      }
-    };
-
-    // Client lifecycle listeners
-    client.onstatechange = (state: number) => {
-      // Guacamole.Client.State: 0=IDLE, 1=CONNECTING, 2=WAITING, 3=CONNECTED, 4=DISCONNECTING, 5=DISCONNECTED
-      if (state === 3) { // CONNECTED
-        desktopConnected.value[sessId] = true;
-        desktopLoading.value[sessId] = false;
-        desktopError.value[sessId] = '';
-        container.focus();
-        scaleDesktop(sessId);
-      } else if (state === 5) { // DISCONNECTED
-        desktopConnected.value[sessId] = false;
-        desktopLoading.value[sessId] = false;
-        if (!desktopError.value[sessId]) {
-          desktopError.value[sessId] = 'Remote desktop session disconnected.';
-        }
-      }
-    };
-
-    client.onerror = (status: any) => {
-      desktopLoading.value[sessId] = false;
-      desktopConnected.value[sessId] = false;
-      desktopError.value[sessId] = parseGuacamoleError(status);
-    };
-
-    client.connect(connectParams);
-  } catch (err: any) {
-    desktopLoading.value[sessId] = false;
-    desktopConnected.value[sessId] = false;
-    desktopError.value[sessId] = err?.message || 'Failed to initialize Guacamole display client';
-  }
-};
-
-const changeDesktopProto = async (session: OpenSession, proto: 'rdp' | 'vnc') => {
-  desktopProto.value[session.id] = proto;
-  desktopError.value[session.id] = '';
-  await ensureDesktopReady(session, true);
-};
-
-const changeDesktopSecurity = async (session: OpenSession, sec: string) => {
-  desktopSecurity.value[session.id] = sec;
-  desktopError.value[session.id] = '';
-  await ensureDesktopReady(session, true);
-};
-
-const reconnectDesktop = async (session: OpenSession) => {
-  desktopError.value[session.id] = '';
-  if (diagnosticResult.value[session.id]) {
-    delete diagnosticResult.value[session.id];
-  }
-  await ensureDesktopReady(session, true);
-};
-
-const sendCtrlAltDel = (session: OpenSession) => {
-  const sessId = session.id;
-  const client = desktopClients.value[sessId];
-  if (!client) return;
-
-  const KEY_CTRL = 0xffe3;
-  const KEY_ALT = 0xffe9;
-  const KEY_DEL = 0xffff;
-
-  // Press Ctrl, Alt, Delete in sequence
-  client.sendKeyEvent(1, KEY_CTRL);
-  client.sendKeyEvent(1, KEY_ALT);
-  client.sendKeyEvent(1, KEY_DEL);
-
-  // Release keys after a brief pulse
-  setTimeout(() => {
-    client.sendKeyEvent(0, KEY_DEL);
-    client.sendKeyEvent(0, KEY_ALT);
-    client.sendKeyEvent(0, KEY_CTRL);
-  }, 100);
-
-  // Ensure container keeps keyboard focus
-  const container = document.getElementById(`desktop-container-${sessId}`);
-  if (container) container.focus();
-};
-
-const testingReachability = ref<Record<string, boolean>>({});
-const diagnosticResult = ref<Record<string, { success: boolean; message: string }>>({});
-
-const isPrivateIp = (ip?: string) => {
-  if (!ip) return false;
-  return ip.startsWith('10.') || ip.startsWith('192.168.') || 
-    ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || 
-    ip.startsWith('172.19.') || ip.startsWith('172.2') || ip.startsWith('172.30.') || 
-    ip.startsWith('172.31.') || ip.startsWith('127.');
-};
-
-const testHostReachability = async (session: OpenSession) => {
-  if (!session?.host) return;
-  const sessId = session.id;
-  testingReachability.value[sessId] = true;
-  diagnosticResult.value[sessId] = { success: false, message: 'Menguji konektivitas TCP dari backend Hephaestus...' };
-
-  const targetPort = session.host.port && session.host.port !== 22
-    ? session.host.port
-    : (desktopProto.value[sessId] === 'vnc' ? 5900 : 3389);
-
-  try {
-    const res = await axios.post('/api/v1/remote-host/test', {
-      host: session.host.host,
-      port: targetPort,
-      tags: [desktopProto.value[sessId] || 'rdp'],
-    });
-    diagnosticResult.value[sessId] = {
-      success: res.data?.success || false,
-      message: res.data?.message || (res.data?.success ? 'Port terbuka dan dapat dijangkau.' : 'Port tidak dapat dijangkau.'),
-    };
-  } catch (err: any) {
-    diagnosticResult.value[sessId] = {
-      success: false,
-      message: err.response?.data?.error || err.message || 'Gagal menjalankan uji konektivitas.',
-    };
-  } finally {
-    testingReachability.value[sessId] = false;
   }
 };
 
@@ -2233,20 +1756,6 @@ const downloadRdpFile = (host?: RemoteHost) => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showNotice(`File .rdp untuk "${host.name || host.host}" berhasil diunduh. Silakan buka file untuk koneksi Remote Desktop.`);
-};
-
-const toggleDesktopFullscreen = (session: OpenSession) => {
-  const container = document.getElementById(`desktop-container-${session.id}`);
-  if (!container) return;
-  if (!document.fullscreenElement) {
-    container.requestFullscreen().then(() => {
-      desktopIsFullscreen.value[session.id] = true;
-    }).catch(() => {});
-  } else {
-    document.exitFullscreen().then(() => {
-      desktopIsFullscreen.value[session.id] = false;
-    }).catch(() => {});
-  }
 };
 
 // Fetch Host Telemetry
@@ -3246,7 +2755,7 @@ const handleRevokeShare = async (targetUserId: number) => {
 
 const openEditHostModal = (host: RemoteHost, event?: MouseEvent) => {
   if (event) event.stopPropagation();
-  selectedProtocolPreset.value = isRdpHost(host) ? 'rdp' : isVncHost(host) ? 'vnc' : 'ssh';
+  selectedProtocolPreset.value = isRdpHost(host) ? 'rdp' : 'ssh';
   hostForm.value = {
     id: host.id,
     name: host.name,
@@ -3402,8 +2911,6 @@ const handleWindowResize = () => {
           );
         }
       } catch (e) {}
-    } else if (activeSession.value.activeView === 'desktop') {
-      scaleDesktop(activeSession.value.id);
     }
   }
 };
@@ -3412,13 +2919,7 @@ watch(activeSessionIndex, async (newIdx) => {
   if (newIdx >= 0 && openSessions.value[newIdx]) {
     const s = openSessions.value[newIdx];
     await nextTick();
-    if (s.activeView === 'desktop') {
-      if (!desktopClients.value[s.id]) {
-        await ensureDesktopReady(s);
-      } else {
-        scaleDesktop(s.id);
-      }
-    } else if (s.activeView === 'terminal') {
+    if (s.activeView === 'terminal') {
       s.fitAddon?.fit();
     }
     if (tabBarRef.value) {
@@ -3450,11 +2951,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize);
   document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
   window.removeEventListener('focus', handleVisibilityOrFocus);
-  Object.values(desktopObservers).forEach((ro) => {
-    try {
-      ro.disconnect();
-    } catch (_) {}
-  });
   openSessions.value.forEach((s) => {
     stopSessionHeartbeat(s);
     if (s.resizeObserver) {
@@ -3947,13 +3443,6 @@ onUnmounted(() => {
                         <span>Windows RDP</span>
                       </span>
                       <span
-                        v-else-if="isVncHost(host)"
-                        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50"
-                      >
-                        <Tv class="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                        <span>VNC Desktop</span>
-                      </span>
-                      <span
                         v-else
                         class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
                       >
@@ -3999,24 +3488,15 @@ onUnmounted(() => {
                     <!-- Action: Clear CONNECT button & tool buttons -->
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                       <div class="flex items-center justify-end gap-1.5">
-                        <!-- Prominent Connect Button (Windows RDP, VNC Desktop, Linux SSH all in-browser) -->
+                        <!-- Connect / RDP Action -->
                         <button
                           v-if="isRdpHost(host)"
-                          @click.stop="connectHost(host)"
-                          title="Open in-browser Remote Desktop session"
+                          @click.stop="downloadRdpFile(host)"
+                          title="Download .RDP configuration file for native Windows Remote Desktop client"
                           class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
                         >
-                          <Monitor class="w-3.5 h-3.5" />
-                          <span>Connect</span>
-                        </button>
-                        <button
-                          v-else-if="isVncHost(host)"
-                          @click.stop="connectHost(host)"
-                          title="Open VNC Remote Desktop session"
-                          class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
-                        >
-                          <Tv class="w-3.5 h-3.5" />
-                          <span>Connect</span>
+                          <Download class="w-3.5 h-3.5" />
+                          <span>RDP File</span>
                         </button>
                         <button
                           v-else
@@ -4026,16 +3506,6 @@ onUnmounted(() => {
                         >
                           <SquareTerminal class="w-3.5 h-3.5" />
                           <span>Connect</span>
-                        </button>
-
-                        <!-- Optional Download .RDP file button for native Windows client -->
-                        <button
-                          v-if="isRdpHost(host)"
-                          @click.stop="downloadRdpFile(host)"
-                          title="Download .RDP configuration file for native Windows Remote Desktop client"
-                          class="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer"
-                        >
-                          <Download class="w-3.5 h-3.5" />
                         </button>
 
                         <!-- Share Button (Only Owner or Admin) -->
@@ -4158,19 +3628,6 @@ onUnmounted(() => {
               ]"
             >
               <Shield class="w-4 h-4" />
-            </button>
-
-            <button
-              @click="switchActiveView(session, 'desktop')"
-              title="Remote Desktop (RDP / VNC)"
-              :class="[
-                'p-2.5 rounded-lg transition',
-                session.activeView === 'desktop'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-              ]"
-            >
-              <Monitor class="w-4 h-4" />
             </button>
 
             <button
@@ -4940,327 +4397,7 @@ onUnmounted(() => {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <!-- 7. REMOTE DESKTOP VIEW (Guacamole HTML5 Canvas) -->
-            <div v-show="session.activeView === 'desktop'" class="flex-1 flex flex-col relative w-full h-full min-h-0 min-w-0 overflow-hidden bg-slate-950">
-              <!-- Top Toolbar for Remote Desktop -->
-              <div class="h-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 text-xs shrink-0 select-none">
-                <div class="flex items-center gap-3">
-                  <div class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
-                    <Monitor class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span class="font-semibold text-slate-900 dark:text-slate-200">Remote Desktop</span>
-                  </div>
-                  <span class="text-slate-300 dark:text-slate-700">|</span>
-                  <!-- Protocol Switcher: RDP vs VNC -->
-                  <div class="flex items-center bg-slate-100 dark:bg-slate-950 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
-                    <button
-                      @click="changeDesktopProto(session, 'rdp')"
-                      :class="[
-                        'px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer',
-                        desktopProto[session.id] === 'rdp' || !desktopProto[session.id]
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      ]"
-                    >
-                      RDP (3389)
-                    </button>
-                    <button
-                      @click="changeDesktopProto(session, 'vnc')"
-                      :class="[
-                        'px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer',
-                        desktopProto[session.id] === 'vnc'
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      ]"
-                    >
-                      VNC (5900)
-                    </button>
-                  </div>
-
-                  <!-- RDP Security Mode Selector -->
-                  <div
-                    v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                    class="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-950 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800 text-[11px]"
-                  >
-                    <button
-                      v-for="sec in [
-                        { id: 'any', label: 'Auto' },
-                        { id: 'nla', label: 'NLA' },
-                        { id: 'tls', label: 'TLS' },
-                        { id: 'rdp', label: 'Standard' }
-                      ]"
-                      :key="sec.id"
-                      @click="changeDesktopSecurity(session, sec.id)"
-                      :class="[
-                        'px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer',
-                        (desktopSecurity[session.id] || 'any') === sec.id
-                          ? 'bg-white text-slate-900 dark:bg-slate-700 dark:text-white shadow-xs font-semibold'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                      ]"
-                      :title="`RDP Security: ${sec.label}`"
-                    >
-                      {{ sec.label }}
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Right Action Controls -->
-                <div class="flex items-center gap-2">
-                  <span :class="[
-                    'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium',
-                    desktopConnected[session.id]
-                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                      : desktopError[session.id]
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                  ]">
-                    <span :class="[
-                      'w-1.5 h-1.5 rounded-full',
-                      desktopConnected[session.id]
-                        ? 'bg-emerald-500 dark:bg-emerald-400'
-                        : desktopError[session.id]
-                          ? 'bg-rose-500 dark:bg-rose-400'
-                          : 'bg-amber-500 dark:bg-amber-400 animate-pulse'
-                    ]"></span>
-                    {{
-                      desktopConnected[session.id]
-                        ? 'Connected'
-                        : desktopError[session.id]
-                          ? 'Failed'
-                          : 'Connecting...'
-                    }}
-                  </span>
-
-                  <button
-                    v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                    @click="sendCtrlAltDel(session)"
-                    title="Send Ctrl+Alt+Delete (Unlock / Logon)"
-                    class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1 text-[11px] font-medium"
-                  >
-                    <KeyRound class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                    <span>Ctrl+Alt+Del</span>
-                  </button>
-
-                  <button
-                    @click="reconnectDesktop(session)"
-                    title="Reconnect Desktop"
-                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700"
-                  >
-                    <RotateCw class="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    @click="toggleDesktopFullscreen(session)"
-                    title="Toggle Fullscreen"
-                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700"
-                  >
-                    <Maximize2 class="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                    @click="downloadRdpFile(session.host)"
-                    title="Download .RDP configuration file for native Remote Desktop"
-                    class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1 text-[11px] font-medium"
-                  >
-                    <Download class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                    <span>.RDP</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Desktop Error Notification Banner (Crisp High-Contrast) -->
-              <div v-if="desktopError[session.id]" class="bg-rose-50 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-500/50 px-4 py-2.5 flex items-center justify-between text-xs text-rose-800 dark:text-rose-200">
-                <span class="flex items-center gap-2">
-                  <AlertTriangle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                  <span class="font-bold text-rose-700 dark:text-rose-300">Connection Error:</span>
-                  <span class="text-rose-900 dark:text-rose-200 font-medium">{{ desktopError[session.id] }}</span>
-                </span>
-                <button @click="desktopError[session.id] = ''" class="hover:text-rose-950 dark:hover:text-white cursor-pointer text-rose-600 dark:text-rose-300 transition">
-                  <X class="w-4 h-4" />
-                </button>
-              </div>
-
-              <!-- Canvas Container -->
-              <div
-                :id="`desktop-container-${session.id}`"
-                class="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center bg-black focus:outline-none min-h-0 min-w-0"
-                tabindex="0"
-              >
-                <!-- Dedicated mount container for Guacamole display canvas -->
-                <div
-                  :id="`desktop-viewport-${session.id}`"
-                  class="w-full h-full flex items-center justify-center overflow-hidden min-h-0 min-w-0"
-                ></div>
-
-                <!-- Loading State Overlay -->
-                <div
-                  v-if="!desktopConnected[session.id] && desktopLoading[session.id]"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs space-y-3 pointer-events-none"
-                >
-                  <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <p class="text-xs text-slate-300 font-mono">Connecting to {{ (desktopProto[session.id] || 'RDP').toUpperCase() }} display session...</p>
-                </div>
-
-                <!-- Error State Overlay (High-Contrast & Comprehensive Diagnostic) -->
-                <div
-                  v-if="!desktopConnected[session.id] && !desktopLoading[session.id] && desktopError[session.id]"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-900/60 dark:bg-black/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto"
-                >
-                  <div class="bg-white dark:bg-[#101524] border border-slate-200 dark:border-slate-700/80 rounded-2xl p-5 sm:p-6 max-w-lg w-full text-center space-y-4 shadow-2xl">
-                    <!-- Warning Icon -->
-                    <div class="w-12 h-12 rounded-full bg-rose-50 dark:bg-rose-500/15 border border-rose-200 dark:border-rose-500/40 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
-                      <AlertTriangle class="w-6 h-6" />
-                    </div>
-
-                    <!-- Title & Error Badge -->
-                    <div class="space-y-2">
-                      <h4 class="text-base font-bold text-slate-900 dark:text-white tracking-tight">Connection Failed</h4>
-                      
-                      <!-- Prominent High-Contrast Error Box -->
-                      <div class="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-500/50 text-rose-800 dark:text-rose-100 text-xs font-mono break-words leading-relaxed text-left flex items-start gap-2.5">
-                        <AlertCircle class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                        <div>
-                          <span class="font-bold text-rose-700 dark:text-rose-300 block mb-0.5 uppercase text-[10px] tracking-wider">Detail Error:</span>
-                          <span class="text-rose-900 dark:text-rose-100">{{ desktopError[session.id] }}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Diagnostic Context Card -->
-                    <div class="bg-slate-50 dark:bg-[#141b2f] border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 text-xs text-left space-y-2.5">
-                      <div class="grid grid-cols-2 gap-2 text-[11px] pb-2 border-b border-slate-200 dark:border-slate-800 font-mono">
-                        <div>
-                          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold">Target Server:</span>
-                          <span class="text-slate-900 dark:text-white font-bold">{{ session.host?.host }}:{{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}</span>
-                        </div>
-                        <div>
-                          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold">Protokol & Mode:</span>
-                          <span class="text-slate-900 dark:text-white font-bold">{{ (desktopProto[session.id] || 'rdp').toUpperCase() }} ({{ desktopSecurity[session.id] || 'any' }})</span>
-                        </div>
-                      </div>
-
-                      <div class="space-y-2 text-slate-700 dark:text-slate-200 text-[11px] leading-relaxed">
-                        <!-- Specialized Card for Session Conflict (Disconnected by other connection) -->
-                        <div v-if="desktopError[session.id]?.toLowerCase().includes('disconnected by other connection')" class="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 space-y-1.5">
-                          <p class="font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-                            Konflik Sesi RDP Windows (Session Conflict):
-                          </p>
-                          <p class="leading-relaxed">
-                            Windows hanya mengizinkan <strong>1 sesi aktif</strong> untuk akun ini. Sesi ditolak karena:
-                          </p>
-                          <ul class="list-disc pl-4 space-y-0.5 text-slate-700 dark:text-slate-300">
-                            <li>Ada aplikasi Remote Desktop lain (seperti <strong>mstsc.exe</strong> di laptop Anda) yang sedang tersambung ke server ini.</li>
-                            <li>Ada tab browser lain atau perangkat lain yang sedang membuka sesi RDP ke server ini.</li>
-                            <li>Sesi sebelumnya baru saja terputus dan Windows butuh jeda 2-3 detik untuk melepaskan *lock* sesi lama.</li>
-                          </ul>
-                          <p class="pt-1 text-[11px] text-amber-800 dark:text-amber-300 font-semibold">
-                            Solusi: Pastikan tidak ada aplikasi RDP (mstsc) atau tab lain yang aktif, tunggu 3 detik, lalu klik tombol <strong>Retry Connection</strong>.
-                          </p>
-                        </div>
-
-                        <!-- General Diagnostics if not session conflict -->
-                        <template v-else>
-                          <p class="flex items-start gap-1.5">
-                            <span class="text-rose-600 dark:text-rose-400 font-bold shrink-0">•</span>
-                            <span>
-                              <strong>Upstream Host Unreachable / Negotiation Failed:</strong> Layanan Guacamole di server Hephaestus tidak dapat menyelesaikan negosiasi RDP ke target IP dan port {{ session.host?.port && session.host?.port !== 22 ? session.host?.port : (desktopProto[session.id] === 'vnc' ? 5900 : 3389) }}.
-                            </span>
-                          </p>
-                          <p v-if="isPrivateIp(session.host?.host)" class="flex items-start gap-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 p-2.5 rounded-lg border border-amber-200 dark:border-amber-500/20">
-                            <span class="text-amber-600 dark:text-amber-400 font-bold shrink-0">•</span>
-                            <span>
-                              IP <strong>{{ session.host?.host }}</strong> adalah IP Private (Hyper-V VM / Local LAN).
-                              <span v-if="session.host?.host?.startsWith('172.17.')" class="block mt-1 font-semibold text-rose-700 dark:text-rose-300">
-                                Konflik Docker: Subnet 172.17.x.x adalah default subnet virtual bridge Docker (docker0). Jika dari host fisik server Hephaestus telnet bisa tetapi dari panel timeout, Docker menganggap IP 172.17.x.x berada di dalam virtual bridge docker0 internal. Solusinya: Ubah 'bip' di /etc/docker/daemon.json ke 10.200.0.1/16 atau gunakan host routing.
-                              </span>
-                              <span v-else>
-                                Karena Hephaestus berjalan di server cloud/VPS remote, server remote membutuhkan <strong>VPN (Tailscale / WireGuard)</strong> atau <strong>Port Forwarding</strong> untuk bisa menjangkau IP lokal ini.
-                              </span>
-                            </span>
-                          </p>
-                          <p class="flex items-start gap-1.5 text-slate-600 dark:text-slate-300">
-                            <span class="text-blue-600 dark:text-blue-400 font-bold shrink-0">•</span>
-                            <span>
-                              Jika Windows memerlukan NLA, coba klik tombol mode <strong>NLA</strong> di toolbar atas, atau coba protokol <strong>VNC</strong> jika tersedia.
-                            </span>
-                          </p>
-                        </template>
-                      </div>
-
-                      <!-- Interactive Test Reachability Result -->
-                      <div v-if="diagnosticResult[session.id]" class="mt-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-mono">
-                        <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-sans font-semibold mb-1">Hasil Test Reachability dari Server:</span>
-                        <span :class="diagnosticResult[session.id].success ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-rose-600 dark:text-rose-400 font-semibold'">
-                          {{ diagnosticResult[session.id].message }}
-                        </span>
-
-                        <!-- Smart guidance if port reached but RDP session still fails -->
-                        <div v-if="diagnosticResult[session.id].success" class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] font-sans text-emerald-800 dark:text-emerald-200 space-y-1">
-                          <p class="font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
-                            <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                            Port 3389 Berhasil Terhubung ke Server!
-                          </p>
-                          <p class="leading-relaxed text-slate-700 dark:text-slate-300">
-                            Koneksi TCP sukses. Penolakan ini terjadi karena Windows menolak <strong>Mode Standard (rdp)</strong> atau memerlukan <strong>NLA (Network Level Authentication)</strong>:
-                          </p>
-                          <ul class="list-disc pl-4 space-y-0.5 text-slate-600 dark:text-slate-400">
-                            <li>Klik tombol mode <strong>Auto</strong> atau <strong>NLA</strong> di toolbar atas.</li>
-                            <li>Pastikan <strong>Username</strong> &amp; <strong>Password</strong> akun Windows di konfigurasi server HCP sudah diisi dengan benar.</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="flex items-center justify-center flex-wrap gap-2 pt-1">
-                      <button
-                        @click="reconnectDesktop(session)"
-                        class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                      >
-                        <RotateCw class="w-3.5 h-3.5" />
-                        Retry Connection
-                      </button>
-
-                      <button
-                        v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                        @click="downloadRdpFile(session.host)"
-                        class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
-                        title="Download file .RDP untuk dibuka langsung di aplikasi Remote Desktop Windows"
-                      >
-                        <Download class="w-3.5 h-3.5" />
-                        Download .RDP File
-                      </button>
-
-                      <button
-                        @click="testHostReachability(session)"
-                        :disabled="testingReachability[session.id]"
-                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700 flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        <Activity class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                        {{ testingReachability[session.id] ? 'Testing...' : 'Test Port Reachability' }}
-                      </button>
-
-                      <button
-                        v-if="desktopProto[session.id] === 'rdp' || !desktopProto[session.id]"
-                        @click="changeDesktopSecurity(session, desktopSecurity[session.id] === 'nla' ? 'any' : 'nla')"
-                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700"
-                      >
-                        Switch to {{ (desktopSecurity[session.id] || 'any') === 'nla' ? 'Auto Security' : 'NLA Mode' }}
-                      </button>
-
-                      <button
-                        v-if="desktopProto[session.id] !== 'vnc'"
-                        @click="changeDesktopProto(session, 'vnc')"
-                        class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer border border-slate-300 dark:border-slate-700"
-                      >
-                        Try VNC (5900)
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+      
             </div>
 
           </div>
@@ -6085,7 +5222,7 @@ onUnmounted(() => {
           <!-- Protocol & Server Type Selector -->
           <div>
             <label class="block text-slate-600 dark:text-slate-400 mb-1.5 font-medium">Server Type & Protocol</label>
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 @click="selectProtocolPreset('ssh')"
@@ -6112,24 +5249,10 @@ onUnmounted(() => {
                 <Monitor class="w-3.5 h-3.5" />
                 <span>Windows (RDP)</span>
               </button>
-              <button
-                type="button"
-                @click="selectProtocolPreset('vnc')"
-                :class="[
-                  'flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg border text-xs font-semibold transition cursor-pointer',
-                  selectedProtocolPreset === 'vnc'
-                    ? 'bg-blue-600 border-blue-500 text-white shadow-xs'
-                    : 'bg-slate-50 dark:bg-[#14161b] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                ]"
-              >
-                <Tv class="w-3.5 h-3.5" />
-                <span>VNC Desktop</span>
-              </button>
             </div>
             <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
               <span v-if="selectedProtocolPreset === 'ssh'">Secure Shell CLI for Linux VPS, Ubuntu/Debian/CentOS, and networking equipment (Port 22).</span>
-              <span v-else-if="selectedProtocolPreset === 'rdp'">Remote Desktop Protocol for Windows Server and Windows 10/11 Pro (Port 3389).</span>
-              <span v-else>Virtual Network Computing graphical stream (Port 5900).</span>
+              <span v-else>Remote Desktop Protocol for Windows Server and Windows 10/11 Pro (Port 3389). Standard .rdp file is provided for high-performance native connection.</span>
             </p>
           </div>
 
@@ -6203,7 +5326,7 @@ onUnmounted(() => {
               placeholder="••••••••"
             />
             <p v-if="selectedProtocolPreset === 'rdp'" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Digunakan untuk otomatis login pada Remote Desktop in-browser.
+              Password dapat disimpan untuk memudahkan konfigurasi koneksi Remote Desktop Windows.
             </p>
           </div>
 

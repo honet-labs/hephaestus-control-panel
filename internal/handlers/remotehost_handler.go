@@ -35,7 +35,6 @@ type RemoteHostHandler struct {
 	authService     *services.AuthService
 	vpsService      *services.VpsService
 	firewallService *services.FirewallService
-	guacService     *services.GuacamoleService
 }
 
 func NewRemoteHostHandler(
@@ -45,7 +44,6 @@ func NewRemoteHostHandler(
 	authService *services.AuthService,
 	vpsService *services.VpsService,
 	firewallService *services.FirewallService,
-	guacService *services.GuacamoleService,
 ) *RemoteHostHandler {
 	return &RemoteHostHandler{
 		remoteRepo:      remoteRepo,
@@ -54,7 +52,6 @@ func NewRemoteHostHandler(
 		authService:     authService,
 		vpsService:      vpsService,
 		firewallService: firewallService,
-		guacService:     guacService,
 	}
 }
 
@@ -353,89 +350,6 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	}
 
 	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID, querySessionID, forceNew)
-}
-
-// HandleWebSocketDesktop upgrades WebSocket for Remote Desktop and tunnels Guacamole protocol
-func (h *RemoteHostHandler) HandleWebSocketDesktop(c *gin.Context) {
-	queryToken := c.Query("token")
-	if queryToken == "" {
-		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
-			queryToken = cookie
-		}
-	}
-	if queryToken == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			queryToken = strings.TrimPrefix(authHeader, "Bearer ")
-		}
-	}
-
-	hostID := c.Query("hostId")
-	proto := c.DefaultQuery("proto", "rdp")
-	widthStr := c.DefaultQuery("width", "1920")
-	heightStr := c.DefaultQuery("height", "1080")
-	dpiStr := c.DefaultQuery("dpi", "96")
-
-	// Sanitize any query delimiters that might be appended (e.g. ?undefined)
-	if idx := strings.IndexAny(widthStr, "?&"); idx != -1 {
-		widthStr = widthStr[:idx]
-	}
-	if idx := strings.IndexAny(heightStr, "?&"); idx != -1 {
-		heightStr = heightStr[:idx]
-	}
-	if idx := strings.IndexAny(dpiStr, "?&"); idx != -1 {
-		dpiStr = dpiStr[:idx]
-	}
-
-	width, _ := strconv.Atoi(widthStr)
-	height, _ := strconv.Atoi(heightStr)
-	dpi, _ := strconv.Atoi(dpiStr)
-
-	var userID int
-	var userRole string
-	var isAuthenticated bool
-
-	if queryToken != "" {
-		user, err := h.authService.ValidateSession(c.Request.Context(), queryToken)
-		if err == nil && user != nil {
-			userID = user.ID
-			userRole = user.Role
-			isAuthenticated = true
-		}
-	}
-
-	if !isAuthenticated {
-		logger.Warn("Guacamole", "WebSocket desktop connection rejected: unauthenticated request (missing or invalid session token)", nil)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Access denied. Valid authentication token required."})
-		return
-	}
-
-	if hostID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Remote host ID is required."})
-		return
-	}
-
-	hasAccess, _, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
-	if err != nil || !hasAccess {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to remote server."})
-		return
-	}
-
-	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Remote host '%s' not found.", hostID)})
-		return
-	}
-
-	ws, err := h.guacService.Upgrader().Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		logger.Error("Guacamole", "WebSocket upgrade error", err)
-		return
-	}
-
-	security := c.DefaultQuery("security", "any")
-
-	h.guacService.HandleTunnel(ws, cfg, proto, security, width, height, dpi)
 }
 
 // DownloadRdpFile generates and serves a native Microsoft Remote Desktop (.rdp) connection file

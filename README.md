@@ -224,7 +224,6 @@ Hephaestus is deployed as an isolated, multi-container Docker Compose stack engi
 |---|---|---|---|
 | **Panel** | `hephaestus-panel` | `nginx:1.27-alpine` | Serves compiled Vue 3 SPA assets, Gzip compression, and reverse-proxies `/api` and `/ws` to the engine. |
 | **Engine** | `hephaestus-engine` | `alpine:3.20` + Go binary | High-throughput Go REST API, WebSocket terminal/log multiplexer, in-memory worker queue, cron scheduler, and SSH/SFTP engine. |
-| **Guacd** | `hephaestus-guacd` | `guacamole/guacd:latest` | Native C Apache Guacamole proxy daemon handling high-performance RDP and VNC streaming over HTML5 Canvas. |
 | **Database** | `hephaestus-database` | `postgres:16-alpine` | PostgreSQL 16 ACID persistence storing 29 relational tables, JSONB configurations, and encrypted credentials. |
 
 ---
@@ -650,7 +649,7 @@ sudo ./install.sh
 4. Interactively configures HTTP ports and database credentials with conflict detection.
 5. Generates a cryptographically strong 64-character hexadecimal `APP_ENCRYPTION_KEY` and random PostgreSQL password.
 6. Automatically opens firewall ports in UFW or Firewalld.
-7. Builds and starts the multi-container stack (`hephaestus-panel`, `hephaestus-engine`, `hephaestus-database`, `hephaestus-guacd`).
+7. Builds and starts the multi-container stack (`hephaestus-panel`, `hephaestus-engine`, `hephaestus-database`).
 
 ### 2. Zero-Downtime Updater (`update-version.sh`)
 Pulls the latest release, mitigates Docker registry rate limits, and rebuilds the stack:
@@ -804,6 +803,5 @@ This project is licensed under the **[MIT License](./LICENSE)**.
 Copyright (c) 2026 HONET Labs & Hephaestus Contributors.
 
 ### Third-Party Software Notices
-Hephaestus incorporates third-party open-source components under permissive licenses:
-- **Apache Guacamole (`guacd` & `guacamole-common-js`)**: Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0). See [NOTICE](./NOTICE) for full attribution details.
+Hephaestus incorporates third-party open-source components under permissive licenses (see [NOTICE](./NOTICE) for full details).
 

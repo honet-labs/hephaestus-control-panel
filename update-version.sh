@@ -111,15 +111,6 @@ EOF
         sed -i 's/^POSTGRES_WAL_BUFFERS=4MB$/POSTGRES_WAL_BUFFERS=8MB/' .env 2>/dev/null || true
         sed -i 's/^GOMEMLIMIT=256MiB$/GOMEMLIMIT=512MiB/' .env 2>/dev/null || true
     fi
-    if ! grep -q "GUACD_HOST" .env; then
-        echo -e "${CYAN}[*] Adding Guacamole daemon configuration to .env...${NC}"
-        cat << 'EOF' >> .env
-
-# Guacamole Remote Desktop Proxy Daemon (guacd)
-GUACD_HOST=guacd
-GUACD_PORT=4822
-EOF
-    fi
 fi
 
 echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack...${NC}"
@@ -180,7 +171,7 @@ if [ "$HTTP_PORT" = "80" ]; then
 else
     echo -e "Web Interface URL    : ${CYAN}http://${SERVER_IP}:${HTTP_PORT}${NC} (or http://localhost:${HTTP_PORT})"
 fi
-echo -e "Active Containers    : hephaestus-panel, hephaestus-engine, hephaestus-database, hephaestus-guacd"
+echo -e "Active Containers    : hephaestus-panel, hephaestus-engine, hephaestus-database"
 echo -e "Container Logs       : ${CYAN}docker compose logs -f${NC}"
 echo -e "Reset Admin Password : ${YELLOW}./reset-password.sh admin '<password_baru>'${NC}"
 echo "=============================================================================="

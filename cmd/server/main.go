@@ -110,12 +110,11 @@ func main() {
 	ipamService := services.NewIpamService(ipamRepo, workerPool)
 	ipamService.StartBackgroundEngine()
 	serverInventoryService := services.NewServerInventoryService(serverInventoryRepo, remoteRepo, sshService)
-	guacService := services.NewGuacamoleService()
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	setupHandler := handlers.NewSetupHandler(authService)
-	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService, vpsService, firewallService, guacService)
+	remoteHostHandler := handlers.NewRemoteHostHandler(remoteRepo, sshService, wsService, authService, vpsService, firewallService)
 	topologyHandler := handlers.NewTopologyHandler(topologyRepo, topologyService, icmpService)
 	backupHandler := handlers.NewBackupHandler(backupRepo, backupService, cronSched)
 	snmpHandler := handlers.NewSnmpHandler(snmpRepo, snmpService)
@@ -208,7 +207,6 @@ func main() {
 
 	// WebSocket Endpoints (WebSocket handles auth via handshake message)
 	r.GET("/ws/remote-host", remoteHostHandler.HandleWebSocketTerminal)
-	r.GET("/ws/remote-desktop", remoteHostHandler.HandleWebSocketDesktop)
 	r.GET("/ws/logs", logsHandler.StreamLogsWebSocket)
 
 	// Protected API Routes (with general rate limiting)
