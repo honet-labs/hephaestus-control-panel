@@ -120,9 +120,9 @@ func pingHostWithDetails(ctx context.Context, ip string) (bool, *float64, int) {
 		}
 	} else {
 		if isIPv6 {
-			cmd = exec.CommandContext(ctx, "ping", "-6", "-c", "1", "-W", "2", ip)
+			cmd = exec.CommandContext(ctx, "ping", "-6", "-c", "1", "-W", "1", ip)
 		} else {
-			cmd = exec.CommandContext(ctx, "ping", "-c", "1", "-W", "2", ip)
+			cmd = exec.CommandContext(ctx, "ping", "-c", "1", "-W", "1", ip)
 		}
 	}
 

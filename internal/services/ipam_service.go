@@ -589,6 +589,16 @@ func checkHostLiveness(ctx context.Context, target string) (bool, *float64, int)
 		return true, latency, ttl
 	}
 
+	// 1b. Quick ICMP Retry (Essential for WiFi power-saving mobile devices waking from DTIM intervals and ARP resolution delay)
+	if ctx.Err() == nil {
+		retryCtx, cancelRetry := context.WithTimeout(ctx, 1200*time.Millisecond)
+		r2, lat2, ttl2 := pingHostWithDetails(retryCtx, target)
+		cancelRetry()
+		if r2 {
+			return true, lat2, ttl2
+		}
+	}
+
 	// 2. TCP Port Probe Fallback (Critical for Windows hosts where Windows Firewall blocks ICMP by default,
 	// or firewalled Linux servers with open management/service ports)
 	commonPorts := []int{3389, 445, 135, 80, 443, 22, 139, 5357, 5985, 8889, 9100, 8080}
