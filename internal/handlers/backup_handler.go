@@ -370,3 +370,87 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 	c.Header("Content-Type", "application/gzip")
 	c.File(foundPath)
 }
+
+// -------------------------------------------------------------
+// Docker Container Backup & Restore Handlers
+// -------------------------------------------------------------
+
+func (h *BackupHandler) ListContainerBackups(c *gin.Context) {
+	list, err := h.backupService.ListContainerBackups(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+}
+
+func (h *BackupHandler) RunContainerBackup(c *gin.Context) {
+	var req domain.BackupContainerRunRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: connectionId and containerId are required"})
+		return
+	}
+
+	meta, err := h.backupService.BackupContainer(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Container '%s' backup created successfully in backup/container-docker.", meta.ContainerName),
+		"data":    meta,
+	})
+}
+
+func (h *BackupHandler) InspectContainerBackup(c *gin.Context) {
+	filename := c.Param("filename")
+	meta, err := h.backupService.InspectContainerBackup(c.Request.Context(), filename)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": meta})
+}
+
+func (h *BackupHandler) RestoreContainer(c *gin.Context) {
+	var req domain.RestoreContainerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: filename and targetConnectionId are required"})
+		return
+	}
+
+	details, err := h.backupService.RestoreContainer(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("Container '%s' successfully restored to target Docker host!", details.Name),
+		"data":    details,
+	})
+}
+
+func (h *BackupHandler) DownloadContainerBackup(c *gin.Context) {
+	filename := c.Param("filename")
+	filePath, err := h.backupService.FindContainerBackupFile(filename)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(filePath)))
+	c.Header("Content-Type", "application/gzip")
+	c.File(filePath)
+}
+
+func (h *BackupHandler) DeleteContainerBackup(c *gin.Context) {
+	filename := c.Param("filename")
+	if err := h.backupService.DeleteContainerBackup(c.Request.Context(), filename); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Container backup deleted successfully."})
+}

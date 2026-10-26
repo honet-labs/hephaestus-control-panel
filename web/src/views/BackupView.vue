@@ -28,6 +28,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Box,
+  Layers,
+  Eye,
+  Sliders,
+  Archive,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -35,13 +40,60 @@ const authStore = useAuthStore();
 const canRead = computed(() => authStore.can('backup', 'read'));
 const canManage = computed(() => authStore.can('backup', 'manage'));
 
-const activeTab = ref<'databases' | 'destinations' | 'schedules' | 'history'>('databases');
+const activeTab = ref<'databases' | 'containers' | 'destinations' | 'schedules' | 'history'>('databases');
 
 const databases = ref<any[]>([]);
 const destinations = ref<any[]>([]);
 const schedules = ref<any[]>([]);
 const history = ref<any[]>([]);
+const containerBackups = ref<any[]>([]);
+const dockerConnections = ref<any[]>([]);
+const availableContainers = ref<any[]>([]);
+const loadingDockerContainers = ref(false);
+const containerSearch = ref('');
 const loading = ref(false);
+
+// Notification Toast State (Auto-dismiss in 3000ms per AGENTS.md)
+const notification = ref<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+let notificationTimer: ReturnType<typeof setTimeout> | null = null;
+const showNotification = (type: 'success' | 'error' | 'warning', message: string) => {
+  if (notificationTimer) clearTimeout(notificationTimer);
+  notification.value = { type, message };
+  notificationTimer = setTimeout(() => {
+    notification.value = null;
+    notificationTimer = null;
+  }, 3000);
+};
+
+// Filtered Container Backups
+const filteredContainerBackups = computed(() => {
+  if (!containerSearch.value.trim()) return containerBackups.value;
+  const q = containerSearch.value.toLowerCase();
+  return containerBackups.value.filter(
+    (b: any) =>
+      b.containerName?.toLowerCase().includes(q) ||
+      b.filename?.toLowerCase().includes(q) ||
+      b.sourceImage?.toLowerCase().includes(q) ||
+      b.sourceConnection?.toLowerCase().includes(q)
+  );
+});
+
+const formatFileSize = (bytes: number) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
+};
+
+const formatDateTime = (dateStr: string) => {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleString();
+  } catch {
+    return dateStr;
+  }
+};
 
 // History Pagination (30 rows per page)
 const historyPage = ref(1);
@@ -347,17 +399,21 @@ const openEditScheduleModal = (sched: any) => {
 const fetchAll = async () => {
   loading.value = true;
   try {
-    const [dbRes, destRes, schedRes, histRes] = await Promise.all([
+    const [dbRes, destRes, schedRes, histRes, contRes, connRes] = await Promise.all([
       axios.get('/api/v1/backup/databases').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/backup/destinations').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/backup/schedules').catch(() => ({ data: { success: false } })),
       axios.get('/api/v1/backup/history?limit=1000').catch(() => ({ data: { success: false } })),
+      axios.get('/api/v1/backup/containers').catch(() => ({ data: { success: false } })),
+      axios.get('/api/v1/docker/connections').catch(() => ({ data: { success: false } })),
     ]);
 
     if (dbRes.data?.success) databases.value = dbRes.data.data || [];
     if (destRes.data?.success) destinations.value = destRes.data.data || [];
     if (schedRes.data?.success) schedules.value = schedRes.data.data || [];
     if (histRes.data?.success) history.value = histRes.data.data?.history || [];
+    if (contRes.data?.success) containerBackups.value = contRes.data.data || [];
+    if (connRes.data?.success) dockerConnections.value = connRes.data.data || [];
 
     // Pre-select defaults for run modal
     if (databases.value.length > 0 && !runForm.value.dbConfigId) {
@@ -371,6 +427,234 @@ const fetchAll = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const runBackupTargetType = ref<'database' | 'container'>('database');
+
+// Backup Container Form State
+const isBackupContainerModalOpen = ref(false);
+const backupContainerRunning = ref(false);
+const backupContainerForm = ref({
+  connectionId: '',
+  containerId: '',
+  backupName: '',
+  stopDuringBackup: false,
+});
+
+// Restore Container Form State
+const isRestoreContainerModalOpen = ref(false);
+const restoreContainerRunning = ref(false);
+const restoreBackupTarget = ref<any | null>(null);
+const restoreForm = ref({
+  filename: '',
+  targetConnectionId: '',
+  newContainerName: '',
+  ports: [] as { host: string; container: string }[],
+  env: [] as { key: string; value: string }[],
+  restartPolicy: 'unless-stopped',
+  startAfterRestore: true,
+  replaceExisting: true,
+});
+
+// Inspect Container Modal State
+const isInspectContainerModalOpen = ref(false);
+const inspectedContainerBackup = ref<any | null>(null);
+
+const fetchAvailableContainers = async (connectionId?: string) => {
+  loadingDockerContainers.value = true;
+  try {
+    const params: any = { all: true };
+    if (connectionId) params.connectionId = connectionId;
+    const res = await axios.get('/api/v1/docker/containers', { params });
+    if (res.data && Array.isArray(res.data)) {
+      availableContainers.value = res.data;
+    } else if (res.data?.data && Array.isArray(res.data.data)) {
+      availableContainers.value = res.data.data;
+    } else {
+      availableContainers.value = [];
+    }
+    if (availableContainers.value.length > 0 && !backupContainerForm.value.containerId) {
+      backupContainerForm.value.containerId = availableContainers.value[0].id;
+    }
+  } catch (err) {
+    console.error('Failed to load docker containers:', err);
+    availableContainers.value = [];
+  } finally {
+    loadingDockerContainers.value = false;
+  }
+};
+
+const getContainerDisplayName = (c: any) => {
+  let name = c.name;
+  if (!name && Array.isArray(c.names) && c.names.length > 0) {
+    name = c.names[0].replace(/^\//, '');
+  }
+  const image = c.image || 'unknown';
+  const state = c.state || (c.status?.includes('Up') ? 'running' : 'stopped');
+  return `${name || c.id.slice(0, 12)} (${image}) - [${state}]`;
+};
+
+const onBackupConnectionChange = () => {
+  backupContainerForm.value.containerId = '';
+  fetchAvailableContainers(backupContainerForm.value.connectionId);
+};
+
+const openBackupContainerModal = (preselectedConnId?: string) => {
+  backupContainerForm.value = {
+    connectionId: preselectedConnId !== undefined ? preselectedConnId : (dockerConnections.value[0]?.id || ''),
+    containerId: '',
+    backupName: '',
+    stopDuringBackup: false,
+  };
+  fetchAvailableContainers(backupContainerForm.value.connectionId);
+  isBackupContainerModalOpen.value = true;
+};
+
+const submitBackupContainer = async () => {
+  if (!backupContainerForm.value.containerId) {
+    showNotification('error', 'Please select a Docker container to back up.');
+    return;
+  }
+  backupContainerRunning.value = true;
+  try {
+    const payload = {
+      connectionId: backupContainerForm.value.connectionId || undefined,
+      containerId: backupContainerForm.value.containerId,
+      backupName: backupContainerForm.value.backupName?.trim() || undefined,
+      customName: backupContainerForm.value.backupName?.trim() || undefined,
+      stopDuringBackup: backupContainerForm.value.stopDuringBackup,
+    };
+    const res = await axios.post('/api/v1/backup/containers/run', payload);
+    if (res.data.success) {
+      showNotification('success', res.data.message || 'Container snapshot saved in backup/container-docker!');
+      isBackupContainerModalOpen.value = false;
+      isRunBackupModalOpen.value = false;
+      activeTab.value = 'containers';
+      await fetchAll();
+    }
+  } catch (err: any) {
+    showNotification('error', err.response?.data?.error || err.message || 'Failed to backup container');
+  } finally {
+    backupContainerRunning.value = false;
+  }
+};
+
+const openRestoreContainerModal = (b: any) => {
+  restoreBackupTarget.value = b;
+  const portsList: { host: string; container: string }[] = [];
+  if (b.portBindings) {
+    for (const [containerPort, hostPort] of Object.entries(b.portBindings)) {
+      portsList.push({ host: String(hostPort), container: String(containerPort) });
+    }
+  }
+  const envList: { key: string; value: string }[] = [];
+  if (Array.isArray(b.env)) {
+    for (const item of b.env) {
+      const idx = item.indexOf('=');
+      if (idx !== -1) {
+        envList.push({ key: item.slice(0, idx), value: item.slice(idx + 1) });
+      } else {
+        envList.push({ key: item, value: '' });
+      }
+    }
+  }
+  restoreForm.value = {
+    filename: b.filename,
+    targetConnectionId: b.sourceConnectionId || (dockerConnections.value[0]?.id || ''),
+    newContainerName: b.containerName || '',
+    ports: portsList,
+    env: envList,
+    restartPolicy: b.restartPolicy || 'unless-stopped',
+    startAfterRestore: true,
+    replaceExisting: true,
+  };
+  isRestoreContainerModalOpen.value = true;
+};
+
+const addRestorePort = () => {
+  restoreForm.value.ports.push({ host: '', container: '' });
+};
+
+const removeRestorePort = (index: number) => {
+  restoreForm.value.ports.splice(index, 1);
+};
+
+const addRestoreEnv = () => {
+  restoreForm.value.env.push({ key: '', value: '' });
+};
+
+const removeRestoreEnv = (index: number) => {
+  restoreForm.value.env.splice(index, 1);
+};
+
+const submitRestoreContainer = async () => {
+  if (!restoreForm.value.filename) {
+    showNotification('error', 'Backup archive filename is required.');
+    return;
+  }
+  if (!restoreForm.value.newContainerName.trim()) {
+    showNotification('error', 'Target container name is required.');
+    return;
+  }
+
+  restoreContainerRunning.value = true;
+  try {
+    const portBindings: Record<string, string> = {};
+    for (const p of restoreForm.value.ports) {
+      if (p.container?.trim() && p.host?.trim()) {
+        portBindings[p.container.trim()] = p.host.trim();
+      }
+    }
+    const envArray: string[] = [];
+    for (const e of restoreForm.value.env) {
+      if (e.key?.trim()) {
+        envArray.push(`${e.key.trim()}=${e.value}`);
+      }
+    }
+
+    const payload = {
+      filename: restoreForm.value.filename,
+      targetConnectionId: restoreForm.value.targetConnectionId || undefined,
+      containerName: restoreForm.value.newContainerName.trim(),
+      newContainerName: restoreForm.value.newContainerName.trim(),
+      portBindings: Object.keys(portBindings).length > 0 ? portBindings : undefined,
+      env: envArray.length > 0 ? envArray : undefined,
+      envStrings: envArray.length > 0 ? envArray : undefined,
+      restartPolicy: restoreForm.value.restartPolicy || 'unless-stopped',
+      startAfter: restoreForm.value.startAfterRestore,
+      startAfterRestore: restoreForm.value.startAfterRestore,
+      replaceExisting: restoreForm.value.replaceExisting,
+    };
+
+    const res = await axios.post('/api/v1/backup/containers/restore', payload);
+    if (res.data.success) {
+      showNotification('success', res.data.message || `Container '${restoreForm.value.newContainerName}' restored successfully!`);
+      isRestoreContainerModalOpen.value = false;
+      activeTab.value = 'containers';
+      await fetchAll();
+    }
+  } catch (err: any) {
+    showNotification('error', err.response?.data?.error || err.message || 'Failed to restore container');
+  } finally {
+    restoreContainerRunning.value = false;
+  }
+};
+
+const openInspectContainerModal = async (b: any) => {
+  inspectedContainerBackup.value = b;
+  isInspectContainerModalOpen.value = true;
+  try {
+    const res = await axios.get(`/api/v1/backup/containers/${encodeURIComponent(b.filename)}/inspect`);
+    if (res.data?.success && res.data.data) {
+      inspectedContainerBackup.value = res.data.data;
+    }
+  } catch (err) {
+    console.error('Failed to inspect backup file:', err);
+  }
+};
+
+const downloadContainerBackup = (b: any) => {
+  window.open(`/api/v1/backup/containers/${encodeURIComponent(b.filename)}/download`, '_blank');
 };
 
 const triggerBackup = async () => {
@@ -633,7 +917,7 @@ const saveDestination = async () => {
 const showDeleteModal = ref(false);
 const isDeleting = ref(false);
 const itemToDelete = ref<{
-  type: 'database' | 'destination' | 'schedule' | 'history';
+  type: 'database' | 'destination' | 'schedule' | 'history' | 'container';
   id: string;
   name: string;
 } | null>(null);
@@ -674,6 +958,15 @@ const confirmDeleteHistory = (h: any) => {
   showDeleteModal.value = true;
 };
 
+const confirmDeleteContainer = (b: any) => {
+  itemToDelete.value = {
+    type: 'container',
+    id: b.filename,
+    name: b.filename || b.containerName || 'Container Snapshot',
+  };
+  showDeleteModal.value = true;
+};
+
 const executeDelete = async () => {
   if (!itemToDelete.value) return;
   isDeleting.value = true;
@@ -687,12 +980,15 @@ const executeDelete = async () => {
       await axios.delete(`/api/v1/backup/destinations/${id}`);
     } else if (type === 'schedule') {
       await axios.delete(`/api/v1/backup/schedules/${id}`);
+    } else if (type === 'container') {
+      await axios.delete(`/api/v1/backup/containers/${encodeURIComponent(id)}`);
+      showNotification('success', `Container backup '${id}' removed from backup/container-docker.`);
     }
     showDeleteModal.value = false;
     itemToDelete.value = null;
     fetchAll();
   } catch (err: any) {
-    alert(err.response?.data?.error || 'Failed to delete');
+    showNotification('error', err.response?.data?.error || err.message || 'Failed to delete');
   } finally {
     isDeleting.value = false;
   }
@@ -851,10 +1147,10 @@ onMounted(() => {
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-          Database Backup Manager
+          Backup Manager
         </h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Automated multi-database backups and disaster recovery.
+          Automated multi-database & Docker container backups and disaster recovery.
         </p>
       </div>
     </div>
@@ -865,7 +1161,7 @@ onMounted(() => {
       <div class="space-y-1">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Access Restricted</h3>
         <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-          You do not have permission to view or manage Database Backups. Please contact your system administrator to request access.
+          You do not have permission to view or manage Backups. Please contact your system administrator to request access.
         </p>
       </div>
       <div class="pt-2">
@@ -883,9 +1179,9 @@ onMounted(() => {
     <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
       <div>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Database Backup Manager</h1>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Backup Manager</h1>
         <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-          Automated multi-database backups, cron scheduling, and S3 / Cloudflare R2 / Local disaster recovery.
+          Automated database & Docker container backups, cross-host container restore, and multi-storage disaster recovery.
         </p>
       </div>
 
@@ -924,6 +1220,21 @@ onMounted(() => {
       >
         <Database class="w-3.5 h-3.5" />
         <span>Databases ({{ databases.length }})</span>
+      </button>
+
+      <button
+        role="tab"
+        :aria-selected="activeTab === 'containers'"
+        @click="activeTab = 'containers'"
+        :class="[
+          activeTab === 'containers'
+            ? 'bg-[#4274D9] text-white border-[#4274D9] font-bold shadow-sm'
+            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/30 border-slate-200 dark:border-transparent bg-slate-50/50 dark:bg-transparent',
+          'px-3.5 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
+        ]"
+      >
+        <Box class="w-3.5 h-3.5" />
+        <span>Docker Containers ({{ containerBackups.length }})</span>
       </button>
 
       <button
@@ -1055,6 +1366,141 @@ onMounted(() => {
           <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
             Click "Add Database" above to configure a PostgreSQL, MySQL, or MariaDB target for automated backups.
           </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB: DOCKER CONTAINERS -->
+    <!-- ============================================================= -->
+    <div v-if="activeTab === 'containers'" class="space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Docker Container Snapshots</h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            OCI container image archives (.tar.gz) stored in <code class="font-mono text-[11px] text-blue-600 dark:text-blue-400">backup/container-docker</code> with full metadata for cross-host restoration.
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <input
+            v-model="containerSearch"
+            type="text"
+            placeholder="Filter container snapshots..."
+            class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171a23] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 w-48 sm:w-64"
+          />
+          <button
+            v-if="canManage"
+            @click="openBackupContainerModal()"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer shrink-0"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Backup Container</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Container Backups Table -->
+      <div v-if="filteredContainerBackups.length > 0" class="bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+            <tr>
+              <th class="p-3">Container / Archive</th>
+              <th class="p-3">Source Host</th>
+              <th class="p-3">Base Image</th>
+              <th class="p-3">Size</th>
+              <th class="p-3">Created At</th>
+              <th class="p-3 w-40 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
+            <tr v-for="b in filteredContainerBackups" :key="b.filename" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+              <td class="p-3 font-sans">
+                <div class="flex items-center gap-2">
+                  <div class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
+                    <Box class="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div class="font-bold text-xs text-slate-900 dark:text-white font-mono">{{ b.containerName }}</div>
+                    <div class="text-[10px] text-slate-400 font-mono truncate max-w-xs" :title="b.filename">{{ b.filename }}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3 font-sans">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  <Server class="w-3 h-3 text-slate-400" />
+                  <span>{{ b.sourceConnection || 'Local Docker' }}</span>
+                </span>
+              </td>
+              <td class="p-3">
+                <span class="font-mono text-slate-600 dark:text-slate-400 truncate block max-w-[220px]" :title="b.sourceImage">
+                  {{ b.sourceImage }}
+                </span>
+              </td>
+              <td class="p-3 text-slate-600 dark:text-slate-400">
+                <span class="font-semibold">{{ formatFileSize(b.fileSize) }}</span>
+              </td>
+              <td class="p-3 text-slate-600 dark:text-slate-400 font-sans">
+                {{ formatDateTime(b.createdAt) }}
+              </td>
+              <td class="p-3 text-right">
+                <div class="flex items-center justify-end gap-1.5">
+                  <button
+                    v-if="canManage"
+                    @click="openRestoreContainerModal(b)"
+                    class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition cursor-pointer"
+                    title="Restore Container to Any Docker Host"
+                  >
+                    <RotateCcw class="w-3 h-3" />
+                    <span>Restore</span>
+                  </button>
+                  <button
+                    @click="openInspectContainerModal(b)"
+                    class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
+                    title="Inspect Snapshot Metadata & Ports"
+                  >
+                    <Eye class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    @click="downloadContainerBackup(b)"
+                    class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 transition cursor-pointer"
+                    title="Download Archive (.tar.gz)"
+                  >
+                    <Download class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    v-if="canManage"
+                    @click="confirmDeleteContainer(b)"
+                    class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
+                    title="Delete Container Backup"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="containerBackups.length === 0 && !loading" class="p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-3 shadow-sm">
+        <div class="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
+          <Box class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <p class="text-sm font-bold text-slate-800 dark:text-slate-200">No Docker Container Backups Yet</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            Take snapshot backups of running or stopped containers across any Docker connection. Images and configurations will be securely archived into <code class="font-mono text-blue-600 dark:text-blue-400">backup/container-docker</code>.
+          </p>
+        </div>
+        <div v-if="canManage" class="pt-2">
+          <button
+            @click="openBackupContainerModal()"
+            class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-sm cursor-pointer"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Create Container Backup</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1271,7 +1717,13 @@ onMounted(() => {
                 <span class="truncate">{{ h.errorMessage }}</span>
               </div>
             </td>
-            <td class="p-3">{{ h.dbName }} ({{ h.dbType }})</td>
+            <td class="p-3">
+              <span v-if="h.dbType === 'docker'" class="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400">
+                <Box class="w-3 h-3 text-slate-400" />
+                <span>{{ h.dbName }} (DOCKER)</span>
+              </span>
+              <span v-else>{{ h.dbName }} ({{ h.dbType }})</span>
+            </td>
             <td class="p-3 uppercase text-slate-700 dark:text-slate-300 font-semibold">{{ h.destType }}</td>
             <td class="p-3 text-slate-600 dark:text-slate-400">{{ (h.fileSize / 1024 / 1024).toFixed(2) }} MB</td>
             <td class="p-3">
@@ -1396,19 +1848,50 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- MODAL 1: RUN ON-DEMAND BACKUP -->
     <!-- ============================================================= -->
-    <div v-if="isRunBackupModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
+    <div v-if="isRunBackupModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4 animate-in fade-in">
       <div class="w-full max-w-md bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
         <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Play class="w-4 h-4 text-emerald-600 dark:text-emerald-400 fill-current" />
             <span>Run On-Demand Backup</span>
           </h3>
-          <button @click="isRunBackupModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <button @click="isRunBackupModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <div class="space-y-3 text-xs">
+        <!-- Target Type Switcher -->
+        <div class="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800">
+          <button
+            type="button"
+            @click="runBackupTargetType = 'database'"
+            :class="[
+              runBackupTargetType === 'database'
+                ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white font-bold shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white',
+              'flex-1 py-1.5 text-xs rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5'
+            ]"
+          >
+            <Database class="w-3.5 h-3.5" />
+            <span>Database</span>
+          </button>
+          <button
+            type="button"
+            @click="runBackupTargetType = 'container'; if (availableContainers.length === 0) fetchAvailableContainers(backupContainerForm.connectionId);"
+            :class="[
+              runBackupTargetType === 'container'
+                ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white font-bold shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white',
+              'flex-1 py-1.5 text-xs rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5'
+            ]"
+          >
+            <Box class="w-3.5 h-3.5" />
+            <span>Docker Container</span>
+          </button>
+        </div>
+
+        <!-- Form for Database Backup -->
+        <div v-if="runBackupTargetType === 'database'" class="space-y-3 text-xs">
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-slate-700 dark:text-slate-400 font-bold">
@@ -1467,12 +1950,72 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
-          <button @click="isRunBackupModalOpen = false" class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+        <!-- Form for Docker Container Backup -->
+        <div v-else class="space-y-3 text-xs">
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Docker Connection</label>
+            <select
+              v-model="backupContainerForm.connectionId"
+              @change="onBackupConnectionChange"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="">Local Docker Engine</option>
+              <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
+                {{ conn.name }} ({{ conn.host || 'local' }})
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Target Container</label>
+            <select
+              v-model="backupContainerForm.containerId"
+              :disabled="loadingDockerContainers"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 disabled:opacity-50"
+            >
+              <option v-if="loadingDockerContainers" value="">Loading containers...</option>
+              <option v-else-if="availableContainers.length === 0" value="">No containers found on this host</option>
+              <option v-for="c in availableContainers" :key="c.id" :value="c.id">
+                {{ getContainerDisplayName(c) }}
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Custom Snapshot Name (Optional)</label>
+            <input
+              v-model="backupContainerForm.backupName"
+              type="text"
+              placeholder="e.g. production-snapshot-v1"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <p class="text-[11px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 p-2 rounded-lg border border-blue-200 dark:border-blue-900">
+            Archive will be saved to <code class="font-mono font-bold">backup/container-docker</code> with full metadata for restoration.
+          </p>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <button @click="isRunBackupModalOpen = false" class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
             Cancel
           </button>
-          <button @click="triggerBackup" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow">
+          <button
+            v-if="runBackupTargetType === 'database'"
+            @click="triggerBackup"
+            class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow cursor-pointer"
+          >
             Start Backup
+          </button>
+          <button
+            v-else
+            @click="submitBackupContainer"
+            :disabled="backupContainerRunning || !backupContainerForm.containerId"
+            class="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow disabled:opacity-50 transition cursor-pointer"
+          >
+            <RotateCw v-if="backupContainerRunning" class="w-3.5 h-3.5 animate-spin" />
+            <Box v-else class="w-3.5 h-3.5" />
+            <span>{{ backupContainerRunning ? 'Creating Snapshot...' : 'Start Backup' }}</span>
           </button>
         </div>
       </div>
@@ -2058,6 +2601,420 @@ onMounted(() => {
     </div>
 
     <!-- ============================================================= -->
+    <!-- MODAL: BACKUP DOCKER CONTAINER -->
+    <!-- ============================================================= -->
+    <div v-if="isBackupContainerModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+      <div class="w-full max-w-lg bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Box class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Backup Docker Container</h3>
+              <p class="text-[11px] text-slate-500">Export container snapshot and runtime config to backup/container-docker</p>
+            </div>
+          </div>
+          <button @click="isBackupContainerModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <form @submit.prevent="submitBackupContainer" class="space-y-4 text-xs">
+          <!-- Connection / Host Selection -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Docker Connection</label>
+            <select
+              v-model="backupContainerForm.connectionId"
+              @change="onBackupConnectionChange"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="">Local Docker Engine</option>
+              <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
+                {{ conn.name }} ({{ conn.host || 'local socket' }}){{ conn.isDefault ? ' - Default' : '' }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Container Selection -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-slate-700 dark:text-slate-300 font-bold">Target Container</label>
+              <button
+                type="button"
+                @click="fetchAvailableContainers(backupContainerForm.connectionId)"
+                class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCw class="w-3 h-3" :class="{ 'animate-spin': loadingDockerContainers }" />
+                <span>Refresh</span>
+              </button>
+            </div>
+            <select
+              v-model="backupContainerForm.containerId"
+              :disabled="loadingDockerContainers"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
+            >
+              <option v-if="loadingDockerContainers" value="">Loading containers...</option>
+              <option v-else-if="availableContainers.length === 0" value="">No containers found on this host</option>
+              <option v-for="c in availableContainers" :key="c.id" :value="c.id">
+                {{ getContainerDisplayName(c) }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Custom Snapshot Name -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Custom Snapshot Name (Optional)</label>
+            <input
+              v-model="backupContainerForm.backupName"
+              type="text"
+              placeholder="e.g. production-snapshot-v1"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+            />
+            <p class="text-[10px] text-slate-400 mt-1">If blank, defaults to container name with timestamp.</p>
+          </div>
+
+          <!-- Quiescence Toggle -->
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input
+                v-model="backupContainerForm.stopDuringBackup"
+                type="checkbox"
+                class="rounded border-slate-300 dark:border-slate-700 text-blue-600 mt-0.5"
+              />
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200 block">Stop container during snapshot</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 block leading-relaxed">
+                  Temporarily stops the container during image commit to guarantee filesystem quiescence, and restarts it automatically when complete.
+                </span>
+              </div>
+            </label>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              @click="isBackupContainerModalOpen = false"
+              class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="backupContainerRunning || !backupContainerForm.containerId"
+              class="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow disabled:opacity-50 transition cursor-pointer"
+            >
+              <RotateCw v-if="backupContainerRunning" class="w-3.5 h-3.5 animate-spin" />
+              <Box v-else class="w-3.5 h-3.5" />
+              <span>{{ backupContainerRunning ? 'Creating Snapshot...' : 'Start Container Backup' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL: RESTORE DOCKER CONTAINER -->
+    <!-- ============================================================= -->
+    <div v-if="isRestoreContainerModalOpen && restoreBackupTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+      <div class="w-full max-w-2xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans max-h-[92vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <RotateCcw class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Restore Docker Container</h3>
+              <p class="text-[11px] text-slate-500">Deploy snapshot image and configuration to local or remote Docker hosts</p>
+            </div>
+          </div>
+          <button @click="isRestoreContainerModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Snapshot Info Banner -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs shrink-0">
+          <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Source Container</span>
+            <span class="font-bold text-slate-900 dark:text-white truncate block font-mono">{{ restoreBackupTarget.containerName }}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Source Host</span>
+            <span class="font-semibold text-slate-900 dark:text-white truncate block">{{ restoreBackupTarget.sourceConnection || 'Local Docker' }}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Archive Size</span>
+            <span class="font-semibold text-slate-900 dark:text-white block">{{ formatFileSize(restoreBackupTarget.fileSize) }}</span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Snapshot Date</span>
+            <span class="font-semibold text-slate-900 dark:text-white truncate block">{{ formatDateTime(restoreBackupTarget.createdAt) }}</span>
+          </div>
+        </div>
+
+        <form @submit.prevent="submitRestoreContainer" class="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+          <!-- Target Docker Connection -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+              Target Docker Connection (Restore Destination)
+            </label>
+            <select
+              v-model="restoreForm.targetConnectionId"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="">Local Docker Engine</option>
+              <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
+                {{ conn.name }} ({{ conn.host || 'local' }}){{ conn.isDefault ? ' - Default' : '' }}
+              </option>
+            </select>
+            <p class="text-[10px] text-slate-500 mt-1">
+              Supports cross-host recovery: HCP will load the committed image into the target Docker host and recreate the container.
+            </p>
+          </div>
+
+          <!-- New Container Name -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Restored Container Name</label>
+            <input
+              v-model="restoreForm.newContainerName"
+              type="text"
+              required
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Port Bindings Configuration -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-slate-700 dark:text-slate-300 font-bold">Port Mappings (Host : Container)</label>
+              <button
+                type="button"
+                @click="addRestorePort"
+                class="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus class="w-3 h-3" />
+                <span>Add Port</span>
+              </button>
+            </div>
+            <div v-if="restoreForm.ports.length === 0" class="text-[11px] text-slate-400 italic p-2 bg-slate-50 dark:bg-[#0f1219] rounded-lg border border-slate-200 dark:border-slate-800">
+              No port mappings defined. Click "Add Port" if needed.
+            </div>
+            <div v-else class="space-y-1.5">
+              <div v-for="(p, idx) in restoreForm.ports" :key="idx" class="flex items-center gap-2">
+                <input
+                  v-model="p.host"
+                  type="text"
+                  placeholder="Host port (e.g. 8080)"
+                  class="flex-1 bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <span class="text-slate-400 font-bold">:</span>
+                <input
+                  v-model="p.container"
+                  type="text"
+                  placeholder="Container port (e.g. 80/tcp)"
+                  class="flex-1 bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  @click="removeRestorePort(idx)"
+                  class="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                  title="Remove Port Mapping"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Environment Variables -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-slate-700 dark:text-slate-300 font-bold">Environment Variables</label>
+              <button
+                type="button"
+                @click="addRestoreEnv"
+                class="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus class="w-3 h-3" />
+                <span>Add Variable</span>
+              </button>
+            </div>
+            <div v-if="restoreForm.env.length === 0" class="text-[11px] text-slate-400 italic p-2 bg-slate-50 dark:bg-[#0f1219] rounded-lg border border-slate-200 dark:border-slate-800">
+              No custom environment variables.
+            </div>
+            <div v-else class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              <div v-for="(e, idx) in restoreForm.env" :key="idx" class="flex items-center gap-2">
+                <input
+                  v-model="e.key"
+                  type="text"
+                  placeholder="KEY"
+                  class="w-1/3 bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <span class="text-slate-400 font-bold">=</span>
+                <input
+                  v-model="e.value"
+                  type="text"
+                  placeholder="VALUE"
+                  class="flex-1 bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  @click="removeRestoreEnv(idx)"
+                  class="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                  title="Remove Variable"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Restart Policy -->
+          <div>
+            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Restart Policy</label>
+            <select
+              v-model="restoreForm.restartPolicy"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+            >
+              <option value="unless-stopped">unless-stopped (recommended)</option>
+              <option value="always">always</option>
+              <option value="on-failure">on-failure</option>
+              <option value="no">no</option>
+            </select>
+          </div>
+
+          <!-- Toggles -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <input v-model="restoreForm.startAfterRestore" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
+              <span class="font-bold text-slate-800 dark:text-slate-200">Start container after restore</span>
+            </label>
+            <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <input v-model="restoreForm.replaceExisting" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
+              <span class="font-bold text-slate-800 dark:text-slate-200">Replace existing container if exists</span>
+            </label>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
+            <button
+              type="button"
+              @click="isRestoreContainerModalOpen = false"
+              class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="restoreContainerRunning"
+              class="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow disabled:opacity-50 transition cursor-pointer"
+            >
+              <RotateCw v-if="restoreContainerRunning" class="w-3.5 h-3.5 animate-spin" />
+              <RotateCcw v-else class="w-3.5 h-3.5" />
+              <span>{{ restoreContainerRunning ? 'Restoring & Loading Image...' : 'Restore Container' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL: INSPECT DOCKER CONTAINER BACKUP -->
+    <!-- ============================================================= -->
+    <div v-if="isInspectContainerModalOpen && inspectedContainerBackup" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+      <div class="w-full max-w-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Eye class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Container Snapshot Metadata</h3>
+              <p class="text-[11px] font-mono text-slate-500 truncate max-w-md">{{ inspectedContainerBackup.filename }}</p>
+            </div>
+          </div>
+          <button @click="isInspectContainerModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto space-y-3 text-xs pr-1">
+          <!-- Overview Cards -->
+          <div class="grid grid-cols-2 gap-2">
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] text-slate-500 block uppercase font-bold">Container Name</span>
+              <span class="font-bold text-slate-900 dark:text-white font-mono">{{ inspectedContainerBackup.containerName }}</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] text-slate-500 block uppercase font-bold">Source Image</span>
+              <span class="font-mono text-slate-900 dark:text-white truncate block">{{ inspectedContainerBackup.sourceImage }}</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] text-slate-500 block uppercase font-bold">Storage Path</span>
+              <span class="font-mono text-slate-700 dark:text-slate-300 truncate block">backup/container-docker/{{ inspectedContainerBackup.filename }}</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] text-slate-500 block uppercase font-bold">Archive Size</span>
+              <span class="font-bold text-slate-900 dark:text-white">{{ formatFileSize(inspectedContainerBackup.fileSize) }}</span>
+            </div>
+          </div>
+
+          <!-- Port Bindings -->
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <span class="text-[10px] text-slate-500 uppercase font-bold block">Port Mappings</span>
+            <div v-if="!inspectedContainerBackup.portBindings || Object.keys(inspectedContainerBackup.portBindings).length === 0" class="text-slate-400 italic">
+              No exposed ports recorded.
+            </div>
+            <div v-else class="space-y-1 font-mono text-[11px]">
+              <div v-for="(hostP, contP) in inspectedContainerBackup.portBindings" :key="contP" class="flex items-center justify-between bg-white dark:bg-[#171a23] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800">
+                <span class="text-slate-500">Container: {{ contP }}</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400">Host: {{ hostP }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Environment Variables -->
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <span class="text-[10px] text-slate-500 uppercase font-bold block">Environment Variables ({{ inspectedContainerBackup.env?.length || 0 }})</span>
+            <div v-if="!inspectedContainerBackup.env || inspectedContainerBackup.env.length === 0" class="text-slate-400 italic">
+              No environment variables recorded.
+            </div>
+            <div v-else class="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] bg-slate-950 p-2.5 rounded-lg text-emerald-400 whitespace-pre-wrap select-text">
+              <div v-for="(e, idx) in inspectedContainerBackup.env" :key="idx">{{ e }}</div>
+            </div>
+          </div>
+
+          <!-- Volumes / Mounts -->
+          <div v-if="inspectedContainerBackup.volumes && inspectedContainerBackup.volumes.length > 0" class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <span class="text-[10px] text-slate-500 uppercase font-bold block">Mounted Volumes</span>
+            <div class="space-y-1 font-mono text-[11px]">
+              <div v-for="(v, idx) in inspectedContainerBackup.volumes" :key="idx" class="bg-white dark:bg-[#171a23] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800 truncate">
+                {{ v }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 shrink-0">
+          <button
+            @click="isInspectContainerModalOpen = false"
+            class="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs transition cursor-pointer"
+          >
+            Close
+          </button>
+          <button
+            v-if="canManage"
+            @click="isInspectContainerModalOpen = false; openRestoreContainerModal(inspectedContainerBackup)"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow transition cursor-pointer"
+          >
+            <RotateCcw class="w-3.5 h-3.5" />
+            <span>Proceed to Restore</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
     <!-- MODAL 3: STANDARD DELETE CONFIRMATION MODAL (Strictly AGENTS.md) -->
     <!-- ============================================================= -->
     <div
@@ -2073,7 +3030,7 @@ onMounted(() => {
         <!-- Judul & Teks Penjelasan -->
         <div class="space-y-1">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            Delete {{ itemToDelete.type === 'database' ? 'Database Config' : itemToDelete.type === 'destination' ? 'Storage Destination' : itemToDelete.type === 'schedule' ? 'Cron Schedule' : 'Backup History' }}?
+            Delete {{ itemToDelete.type === 'database' ? 'Database Config' : itemToDelete.type === 'destination' ? 'Storage Destination' : itemToDelete.type === 'schedule' ? 'Cron Schedule' : itemToDelete.type === 'container' ? 'Container Backup' : 'Backup History' }}?
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ itemToDelete.name }}</strong>? This action cannot be undone.
@@ -2097,6 +3054,24 @@ onMounted(() => {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Notification Toast (3000ms auto-dismiss per AGENTS.md) -->
+    <div
+      v-if="notification"
+      class="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl transition-all animate-in fade-in slide-in-from-bottom-2 text-xs font-semibold backdrop-blur-sm"
+      :class="[
+        notification.type === 'success' ? 'bg-emerald-50/95 dark:bg-emerald-950/90 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800' :
+        notification.type === 'warning' ? 'bg-amber-50/95 dark:bg-amber-950/90 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800' :
+        'bg-rose-50/95 dark:bg-rose-950/90 text-rose-900 dark:text-rose-200 border-rose-300 dark:border-rose-800'
+      ]"
+    >
+      <CheckCircle2 v-if="notification.type === 'success'" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+      <AlertCircle v-else class="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+      <span>{{ notification.message }}</span>
+      <button @click="notification = null" class="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">
+        <X class="w-3.5 h-3.5" />
+      </button>
     </div>
 
   </div>

@@ -1,19 +1,27 @@
 package services
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
+	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/queue"
 	"go-hephaestus/internal/repository"
 
@@ -26,14 +34,16 @@ import (
 )
 
 type BackupService struct {
-	backupRepo *repository.BackupRepository
-	sshService *SSHService
+	backupRepo    *repository.BackupRepository
+	sshService    *SSHService
+	dockerService *DockerService
 }
 
-func NewBackupService(backupRepo *repository.BackupRepository, sshService *SSHService) *BackupService {
+func NewBackupService(backupRepo *repository.BackupRepository, sshService *SSHService, dockerService *DockerService) *BackupService {
 	s := &BackupService{
-		backupRepo: backupRepo,
-		sshService: sshService,
+		backupRepo:    backupRepo,
+		sshService:    sshService,
+		dockerService: dockerService,
 	}
 
 	// Register backup job handler to worker pool
@@ -1338,4 +1348,642 @@ func compressGzip(data []byte) ([]byte, error) {
 
 func escapeShell(s string) string {
 	return strings.ReplaceAll(s, "'", "'\\''")
+}
+
+// -------------------------------------------------------------
+// Docker Container Backup & Restore
+// -------------------------------------------------------------
+
+func GetContainerBackupDir() string {
+	baseDir := ResolveLocalBackupPath("")
+	target := filepath.Join(baseDir, "container-docker")
+	if err := os.MkdirAll(target, 0755); err == nil {
+		return target
+	}
+	fallback := filepath.Join("backup", "container-docker")
+	_ = os.MkdirAll(fallback, 0755)
+	return fallback
+}
+
+func getPossibleContainerDirs() []string {
+	return []string{
+		GetContainerBackupDir(),
+		"/app/backups/container-docker",
+		"backup/container-docker",
+		"backups/container-docker",
+		"/opt/backups/container-docker",
+	}
+}
+
+func sanitizeContainerName(name string) string {
+	name = strings.TrimPrefix(name, "/")
+	reg := regexp.MustCompile(`[^a-zA-Z0-9_\-\.]`)
+	clean := reg.ReplaceAllString(name, "_")
+	if clean == "" {
+		return "container"
+	}
+	return clean
+}
+
+func ReadContainerBackupMetadata(archivePath string) (*domain.ContainerBackupMetadata, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	gzReader, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open gzip archive: %w", err)
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if header.Name == "metadata.json" || strings.HasSuffix(header.Name, "/metadata.json") {
+			var meta domain.ContainerBackupMetadata
+			if err := json.NewDecoder(tarReader).Decode(&meta); err != nil {
+				return nil, fmt.Errorf("failed to decode metadata.json: %w", err)
+			}
+			if fi, err := f.Stat(); err == nil {
+				meta.FileSize = fi.Size()
+			}
+			meta.Filename = filepath.Base(archivePath)
+			meta.FilePath = archivePath
+			return &meta, nil
+		}
+	}
+	return nil, errors.New("metadata.json not found in archive")
+}
+
+func (s *BackupService) FindContainerBackupFile(filename string) (string, error) {
+	filename = filepath.Base(filename)
+	for _, dir := range getPossibleContainerDirs() {
+		p := filepath.Join(dir, filename)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("container backup file '%s' not found in backup/container-docker", filename)
+}
+
+func (s *BackupService) ListContainerBackups(ctx context.Context) ([]domain.ContainerBackupMetadata, error) {
+	seen := make(map[string]bool)
+	var list []domain.ContainerBackupMetadata
+
+	for _, dir := range getPossibleContainerDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !strings.HasSuffix(name, ".tar.gz") && !strings.HasSuffix(name, ".tar") {
+				continue
+			}
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+
+			fullPath := filepath.Join(dir, name)
+			meta, err := ReadContainerBackupMetadata(fullPath)
+			if err != nil {
+				fi, _ := e.Info()
+				var size int64
+				var mtime time.Time
+				if fi != nil {
+					size = fi.Size()
+					mtime = fi.ModTime()
+				}
+				parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(name, ".gz"), ".tar"), "_")
+				cName := name
+				if len(parts) >= 2 {
+					cName = parts[1]
+				}
+				meta = &domain.ContainerBackupMetadata{
+					ID:            "cbk-" + name,
+					ContainerName: cName,
+					Filename:      name,
+					FilePath:      fullPath,
+					FileSize:      size,
+					CreatedAt:     mtime,
+					Status:        "success",
+				}
+			}
+			list = append(list, *meta)
+		}
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].CreatedAt.After(list[j].CreatedAt)
+	})
+
+	return list, nil
+}
+
+func (s *BackupService) InspectContainerBackup(ctx context.Context, filename string) (*domain.ContainerBackupMetadata, error) {
+	filePath, err := s.FindContainerBackupFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return ReadContainerBackupMetadata(filePath)
+}
+
+func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupContainerRunRequest) (*domain.ContainerBackupMetadata, error) {
+	if s.dockerService == nil {
+		return nil, errors.New("docker service is not initialized")
+	}
+
+	conn, err := s.dockerService.resolveConnection(ctx, req.ConnectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve Docker connection: %w", err)
+	}
+
+	inspect, err := s.dockerService.InspectContainer(ctx, req.ConnectionID, req.ContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	cleanName := strings.TrimPrefix(inspect.Name, "/")
+	if req.CustomName != "" {
+		cleanName = strings.TrimSpace(req.CustomName)
+	} else if req.BackupName != "" {
+		cleanName = strings.TrimSpace(req.BackupName)
+	}
+	cleanName = sanitizeContainerName(cleanName)
+
+	now := time.Now()
+	timeStr := now.Format("20060102_150405")
+	backupTag := fmt.Sprintf("hcp-backup-%s:%s", cleanName, timeStr)
+	filename := fmt.Sprintf("container_%s_%s.tar.gz", cleanName, timeStr)
+
+	targetDir := GetContainerBackupDir()
+	_ = os.MkdirAll(targetDir, 0755)
+	targetFilePath := filepath.Join(targetDir, filename)
+
+	tempDir := ResolveLocalBackupPath("")
+	_ = os.MkdirAll(tempDir, 0755)
+	tempImageFile := filepath.Join(tempDir, fmt.Sprintf(".tmp_img_%s.tar", uuid.New().String()[:8]))
+	defer os.Remove(tempImageFile)
+
+	historyID := fmt.Sprintf("cbh-%s", uuid.New().String()[:8])
+	destType := "container-docker"
+	_ = s.backupRepo.CreateHistory(ctx, domain.BackupHistoryEntry{
+		ID:            historyID,
+		DBName:        cleanName,
+		DBType:        "docker",
+		DestType:      destType,
+		Filename:      filename,
+		FileSize:      0,
+		Status:        "running",
+		StartedAt:     now,
+	})
+
+	// 1. Commit container & export image tar
+	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		remoteHost, err := s.dockerService.resolveRemoteHost(ctx, conn)
+		if err != nil {
+			errMsg := err.Error()
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, err
+		}
+
+		commitCmd := fmt.Sprintf("commit %s %s", shellQuote(req.ContainerID), shellQuote(backupTag))
+		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, conn, commitCmd); err != nil {
+			errMsg := fmt.Sprintf("docker commit failed: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, fmt.Errorf("remote commit failed: %w", err)
+		}
+
+		remoteTar := fmt.Sprintf("/tmp/hcp_save_%s.tar", uuid.New().String()[:8])
+		saveCmd := fmt.Sprintf("save %s -o %s", shellQuote(backupTag), shellQuote(remoteTar))
+		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, conn, saveCmd); err != nil {
+			_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
+			errMsg := fmt.Sprintf("docker save failed: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, fmt.Errorf("remote save failed: %w", err)
+		}
+
+		// Download remote tar to tempImageFile
+		srcR, _, err := s.sshService.SftpDownloadWithConfig(remoteHost, remoteTar)
+		if err != nil {
+			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+			_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
+			errMsg := fmt.Sprintf("failed to download image tar: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, err
+		}
+
+		imgDst, err := os.Create(tempImageFile)
+		if err != nil {
+			srcR.Close()
+			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+			return nil, err
+		}
+		_, errCopy := io.Copy(imgDst, srcR)
+		imgDst.Close()
+		srcR.Close()
+
+		// Clean up remote host
+		_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+		_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
+
+		if errCopy != nil {
+			errMsg := fmt.Sprintf("failed to save image locally: %v", errCopy)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, errCopy
+		}
+	} else {
+		// Local Docker
+		commitEndpoint := fmt.Sprintf("/commit?container=%s&repo=%s&tag=%s",
+			url.QueryEscape(req.ContainerID),
+			url.QueryEscape("hcp-backup-"+cleanName),
+			url.QueryEscape(timeStr),
+		)
+		if err := s.dockerService.doLocalPost(ctx, conn, commitEndpoint, nil); err != nil {
+			errMsg := fmt.Sprintf("docker commit failed: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, fmt.Errorf("local commit failed: %w", err)
+		}
+
+		defer func() {
+			delClient, delBaseURL := s.dockerService.getLocalHTTPClient(conn)
+			delReq, _ := http.NewRequestWithContext(context.Background(), "DELETE", fmt.Sprintf("%s/images/%s?force=true", delBaseURL, url.PathEscape(backupTag)), nil)
+			if delReq != nil {
+				_, _ = delClient.Do(delReq)
+			}
+		}()
+
+		saveEndpoint := fmt.Sprintf("/images/%s/get", url.PathEscape(backupTag))
+		client, baseURL := s.dockerService.getLocalStreamingHTTPClient(conn)
+		saveReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+saveEndpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		saveResp, err := client.Do(saveReq)
+		if err != nil {
+			errMsg := fmt.Sprintf("docker save failed: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, fmt.Errorf("local save failed: %w", err)
+		}
+		defer saveResp.Body.Close()
+
+		imgDst, err := os.Create(tempImageFile)
+		if err != nil {
+			return nil, err
+		}
+		_, errCopy := io.Copy(imgDst, saveResp.Body)
+		imgDst.Close()
+		if errCopy != nil {
+			errMsg := fmt.Sprintf("failed to stream image: %v", errCopy)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+			return nil, errCopy
+		}
+	}
+
+	// 2. Build metadata
+	metadata := domain.ContainerBackupMetadata{
+		ID:                   fmt.Sprintf("cbk-%s", uuid.New().String()[:8]),
+		ContainerID:          req.ContainerID,
+		ContainerName:        cleanName,
+		Image:                inspect.Image,
+		BackupTag:            backupTag,
+		SourceConnectionID:   req.ConnectionID,
+		SourceConnectionName: conn.Name,
+		Filename:             filename,
+		FilePath:             targetFilePath,
+		Status:               "success",
+		CreatedAt:            now,
+		Ports:                inspect.Ports,
+		Volumes:              inspect.Volumes,
+		Env:                  inspect.Env,
+		RestartPolicy:        inspect.RestartPolicy,
+		NetworkMode:          inspect.NetworkMode,
+		Command:              inspect.Command,
+		CPULimit:             inspect.CPULimit,
+		MemoryLimitMB:        inspect.MemoryLimitMB,
+	}
+
+	// 3. Package metadata.json + image.tar into targetFilePath (.tar.gz)
+	outGzFile, err := os.Create(targetFilePath)
+	if err != nil {
+		errMsg := err.Error()
+		_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
+		return nil, fmt.Errorf("failed to create target file: %w", err)
+	}
+	defer outGzFile.Close()
+
+	gzWriter := gzip.NewWriter(outGzFile)
+	defer gzWriter.Close()
+
+	tarWriter := tar.NewWriter(gzWriter)
+	defer tarWriter.Close()
+
+	// Add metadata.json
+	metaBytes, _ := json.MarshalIndent(metadata, "", "  ")
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name:    "metadata.json",
+		Mode:    0644,
+		Size:    int64(len(metaBytes)),
+		ModTime: now,
+	}); err != nil {
+		return nil, err
+	}
+	if _, err := tarWriter.Write(metaBytes); err != nil {
+		return nil, err
+	}
+
+	// Add image.tar
+	imgStat, err := os.Stat(tempImageFile)
+	if err != nil {
+		return nil, err
+	}
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name:    "image.tar",
+		Mode:    0644,
+		Size:    imgStat.Size(),
+		ModTime: now,
+	}); err != nil {
+		return nil, err
+	}
+	imgSrc, err := os.Open(tempImageFile)
+	if err != nil {
+		return nil, err
+	}
+	defer imgSrc.Close()
+
+	if _, err := io.Copy(tarWriter, imgSrc); err != nil {
+		return nil, err
+	}
+
+	_ = tarWriter.Close()
+	_ = gzWriter.Close()
+	_ = outGzFile.Close()
+
+	finalStat, err := os.Stat(targetFilePath)
+	var finalSize int64
+	if err == nil {
+		finalSize = finalStat.Size()
+		metadata.FileSize = finalSize
+	}
+
+	_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "success", finalSize, nil)
+	return &metadata, nil
+}
+
+func (s *BackupService) RestoreContainer(ctx context.Context, req domain.RestoreContainerRequest) (*domain.ContainerInspectDetails, error) {
+	if s.dockerService == nil {
+		return nil, errors.New("docker service is not initialized")
+	}
+
+	filePath, err := s.FindContainerBackupFile(req.Filename)
+	if err != nil {
+		return nil, err
+	}
+
+	targetConn, err := s.dockerService.resolveConnection(ctx, req.TargetConnectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve target Docker connection: %w", err)
+	}
+
+	archiveFile, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open backup archive: %w", err)
+	}
+	defer archiveFile.Close()
+
+	gzReader, err := gzip.NewReader(archiveFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize gzip reader: %w", err)
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+	var metadata *domain.ContainerBackupMetadata
+	var tempImagePath string
+
+	tempDir := ResolveLocalBackupPath("")
+	_ = os.MkdirAll(tempDir, 0755)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading archive entry: %w", err)
+		}
+
+		if header.Name == "metadata.json" || strings.HasSuffix(header.Name, "/metadata.json") {
+			var meta domain.ContainerBackupMetadata
+			if err := json.NewDecoder(tarReader).Decode(&meta); err == nil {
+				metadata = &meta
+			}
+		} else if header.Name == "image.tar" || strings.HasSuffix(header.Name, "/image.tar") {
+			tempImagePath = filepath.Join(tempDir, fmt.Sprintf(".restore_img_%s.tar", uuid.New().String()[:8]))
+			outFile, err := os.Create(tempImagePath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create temporary image file: %w", err)
+			}
+			if _, err := io.Copy(outFile, tarReader); err != nil {
+				outFile.Close()
+				_ = os.Remove(tempImagePath)
+				return nil, fmt.Errorf("failed to extract image.tar: %w", err)
+			}
+			outFile.Close()
+		}
+	}
+
+	if tempImagePath != "" {
+		defer os.Remove(tempImagePath)
+	}
+
+	if metadata == nil {
+		return nil, errors.New("invalid backup archive: metadata.json missing")
+	}
+	if tempImagePath == "" {
+		return nil, errors.New("invalid backup archive: image.tar missing")
+	}
+
+	containerName := strings.TrimSpace(req.ContainerName)
+	if containerName == "" && req.NewContainerName != "" {
+		containerName = strings.TrimSpace(req.NewContainerName)
+	}
+	if containerName == "" {
+		containerName = metadata.ContainerName
+	}
+	containerName = strings.TrimPrefix(containerName, "/")
+
+	// Check if container already exists on target connection
+	existingDetails, errInspect := s.dockerService.InspectContainer(ctx, req.TargetConnectionID, containerName)
+	if errInspect == nil && existingDetails != nil {
+		if !req.ReplaceExisting {
+			return nil, fmt.Errorf("container '%s' already exists on target Docker host '%s'. Please choose a different name or enable 'Replace existing container'", containerName, targetConn.Name)
+		}
+		_ = s.dockerService.RemoveContainer(ctx, req.TargetConnectionID, containerName, true)
+	}
+
+	// Load image into target connection
+	if targetConn.HostType == "ssh" || targetConn.RemoteHostID != nil {
+		remoteHost, err := s.dockerService.resolveRemoteHost(ctx, targetConn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve remote host: %w", err)
+		}
+
+		remoteTarPath := fmt.Sprintf("/tmp/hcp_load_%s.tar", uuid.New().String()[:8])
+		imgF, err := os.Open(tempImagePath)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.sshService.SftpUploadWithConfig(remoteHost, remoteTarPath, imgF); err != nil {
+			imgF.Close()
+			return nil, fmt.Errorf("failed to upload image to remote host: %w", err)
+		}
+		imgF.Close()
+		defer func() {
+			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTarPath)
+		}()
+
+		loadCmd := fmt.Sprintf("load -i %s", shellQuote(remoteTarPath))
+		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, targetConn, loadCmd); err != nil {
+			return nil, fmt.Errorf("docker load failed on remote host: %w", err)
+		}
+	} else {
+		imgF, err := os.Open(tempImagePath)
+		if err != nil {
+			return nil, err
+		}
+		defer imgF.Close()
+
+		client, baseURL := s.dockerService.getLocalStreamingHTTPClient(targetConn)
+		loadReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/images/load", imgF)
+		if err != nil {
+			return nil, err
+		}
+		loadReq.Header.Set("Content-Type", "application/x-tar")
+		resp, err := client.Do(loadReq)
+		if err != nil {
+			return nil, fmt.Errorf("docker load failed on local host: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			b, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("docker load returned status %d: %s", resp.StatusCode, string(b))
+		}
+	}
+
+	// Prepare deploy request
+	ports := metadata.Ports
+	if len(req.Ports) > 0 {
+		ports = req.Ports
+	} else if len(req.PortBindings) > 0 {
+		ports = make([]domain.DockerPortMapping, 0, len(req.PortBindings))
+		for contPortStr, hostPortStr := range req.PortBindings {
+			proto := "tcp"
+			parts := strings.Split(contPortStr, "/")
+			if len(parts) == 2 {
+				proto = parts[1]
+			}
+			ports = append(ports, domain.DockerPortMapping{
+				HostPort:      hostPortStr,
+				ContainerPort: parts[0],
+				Protocol:      proto,
+			})
+		}
+	}
+	env := metadata.Env
+	if len(req.Env) > 0 {
+		env = req.Env
+	} else if len(req.EnvStrings) > 0 {
+		env = make([]domain.DockerEnvMapping, 0, len(req.EnvStrings))
+		for _, e := range req.EnvStrings {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 {
+				env = append(env, domain.DockerEnvMapping{Key: parts[0], Value: parts[1]})
+			} else {
+				env = append(env, domain.DockerEnvMapping{Key: parts[0], Value: ""})
+			}
+		}
+	}
+	volumes := metadata.Volumes
+	if len(req.Volumes) > 0 {
+		volumes = req.Volumes
+	}
+	restartPolicy := metadata.RestartPolicy
+	if req.RestartPolicy != "" {
+		restartPolicy = req.RestartPolicy
+	}
+	startAfter := true
+	if req.StartAfter != nil {
+		startAfter = *req.StartAfter
+	} else if req.StartAfterRestore != nil {
+		startAfter = *req.StartAfterRestore
+	}
+
+	imageToUse := metadata.BackupTag
+	if imageToUse == "" {
+		imageToUse = metadata.Image
+	}
+
+	networkMode := metadata.NetworkMode
+	if networkMode != "" && networkMode != "bridge" && networkMode != "host" && networkMode != "none" {
+		targetNets, errNets := s.dockerService.ListNetworks(ctx, req.TargetConnectionID)
+		if errNets == nil {
+			found := false
+			for _, n := range targetNets {
+				if n.Name == networkMode {
+					found = true
+					break
+				}
+			}
+			if !found {
+				networkMode = "bridge"
+			}
+		}
+	}
+
+	deployReq := domain.DeployContainerRequest{
+		Name:          containerName,
+		Image:         imageToUse,
+		Ports:         ports,
+		Volumes:       volumes,
+		Env:           env,
+		RestartPolicy: restartPolicy,
+		Network:       networkMode,
+		Command:       metadata.Command,
+		CPULimit:      metadata.CPULimit,
+		MemoryLimitMB: metadata.MemoryLimitMB,
+		StartAfter:    &startAfter,
+	}
+
+	createdID, err := s.dockerService.DeployContainerStream(ctx, req.TargetConnectionID, deployReq, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy restored container: %w", err)
+	}
+
+	return s.dockerService.InspectContainer(ctx, req.TargetConnectionID, createdID)
+}
+
+func (s *BackupService) DeleteContainerBackup(ctx context.Context, filename string) error {
+	filePath, err := s.FindContainerBackupFile(filename)
+	if err == nil {
+		_ = os.Remove(filePath)
+	}
+	pool, errPool := database.GetPool()
+	if errPool == nil {
+		_, _ = pool.Exec(ctx, `DELETE FROM backup_history WHERE filename = $1`, filepath.Base(filename))
+	}
+	return nil
 }

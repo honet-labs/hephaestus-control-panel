@@ -520,6 +520,53 @@ type BackupSchedule struct {
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 
+type ContainerBackupMetadata struct {
+	ID                   string                `json:"id"`
+	ContainerID          string                `json:"containerId"`
+	ContainerName        string                `json:"containerName"`
+	Image                string                `json:"image"`
+	BackupTag            string                `json:"backupTag"`
+	SourceConnectionID   string                `json:"sourceConnectionId"`
+	SourceConnectionName string                `json:"sourceConnectionName"`
+	Filename             string                `json:"filename"`
+	FilePath             string                `json:"filePath"`
+	FileSize             int64                 `json:"fileSize"`
+	Status               string                `json:"status"` // success, failed
+	CreatedAt            time.Time             `json:"createdAt"`
+	Ports                []DockerPortMapping   `json:"ports"`
+	Volumes              []DockerVolumeMapping `json:"volumes"`
+	Env                  []DockerEnvMapping    `json:"env"`
+	RestartPolicy        string                `json:"restartPolicy"`
+	NetworkMode          string                `json:"networkMode"`
+	Command              string                `json:"command"`
+	CPULimit             float64               `json:"cpuLimit"`
+	MemoryLimitMB        int64                 `json:"memoryLimitMb"`
+}
+
+type BackupContainerRunRequest struct {
+	ConnectionID  string `json:"connectionId"`
+	ContainerID   string `json:"containerId" binding:"required"`
+	ContainerName string `json:"containerName"`
+	CustomName    string `json:"customName"`
+	BackupName    string `json:"backupName"`
+}
+
+type RestoreContainerRequest struct {
+	Filename           string                `json:"filename" binding:"required"`
+	TargetConnectionID string                `json:"targetConnectionId"`
+	ContainerName      string                `json:"containerName"`
+	NewContainerName   string                `json:"newContainerName"`
+	Ports              []DockerPortMapping   `json:"ports"`
+	PortBindings       map[string]string     `json:"portBindings"`
+	Env                []DockerEnvMapping    `json:"env"`
+	EnvStrings         []string              `json:"envStrings"`
+	Volumes            []DockerVolumeMapping `json:"volumes"`
+	RestartPolicy      string                `json:"restartPolicy"`
+	StartAfter         *bool                 `json:"startAfter"`
+	StartAfterRestore  *bool                 `json:"startAfterRestore"`
+	ReplaceExisting    bool                  `json:"replaceExisting"`
+}
+
 // ==================== BACKGROUND JOB & QUEUE DOMAIN ====================
 
 type JobStatus string
