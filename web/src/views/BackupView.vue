@@ -510,6 +510,61 @@ const restoreForm = ref({
 const isInspectContainerModalOpen = ref(false);
 const inspectedContainerBackup = ref<any | null>(null);
 
+// Live CLI Execution Modal State for Backup & Restore
+const isCliModalOpen = ref(false);
+const cliModalTitle = ref('Execution Console');
+const cliModalTarget = ref('');
+const cliModalType = ref<'backup' | 'restore'>('restore');
+const cliLogs = ref<{ step: string; status: string; message: string; timestamp: string }[]>([]);
+const cliIsRunning = ref(false);
+const cliIsSuccess = ref(false);
+const cliError = ref('');
+const cliTimerSec = ref(0);
+const cliTerminalRef = ref<HTMLDivElement | null>(null);
+const copiedCliLogs = ref(false);
+let cliTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+const addCliLog = (step: string, status: string, message: string, timestamp?: string) => {
+  cliLogs.value.push({
+    step,
+    status,
+    message,
+    timestamp: timestamp || new Date().toTimeString().split(' ')[0],
+  });
+  if (cliLogs.value.length > 500) {
+    cliLogs.value.shift();
+  }
+  setTimeout(() => {
+    if (cliTerminalRef.value) {
+      cliTerminalRef.value.scrollTop = cliTerminalRef.value.scrollHeight;
+    }
+  }, 20);
+};
+
+const copyCliLogs = async () => {
+  const fullText = cliLogs.value
+    .map((l) => `[${l.timestamp}] [${l.step.toUpperCase()}] ${l.message}`)
+    .join('\n');
+  try {
+    await navigator.clipboard.writeText(fullText);
+    copiedCliLogs.value = true;
+    setTimeout(() => {
+      copiedCliLogs.value = false;
+    }, 2000);
+  } catch (e) {
+    console.error('Failed to copy logs', e);
+  }
+};
+
+const closeCliModal = () => {
+  if (cliIsRunning.value) return;
+  isCliModalOpen.value = false;
+  if (cliTimerInterval) {
+    clearInterval(cliTimerInterval);
+    cliTimerInterval = null;
+  }
+};
+
 const fetchAvailableContainers = async (connectionId?: string) => {
   loadingDockerContainers.value = true;
   try {
@@ -575,8 +630,35 @@ const submitBackupContainer = async () => {
     showNotification('error', 'Please select a Docker container to back up.');
     return;
   }
-  backupContainerRunning.value = true;
+
+  const selectedConn = dockerConnections.value.find((c) => c.id === backupContainerForm.value.connectionId);
+  const connName = selectedConn ? selectedConn.name : 'Docker';
+  const selectedCont = availableContainers.value.find((c) => c.id === backupContainerForm.value.containerId);
+  const contName = selectedCont ? (selectedCont.name || selectedCont.id.substring(0, 12)) : backupContainerForm.value.containerId;
+
+  // Close form modal & open CLI progress modal
+  isBackupContainerModalOpen.value = false;
+  isRunBackupModalOpen.value = false;
+
+  cliModalTitle.value = 'Container Backup Console';
+  cliModalTarget.value = `${contName} on ${connName}`;
+  cliModalType.value = 'backup';
+  cliLogs.value = [];
+  cliIsRunning.value = true;
+  cliIsSuccess.value = false;
+  cliError.value = '';
+  cliTimerSec.value = 0;
+  isCliModalOpen.value = true;
+
+  if (cliTimerInterval) clearInterval(cliTimerInterval);
+  cliTimerInterval = setInterval(() => {
+    cliTimerSec.value++;
+  }, 1000);
+
+  addCliLog('init', 'info', `Initiating backup stream for container '${contName}' on host '${connName}'...`);
+
   try {
+    const token = authStore.token || localStorage.getItem('token') || '';
     const payload = {
       connectionId: backupContainerForm.value.connectionId || undefined,
       containerId: backupContainerForm.value.containerId,
@@ -584,18 +666,93 @@ const submitBackupContainer = async () => {
       customName: backupContainerForm.value.backupName?.trim() || undefined,
       stopDuringBackup: backupContainerForm.value.stopDuringBackup,
     };
-    const res = await axios.post('/api/v1/backup/containers/run', payload, { timeout: 600000 });
-    if (res.data.success) {
-      showNotification('success', res.data.message || 'Container snapshot saved in backup/container-docker!');
-      isBackupContainerModalOpen.value = false;
-      isRunBackupModalOpen.value = false;
+
+    const response = await fetch('/api/v1/backup/containers/run-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errMsg = `Server returned HTTP ${response.status} ${response.statusText}`;
+      try {
+        const errJson = await response.json();
+        if (errJson.error) errMsg = errJson.error;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    if (!response.body) {
+      throw new Error('No streaming response body received from server');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const item = JSON.parse(dataStr);
+              addCliLog(item.step || 'backup', item.status || 'info', item.message || '', item.timestamp);
+              if (item.status === 'error') {
+                cliError.value = item.message;
+              }
+              if (item.step === 'complete' && item.status === 'success') {
+                cliIsSuccess.value = true;
+              }
+            } catch {
+              addCliLog('backup', 'info', dataStr);
+            }
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const lines = buffer.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const item = JSON.parse(line.slice(6).trim());
+            addCliLog(item.step || 'backup', item.status || 'info', item.message || '', item.timestamp);
+            if (item.status === 'error') cliError.value = item.message;
+            if (item.step === 'complete' && item.status === 'success') cliIsSuccess.value = true;
+          } catch {}
+        }
+      }
+    }
+
+    if (!cliError.value) {
+      cliIsSuccess.value = true;
       activeTab.value = 'containers';
       await fetchAll();
     }
   } catch (err: any) {
-    showNotification('error', err.response?.data?.error || err.message || 'Failed to backup container');
+    const msg = err.message || 'Failed to stream backup';
+    cliError.value = msg;
+    addCliLog('error', 'error', msg);
   } finally {
-    backupContainerRunning.value = false;
+    cliIsRunning.value = false;
+    if (cliTimerInterval) {
+      clearInterval(cliTimerInterval);
+      cliTimerInterval = null;
+    }
   }
 };
 
@@ -703,7 +860,30 @@ const submitRestoreContainer = async () => {
     return;
   }
 
-  restoreContainerRunning.value = true;
+  const selectedConn = dockerConnections.value.find((c) => c.id === restoreForm.value.targetConnectionId);
+  const targetHostName = selectedConn ? selectedConn.name : 'Target Host';
+  const contName = restoreForm.value.newContainerName.trim();
+
+  // Close restore modal & open CLI progress modal
+  isRestoreContainerModalOpen.value = false;
+
+  cliModalTitle.value = 'Container Restore Console';
+  cliModalTarget.value = `${contName} -> ${targetHostName}`;
+  cliModalType.value = 'restore';
+  cliLogs.value = [];
+  cliIsRunning.value = true;
+  cliIsSuccess.value = false;
+  cliError.value = '';
+  cliTimerSec.value = 0;
+  isCliModalOpen.value = true;
+
+  if (cliTimerInterval) clearInterval(cliTimerInterval);
+  cliTimerInterval = setInterval(() => {
+    cliTimerSec.value++;
+  }, 1000);
+
+  addCliLog('init', 'info', `Initiating restore pipeline for '${contName}' into host '${targetHostName}'...`);
+
   try {
     const portBindings: Record<string, string> = {};
     const portsMapping: { hostPort: string; containerPort: string }[] = [];
@@ -725,8 +905,8 @@ const submitRestoreContainer = async () => {
     const payload = {
       filename: restoreForm.value.filename,
       targetConnectionId: restoreForm.value.targetConnectionId || undefined,
-      containerName: restoreForm.value.newContainerName.trim(),
-      newContainerName: restoreForm.value.newContainerName.trim(),
+      containerName: contName,
+      newContainerName: contName,
       ports: portsMapping.length > 0 ? portsMapping : undefined,
       portBindings: Object.keys(portBindings).length > 0 ? portBindings : undefined,
       env: envMapping.length > 0 ? envMapping : undefined,
@@ -737,17 +917,93 @@ const submitRestoreContainer = async () => {
       replaceExisting: restoreForm.value.replaceExisting,
     };
 
-    const res = await axios.post('/api/v1/backup/containers/restore', payload, { timeout: 600000 });
-    if (res.data.success) {
-      showNotification('success', res.data.message || `Container '${restoreForm.value.newContainerName}' restored successfully!`);
-      isRestoreContainerModalOpen.value = false;
+    const token = authStore.token || localStorage.getItem('token') || '';
+    const response = await fetch('/api/v1/backup/containers/restore-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errMsg = `Server returned HTTP ${response.status} ${response.statusText}`;
+      try {
+        const errJson = await response.json();
+        if (errJson.error) errMsg = errJson.error;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    if (!response.body) {
+      throw new Error('No streaming response body received from server');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const item = JSON.parse(dataStr);
+              addCliLog(item.step || 'restore', item.status || 'info', item.message || '', item.timestamp);
+              if (item.status === 'error') {
+                cliError.value = item.message;
+              }
+              if (item.step === 'complete' && item.status === 'success') {
+                cliIsSuccess.value = true;
+              }
+            } catch {
+              addCliLog('restore', 'info', dataStr);
+            }
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const lines = buffer.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const item = JSON.parse(line.slice(6).trim());
+            addCliLog(item.step || 'restore', item.status || 'info', item.message || '', item.timestamp);
+            if (item.status === 'error') cliError.value = item.message;
+            if (item.step === 'complete' && item.status === 'success') cliIsSuccess.value = true;
+          } catch {}
+        }
+      }
+    }
+
+    if (!cliError.value) {
+      cliIsSuccess.value = true;
       activeTab.value = 'containers';
       await fetchAll();
     }
   } catch (err: any) {
-    showNotification('error', err.response?.data?.error || err.message || 'Failed to restore container');
+    const msg = err.message || 'Failed to stream restore';
+    cliError.value = msg;
+    addCliLog('error', 'error', msg);
   } finally {
-    restoreContainerRunning.value = false;
+    cliIsRunning.value = false;
+    if (cliTimerInterval) {
+      clearInterval(cliTimerInterval);
+      cliTimerInterval = null;
+    }
   }
 };
 
@@ -3377,6 +3633,168 @@ onMounted(() => {
           >
             Close
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- LIVE CLI EXECUTION PROGRESS CONSOLE MODAL -->
+    <!-- ============================================================= -->
+    <div
+      v-if="isCliModalOpen"
+      class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-[#1c2438]">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0">
+              <Terminal class="w-4 h-4" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                  {{ cliModalTitle }}
+                </h3>
+                <span
+                  v-if="cliIsRunning"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Processing ({{ cliTimerSec }}s)
+                </span>
+                <span
+                  v-else-if="cliIsSuccess"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                >
+                  Completed in {{ cliTimerSec }}s
+                </span>
+                <span
+                  v-else-if="cliError"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                >
+                  Failed after {{ cliTimerSec }}s
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                Target: {{ cliModalTarget }}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              @click="copyCliLogs"
+              :disabled="cliLogs.length === 0"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition cursor-pointer disabled:opacity-40"
+              title="Copy console output"
+            >
+              <Check v-if="copiedCliLogs" class="w-3.5 h-3.5 text-emerald-500" />
+              <Copy v-else class="w-3.5 h-3.5" />
+              <span>{{ copiedCliLogs ? 'Copied' : 'Copy' }}</span>
+            </button>
+            <button
+              v-if="!cliIsRunning"
+              @click="closeCliModal"
+              class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal Output Window -->
+        <div
+          ref="cliTerminalRef"
+          class="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed select-text space-y-1.5 bg-slate-950 dark:bg-[#070a12] text-slate-200 min-h-[300px] max-h-[460px]"
+        >
+          <div
+            v-for="(log, idx) in cliLogs"
+            :key="idx"
+            class="flex items-start gap-2.5 font-mono"
+          >
+            <span class="text-slate-500 shrink-0 select-none text-[10px]">
+              [{{ log.timestamp }}]
+            </span>
+            <span
+              class="uppercase text-[9px] px-1.5 py-0.5 rounded shrink-0 font-bold tracking-wider"
+              :class="{
+                'bg-slate-800 text-slate-300': log.status === 'info',
+                'bg-blue-900/60 text-blue-300': log.status === 'progress' && log.step !== 'load',
+                'bg-purple-900/60 text-purple-300': log.status === 'progress' && log.step === 'load',
+                'bg-emerald-900/60 text-emerald-300': log.status === 'success',
+                'bg-rose-900/60 text-rose-300': log.status === 'error',
+              }"
+            >
+              {{ log.step }}
+            </span>
+            <span
+              class="flex-1 break-all"
+              :class="{
+                'text-slate-300': log.status === 'info',
+                'text-blue-200': log.status === 'progress' && log.step !== 'load',
+                'text-purple-200': log.status === 'progress' && log.step === 'load',
+                'text-emerald-300 font-semibold': log.status === 'success',
+                'text-rose-300 font-semibold': log.status === 'error',
+              }"
+            >
+              {{ log.message }}
+            </span>
+          </div>
+
+          <div
+            v-if="cliIsRunning"
+            class="flex items-center gap-2 pt-2 text-slate-400 animate-pulse font-mono text-[10px]"
+          >
+            <span class="inline-block w-2 h-3.5 bg-slate-400"></span>
+            <span>Running background task...</span>
+          </div>
+        </div>
+
+        <!-- Error Summary Box (If failed) -->
+        <div
+          v-if="cliError"
+          class="px-5 py-3 bg-rose-50 dark:bg-rose-950/40 border-t border-rose-200 dark:border-rose-900/50 flex items-start gap-3"
+        >
+          <AlertCircle class="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+          <div class="text-xs text-rose-800 dark:text-rose-300 space-y-0.5">
+            <span class="font-bold">Process Encountered An Error:</span>
+            <p class="font-mono text-[11px] break-all">{{ cliError }}</p>
+          </div>
+        </div>
+
+        <!-- Success Summary Box (If completed) -->
+        <div
+          v-else-if="cliIsSuccess"
+          class="px-5 py-3 bg-emerald-50 dark:bg-emerald-950/40 border-t border-emerald-200 dark:border-emerald-900/50 flex items-center gap-3"
+        >
+          <CheckCircle2 class="w-4 h-4 text-emerald-500 shrink-0" />
+          <span class="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+            {{ cliModalType === 'restore' ? 'Container restored and running successfully!' : 'Container backup snapshot created successfully!' }}
+          </span>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between px-5 py-3 bg-slate-50 dark:bg-[#0c101c] border-t border-slate-100 dark:border-[#1c2438]">
+          <span class="text-[11px] text-slate-500 dark:text-slate-400">
+            {{ cliIsRunning ? 'Do not navigate away or close this window during processing.' : 'Process execution finished.' }}
+          </span>
+          <div class="flex items-center gap-2">
+            <button
+              v-if="!cliIsRunning"
+              type="button"
+              @click="closeCliModal"
+              class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+            >
+              {{ cliIsSuccess ? 'Done' : 'Close' }}
+            </button>
+            <span
+              v-else
+              class="text-xs text-slate-500 italic"
+            >
+              Executing in progress...
+            </span>
+          </div>
         </div>
       </div>
     </div>

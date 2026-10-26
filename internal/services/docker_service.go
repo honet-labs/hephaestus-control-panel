@@ -197,20 +197,29 @@ _exec_docker %s
 
 // StreamRemoteDockerSave streams `docker save <imageTag>` directly from remote SSH stdout
 // with on-the-fly gzip compression, eliminating disk writes to remote /tmp and slow SFTP overhead.
-func (s *DockerService) StreamRemoteDockerSave(ctx context.Context, conn *domain.DockerConnection, imageTag string, dst io.Writer) error {
+func (s *DockerService) StreamRemoteDockerSave(ctx context.Context, conn *domain.DockerConnection, imageTag string, dst io.Writer, logFn func(step, status, message string)) error {
+	safeLog := func(step, status, msg string) {
+		if logFn != nil {
+			logFn(step, status, msg)
+		}
+	}
+	safeLog("stream", "info", fmt.Sprintf("Connecting to remote host '%s' via SSH...", conn.Name))
 	remoteHost, err := s.resolveRemoteHost(ctx, conn)
 	if err != nil {
+		safeLog("stream", "error", fmt.Sprintf("Failed to resolve remote host: %v", err))
 		return err
 	}
 
 	client, err := s.sshService.Dial(remoteHost)
 	if err != nil {
+		safeLog("stream", "error", fmt.Sprintf("Failed SSH connection: %v", err))
 		return fmt.Errorf("failed to connect to remote host via SSH: %w", err)
 	}
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
+		safeLog("stream", "error", fmt.Sprintf("Failed to create SSH session: %v", err))
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
@@ -264,7 +273,9 @@ fi
 	var stderrBuf bytes.Buffer
 	session.Stderr = &stderrBuf
 
+	safeLog("stream", "progress", fmt.Sprintf("Executing remote command: docker save %s | gzip -1", imageTag))
 	if err := session.Start(script); err != nil {
+		safeLog("stream", "error", fmt.Sprintf("Failed to start remote docker save: %v", err))
 		return fmt.Errorf("failed to start remote docker save: %w", err)
 	}
 
@@ -272,6 +283,7 @@ fi
 	magic, err := br.Peek(2)
 	var errCopy error
 	if err == nil && len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		safeLog("stream", "progress", "Gzip compressed stream detected. Decompressing and streaming into image tar archive...")
 		gzR, gzErr := gzip.NewReader(br)
 		if gzErr != nil {
 			return fmt.Errorf("failed to initialize gzip decompressor: %w", gzErr)
@@ -279,39 +291,52 @@ fi
 		defer gzR.Close()
 		_, errCopy = io.Copy(dst, gzR)
 	} else {
+		safeLog("stream", "progress", "Streaming raw tar bytes from remote host...")
 		_, errCopy = io.Copy(dst, br)
 	}
 
 	errWait := session.Wait()
 	if errCopy != nil {
+		safeLog("stream", "error", fmt.Sprintf("Streaming copy interrupted: %v", errCopy))
 		return fmt.Errorf("failed during remote image stream copy: %w", errCopy)
 	}
 	if errWait != nil {
 		errStr := strings.TrimSpace(stderrBuf.String())
 		if errStr != "" {
+			safeLog("stream", "error", fmt.Sprintf("Remote command stderr: %s", errStr))
 			return fmt.Errorf("remote docker save failed: %s (%w)", errStr, errWait)
 		}
 		return fmt.Errorf("remote docker save failed: %w", errWait)
 	}
 
+	safeLog("stream", "success", "Remote image stream completed and successfully written to disk.")
 	return nil
 }
 
 // StreamRemoteDockerLoad streams uncompressed/compressed image.tar into remote `docker load` via SSH stdin
-func (s *DockerService) StreamRemoteDockerLoad(ctx context.Context, conn *domain.DockerConnection, src io.Reader) error {
+func (s *DockerService) StreamRemoteDockerLoad(ctx context.Context, conn *domain.DockerConnection, src io.Reader, logFn func(step, status, message string)) error {
+	safeLog := func(step, status, msg string) {
+		if logFn != nil {
+			logFn(step, status, msg)
+		}
+	}
+	safeLog("load", "info", fmt.Sprintf("Connecting to target Docker host '%s' via SSH...", conn.Name))
 	remoteHost, err := s.resolveRemoteHost(ctx, conn)
 	if err != nil {
+		safeLog("load", "error", fmt.Sprintf("Failed to resolve target host: %v", err))
 		return err
 	}
 
 	client, err := s.sshService.Dial(remoteHost)
 	if err != nil {
+		safeLog("load", "error", fmt.Sprintf("Failed to establish SSH connection: %v", err))
 		return fmt.Errorf("failed to connect to remote host via SSH: %w", err)
 	}
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
+		safeLog("load", "error", fmt.Sprintf("Failed to create SSH session: %v", err))
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
@@ -346,14 +371,31 @@ fi
 	var stderrBuf bytes.Buffer
 	session.Stderr = &stderrBuf
 
+	stdoutPipe, errPipe := session.StdoutPipe()
+	if errPipe == nil && logFn != nil {
+		go func() {
+			scanner := bufio.NewScanner(stdoutPipe)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line != "" {
+					safeLog("load", "progress", line)
+				}
+			}
+		}()
+	}
+
+	safeLog("load", "progress", "Piping image tar stream into remote 'docker load' stdin...")
 	if err := session.Run(script); err != nil {
 		errStr := strings.TrimSpace(stderrBuf.String())
 		if errStr != "" {
+			safeLog("load", "error", fmt.Sprintf("Remote stderr: %s", errStr))
 			return fmt.Errorf("remote docker load failed: %s (%w)", errStr, err)
 		}
+		safeLog("load", "error", fmt.Sprintf("Command failed: %v", err))
 		return fmt.Errorf("remote docker load failed: %w", err)
 	}
 
+	safeLog("load", "success", "OCI image unpacked and loaded successfully into remote Docker daemon.")
 	return nil
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -409,6 +410,54 @@ func (h *BackupHandler) RunContainerBackup(c *gin.Context) {
 	})
 }
 
+func (h *BackupHandler) RunContainerBackupStream(c *gin.Context) {
+	var req domain.BackupContainerRunRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: connectionId and containerId are required"})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	sendMsg := func(step string, status string, message string) {
+		payload := map[string]interface{}{
+			"step":      step,
+			"status":    status, // "info", "progress", "success", "error"
+			"message":   message,
+			"timestamp": time.Now().Format("15:04:05"),
+		}
+		data, _ := json.Marshal(payload)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		c.Writer.Flush()
+	}
+
+	sendMsg("init", "info", "Starting container backup pipeline...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	meta, err := h.backupService.BackupContainerStream(ctx, req, sendMsg)
+	if err != nil {
+		sendMsg("error", "error", err.Error())
+		return
+	}
+
+	completePayload := map[string]interface{}{
+		"step":      "complete",
+		"status":    "success",
+		"message":   fmt.Sprintf("Container '%s' backup snapshot completed successfully! (Filename: %s)", meta.ContainerName, meta.Filename),
+		"data":      meta,
+		"timestamp": time.Now().Format("15:04:05"),
+	}
+	compData, _ := json.Marshal(completePayload)
+	fmt.Fprintf(c.Writer, "data: %s\n\n", compData)
+	c.Writer.Flush()
+}
+
 func (h *BackupHandler) InspectContainerBackup(c *gin.Context) {
 	filename := c.Param("filename")
 	meta, err := h.backupService.InspectContainerBackup(c.Request.Context(), filename)
@@ -440,6 +489,54 @@ func (h *BackupHandler) RestoreContainer(c *gin.Context) {
 		"message": fmt.Sprintf("Container '%s' successfully restored to target Docker host!", details.Name),
 		"data":    details,
 	})
+}
+
+func (h *BackupHandler) RestoreContainerStream(c *gin.Context) {
+	var req domain.RestoreContainerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input: filename and targetConnectionId are required"})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	sendMsg := func(step string, status string, message string) {
+		payload := map[string]interface{}{
+			"step":      step,
+			"status":    status, // "info", "progress", "success", "error"
+			"message":   message,
+			"timestamp": time.Now().Format("15:04:05"),
+		}
+		data, _ := json.Marshal(payload)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		c.Writer.Flush()
+	}
+
+	sendMsg("init", "info", fmt.Sprintf("Starting container restore pipeline for archive '%s'...", req.Filename))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	details, err := h.backupService.RestoreContainerStream(ctx, req, sendMsg)
+	if err != nil {
+		sendMsg("error", "error", err.Error())
+		return
+	}
+
+	completePayload := map[string]interface{}{
+		"step":      "complete",
+		"status":    "success",
+		"message":   fmt.Sprintf("Container '%s' successfully restored to target Docker host! (ID: %s)", details.Name, details.ID[:12]),
+		"data":      details,
+		"timestamp": time.Now().Format("15:04:05"),
+	}
+	compData, _ := json.Marshal(completePayload)
+	fmt.Fprintf(c.Writer, "data: %s\n\n", compData)
+	c.Writer.Flush()
 }
 
 func (h *BackupHandler) DownloadContainerBackup(c *gin.Context) {

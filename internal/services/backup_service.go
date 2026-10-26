@@ -1502,17 +1502,32 @@ func (s *BackupService) InspectContainerBackup(ctx context.Context, filename str
 }
 
 func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupContainerRunRequest) (*domain.ContainerBackupMetadata, error) {
+	return s.BackupContainerStream(ctx, req, nil)
+}
+
+func (s *BackupService) BackupContainerStream(ctx context.Context, req domain.BackupContainerRunRequest, logFn func(step, status, message string)) (*domain.ContainerBackupMetadata, error) {
+	safeLog := func(step, status, msg string) {
+		if logFn != nil {
+			logFn(step, status, msg)
+		}
+	}
+
 	if s.dockerService == nil {
+		safeLog("error", "error", "docker service is not initialized")
 		return nil, errors.New("docker service is not initialized")
 	}
 
+	safeLog("init", "info", fmt.Sprintf("Resolving Docker connection '%s'...", req.ConnectionID))
 	conn, err := s.dockerService.resolveConnection(ctx, req.ConnectionID)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to resolve Docker connection: %v", err))
 		return nil, fmt.Errorf("failed to resolve Docker connection: %w", err)
 	}
 
+	safeLog("inspect", "info", fmt.Sprintf("Inspecting container '%s' on '%s'...", req.ContainerID, conn.Name))
 	inspect, err := s.dockerService.InspectContainer(ctx, req.ConnectionID, req.ContainerID)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to inspect container: %v", err))
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 
@@ -1526,8 +1541,10 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 
 	wasRunning := inspect.IsRunning
 	if req.StopDuringBackup && wasRunning {
+		safeLog("quiesce", "progress", fmt.Sprintf("Stopping container '%s' temporarily for consistent snapshot...", cleanName))
 		_ = s.dockerService.StopContainer(ctx, req.ConnectionID, req.ContainerID)
 		defer func() {
+			safeLog("quiesce", "info", fmt.Sprintf("Restarting container '%s' after backup...", cleanName))
 			_ = s.dockerService.StartContainer(context.Background(), req.ConnectionID, req.ContainerID)
 		}()
 	}
@@ -1549,45 +1566,52 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 	historyID := fmt.Sprintf("cbh-%s", uuid.New().String()[:8])
 	destType := "container-docker"
 	_ = s.backupRepo.CreateHistory(ctx, domain.BackupHistoryEntry{
-		ID:            historyID,
-		DBName:        cleanName,
-		DBType:        "docker",
-		DestType:      destType,
-		Filename:      filename,
-		FileSize:      0,
-		Status:        "running",
-		StartedAt:     now,
+		ID:        historyID,
+		DBName:    cleanName,
+		DBType:    "docker",
+		DestType:  destType,
+		Filename:  filename,
+		FileSize:  0,
+		Status:    "running",
+		StartedAt: now,
 	})
 
 	// 1. Commit container & export image tar
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
+		safeLog("commit", "progress", fmt.Sprintf("Executing docker commit on remote host '%s' -> '%s'...", conn.Name, backupTag))
 		commitCmd := fmt.Sprintf("commit %s %s", shellQuote(req.ContainerID), shellQuote(backupTag))
 		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, conn, commitCmd); err != nil {
 			errMsg := fmt.Sprintf("docker commit failed: %v", err)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, fmt.Errorf("remote commit failed: %w", err)
 		}
 
 		defer func() {
+			safeLog("cleanup", "info", fmt.Sprintf("Removing temporary snapshot image '%s' on remote host...", backupTag))
 			_, _, _ = s.dockerService.runRemoteDockerCommand(context.Background(), conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
 		}()
 
 		imgDst, err := os.Create(tempImageFile)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to create temporary image file: %v", err)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, err
 		}
 
-		errSave := s.dockerService.StreamRemoteDockerSave(ctx, conn, backupTag, imgDst)
+		safeLog("stream", "progress", fmt.Sprintf("Streaming docker image layers from remote '%s' to HCP storage...", conn.Name))
+		errSave := s.dockerService.StreamRemoteDockerSave(ctx, conn, backupTag, imgDst, safeLog)
 		imgDst.Close()
 		if errSave != nil {
 			errMsg := fmt.Sprintf("remote docker save streaming failed: %v", errSave)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, errSave
 		}
 	} else {
 		// Local Docker
+		safeLog("commit", "progress", fmt.Sprintf("Committing local container '%s' -> '%s'...", cleanName, backupTag))
 		commitEndpoint := fmt.Sprintf("/commit?container=%s&repo=%s&tag=%s",
 			url.QueryEscape(req.ContainerID),
 			url.QueryEscape("hcp-backup-"+cleanName),
@@ -1595,11 +1619,13 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		)
 		if err := s.dockerService.doLocalPost(ctx, conn, commitEndpoint, nil); err != nil {
 			errMsg := fmt.Sprintf("docker commit failed: %v", err)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, fmt.Errorf("local commit failed: %w", err)
 		}
 
 		defer func() {
+			safeLog("cleanup", "info", fmt.Sprintf("Removing temporary snapshot image '%s' on local daemon...", backupTag))
 			delClient, delBaseURL := s.dockerService.getLocalHTTPClient(conn)
 			delReq, _ := http.NewRequestWithContext(context.Background(), "DELETE", fmt.Sprintf("%s/images/%s?force=true", delBaseURL, url.PathEscape(backupTag)), nil)
 			if delReq != nil {
@@ -1607,15 +1633,18 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 			}
 		}()
 
+		safeLog("stream", "progress", "Streaming docker image archive from local Docker daemon...")
 		saveEndpoint := fmt.Sprintf("/images/%s/get", url.PathEscape(backupTag))
 		client, baseURL := s.dockerService.getLocalStreamingHTTPClient(conn)
 		saveReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+saveEndpoint, nil)
 		if err != nil {
+			safeLog("error", "error", err.Error())
 			return nil, err
 		}
 		saveResp, err := client.Do(saveReq)
 		if err != nil {
 			errMsg := fmt.Sprintf("docker save failed: %v", err)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, fmt.Errorf("local save failed: %w", err)
 		}
@@ -1623,12 +1652,14 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 
 		imgDst, err := os.Create(tempImageFile)
 		if err != nil {
+			safeLog("error", "error", err.Error())
 			return nil, err
 		}
 		_, errCopy := io.Copy(imgDst, saveResp.Body)
 		imgDst.Close()
 		if errCopy != nil {
 			errMsg := fmt.Sprintf("failed to stream image: %v", errCopy)
+			safeLog("error", "error", errMsg)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, errCopy
 		}
@@ -1658,9 +1689,11 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 	}
 
 	// 3. Package metadata.json + image.tar into targetFilePath (.tar.gz)
+	safeLog("package", "progress", fmt.Sprintf("Compressing image archive and metadata into %s...", filename))
 	outGzFile, err := os.Create(targetFilePath)
 	if err != nil {
 		errMsg := err.Error()
+		safeLog("error", "error", errMsg)
 		_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 		return nil, fmt.Errorf("failed to create target file: %w", err)
 	}
@@ -1680,15 +1713,18 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		Size:    int64(len(metaBytes)),
 		ModTime: now,
 	}); err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 	if _, err := tarWriter.Write(metaBytes); err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 
 	// Add image.tar
 	imgStat, err := os.Stat(tempImageFile)
 	if err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 	if err := tarWriter.WriteHeader(&tar.Header{
@@ -1697,15 +1733,18 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		Size:    imgStat.Size(),
 		ModTime: now,
 	}); err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 	imgSrc, err := os.Open(tempImageFile)
 	if err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 	defer imgSrc.Close()
 
 	if _, err := io.Copy(tarWriter, imgSrc); err != nil {
+		safeLog("error", "error", err.Error())
 		return nil, err
 	}
 
@@ -1720,33 +1759,52 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		metadata.FileSize = finalSize
 	}
 
+	safeLog("complete", "success", fmt.Sprintf("Container snapshot '%s' created successfully! Archive: %s (%.2f MB)", cleanName, filename, float64(finalSize)/(1024*1024)))
 	_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "success", finalSize, nil)
 	return &metadata, nil
 }
 
 func (s *BackupService) RestoreContainer(ctx context.Context, req domain.RestoreContainerRequest) (*domain.ContainerInspectDetails, error) {
+	return s.RestoreContainerStream(ctx, req, nil)
+}
+
+func (s *BackupService) RestoreContainerStream(ctx context.Context, req domain.RestoreContainerRequest, logFn func(step, status, message string)) (*domain.ContainerInspectDetails, error) {
+	safeLog := func(step, status, msg string) {
+		if logFn != nil {
+			logFn(step, status, msg)
+		}
+	}
+
 	if s.dockerService == nil {
+		safeLog("error", "error", "docker service is not initialized")
 		return nil, errors.New("docker service is not initialized")
 	}
 
+	safeLog("archive", "info", fmt.Sprintf("Locating backup archive '%s'...", req.Filename))
 	filePath, err := s.FindContainerBackupFile(req.Filename)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Backup archive not found: %v", err))
 		return nil, err
 	}
 
+	safeLog("resolve", "info", fmt.Sprintf("Resolving destination Docker connection '%s'...", req.TargetConnectionID))
 	targetConn, err := s.dockerService.resolveConnection(ctx, req.TargetConnectionID)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to resolve target Docker connection: %v", err))
 		return nil, fmt.Errorf("failed to resolve target Docker connection: %w", err)
 	}
 
+	safeLog("extract", "progress", fmt.Sprintf("Reading and unpacking backup archive '%s'...", filepath.Base(filePath)))
 	archiveFile, err := os.Open(filePath)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to open backup archive: %v", err))
 		return nil, fmt.Errorf("failed to open backup archive: %w", err)
 	}
 	defer archiveFile.Close()
 
 	gzReader, err := gzip.NewReader(archiveFile)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to initialize gzip reader: %v", err))
 		return nil, fmt.Errorf("failed to initialize gzip reader: %w", err)
 	}
 	defer gzReader.Close()
@@ -1764,6 +1822,7 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 			break
 		}
 		if err != nil {
+			safeLog("error", "error", fmt.Sprintf("Error reading archive entry: %v", err))
 			return nil, fmt.Errorf("error reading archive entry: %w", err)
 		}
 
@@ -1771,16 +1830,20 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 			var meta domain.ContainerBackupMetadata
 			if err := json.NewDecoder(tarReader).Decode(&meta); err == nil {
 				metadata = &meta
+				safeLog("extract", "info", fmt.Sprintf("Read metadata: Source container '%s' with image tag '%s'", meta.ContainerName, meta.BackupTag))
 			}
 		} else if header.Name == "image.tar" || strings.HasSuffix(header.Name, "/image.tar") {
 			tempImagePath = filepath.Join(tempDir, fmt.Sprintf(".restore_img_%s.tar", uuid.New().String()[:8]))
 			outFile, err := os.Create(tempImagePath)
 			if err != nil {
+				safeLog("error", "error", fmt.Sprintf("Failed to create temporary image file: %v", err))
 				return nil, fmt.Errorf("failed to create temporary image file: %w", err)
 			}
+			safeLog("extract", "progress", fmt.Sprintf("Extracting raw container image tarball (%.2f MB)...", float64(header.Size)/(1024*1024)))
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				outFile.Close()
 				_ = os.Remove(tempImagePath)
+				safeLog("error", "error", fmt.Sprintf("Failed to extract image.tar: %v", err))
 				return nil, fmt.Errorf("failed to extract image.tar: %w", err)
 			}
 			outFile.Close()
@@ -1792,9 +1855,11 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 	}
 
 	if metadata == nil {
+		safeLog("error", "error", "invalid backup archive: metadata.json missing")
 		return nil, errors.New("invalid backup archive: metadata.json missing")
 	}
 	if tempImagePath == "" {
+		safeLog("error", "error", "invalid backup archive: image.tar missing")
 		return nil, errors.New("invalid backup archive: image.tar missing")
 	}
 
@@ -1808,11 +1873,15 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 	containerName = strings.TrimPrefix(containerName, "/")
 
 	// Check if container already exists on target connection
+	safeLog("check", "info", fmt.Sprintf("Checking for existing container '%s' on target Docker host '%s'...", containerName, targetConn.Name))
 	existingDetails, errInspect := s.dockerService.InspectContainer(ctx, req.TargetConnectionID, containerName)
 	if errInspect == nil && existingDetails != nil {
 		if !req.ReplaceExisting {
-			return nil, fmt.Errorf("container '%s' already exists on target Docker host '%s'. Please choose a different name or enable 'Replace existing container'", containerName, targetConn.Name)
+			errMsg := fmt.Sprintf("container '%s' already exists on target Docker host '%s'. Please choose a different name or enable 'Replace existing container'", containerName, targetConn.Name)
+			safeLog("error", "error", errMsg)
+			return nil, errors.New(errMsg)
 		}
+		safeLog("check", "progress", fmt.Sprintf("Replacing existing container '%s' on destination...", containerName))
 		_ = s.dockerService.RemoveContainer(ctx, req.TargetConnectionID, containerName, true)
 	}
 
@@ -1820,35 +1889,45 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 	if targetConn.HostType == "ssh" || targetConn.RemoteHostID != nil {
 		imgF, err := os.Open(tempImagePath)
 		if err != nil {
+			safeLog("error", "error", err.Error())
 			return nil, err
 		}
 		defer imgF.Close()
 
-		if err := s.dockerService.StreamRemoteDockerLoad(ctx, targetConn, imgF); err != nil {
+		safeLog("load", "progress", fmt.Sprintf("Loading image into remote Docker host '%s' via SSH...", targetConn.Name))
+		if err := s.dockerService.StreamRemoteDockerLoad(ctx, targetConn, imgF, safeLog); err != nil {
+			safeLog("error", "error", fmt.Sprintf("docker load failed on remote host: %v", err))
 			return nil, fmt.Errorf("docker load failed on remote host: %w", err)
 		}
 	} else {
 		imgF, err := os.Open(tempImagePath)
 		if err != nil {
+			safeLog("error", "error", err.Error())
 			return nil, err
 		}
 		defer imgF.Close()
 
+		safeLog("load", "progress", "Piping image into local Docker daemon via /images/load...")
 		client, baseURL := s.dockerService.getLocalStreamingHTTPClient(targetConn)
 		loadReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/images/load", imgF)
 		if err != nil {
+			safeLog("error", "error", err.Error())
 			return nil, err
 		}
 		loadReq.Header.Set("Content-Type", "application/x-tar")
 		resp, err := client.Do(loadReq)
 		if err != nil {
+			safeLog("error", "error", fmt.Sprintf("docker load failed on local host: %v", err))
 			return nil, fmt.Errorf("docker load failed on local host: %w", err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 400 {
 			b, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("docker load returned status %d: %s", resp.StatusCode, string(b))
+			errMsg := fmt.Sprintf("docker load returned status %d: %s", resp.StatusCode, string(b))
+			safeLog("error", "error", errMsg)
+			return nil, errors.New(errMsg)
 		}
+		safeLog("load", "success", "Image loaded successfully into local Docker daemon.")
 	}
 
 	// Prepare deploy request
@@ -1960,11 +2039,14 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 		StartAfter:     &startAfter,
 	}
 
-	createdID, err := s.dockerService.DeployContainerStream(ctx, req.TargetConnectionID, deployReq, nil)
+	safeLog("deploy", "progress", fmt.Sprintf("Configuring and deploying container '%s' on '%s'...", containerName, targetConn.Name))
+	createdID, err := s.dockerService.DeployContainerStream(ctx, req.TargetConnectionID, deployReq, safeLog)
 	if err != nil {
+		safeLog("error", "error", fmt.Sprintf("Failed to deploy restored container: %v", err))
 		return nil, fmt.Errorf("failed to deploy restored container: %w", err)
 	}
 
+	safeLog("complete", "success", fmt.Sprintf("Container '%s' restored and started successfully (ID: %s)!", containerName, createdID[:12]))
 	return s.dockerService.InspectContainer(ctx, req.TargetConnectionID, createdID)
 }
 

@@ -304,8 +304,10 @@ func main() {
 		api.DELETE("/backup/history/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteHistory)
 		api.GET("/backup/containers", middleware.RequirePermission("backup", "read"), backupHandler.ListContainerBackups)
 		api.POST("/backup/containers/run", middleware.RequirePermission("backup", "manage"), backupHandler.RunContainerBackup)
+		api.POST("/backup/containers/run-stream", middleware.RequirePermission("backup", "manage"), backupHandler.RunContainerBackupStream)
 		api.GET("/backup/containers/:filename/inspect", middleware.RequirePermission("backup", "read"), backupHandler.InspectContainerBackup)
 		api.POST("/backup/containers/restore", middleware.RequirePermission("backup", "manage"), backupHandler.RestoreContainer)
+		api.POST("/backup/containers/restore-stream", middleware.RequirePermission("backup", "manage"), backupHandler.RestoreContainerStream)
 		api.GET("/backup/containers/:filename/download", middleware.RequirePermission("backup", "read"), backupHandler.DownloadContainerBackup)
 		api.DELETE("/backup/containers/:filename", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteContainerBackup)
 
