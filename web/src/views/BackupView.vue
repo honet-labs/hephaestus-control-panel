@@ -33,6 +33,7 @@ import {
   Eye,
   Sliders,
   Archive,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -73,7 +74,9 @@ const filteredContainerBackups = computed(() => {
     (b: any) =>
       b.containerName?.toLowerCase().includes(q) ||
       b.filename?.toLowerCase().includes(q) ||
+      b.image?.toLowerCase().includes(q) ||
       b.sourceImage?.toLowerCase().includes(q) ||
+      b.sourceConnectionName?.toLowerCase().includes(q) ||
       b.sourceConnection?.toLowerCase().includes(q)
   );
 });
@@ -413,7 +416,13 @@ const fetchAll = async () => {
     if (schedRes.data?.success) schedules.value = schedRes.data.data || [];
     if (histRes.data?.success) history.value = histRes.data.data?.history || [];
     if (contRes.data?.success) containerBackups.value = contRes.data.data || [];
-    if (connRes.data?.success) dockerConnections.value = connRes.data.data || [];
+    if (connRes.data?.success && Array.isArray(connRes.data.data)) {
+      dockerConnections.value = connRes.data.data;
+    } else if (Array.isArray(connRes.data)) {
+      dockerConnections.value = connRes.data;
+    } else {
+      dockerConnections.value = [];
+    }
 
     // Pre-select defaults for run modal
     if (databases.value.length > 0 && !runForm.value.dbConfigId) {
@@ -427,6 +436,40 @@ const fetchAll = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const fetchDockerConnections = async () => {
+  try {
+    const res = await axios.get('/api/v1/docker/connections');
+    if (res.data?.success && Array.isArray(res.data.data)) {
+      dockerConnections.value = res.data.data;
+    } else if (Array.isArray(res.data)) {
+      dockerConnections.value = res.data;
+    }
+  } catch (err) {
+    console.error('Failed to load docker connections:', err);
+  }
+};
+
+const getDockerConnectionLabel = (conn: any) => {
+  if (!conn) return 'Local Docker Engine (Local Socket)';
+  const name = conn.name || 'Docker Engine';
+  let details = '';
+  if (conn.sshHost) {
+    const user = conn.sshUser || 'root';
+    const port = conn.sshPort || 22;
+    details = `SSH: ${user}@${conn.sshHost}:${port}`;
+  } else if (conn.tcpUrl) {
+    details = `TCP: ${conn.tcpUrl}`;
+  } else if (conn.socketPath) {
+    details = `Socket: ${conn.socketPath}`;
+  } else if (conn.hostType === 'local') {
+    details = 'Local Socket';
+  } else {
+    details = conn.driver || conn.hostType || 'Remote Host';
+  }
+  const isDef = conn.isDefault ? ' (Default)' : '';
+  return `${name} — ${details}${isDef}`;
 };
 
 const runBackupTargetType = ref<'database' | 'container'>('database');
@@ -499,7 +542,17 @@ const onBackupConnectionChange = () => {
   fetchAvailableContainers(backupContainerForm.value.connectionId);
 };
 
-const openBackupContainerModal = (preselectedConnId?: string) => {
+const selectedTargetConnection = computed(() => {
+  if (!restoreForm.value.targetConnectionId) {
+    return dockerConnections.value.find((c: any) => c.hostType === 'local' || c.isDefault) || null;
+  }
+  return dockerConnections.value.find((c: any) => c.id === restoreForm.value.targetConnectionId) || null;
+});
+
+const openBackupContainerModal = async (preselectedConnId?: string) => {
+  if (!dockerConnections.value || dockerConnections.value.length === 0) {
+    await fetchDockerConnections();
+  }
   backupContainerForm.value = {
     connectionId: preselectedConnId !== undefined ? preselectedConnId : (dockerConnections.value[0]?.id || ''),
     containerId: '',
@@ -539,36 +592,82 @@ const submitBackupContainer = async () => {
   }
 };
 
-const openRestoreContainerModal = (b: any) => {
-  restoreBackupTarget.value = b;
-  const portsList: { host: string; container: string }[] = [];
-  if (b.portBindings) {
-    for (const [containerPort, hostPort] of Object.entries(b.portBindings)) {
-      portsList.push({ host: String(hostPort), container: String(containerPort) });
+const openRestoreContainerModal = async (b: any) => {
+  try {
+    restoreBackupTarget.value = b;
+
+    if (!dockerConnections.value || dockerConnections.value.length === 0) {
+      await fetchDockerConnections();
     }
-  }
-  const envList: { key: string; value: string }[] = [];
-  if (Array.isArray(b.env)) {
-    for (const item of b.env) {
-      const idx = item.indexOf('=');
-      if (idx !== -1) {
-        envList.push({ key: item.slice(0, idx), value: item.slice(idx + 1) });
-      } else {
-        envList.push({ key: item, value: '' });
+
+    // Safely extract port bindings
+    const portsList: { host: string; container: string }[] = [];
+    if (Array.isArray(b.ports)) {
+      for (const p of b.ports) {
+        if (typeof p === 'object' && p !== null) {
+          const h = p.hostPort || p.host || '';
+          const c = p.containerPort || p.container || '';
+          if (h || c) {
+            portsList.push({ host: String(h), container: String(c) });
+          }
+        } else if (typeof p === 'string') {
+          const parts = p.split(':');
+          if (parts.length === 2) {
+            portsList.push({ host: parts[0], container: parts[1] });
+          }
+        }
+      }
+    } else if (b.portBindings && typeof b.portBindings === 'object') {
+      for (const [containerPort, hostPort] of Object.entries(b.portBindings)) {
+        portsList.push({ host: String(hostPort), container: String(containerPort) });
       }
     }
+
+    // Safely extract environment variables
+    const envList: { key: string; value: string }[] = [];
+    if (Array.isArray(b.env)) {
+      for (const item of b.env) {
+        if (typeof item === 'object' && item !== null) {
+          if (item.key !== undefined) {
+            envList.push({ key: String(item.key), value: String(item.value || '') });
+          }
+        } else if (typeof item === 'string') {
+          const idx = item.indexOf('=');
+          if (idx !== -1) {
+            envList.push({ key: item.slice(0, idx), value: item.slice(idx + 1) });
+          } else {
+            envList.push({ key: item, value: '' });
+          }
+        }
+      }
+    }
+
+    // Determine target connection default
+    let defaultConnId = '';
+    const srcId = b.sourceConnectionId || b.sourceConnectionID;
+    if (srcId && dockerConnections.value.some((c: any) => c.id === srcId)) {
+      defaultConnId = srcId;
+    } else if (dockerConnections.value.length > 0) {
+      const defConn = dockerConnections.value.find((c: any) => c.isDefault);
+      defaultConnId = defConn ? defConn.id : (dockerConnections.value[0]?.id || '');
+    }
+
+    restoreForm.value = {
+      filename: b.filename,
+      targetConnectionId: defaultConnId,
+      newContainerName: b.containerName || '',
+      ports: portsList,
+      env: envList,
+      restartPolicy: b.restartPolicy || 'unless-stopped',
+      startAfterRestore: true,
+      replaceExisting: true,
+    };
+
+    isRestoreContainerModalOpen.value = true;
+  } catch (err: any) {
+    console.error('Failed to open restore container modal:', err);
+    showNotification('error', `Failed to open restore options: ${err.message || err}`);
   }
-  restoreForm.value = {
-    filename: b.filename,
-    targetConnectionId: b.sourceConnectionId || (dockerConnections.value[0]?.id || ''),
-    newContainerName: b.containerName || '',
-    ports: portsList,
-    env: envList,
-    restartPolicy: b.restartPolicy || 'unless-stopped',
-    startAfterRestore: true,
-    replaceExisting: true,
-  };
-  isRestoreContainerModalOpen.value = true;
 };
 
 const addRestorePort = () => {
@@ -600,15 +699,19 @@ const submitRestoreContainer = async () => {
   restoreContainerRunning.value = true;
   try {
     const portBindings: Record<string, string> = {};
+    const portsMapping: { hostPort: string; containerPort: string }[] = [];
     for (const p of restoreForm.value.ports) {
       if (p.container?.trim() && p.host?.trim()) {
         portBindings[p.container.trim()] = p.host.trim();
+        portsMapping.push({ hostPort: p.host.trim(), containerPort: p.container.trim() });
       }
     }
     const envArray: string[] = [];
+    const envMapping: { key: string; value: string }[] = [];
     for (const e of restoreForm.value.env) {
       if (e.key?.trim()) {
         envArray.push(`${e.key.trim()}=${e.value}`);
+        envMapping.push({ key: e.key.trim(), value: e.value });
       }
     }
 
@@ -617,8 +720,9 @@ const submitRestoreContainer = async () => {
       targetConnectionId: restoreForm.value.targetConnectionId || undefined,
       containerName: restoreForm.value.newContainerName.trim(),
       newContainerName: restoreForm.value.newContainerName.trim(),
+      ports: portsMapping.length > 0 ? portsMapping : undefined,
       portBindings: Object.keys(portBindings).length > 0 ? portBindings : undefined,
-      env: envArray.length > 0 ? envArray : undefined,
+      env: envMapping.length > 0 ? envMapping : undefined,
       envStrings: envArray.length > 0 ? envArray : undefined,
       restartPolicy: restoreForm.value.restartPolicy || 'unless-stopped',
       startAfter: restoreForm.value.startAfterRestore,
@@ -1428,12 +1532,12 @@ onMounted(() => {
               <td class="p-3 font-sans">
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                   <Server class="w-3 h-3 text-slate-400" />
-                  <span>{{ b.sourceConnection || 'Local Docker' }}</span>
+                  <span>{{ b.sourceConnectionName || b.sourceConnection || 'Local Docker' }}</span>
                 </span>
               </td>
               <td class="p-3">
-                <span class="font-mono text-slate-600 dark:text-slate-400 truncate block max-w-[220px]" :title="b.sourceImage">
-                  {{ b.sourceImage }}
+                <span class="font-mono text-slate-600 dark:text-slate-400 truncate block max-w-[220px]" :title="b.image || b.sourceImage">
+                  {{ b.image || b.sourceImage || '-' }}
                 </span>
               </td>
               <td class="p-3 text-slate-600 dark:text-slate-400">
@@ -2622,16 +2726,27 @@ onMounted(() => {
 
         <form @submit.prevent="submitBackupContainer" class="space-y-4 text-xs">
           <!-- Connection / Host Selection -->
-          <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Docker Connection</label>
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="block text-slate-700 dark:text-slate-300 font-bold">Docker Connection</label>
+              <router-link
+                to="/connections"
+                target="_blank"
+                class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                title="View or configure Docker connections in Connections menu"
+              >
+                <span>Manage in Connections</span>
+                <ExternalLink class="w-3 h-3" />
+              </router-link>
+            </div>
             <select
               v-model="backupContainerForm.connectionId"
               @change="onBackupConnectionChange"
-              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-medium"
             >
-              <option value="">Local Docker Engine</option>
+              <option value="">Local Docker Engine (Local Socket: /var/run/docker.sock)</option>
               <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
-                {{ conn.name }} ({{ conn.host || 'local socket' }}){{ conn.isDefault ? ' - Default' : '' }}
+                {{ getDockerConnectionLabel(conn) }}
               </option>
             </select>
           </div>
@@ -2755,22 +2870,52 @@ onMounted(() => {
 
         <form @submit.prevent="submitRestoreContainer" class="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
           <!-- Target Docker Connection -->
-          <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-              Target Docker Connection (Restore Destination)
-            </label>
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="block text-slate-700 dark:text-slate-300 font-bold">
+                Target Docker Connection (Restore Destination)
+              </label>
+              <router-link
+                to="/connections"
+                target="_blank"
+                class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                title="View or add Docker connections in Connections menu"
+              >
+                <span>Manage in Connections</span>
+                <ExternalLink class="w-3 h-3" />
+              </router-link>
+            </div>
             <select
               v-model="restoreForm.targetConnectionId"
-              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-medium"
             >
-              <option value="">Local Docker Engine</option>
+              <option value="">Local Docker Engine (Local Socket: /var/run/docker.sock)</option>
               <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
-                {{ conn.name }} ({{ conn.host || 'local' }}){{ conn.isDefault ? ' - Default' : '' }}
+                {{ getDockerConnectionLabel(conn) }}
               </option>
             </select>
-            <p class="text-[10px] text-slate-500 mt-1">
-              Supports cross-host recovery: HCP will load the committed image into the target Docker host and recreate the container.
+            <p class="text-[10px] text-slate-500">
+              Select the target Docker host to deploy this container. Cross-host restoration automatically transfers and extracts the OCI snapshot image via Docker API / SSH.
             </p>
+
+            <!-- Target Host Details Badge -->
+            <div
+              v-if="selectedTargetConnection"
+              class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] mt-2"
+            >
+              <div class="flex items-center gap-2">
+                <Server class="w-4 h-4 text-slate-500 shrink-0" />
+                <div>
+                  <span class="font-bold text-slate-900 dark:text-white">{{ selectedTargetConnection.name }}</span>
+                  <span class="text-slate-500 dark:text-slate-400 block font-mono text-[10px]">
+                    {{ selectedTargetConnection.sshHost ? `${selectedTargetConnection.sshUser || 'root'}@${selectedTargetConnection.sshHost}:${selectedTargetConnection.sshPort || 22}` : (selectedTargetConnection.tcpUrl || selectedTargetConnection.socketPath || 'Local Engine') }}
+                  </span>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                {{ selectedTargetConnection.hostType || selectedTargetConnection.driver || 'DOCKER' }}
+              </span>
+            </div>
           </div>
 
           <!-- New Container Name -->
@@ -2962,14 +3107,22 @@ onMounted(() => {
           <!-- Port Bindings -->
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
             <span class="text-[10px] text-slate-500 uppercase font-bold block">Port Mappings</span>
-            <div v-if="!inspectedContainerBackup.portBindings || Object.keys(inspectedContainerBackup.portBindings).length === 0" class="text-slate-400 italic">
+            <div v-if="(!inspectedContainerBackup.portBindings || Object.keys(inspectedContainerBackup.portBindings).length === 0) && (!inspectedContainerBackup.ports || inspectedContainerBackup.ports.length === 0)" class="text-slate-400 italic">
               No exposed ports recorded.
             </div>
             <div v-else class="space-y-1 font-mono text-[11px]">
-              <div v-for="(hostP, contP) in inspectedContainerBackup.portBindings" :key="contP" class="flex items-center justify-between bg-white dark:bg-[#171a23] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800">
-                <span class="text-slate-500">Container: {{ contP }}</span>
-                <span class="font-bold text-blue-600 dark:text-blue-400">Host: {{ hostP }}</span>
-              </div>
+              <template v-if="Array.isArray(inspectedContainerBackup.ports) && inspectedContainerBackup.ports.length > 0">
+                <div v-for="(p, idx) in inspectedContainerBackup.ports" :key="idx" class="flex items-center justify-between bg-white dark:bg-[#171a23] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800">
+                  <span class="text-slate-500">Container: {{ p.containerPort || p.container }}</span>
+                  <span class="font-bold text-blue-600 dark:text-blue-400">Host: {{ p.hostPort || p.host }}</span>
+                </div>
+              </template>
+              <template v-else-if="inspectedContainerBackup.portBindings">
+                <div v-for="(hostP, contP) in inspectedContainerBackup.portBindings" :key="contP" class="flex items-center justify-between bg-white dark:bg-[#171a23] px-2.5 py-1 rounded border border-slate-200 dark:border-slate-800">
+                  <span class="text-slate-500">Container: {{ contP }}</span>
+                  <span class="font-bold text-blue-600 dark:text-blue-400">Host: {{ hostP }}</span>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -2980,7 +3133,9 @@ onMounted(() => {
               No environment variables recorded.
             </div>
             <div v-else class="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] bg-slate-950 p-2.5 rounded-lg text-emerald-400 whitespace-pre-wrap select-text">
-              <div v-for="(e, idx) in inspectedContainerBackup.env" :key="idx">{{ e }}</div>
+              <div v-for="(e, idx) in inspectedContainerBackup.env" :key="idx">
+                {{ typeof e === 'object' && e !== null ? (e.key ? `${e.key}=${e.value || ''}` : JSON.stringify(e)) : e }}
+              </div>
             </div>
           </div>
 
