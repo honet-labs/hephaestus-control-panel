@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/core/domain"
@@ -270,6 +272,9 @@ func (h *BackupHandler) RunBackup(c *gin.Context) {
 
 // History
 func (h *BackupHandler) ListHistory(c *gin.Context) {
+	// Automatically reconcile any stuck 'running' tasks against actual disk files or timeouts
+	h.backupService.ReconcileHistory(c.Request.Context())
+
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
@@ -449,45 +454,13 @@ func (h *BackupHandler) RunContainerBackupStream(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Writer.Flush()
-
-	sendMsg := func(step string, status string, message string) {
-		payload := map[string]interface{}{
-			"step":      step,
-			"status":    status, // "info", "progress", "success", "error"
-			"message":   message,
-			"timestamp": time.Now().Format("15:04:05"),
-		}
-		data, _ := json.Marshal(payload)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
-		c.Writer.Flush()
-	}
-
-	sendMsg("init", "info", "Starting container backup pipeline...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	meta, err := h.backupService.BackupContainerStream(ctx, req, sendMsg)
+	taskID, err := h.backupService.StartContainerBackupAsync(req)
 	if err != nil {
-		sendMsg("error", "error", err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	completePayload := map[string]interface{}{
-		"step":      "complete",
-		"status":    "success",
-		"message":   fmt.Sprintf("Container '%s' backup snapshot completed successfully! (Filename: %s)", meta.ContainerName, meta.Filename),
-		"data":      meta,
-		"timestamp": time.Now().Format("15:04:05"),
-	}
-	compData, _ := json.Marshal(completePayload)
-	fmt.Fprintf(c.Writer, "data: %s\n\n", compData)
-	c.Writer.Flush()
+	h.streamTaskLogs(c, taskID)
 }
 
 func (h *BackupHandler) InspectContainerBackup(c *gin.Context) {
@@ -530,45 +503,149 @@ func (h *BackupHandler) RestoreContainerStream(c *gin.Context) {
 		return
 	}
 
+	taskID, err := h.backupService.StartContainerRestoreAsync(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	h.streamTaskLogs(c, taskID)
+}
+
+func (h *BackupHandler) streamTaskLogs(c *gin.Context, taskID string) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	sendMsg := func(step string, status string, message string) {
+	sendMsg := func(step string, status string, message string, timestamp string) bool {
 		payload := map[string]interface{}{
+			"taskId":    taskID,
 			"step":      step,
 			"status":    status, // "info", "progress", "success", "error"
 			"message":   message,
-			"timestamp": time.Now().Format("15:04:05"),
+			"timestamp": timestamp,
 		}
 		data, _ := json.Marshal(payload)
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+			return false
+		}
 		c.Writer.Flush()
+		return true
 	}
 
-	sendMsg("init", "info", fmt.Sprintf("Starting container restore pipeline for archive '%s'...", req.Filename))
+	logChan, unsubscribe, snapshot, ok := h.backupService.SubscribeTask(taskID)
+	if !ok {
+		sendMsg("error", "error", "Task not found or already completed", time.Now().Format("15:04:05"))
+		return
+	}
+	defer unsubscribe()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	for _, l := range snapshot {
+		if !sendMsg(l.Step, l.Status, l.Message, l.Timestamp) {
+			return
+		}
+	}
 
-	details, err := h.backupService.RestoreContainerStream(ctx, req, sendMsg)
-	if err != nil {
-		sendMsg("error", "error", err.Error())
+	clientGone := c.Request.Context().Done()
+	for {
+		select {
+		case <-clientGone:
+			return // Client disconnected or minimized. Task safely keeps running on the server.
+		case entry, open := <-logChan:
+			if !open {
+				task := h.backupService.GetActiveTask(taskID)
+				if task != nil && task.Status == "success" {
+					sendMsg("complete", "success", "Process execution completed successfully!", time.Now().Format("15:04:05"))
+				} else if task != nil && task.Status == "failed" {
+					sendMsg("error", "error", task.Error, time.Now().Format("15:04:05"))
+				}
+				return
+			}
+			if !sendMsg(entry.Step, entry.Status, entry.Message, entry.Timestamp) {
+				return
+			}
+		}
+	}
+}
+
+func (h *BackupHandler) GetHistoryLogs(c *gin.Context) {
+	id := c.Param("id")
+
+	// 1. Check if active in memory
+	task := h.backupService.GetActiveTask(id)
+	if task != nil {
+		snapshot := task.GetLogsSnapshot()
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"id":      id,
+				"running": task.Status == "running",
+				"status":  task.Status,
+				"logs":    snapshot,
+			},
+		})
 		return
 	}
 
-	completePayload := map[string]interface{}{
-		"step":      "complete",
-		"status":    "success",
-		"message":   fmt.Sprintf("Container '%s' successfully restored to target Docker host! (ID: %s)", details.Name, details.ID[:12]),
-		"data":      details,
-		"timestamp": time.Now().Format("15:04:05"),
+	// 2. Not in active memory, retrieve from database
+	entry, err := h.backupRepo.GetHistoryEntry(c.Request.Context(), id)
+	if err != nil || entry == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "History entry not found"})
+		return
 	}
-	compData, _ := json.Marshal(completePayload)
-	fmt.Fprintf(c.Writer, "data: %s\n\n", compData)
-	c.Writer.Flush()
+
+	var parsedLogs []services.ActiveBackupTaskLog
+	rawLog := ""
+	if entry.ErrorMessage != nil {
+		rawLog = *entry.ErrorMessage
+	}
+
+	lines := strings.Split(rawLog, "\n")
+	re := regexp.MustCompile(`^\[(.*?)\]\s+\[(.*?)\]\s+(.*)$`)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		m := re.FindStringSubmatch(line)
+		if len(m) == 4 {
+			step := strings.ToLower(m[2])
+			status := "info"
+			if step == "error" || strings.Contains(strings.ToLower(m[3]), "fail") {
+				status = "error"
+			} else if step == "complete" || step == "success" {
+				status = "success"
+			} else if step == "commit" || step == "stream" || step == "extract" || step == "load" || step == "deploy" || step == "quiesce" || step == "package" {
+				status = "progress"
+			}
+			parsedLogs = append(parsedLogs, services.ActiveBackupTaskLog{
+				Timestamp: m[1],
+				Step:      step,
+				Status:    status,
+				Message:   m[3],
+			})
+		} else {
+			parsedLogs = append(parsedLogs, services.ActiveBackupTaskLog{
+				Timestamp: entry.StartedAt.Format("15:04:05"),
+				Step:      "log",
+				Status:    entry.Status,
+				Message:   line,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":      id,
+			"running": entry.Status == "running",
+			"status":  entry.Status,
+			"rawLog":  rawLog,
+			"logs":    parsedLogs,
+		},
+	})
 }
 
 func (h *BackupHandler) DownloadContainerBackup(c *gin.Context) {

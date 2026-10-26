@@ -300,6 +300,7 @@ func main() {
 		api.DELETE("/backup/schedules/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteSchedule)
 		api.POST("/backup/run", middleware.RequirePermission("backup", "manage"), backupHandler.RunBackup)
 		api.GET("/backup/history", middleware.RequirePermission("backup", "read"), backupHandler.ListHistory)
+		api.GET("/backup/history/:id/logs", middleware.RequirePermission("backup", "read"), backupHandler.GetHistoryLogs)
 		api.GET("/backup/history/:id/download", middleware.RequirePermission("backup", "read"), backupHandler.DownloadBackup)
 		api.DELETE("/backup/history/:id", middleware.RequirePermission("backup", "manage"), backupHandler.DeleteHistory)
 		api.GET("/backup/containers", middleware.RequirePermission("backup", "read"), backupHandler.ListContainerBackups)

@@ -577,8 +577,19 @@ const copyCliLogs = async () => {
   }
 };
 
+const minimizeCliModal = () => {
+  isCliModalOpen.value = false;
+  showNotification('success', `${cliModalTitle.value} is running in the background. You can monitor progress anytime in Execution History.`);
+  setTimeout(() => {
+    fetchAll();
+  }, 1000);
+};
+
 const closeCliModal = () => {
-  if (cliIsRunning.value) return;
+  if (cliIsRunning.value) {
+    minimizeCliModal();
+    return;
+  }
   isCliModalOpen.value = false;
   if (cliTimerInterval) {
     clearInterval(cliTimerInterval);
@@ -1428,7 +1439,11 @@ const deleteHistoryItem = (h: any) => {
 };
 
 const downloadBackupFile = (h: any) => {
-  window.open(`/api/v1/backup/history/${h.id}/download`, '_blank');
+  if (h.destType === 'container-docker' || h.dbType === 'docker') {
+    window.open(`/api/v1/backup/containers/${encodeURIComponent(h.filename)}/download`, '_blank');
+  } else {
+    window.open(`/api/v1/backup/history/${h.id}/download`, '_blank');
+  }
 };
 
 const handleRunSingle = (dbId: string) => {
@@ -1439,12 +1454,62 @@ const handleRunSingle = (dbId: string) => {
 // Execution History Log Modal
 const isLogModalOpen = ref(false);
 const selectedHistory = ref<any | null>(null);
+const selectedHistoryLogs = ref<{ step: string; status: string; message: string; timestamp: string }[]>([]);
 const logCopied = ref(false);
+let logPollInterval: ReturnType<typeof setInterval> | null = null;
 
-const openLogModal = (item: any) => {
+const openLogModal = async (item: any) => {
   selectedHistory.value = item;
+  selectedHistoryLogs.value = [];
   isLogModalOpen.value = true;
   logCopied.value = false;
+
+  if (logPollInterval) {
+    clearInterval(logPollInterval);
+    logPollInterval = null;
+  }
+
+  await fetchItemLogs(item.id);
+
+  if (item.status === 'running') {
+    logPollInterval = setInterval(async () => {
+      if (!isLogModalOpen.value || !selectedHistory.value) {
+        if (logPollInterval) clearInterval(logPollInterval);
+        return;
+      }
+      await fetchItemLogs(selectedHistory.value.id);
+    }, 2500);
+  }
+};
+
+const fetchItemLogs = async (id: string) => {
+  try {
+    const res = await axios.get(`/api/v1/backup/history/${encodeURIComponent(id)}/logs`);
+    if (res.data?.success && res.data.data) {
+      selectedHistoryLogs.value = res.data.data.logs || [];
+      if (selectedHistory.value) {
+        selectedHistory.value.status = res.data.data.status;
+        if (res.data.data.rawLog) {
+          selectedHistory.value.errorMessage = res.data.data.rawLog;
+        }
+      }
+      if (!res.data.data.running && logPollInterval) {
+        clearInterval(logPollInterval);
+        logPollInterval = null;
+        fetchAll();
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch history logs:', e);
+  }
+};
+
+const closeLogModal = () => {
+  isLogModalOpen.value = false;
+  if (logPollInterval) {
+    clearInterval(logPollInterval);
+    logPollInterval = null;
+  }
 };
 
 const copyLogText = () => {
@@ -1479,6 +1544,12 @@ const rerunFromHistory = async (h: any) => {
 
 const generateLogText = (h: any) => {
   if (!h) return '';
+  if (selectedHistoryLogs.value && selectedHistoryLogs.value.length > 0) {
+    return selectedHistoryLogs.value
+      .map((l) => `[${l.timestamp}] [${(l.step || 'INFO').toUpperCase()}] ${l.message}`)
+      .join('\n');
+  }
+
   const started = h.startedAt ? new Date(h.startedAt).toLocaleString() : 'N/A';
   const completed = h.completedAt ? new Date(h.completedAt).toLocaleString() : 'N/A';
   const duration = (h.startedAt && h.completedAt)
@@ -1486,10 +1557,10 @@ const generateLogText = (h: any) => {
     : 'N/A';
 
   let log = `=======================================================\n`;
-  log += ` HEPHAESTUS DATABASE BACKUP EXECUTION REPORT\n`;
+  log += ` HEPHAESTUS BACKUP EXECUTION REPORT\n`;
   log += `=======================================================\n`;
   log += `Job ID       : ${h.id}\n`;
-  log += `Database     : ${h.dbName} (${h.dbType})\n`;
+  log += `Target       : ${h.dbName} (${h.dbType})\n`;
   log += `Destination  : ${h.destType}\n`;
   log += `File Archive : ${h.filename}\n`;
   log += `Status       : ${h.status.toUpperCase()}\n`;
@@ -1499,25 +1570,13 @@ const generateLogText = (h: any) => {
   log += `Archive Size : ${(h.fileSize / 1024 / 1024).toFixed(2)} MB (${h.fileSize} bytes)\n\n`;
 
   log += `----------------- EXECUTION LOGS ----------------------\n`;
-  log += `[${started}] Initializing backup pipeline for database '${h.dbName}'\n`;
-  log += `[${started}] Target storage destination: ${h.destType}\n`;
-  log += `[${started}] Executing ${h.dbType} dump...\n`;
-
-  if (h.status === 'failed') {
-    log += `[${completed}] DUMP FAILED WITH ERROR:\n`;
-    log += `-------------------------------------------------------\n`;
-    log += `${h.errorMessage || 'No detailed error message provided by driver/subsystem.'}\n`;
-    log += `-------------------------------------------------------\n`;
-    log += `[${completed}] Job terminated prematurely. Status: FAILED\n`;
+  if (h.errorMessage) {
+    log += `${h.errorMessage}\n`;
   } else if (h.status === 'running') {
-    log += `[...] Dump is currently in progress or awaiting worker...\n`;
+    log += `[...] Process is currently in progress on background worker...\n`;
   } else {
-    log += `[${completed}] Dump completed successfully.\n`;
-    log += `[${completed}] Archive compressed with gzip.\n`;
-    log += `[${completed}] Uploaded archive to ${h.destType} storage.\n`;
-    log += `[${completed}] Verification completed. Status: SUCCESS\n`;
+    log += `[${completed}] Process completed successfully.\n`;
   }
-
   log += `=======================================================`;
   return log;
 };
@@ -2246,9 +2305,13 @@ onMounted(() => {
               </div>
             </td>
             <td class="p-3">
-              <span v-if="h.dbType === 'docker'" class="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400">
+              <span v-if="h.destType && h.destType.includes('RESTORE')" class="inline-flex items-center gap-1 font-semibold text-purple-600 dark:text-purple-400">
+                <RotateCcw class="w-3 h-3 text-slate-400" />
+                <span>{{ h.dbName }} (RESTORE)</span>
+              </span>
+              <span v-else-if="h.dbType === 'docker'" class="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400">
                 <Box class="w-3 h-3 text-slate-400" />
-                <span>{{ h.dbName }} (DOCKER)</span>
+                <span>{{ h.dbName }} (SNAPSHOT)</span>
               </span>
               <span v-else>{{ h.dbName }} ({{ h.dbType }})</span>
             </td>
@@ -2267,11 +2330,13 @@ onMounted(() => {
               </span>
               <span
                 v-else
+                @click="openLogModal(h)"
                 :class="[
-                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800/50' :
-                  'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/50',
-                  'px-2 py-0.5 rounded text-[10px] font-bold uppercase border inline-flex items-center gap-1'
+                  h.status === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800/50 cursor-pointer' :
+                  'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/50 cursor-pointer',
+                  'px-2 py-0.5 rounded text-[10px] font-bold uppercase border inline-flex items-center gap-1 transition'
                 ]"
+                :title="h.status === 'running' ? 'Click to view live execution progress' : 'Click to view execution log'"
               >
                 <CheckCircle2 v-if="h.status === 'success'" class="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                 <RotateCw v-else class="w-3 h-3 text-amber-600 dark:text-amber-400 animate-spin" />
@@ -2282,17 +2347,17 @@ onMounted(() => {
             <td class="p-3 text-right">
               <div class="flex items-center justify-end gap-1.5">
                 <button
-                  v-if="h.status === 'success'"
+                  v-if="h.status === 'success' && !h.destType?.includes('RESTORE')"
                   @click="downloadBackupFile(h)"
                   class="p-1 rounded text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-slate-800 transition cursor-pointer"
-                  title="Download Backup Archive (.sql.gz)"
+                  title="Download Backup Archive"
                 >
                   <Download class="w-3.5 h-3.5" />
                 </button>
                 <button
                   @click="openLogModal(h)"
                   class="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition cursor-pointer"
-                  title="View Backup Details & Execution Log"
+                  title="View Execution Log & Progress"
                 >
                   <Eye class="w-3.5 h-3.5" />
                 </button>
@@ -3063,7 +3128,7 @@ onMounted(() => {
               </p>
             </div>
           </div>
-          <button @click="isLogModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+          <button @click="closeLogModal" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -3071,7 +3136,7 @@ onMounted(() => {
         <!-- Meta info pills -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs shrink-0">
           <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
-            <span class="text-[10px] text-slate-500 block uppercase font-bold">Database</span>
+            <span class="text-[10px] text-slate-500 block uppercase font-bold">Target</span>
             <span class="font-semibold text-slate-900 dark:text-white truncate block">{{ selectedHistory.dbName }} ({{ selectedHistory.dbType }})</span>
           </div>
           <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800">
@@ -3101,12 +3166,76 @@ onMounted(() => {
         </div>
 
         <!-- Log Terminal Output -->
-        <div class="flex-1 min-h-[180px] flex flex-col overflow-hidden">
+        <div class="flex-1 min-h-[220px] max-h-[460px] flex flex-col overflow-hidden">
           <div class="flex items-center justify-between pb-1.5 text-[10px] font-mono text-slate-500">
-            <span>EXECUTION LOG</span>
+            <span class="flex items-center gap-2">
+              <span>EXECUTION LOG</span>
+              <span v-if="selectedHistory.status === 'running'" class="inline-flex items-center gap-1 text-amber-500 animate-pulse font-sans">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                <span>Live streaming...</span>
+              </span>
+            </span>
             <span>UTF-8</span>
           </div>
+
+          <!-- Structured Step Viewer if available -->
           <div
+            v-if="selectedHistoryLogs.length > 0"
+            data-terminal="true"
+            class="cli-terminal-box terminal-log-viewer flex-1 overflow-y-auto p-4 rounded-xl border border-slate-800 shadow-inner font-mono text-[11px] leading-relaxed select-text space-y-1.5"
+            style="background-color: #080b14 !important; color: #f8fafc !important;"
+          >
+            <div
+              v-for="(log, idx) in selectedHistoryLogs"
+              :key="idx"
+              class="flex items-start gap-2.5 font-mono"
+            >
+              <span class="shrink-0 select-none text-[10px]" style="color: #94a3b8 !important;">
+                [{{ log.timestamp }}]
+              </span>
+              <span
+                class="uppercase text-[9px] px-1.5 py-0.5 rounded shrink-0 font-bold tracking-wider"
+                :style="
+                  log.status === 'error'
+                    ? 'background-color: #4c0519 !important; color: #fb7185 !important; border: 1px solid #e11d48 !important;'
+                    : log.status === 'success'
+                    ? 'background-color: #064e3b !important; color: #4ade80 !important; border: 1px solid #059669 !important;'
+                    : log.status === 'progress'
+                    ? 'background-color: #1e1b4b !important; color: #a5b4fc !important; border: 1px solid #4f46e5 !important;'
+                    : 'background-color: #1e293b !important; color: #38bdf8 !important; border: 1px solid #0284c7 !important;'
+                "
+              >
+                {{ log.step }}
+              </span>
+              <span
+                class="flex-1 break-all"
+                :style="
+                  log.status === 'error'
+                    ? 'color: #fb7185 !important; font-weight: 600;'
+                    : log.status === 'success'
+                    ? 'color: #4ade80 !important; font-weight: 600;'
+                    : log.status === 'progress'
+                    ? 'color: #93c5fd !important;'
+                    : 'color: #f1f5f9 !important;'
+                "
+              >
+                {{ log.message }}
+              </span>
+            </div>
+
+            <div
+              v-if="selectedHistory.status === 'running'"
+              class="flex items-center gap-2 pt-2 animate-pulse font-mono text-[10px]"
+              style="color: #94a3b8 !important;"
+            >
+              <span class="inline-block w-2 h-3.5" style="background-color: #38bdf8 !important;"></span>
+              <span>Process is actively executing...</span>
+            </div>
+          </div>
+
+          <!-- Raw Log text fallback -->
+          <div
+            v-else
             data-terminal="true"
             class="terminal-log-viewer flex-1 overflow-y-auto font-mono text-[11px] p-4 rounded-xl border border-slate-800 shadow-inner whitespace-pre-wrap select-text leading-relaxed"
             style="background-color: #080b14 !important; color: #4ade80 !important;"
@@ -3137,7 +3266,7 @@ onMounted(() => {
               <span>{{ logCopied ? 'Copied!' : 'Copy Log' }}</span>
             </button>
             <button
-              @click="isLogModalOpen = false"
+              @click="closeLogModal"
               class="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-bold text-xs transition cursor-pointer"
             >
               Close
@@ -3849,9 +3978,9 @@ onMounted(() => {
               <span>{{ copiedCliLogs ? 'Copied' : 'Copy' }}</span>
             </button>
             <button
-              v-if="!cliIsRunning"
               @click="closeCliModal"
               class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              :title="cliIsRunning ? 'Minimize to background' : 'Close'"
             >
               <X class="w-4 h-4" />
             </button>
@@ -3942,23 +4071,25 @@ onMounted(() => {
         <!-- Modal Footer -->
         <div class="flex items-center justify-between px-5 py-3 bg-slate-50 dark:bg-[#0c101c] border-t border-slate-100 dark:border-[#1c2438]">
           <span class="text-[11px] text-slate-500 dark:text-slate-400">
-            {{ cliIsRunning ? 'Do not navigate away or close this window during processing.' : 'Process execution finished.' }}
+            {{ cliIsRunning ? 'Task will safely continue running in the background if closed.' : 'Process execution finished.' }}
           </span>
           <div class="flex items-center gap-2">
             <button
-              v-if="!cliIsRunning"
+              v-if="cliIsRunning"
+              type="button"
+              @click="minimizeCliModal"
+              class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-sm"
+            >
+              Run in Background
+            </button>
+            <button
+              v-else
               type="button"
               @click="closeCliModal"
               class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
             >
               {{ cliIsSuccess ? 'Done' : 'Close' }}
             </button>
-            <span
-              v-else
-              class="text-xs text-slate-500 italic"
-            >
-              Executing in progress...
-            </span>
           </div>
         </div>
       </div>
