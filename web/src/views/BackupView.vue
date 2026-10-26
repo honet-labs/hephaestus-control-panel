@@ -88,6 +88,27 @@ const filteredContainerBackups = computed(() => {
   );
 });
 
+// Database Backups & Filtering (Excludes docker container entries)
+const databaseSearch = ref('');
+const databaseBackups = computed(() => {
+  return history.value.filter(
+    (h: any) => h.dbType !== 'docker' && h.destType !== 'container-docker'
+  );
+});
+
+const filteredDatabaseBackups = computed(() => {
+  const list = databaseBackups.value;
+  if (!databaseSearch.value.trim()) return list;
+  const q = databaseSearch.value.toLowerCase();
+  return list.filter(
+    (b: any) =>
+      b.dbName?.toLowerCase().includes(q) ||
+      b.filename?.toLowerCase().includes(q) ||
+      b.dbType?.toLowerCase().includes(q) ||
+      b.destType?.toLowerCase().includes(q)
+  );
+});
+
 const formatFileSize = (bytes: number) => {
   if (!bytes || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -1745,6 +1766,131 @@ onMounted(() => {
           </p>
         </div>
       </div>
+
+      <!-- ============================================================= -->
+      <!-- SECTION: DATABASE BACKUP SNAPSHOTS -->
+      <!-- ============================================================= -->
+      <div class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-1.5">
+            <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Database Backup Snapshots</h2>
+            <button
+              type="button"
+              @click="openInfoPopup('Database Backup Snapshots', 'Database dump archives (.sql.gz) generated through scheduled cron jobs or on-demand backups. Includes options to inspect execution details, download archives, and manage retention.')"
+              class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+              title="Database Snapshots Info"
+            >
+              <Info class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              v-model="databaseSearch"
+              type="text"
+              placeholder="Filter database snapshots..."
+              class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171a23] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 w-48 sm:w-64"
+            />
+          </div>
+        </div>
+
+        <!-- Database Backups Table -->
+        <div v-if="filteredDatabaseBackups.length > 0" class="bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="p-3">Database / Archive</th>
+                <th class="p-3">Target Database</th>
+                <th class="p-3">Destination</th>
+                <th class="p-3">Size</th>
+                <th class="p-3">Created At</th>
+                <th class="p-3 w-28 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
+              <tr v-for="b in filteredDatabaseBackups" :key="b.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                <td class="p-3 font-sans">
+                  <div class="flex items-center gap-2">
+                    <div class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
+                      <Database class="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-1.5">
+                        <span class="font-bold text-xs text-slate-900 dark:text-white font-mono">{{ b.dbName }}</span>
+                        <span
+                          v-if="b.status === 'failed'"
+                          class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50"
+                        >
+                          Failed
+                        </span>
+                        <span
+                          v-else-if="b.status === 'running'"
+                          class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 animate-pulse"
+                        >
+                          Running
+                        </span>
+                      </div>
+                      <div class="text-[10px] text-slate-400 font-mono truncate max-w-xs" :title="b.filename">{{ b.filename }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="p-3 font-sans">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 uppercase">
+                    {{ b.dbType }}
+                  </span>
+                </td>
+                <td class="p-3 font-sans">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 uppercase">
+                    <HardDrive class="w-3 h-3 text-slate-400" />
+                    <span>{{ b.destType }}</span>
+                  </span>
+                </td>
+                <td class="p-3 text-slate-600 dark:text-slate-400 font-mono">
+                  <span class="font-semibold">{{ (b.fileSize / 1024 / 1024).toFixed(2) }} MB</span>
+                </td>
+                <td class="p-3 text-slate-600 dark:text-slate-400 font-sans">
+                  {{ formatDateTime(b.startedAt) }}
+                </td>
+                <td class="p-3 text-right">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button
+                      @click="openLogModal(b)"
+                      class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition cursor-pointer"
+                      title="View Backup Details & Execution Log"
+                    >
+                      <Eye class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      v-if="b.status === 'success'"
+                      @click="downloadBackupFile(b)"
+                      class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 transition cursor-pointer"
+                      title="Download Database Archive (.sql.gz)"
+                    >
+                      <Download class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      v-if="canManage"
+                      @click="deleteHistoryItem(b)"
+                      class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
+                      title="Delete Database Backup"
+                    >
+                      <Trash2 class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty state when no snapshots -->
+        <div v-else class="p-8 text-center bg-white dark:bg-[#171a23] border border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-1 shadow-sm">
+          <Database class="w-6 h-6 text-slate-400 dark:text-slate-600 mx-auto mb-1" />
+          <p class="text-xs font-bold text-slate-700 dark:text-slate-300">No Database Snapshots Found</p>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">
+            Run a database backup using "Backup Now" or wait for scheduled cron executions to generate snapshots.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- ============================================================= -->
@@ -2145,10 +2291,10 @@ onMounted(() => {
                 </button>
                 <button
                   @click="openLogModal(h)"
-                  class="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-brand-400 dark:hover:bg-slate-800 transition cursor-pointer"
-                  title="View Execution Log"
+                  class="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition cursor-pointer"
+                  title="View Backup Details & Execution Log"
                 >
-                  <FileText class="w-3.5 h-3.5" />
+                  <Eye class="w-3.5 h-3.5" />
                 </button>
                 <button
                   v-if="canManage"
@@ -3565,7 +3711,7 @@ onMounted(() => {
         <!-- Judul & Teks Penjelasan -->
         <div class="space-y-1">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">
-            Delete {{ itemToDelete.type === 'database' ? 'Database Config' : itemToDelete.type === 'destination' ? 'Storage Destination' : itemToDelete.type === 'schedule' ? 'Cron Schedule' : itemToDelete.type === 'container' ? 'Container Backup' : 'Backup History' }}?
+            Delete {{ itemToDelete.type === 'database' ? 'Database Config' : itemToDelete.type === 'destination' ? 'Storage Destination' : itemToDelete.type === 'schedule' ? 'Cron Schedule' : itemToDelete.type === 'container' ? 'Container Backup' : 'Database Backup' }}?
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ itemToDelete.name }}</strong>? This action cannot be undone.

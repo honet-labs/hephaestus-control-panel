@@ -290,6 +290,38 @@ func (h *BackupHandler) ListHistory(c *gin.Context) {
 
 func (h *BackupHandler) DeleteHistory(c *gin.Context) {
 	id := c.Param("id")
+
+	entry, _ := h.backupRepo.GetHistoryEntry(c.Request.Context(), id)
+	if entry != nil && entry.Filename != "" {
+		// Clean up physical file on disk if it exists
+		var possiblePaths []string
+		if entry.DestinationID != nil && *entry.DestinationID != "" {
+			dest, err := h.backupRepo.GetRawDestination(c.Request.Context(), *entry.DestinationID)
+			if err == nil && dest != nil && dest.Config != nil {
+				if cfgPath, ok := dest.Config["path"].(string); ok && cfgPath != "" {
+					resolved := services.ResolveLocalBackupPath(cfgPath)
+					possiblePaths = append(possiblePaths,
+						filepath.Join(resolved, entry.Filename),
+						filepath.Join(cfgPath, entry.Filename),
+					)
+				}
+			}
+		}
+		possiblePaths = append(possiblePaths,
+			filepath.Join("/app/backups", entry.Filename),
+			filepath.Join("/opt/backups", entry.Filename),
+			filepath.Join("/app/backups/database", entry.Filename),
+			filepath.Join("/opt/backups/database", entry.Filename),
+			filepath.Join("backups", entry.Filename),
+		)
+		for _, p := range possiblePaths {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				_ = os.Remove(p)
+				break
+			}
+		}
+	}
+
 	if err := h.backupRepo.DeleteHistory(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
