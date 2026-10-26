@@ -78,9 +78,10 @@ func NewBackupService(backupRepo *repository.BackupRepository, sshService *SSHSe
 		activeTasks:   make(map[string]*ActiveBackupTask),
 	}
 
-	// Register backup job handler to worker pool
+	// Register backup job handlers to worker pool
 	wp := queue.GetWorkerPool()
 	wp.RegisterHandler("database_backup", s.HandleBackupJob)
+	wp.RegisterHandler("container_backup", s.HandleContainerBackupJob)
 
 	return s
 }
@@ -95,6 +96,35 @@ func (s *BackupService) TriggerBackup(ctx context.Context, dbConfigID, destinati
 		return "", err
 	}
 	return job.ID, nil
+}
+
+func (s *BackupService) HandleContainerBackupJob(ctx context.Context, job *domain.Job, updateProgress func(progress int, msg string)) error {
+	connectionID, _ := job.Payload["connectionId"].(string)
+	containerID, _ := job.Payload["containerId"].(string)
+	stopDuringBackup, _ := job.Payload["stopDuringBackup"].(bool)
+
+	if containerID == "" {
+		return fmt.Errorf("missing containerId in job payload")
+	}
+
+	updateProgress(10, fmt.Sprintf("Starting container backup for %s...", containerID))
+
+	req := domain.BackupContainerRunRequest{
+		ConnectionID:     connectionID,
+		ContainerID:      containerID,
+		StopDuringBackup: stopDuringBackup,
+	}
+
+	_, err := s.BackupContainerStream(ctx, req, func(step, status, message string) {
+		progress := 50
+		if step == "archive" {
+			progress = 80
+		} else if step == "completed" {
+			progress = 100
+		}
+		updateProgress(progress, message)
+	})
+	return err
 }
 
 func (s *BackupService) HandleBackupJob(ctx context.Context, job *domain.Job, updateProgress func(progress int, msg string)) error {

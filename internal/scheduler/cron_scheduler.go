@@ -122,31 +122,47 @@ func (s *CronScheduler) ReloadBackupSchedules(ctx context.Context) {
 			logger.Info("Cron", fmt.Sprintf("Triggering scheduled backup: %s", schedCopy.Name))
 			wp := queue.GetWorkerPool()
 
-			targetDBs := schedCopy.DBConfigIDs
-			if len(targetDBs) == 0 && schedCopy.DBConfigID != "" {
-				targetDBs = []string{schedCopy.DBConfigID}
-			}
+			if schedCopy.ScheduleType == "container" {
+				connID := schedCopy.DockerConnectionID
+				for _, contID := range schedCopy.ContainerIDs {
+					if contID == "" {
+						continue
+					}
+					_, _ = wp.Enqueue("container_backup", map[string]interface{}{
+						"connectionId":     connID,
+						"containerId":      contID,
+						"destinationId":    schedCopy.DestinationID,
+						"scheduleId":       schedCopy.ID,
+						"stopDuringBackup": schedCopy.StopDuringBackup,
+					}, 1)
+				}
+			} else {
+				targetDBs := schedCopy.DBConfigIDs
+				if len(targetDBs) == 0 && schedCopy.DBConfigID != "" {
+					targetDBs = []string{schedCopy.DBConfigID}
+				}
 
-			// If "*" or "all" is set, load all databases
-			if len(targetDBs) == 1 && (targetDBs[0] == "*" || targetDBs[0] == "all") {
-				allDBs, err := s.backupRepo.ListDBConfigs(context.Background())
-				if err == nil {
-					targetDBs = make([]string, 0, len(allDBs))
-					for _, d := range allDBs {
-						targetDBs = append(targetDBs, d.ID)
+				// If "*" or "all" is set, load all databases
+				if len(targetDBs) == 1 && (targetDBs[0] == "*" || targetDBs[0] == "all") {
+					allDBs, err := s.backupRepo.ListDBConfigs(context.Background())
+					if err == nil {
+						targetDBs = make([]string, 0, len(allDBs))
+						for _, d := range allDBs {
+							targetDBs = append(targetDBs, d.ID)
+						}
 					}
 				}
-			}
 
-			for _, dbID := range targetDBs {
-				if dbID == "" {
-					continue
+				for _, dbID := range targetDBs {
+					if dbID == "" {
+						continue
+					}
+					_, _ = wp.Enqueue("database_backup", map[string]interface{}{
+						"dbConfigId":    dbID,
+						"destinationId": schedCopy.DestinationID,
+						"scheduleId":    schedCopy.ID,
+					}, 1)
 				}
-				_, _ = wp.Enqueue("database_backup", map[string]interface{}{
-					"dbConfigId":    dbID,
-					"destinationId": schedCopy.DestinationID,
-					"scheduleId":    schedCopy.ID,
-				}, 1)
 			}
 			_ = s.backupRepo.UpdateScheduleRuns(context.Background(), schedCopy.ID)
 		})

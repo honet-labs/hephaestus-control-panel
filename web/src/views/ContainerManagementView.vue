@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import InfoButton from '../components/InfoButton.vue';
 import { useAuthStore } from '../stores/auth';
 import {
   Boxes,
@@ -1488,13 +1489,14 @@ watch(selectedConnectionId, () => {
 
       <!-- Page Header (Strict AGENTS.md: pure clean text h1, no icons, no badges) -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-        <div>
+        <div class="flex items-center gap-2">
           <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
             Management Containers
           </h1>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Manage Docker containers, lifecycle states, logs, metrics, images, and deployments across local and remote environments.
-          </p>
+          <InfoButton
+            title="Management Containers"
+            description="Manage Docker containers, lifecycle states, logs, metrics, images, and deployments across local and remote environments."
+          />
         </div>
 
         <div class="flex items-center gap-2 shrink-0">

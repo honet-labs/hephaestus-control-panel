@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import axios from 'axios';
 import { ListTree, Play, CheckCircle2, XCircle } from 'lucide-vue-next';
+import InfoButton from '../components/InfoButton.vue';
 
 const pattern = ref('%{TIMESTAMP:timestamp} %{WORD:level} \\[%{WORD:module}\\] %{NOTSPACE:message}');
 const sampleText = ref('2026-09-01T22:00:00Z INFO [SSH] Terminal session connected successfully');
@@ -29,11 +30,12 @@ const testPattern = async () => {
 <template>
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
-    <div class="border-b border-slate-200 dark:border-[#1b2234] pb-4">
+    <div class="border-b border-slate-200 dark:border-[#1b2234] pb-4 flex items-center gap-2">
       <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Grok Regex Debugger</h1>
-      <p class="text-xs text-blue-700 dark:text-[#95CCDD]/80 mt-0.5">
-        Test and validate log parsing Grok patterns interactively against sample log lines.
-      </p>
+      <InfoButton
+        title="Grok Regex Debugger"
+        description="Test and validate log parsing Grok patterns interactively against sample log lines."
+      />
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">

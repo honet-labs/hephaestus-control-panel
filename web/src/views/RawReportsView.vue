@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Plus,
   Trash2,
@@ -1527,13 +1528,14 @@ onBeforeUnmount(() => {
     <template v-if="currentView === 'list'">
       <!-- Standard HCP Header (Strictly complies with AGENTS.md: No icon in H1) -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-        <div>
+        <div class="flex items-center gap-2">
           <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
             Raw Data Report
           </h1>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Create, manage, and monitor operational telemetry reports with Prometheus, Grafana, and OpenSearch.
-          </p>
+          <InfoButton
+            title="Raw Data Report"
+            description="Create, manage, and monitor operational telemetry reports with Prometheus, Grafana, and OpenSearch."
+          />
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button

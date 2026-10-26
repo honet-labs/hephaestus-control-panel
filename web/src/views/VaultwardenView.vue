@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Shield,
   Key,
@@ -935,13 +936,14 @@ onUnmounted(() => {
     <main class="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
       <!-- Standard Header (Clean text without icon, matching AGENTS.md) -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-        <div>
+        <div class="flex items-center gap-2">
           <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
             Vaultwarden Credentials
           </h1>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            End-to-end encrypted credential vault synchronized from your Vaultwarden instance.
-          </p>
+          <InfoButton
+            title="Vaultwarden Credentials"
+            description="End-to-end encrypted credential vault synchronized from your Vaultwarden instance."
+          />
         </div>
 
         <div v-if="isConfigured" class="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">

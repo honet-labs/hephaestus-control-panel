@@ -508,16 +508,20 @@ type BackupHistoryEntry struct {
 }
 
 type BackupSchedule struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	DBConfigID     string     `json:"dbConfigId"`
-	DBConfigIDs    []string   `json:"dbConfigIds"`
-	DestinationID  string     `json:"destinationId"`
-	CronExpression string     `json:"cronExpression"`
-	IsActive       bool       `json:"isActive"`
-	LastRun        *time.Time `json:"lastRun,omitempty"`
-	NextRun        *time.Time `json:"nextRun,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	ScheduleType       string     `json:"scheduleType"` // "database" or "container"
+	DBConfigID         string     `json:"dbConfigId"`
+	DBConfigIDs        []string   `json:"dbConfigIds"`
+	DockerConnectionID string     `json:"dockerConnectionId"`
+	ContainerIDs       []string   `json:"containerIds"`
+	StopDuringBackup   bool       `json:"stopDuringBackup"`
+	DestinationID      string     `json:"destinationId"`
+	CronExpression     string     `json:"cronExpression"`
+	IsActive           bool       `json:"isActive"`
+	LastRun            *time.Time `json:"lastRun,omitempty"`
+	NextRun            *time.Time `json:"nextRun,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
 }
 
 type ContainerBackupMetadata struct {

@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import InfoButton from '../components/InfoButton.vue';
 import { useAuthStore } from '../stores/auth';
 import {
   Settings,
@@ -1114,13 +1115,14 @@ onUnmounted(() => {
   <div class="space-y-6 w-full font-sans">
     <!-- Header -->
     <div class="border-b border-slate-200 dark:border-slate-800 pb-4 flex items-center justify-between">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           System Settings & Services
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage HCP system parameters, background service daemons, user access control, database connection, and audit trail.
-        </p>
+        <InfoButton
+          title="System Settings & Services"
+          description="Manage HCP system parameters, background service daemons, user access control, database connection, and audit trail."
+        />
       </div>
 
       <div>

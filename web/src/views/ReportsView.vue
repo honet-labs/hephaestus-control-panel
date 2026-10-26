@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import InfoButton from '../components/InfoButton.vue';
 import {
   FileText,
   Layers,
@@ -39,13 +40,14 @@ const upcomingHighlights = ref([
   <div class="space-y-6 max-w-7xl mx-auto font-sans text-slate-800 dark:text-slate-200">
     <!-- Header (Strictly complies with AGENTS.md: No icon in H1) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           Visual Report
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Custom visual document canvas and multi-page printable executive reporting.
-        </p>
+        <InfoButton
+          title="Visual Report"
+          description="Custom visual document canvas and multi-page printable executive reporting."
+        />
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <router-link

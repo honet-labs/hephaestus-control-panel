@@ -165,8 +165,8 @@ func AvailableProfiles() []domain.SnmpDiscoveryProfileInfo {
 		{
 			ID:          "full",
 			Name:        "Full Comprehensive Scan",
-			Description: "Runs all discovery modules across hardware, optics, interfaces, and environmental sensors.",
-			Modules:     []string{"system", "interfaces", "interface_stats", "optical_dom", "cpu", "memory", "storage", "environment", "gpon_optics", "rectifier"},
+			Description: "Runs all discovery modules: interfaces, optics, CPU/RAM, storage, power, IP routing, printers, processes, and vendor enterprise telemetry.",
+			Modules:     []string{"system", "interfaces", "interface_stats", "optical_dom", "cpu", "memory", "storage", "environment", "gpon_optics", "rectifier", "printer", "network_ip", "software_processes", "enterprise_telemetry"},
 		},
 	}
 }

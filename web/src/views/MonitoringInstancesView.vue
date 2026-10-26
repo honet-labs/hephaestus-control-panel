@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import { useThemeStore } from '../stores/theme';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Server,
   Cpu,
@@ -1919,13 +1920,14 @@ onUnmounted(() => {
 
     <!-- Header (AGENTS.md compliant: No Icon on Title, Clean Pure Text) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           Monitoring Instances
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Real-time resource metrics from OpenTelemetry & Prometheus for hosts and containers.
-        </p>
+        <InfoButton
+          title="Monitoring Instances"
+          description="Real-time resource metrics from OpenTelemetry & Prometheus for hosts and containers."
+        />
       </div>
 
       <div class="flex items-center gap-2 shrink-0">

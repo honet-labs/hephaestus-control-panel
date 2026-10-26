@@ -38,7 +38,7 @@ func (w *SnmpTableWalker) WalkIndexed(rootOid string) map[string]string {
 			val, _ := formatVarbind(pdu)
 			results[index] = val
 		}
-		if len(results) >= 2000 {
+		if len(results) >= 10000 {
 			return fmt.Errorf("walk_limit")
 		}
 		return nil
@@ -170,7 +170,7 @@ func (e *SnmpDiscoveryEngine) Discover(host string, port uint16, version string,
 	ifAliasMap := make(map[string]string)
 
 	// Pre-load interface names if needed
-	if shouldRunModule(modulesToRun, "interfaces", "interface_stats", "optical_dom", "router_switch") {
+	if shouldRunModule(modulesToRun, "interfaces", "interface_stats", "optical_dom", "router_switch", "network_ip") {
 		ifNamesMap = walker.WalkIndexed("1.3.6.1.2.1.31.1.1.1.1") // ifName
 		if len(ifNamesMap) == 0 {
 			ifNamesMap = walker.WalkIndexed("1.3.6.1.2.1.2.2.1.2") // fallback ifDescr
@@ -216,6 +216,26 @@ func (e *SnmpDiscoveryEngine) Discover(host string, port uint16, version string,
 	// 10. Module: Rectifier & Power Systems
 	if shouldRunModule(modulesToRun, "rectifier") {
 		sensors = append(sensors, discoverRectifier(walker)...)
+	}
+
+	// 11. Module: Printer & Consumables
+	if shouldRunModule(modulesToRun, "printer") {
+		sensors = append(sensors, discoverPrinter(walker)...)
+	}
+
+	// 12. Module: IP Network & Addressing
+	if shouldRunModule(modulesToRun, "network_ip") {
+		sensors = append(sensors, discoverNetworkIp(walker, ifNamesMap)...)
+	}
+
+	// 13. Module: Software Processes
+	if shouldRunModule(modulesToRun, "software_processes") {
+		sensors = append(sensors, discoverProcesses(walker)...)
+	}
+
+	// 14. Module: Vendor Enterprise Telemetry (Full Scan Extension)
+	if shouldRunModule(modulesToRun, "enterprise_telemetry") {
+		sensors = append(sensors, discoverEnterpriseTelemetry(walker, vendor, sysObjectID, e.snmpService, sensors)...)
 	}
 
 	// Populate translated OID symbol for all discovered sensors
@@ -915,6 +935,263 @@ func discoverRectifier(w *SnmpTableWalker) []domain.SnmpDiscoveredSensor {
 			Unit:            unit,
 			Status:          status,
 		})
+	}
+
+	return sensors
+}
+
+// discoverPrinter discovers supplies, toner cartridges, and paper trays
+func discoverPrinter(w *SnmpTableWalker) []domain.SnmpDiscoveredSensor {
+	sensors := make([]domain.SnmpDiscoveredSensor, 0, 8)
+	levels := w.WalkIndexed("1.3.6.1.2.1.43.11.1.1.9")   // prtMarkerSuppliesLevel
+	descrs := w.WalkIndexed("1.3.6.1.2.1.43.11.1.1.6")   // prtMarkerSuppliesDescription
+	maxCaps := w.WalkIndexed("1.3.6.1.2.1.43.11.1.1.8")  // prtMarkerSuppliesMaxCapacity
+
+	for idx, lvlStr := range levels {
+		descr := strings.TrimSpace(descrs[idx])
+		if descr == "" {
+			descr = "Supply / Consumable " + idx
+		}
+		val, ok := ParseSnmpNumeric(lvlStr)
+		if !ok || val < 0 {
+			continue
+		}
+
+		maxCap, hasMax := ParseSnmpNumeric(maxCaps[idx])
+		var display string
+		var normVal float64 = val
+		unit := "%"
+		status := "ok"
+
+		if hasMax && maxCap > 0 {
+			pct := math.Round((val/maxCap)*1000) / 10
+			normVal = pct
+			display = fmt.Sprintf("%.1f%% (%.0f / %.0f)", pct, val, maxCap)
+			if pct < 10 {
+				status = "critical"
+			} else if pct < 25 {
+				status = "warning"
+			}
+		} else {
+			display = fmt.Sprintf("%.0f units", val)
+			unit = "units"
+		}
+
+		sensors = append(sensors, domain.SnmpDiscoveredSensor{
+			SensorClass:     "printer",
+			SensorName:      FormatSensorName(descr, "Supply Level", ""),
+			SensorType:      "supply_level",
+			OID:             "1.3.6.1.2.1.43.11.1.1.9." + idx,
+			RawValue:        lvlStr,
+			NormalizedValue: &normVal,
+			Unit:            unit,
+			Status:          status,
+			Metadata: map[string]interface{}{
+				"description":  descr,
+				"display":      display,
+				"max_capacity": maxCaps[idx],
+			},
+		})
+	}
+	return sensors
+}
+
+// discoverNetworkIp discovers configured IPv4 addresses and subnets on interfaces
+func discoverNetworkIp(w *SnmpTableWalker, ifNames map[string]string) []domain.SnmpDiscoveredSensor {
+	sensors := make([]domain.SnmpDiscoveredSensor, 0, 16)
+	ipAddrs := w.WalkIndexed("1.3.6.1.2.1.4.20.1.1")   // ipAdEntAddr
+	ifIndexes := w.WalkIndexed("1.3.6.1.2.1.4.20.1.2") // ipAdEntIfIndex
+	netMasks := w.WalkIndexed("1.3.6.1.2.1.4.20.1.3")  // ipAdEntNetMask
+
+	for ip, addrVal := range ipAddrs {
+		addrVal = strings.TrimSpace(addrVal)
+		if addrVal == "" || addrVal == "127.0.0.1" || addrVal == "0.0.0.0" {
+			continue
+		}
+		ifIdxStr := ifIndexes[ip]
+		mask := strings.TrimSpace(netMasks[ip])
+		ifIdx, _ := strconv.Atoi(ifIdxStr)
+		ifName := ifNames[ifIdxStr]
+		if ifName == "" && ifIdxStr != "" {
+			ifName = "Interface " + ifIdxStr
+		}
+
+		display := addrVal
+		if mask != "" {
+			display = fmt.Sprintf("%s / %s", addrVal, mask)
+		}
+		if ifName != "" {
+			display = fmt.Sprintf("%s (%s)", display, ifName)
+		}
+
+		sensors = append(sensors, domain.SnmpDiscoveredSensor{
+			SensorClass:    "network",
+			SensorName:     FormatSensorName("IPv4 Address", addrVal, ""),
+			SensorType:     "ip_address",
+			InterfaceIndex: &ifIdx,
+			InterfaceName:  ifName,
+			OID:            "1.3.6.1.2.1.4.20.1.1." + ip,
+			RawValue:       addrVal,
+			Status:         "ok",
+			Metadata: map[string]interface{}{
+				"ip_address": addrVal,
+				"netmask":    mask,
+				"display":    display,
+			},
+		})
+	}
+	return sensors
+}
+
+// discoverProcesses discovers active host OS processes and states
+func discoverProcesses(w *SnmpTableWalker) []domain.SnmpDiscoveredSensor {
+	sensors := make([]domain.SnmpDiscoveredSensor, 0, 32)
+	runNames := w.WalkIndexed("1.3.6.1.2.1.25.4.2.1.2")   // hrSWRunName
+	runStatuses := w.WalkIndexed("1.3.6.1.2.1.25.4.2.1.7") // hrSWRunStatus
+
+	count := 0
+	for idx, procName := range runNames {
+		procName = strings.TrimSpace(procName)
+		if procName == "" {
+			continue
+		}
+		count++
+		if count > 50 {
+			break
+		}
+		stVal := runStatuses[idx]
+		statusLabel := "running"
+		statusState := "ok"
+		if stVal == "2" {
+			statusLabel = "runnable"
+		} else if stVal == "3" {
+			statusLabel = "waiting"
+		} else if stVal == "4" {
+			statusLabel = "halted"
+			statusState = "critical"
+		}
+
+		sensors = append(sensors, domain.SnmpDiscoveredSensor{
+			SensorClass: "system",
+			SensorName:  FormatSensorName(procName, "Process State", ""),
+			SensorType:  "process",
+			OID:         "1.3.6.1.2.1.25.4.2.1.2." + idx,
+			RawValue:    procName,
+			Status:      statusState,
+			Metadata: map[string]interface{}{
+				"process_id": idx,
+				"state":      statusLabel,
+				"display":    strings.ToUpper(statusLabel),
+			},
+		})
+	}
+	return sensors
+}
+
+// discoverEnterpriseTelemetry walks vendor enterprise tree to surface all unmapped hardware metrics
+func discoverEnterpriseTelemetry(w *SnmpTableWalker, vendor SnmpVendor, sysObjectID string, snmpSvc *SnmpService, existingSensors []domain.SnmpDiscoveredSensor) []domain.SnmpDiscoveredSensor {
+	if snmpSvc == nil || snmpSvc.snmpRepo == nil {
+		return nil
+	}
+
+	existingOids := make(map[string]bool, len(existingSensors))
+	for _, s := range existingSensors {
+		existingOids[strings.Trim(s.OID, ".")] = true
+	}
+
+	// Determine enterprise root OID to explore
+	enterpriseRoots := []string{}
+	cleanSysObj := strings.Trim(strings.TrimSpace(sysObjectID), ".")
+	if strings.HasPrefix(cleanSysObj, "1.3.6.1.4.1.") {
+		parts := strings.Split(cleanSysObj, ".")
+		if len(parts) >= 7 {
+			enterpriseRoots = append(enterpriseRoots, strings.Join(parts[:7], "."))
+		}
+	}
+
+	// Add known vendor roots if not already covered
+	switch vendor {
+	case VendorCisco:
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1.9.9")
+	case VendorHuawei:
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1.2011.5", "1.3.6.1.4.1.2011.6")
+	case VendorMikroTik:
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1.14988.1.1")
+	case VendorZTE:
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1.3902")
+	case VendorLinux:
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1.2021", "1.3.6.1.4.1.8072.1")
+	}
+
+	if len(enterpriseRoots) == 0 {
+		enterpriseRoots = append(enterpriseRoots, "1.3.6.1.4.1")
+	}
+
+	ctx := context.Background()
+	sensors := make([]domain.SnmpDiscoveredSensor, 0, 64)
+	const maxDiscoveredTelemetry = 200
+
+	walkFn := func(pdu gosnmp.SnmpPDU) error {
+		if len(sensors) >= maxDiscoveredTelemetry {
+			return fmt.Errorf("telemetry_cap_reached")
+		}
+		oidStr := strings.Trim(strings.TrimPrefix(pdu.Name, "."), ".")
+		if existingOids[oidStr] {
+			return nil
+		}
+		existingOids[oidStr] = true
+
+		valStr, typeStr := formatVarbind(pdu)
+		if valStr == "" || valStr == "noSuchInstance" || valStr == "noSuchObject" {
+			return nil
+		}
+
+		translated, _ := snmpSvc.snmpRepo.TranslateOid(ctx, oidStr)
+		if translated == oidStr && !strings.Contains(typeStr, "Integer") && !strings.Contains(typeStr, "Gauge") && !strings.Contains(typeStr, "Counter") {
+			// Skip completely obscure unmapped nodes that have no translation and no numeric metric
+			return nil
+		}
+
+		sensorName := translated
+		if sensorName == oidStr {
+			sensorName = fmt.Sprintf("Enterprise Metric %s", oidStr)
+		}
+
+		var normVal *float64
+		if num, ok := ParseSnmpNumeric(valStr); ok {
+			normVal = &num
+		}
+
+		sensors = append(sensors, domain.SnmpDiscoveredSensor{
+			SensorClass:     "enterprise",
+			SensorName:      sensorName,
+			SensorType:      strings.ToLower(typeStr),
+			OID:             oidStr,
+			OidName:         translated,
+			RawValue:        valStr,
+			NormalizedValue: normVal,
+			Status:          "ok",
+			Metadata: map[string]interface{}{
+				"display": valStr,
+				"type":    typeStr,
+			},
+		})
+		return nil
+	}
+
+	for _, root := range enterpriseRoots {
+		if len(sensors) >= maxDiscoveredTelemetry {
+			break
+		}
+		target := "." + strings.Trim(root, ".")
+		if w.params.Version == gosnmp.Version2c {
+			_ = w.params.BulkWalk(target, walkFn)
+			if len(sensors) == 0 {
+				_ = w.params.Walk(target, walkFn)
+			}
+		} else {
+			_ = w.params.Walk(target, walkFn)
+		}
 	}
 
 	return sensors

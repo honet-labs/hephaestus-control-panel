@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Server,
   Plus,
@@ -895,13 +896,14 @@ onMounted(async () => {
   <div class="space-y-6 max-w-[1600px] mx-auto font-sans">
     <!-- Header Section -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           OpenTelemetry Remote Config
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage, validate, and hot-reload OpenTelemetry Collector agents across your multi-host infrastructure.
-        </p>
+        <InfoButton
+          title="OpenTelemetry Remote Config"
+          description="Manage, validate, and hot-reload OpenTelemetry Collector agents across your multi-host infrastructure."
+        />
       </div>
 
       <!-- Header Action Buttons -->

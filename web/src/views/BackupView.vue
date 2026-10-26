@@ -49,6 +49,7 @@ const openInfoPopup = (title: string, description: string) => {
 };
 
 const activeTab = ref<'databases' | 'containers' | 'destinations' | 'schedules' | 'history'>('databases');
+const activeDbSubTab = ref<'registered' | 'snapshots'>('registered');
 
 const databases = ref<any[]>([]);
 const destinations = ref<any[]>([]);
@@ -126,47 +127,114 @@ const formatDateTime = (dateStr: string) => {
   }
 };
 
-// History Pagination (30 rows per page)
-const historyPage = ref(1);
-const historyPageSize = ref(30);
-
-const totalHistoryPages = computed(() => {
-  return Math.ceil(history.value.length / historyPageSize.value) || 1;
-});
-
-const paginatedHistory = computed(() => {
-  const start = (historyPage.value - 1) * historyPageSize.value;
-  return history.value.slice(start, start + historyPageSize.value);
-});
-
-const visibleHistoryPages = computed(() => {
-  const total = totalHistoryPages.value;
-  const current = historyPage.value;
+// Generic Pagination Helper
+const getVisiblePages = (current: number, total: number) => {
   const delta = 2;
   const range: number[] = [];
-
   for (let i = Math.max(2, current - delta); i <= Math.min(total - 1, current + delta); i++) {
     range.push(i);
   }
-
   if (current - delta > 2) {
-    range.unshift(-1); // ellipsis indicator
+    range.unshift(-1);
   }
   if (current + delta < total - 1) {
-    range.push(-2); // ellipsis indicator
+    range.push(-2);
   }
-
   range.unshift(1);
   if (total > 1 && !range.includes(total)) {
     range.push(total);
   }
-
   return range;
-});
+};
 
+// 1. History Pagination (15 rows per page)
+const historyPage = ref(1);
+const historyPageSize = ref(15);
+const totalHistoryPages = computed(() => {
+  return Math.ceil(history.value.length / historyPageSize.value) || 1;
+});
+const paginatedHistory = computed(() => {
+  const start = (historyPage.value - 1) * historyPageSize.value;
+  return history.value.slice(start, start + historyPageSize.value);
+});
+const visibleHistoryPages = computed(() => getVisiblePages(historyPage.value, totalHistoryPages.value));
 watch(totalHistoryPages, (newTotal) => {
   if (historyPage.value > newTotal) {
     historyPage.value = Math.max(1, newTotal);
+  }
+});
+
+// 2. Database Backup Snapshots Pagination (15 rows per page)
+const dbBackupsPage = ref(1);
+const dbBackupsPageSize = ref(15);
+const totalDbBackupsPages = computed(() => {
+  return Math.ceil(filteredDatabaseBackups.value.length / dbBackupsPageSize.value) || 1;
+});
+const paginatedDatabaseBackups = computed(() => {
+  const start = (dbBackupsPage.value - 1) * dbBackupsPageSize.value;
+  return filteredDatabaseBackups.value.slice(start, start + dbBackupsPageSize.value);
+});
+const visibleDbBackupsPages = computed(() => getVisiblePages(dbBackupsPage.value, totalDbBackupsPages.value));
+watch(totalDbBackupsPages, (newTotal) => {
+  if (dbBackupsPage.value > newTotal) {
+    dbBackupsPage.value = Math.max(1, newTotal);
+  }
+});
+watch(databaseSearch, () => {
+  dbBackupsPage.value = 1;
+});
+
+// 3. Docker Container Backups Pagination (15 rows per page)
+const containerPage = ref(1);
+const containerPageSize = ref(15);
+const totalContainerPages = computed(() => {
+  return Math.ceil(filteredContainerBackups.value.length / containerPageSize.value) || 1;
+});
+const paginatedContainerBackups = computed(() => {
+  const start = (containerPage.value - 1) * containerPageSize.value;
+  return filteredContainerBackups.value.slice(start, start + containerPageSize.value);
+});
+const visibleContainerPages = computed(() => getVisiblePages(containerPage.value, totalContainerPages.value));
+watch(totalContainerPages, (newTotal) => {
+  if (containerPage.value > newTotal) {
+    containerPage.value = Math.max(1, newTotal);
+  }
+});
+watch(containerSearch, () => {
+  containerPage.value = 1;
+});
+
+// 4. Cron Schedules Pagination (15 items per page)
+const schedulesPage = ref(1);
+const schedulesPageSize = ref(15);
+const totalSchedulesPages = computed(() => {
+  return Math.ceil(schedules.value.length / schedulesPageSize.value) || 1;
+});
+const paginatedSchedules = computed(() => {
+  const start = (schedulesPage.value - 1) * schedulesPageSize.value;
+  return schedules.value.slice(start, start + schedulesPageSize.value);
+});
+const visibleSchedulesPages = computed(() => getVisiblePages(schedulesPage.value, totalSchedulesPages.value));
+watch(totalSchedulesPages, (newTotal) => {
+  if (schedulesPage.value > newTotal) {
+    schedulesPage.value = Math.max(1, newTotal);
+  }
+});
+
+// 5. Registered Databases Pagination (15 items per page)
+const dbPage = ref(1);
+const dbPageSize = ref(15);
+const totalDbPages = computed(() => {
+  return Math.ceil(databases.value.length / dbPageSize.value) || 1;
+});
+const paginatedDatabases = computed(() => {
+  const start = (dbPage.value - 1) * dbPageSize.value;
+  return databases.value.slice(start, start + dbPageSize.value);
+});
+const visibleDbPages = computed(() => getVisiblePages(dbPage.value, totalDbPages.value));
+watch(totalDbPages, (newTotal) => {
+  if (dbPage.value > newTotal) {
+    dbPage.value = Math.max(1, newTotal);
   }
 });
 
@@ -364,8 +432,12 @@ const isScheduleModalOpen = ref(false);
 const editingScheduleId = ref<string | null>(null);
 const scheduleForm = ref({
   name: '',
+  scheduleType: 'database' as 'database' | 'container',
   dbConfigId: '',
   dbConfigIds: [] as string[],
+  dockerConnectionId: '',
+  containerIds: [] as string[],
+  stopDuringBackup: false,
   destinationId: '',
   cronExpression: '0 2 * * *',
   isActive: true,
@@ -392,16 +464,45 @@ const toggleDatabaseSelection = (id: string) => {
   }
 };
 
+const toggleSelectAllContainers = () => {
+  if (scheduleForm.value.containerIds.length === availableContainers.value.length && availableContainers.value.length > 0) {
+    scheduleForm.value.containerIds = [];
+  } else {
+    scheduleForm.value.containerIds = availableContainers.value.map((c: any) => c.id);
+  }
+};
+
+const isContainerSelected = (id: string) => {
+  return scheduleForm.value.containerIds.includes(id);
+};
+
+const toggleContainerSelection = (id: string) => {
+  const idx = scheduleForm.value.containerIds.indexOf(id);
+  if (idx >= 0) {
+    scheduleForm.value.containerIds.splice(idx, 1);
+  } else {
+    scheduleForm.value.containerIds.push(id);
+  }
+};
+
 const openAddScheduleModal = () => {
   editingScheduleId.value = null;
+  const defDockerConn = dockerConnections.value.find((c: any) => c.isDefault)?.id || (dockerConnections.value.length > 0 ? dockerConnections.value[0].id : '');
   scheduleForm.value = {
     name: '',
+    scheduleType: 'database',
     dbConfigId: databases.value.length > 0 ? databases.value[0].id : '',
     dbConfigIds: databases.value.map((d: any) => d.id),
+    dockerConnectionId: defDockerConn,
+    containerIds: [],
+    stopDuringBackup: false,
     destinationId: destinations.value.length > 0 ? destinations.value[0].id : '',
     cronExpression: '0 2 * * *',
     isActive: true,
   };
+  if (defDockerConn && availableContainers.value.length === 0) {
+    fetchAvailableContainers(defDockerConn);
+  }
   isScheduleModalOpen.value = true;
 };
 
@@ -416,14 +517,25 @@ const openEditScheduleModal = (sched: any) => {
     initialDBs = [databases.value[0].id];
   }
 
+  const defDockerConn = sched.dockerConnectionId || (dockerConnections.value.find((c: any) => c.isDefault)?.id || (dockerConnections.value.length > 0 ? dockerConnections.value[0].id : ''));
+  const sType = sched.scheduleType || (sched.containerIds && sched.containerIds.length > 0 ? 'container' : 'database');
+
   scheduleForm.value = {
     name: sched.name || '',
+    scheduleType: sType,
     dbConfigId: sched.dbConfigId || '',
     dbConfigIds: initialDBs,
+    dockerConnectionId: defDockerConn,
+    containerIds: Array.isArray(sched.containerIds) ? [...sched.containerIds] : [],
+    stopDuringBackup: !!sched.stopDuringBackup,
     destinationId: sched.destinationId || (destinations.value.length > 0 ? destinations.value[0].id : ''),
     cronExpression: sched.cronExpression || '0 2 * * *',
     isActive: sched.isActive !== undefined ? sched.isActive : true,
   };
+
+  if (defDockerConn) {
+    fetchAvailableContainers(defDockerConn);
+  }
   isScheduleModalOpen.value = true;
 };
 
@@ -1398,22 +1510,29 @@ const deleteDestination = (dest: any) => {
 };
 
 const saveSchedule = async () => {
-  if (!scheduleForm.value.name) {
-    alert('Schedule name is required.');
+  if (!scheduleForm.value.name.trim()) {
+    showNotification('error', 'Schedule name is required.');
     return;
   }
-  if (!scheduleForm.value.dbConfigIds || scheduleForm.value.dbConfigIds.length === 0) {
-    alert('Please select at least one database to back up.');
-    return;
+  if (scheduleForm.value.scheduleType === 'database') {
+    if (!scheduleForm.value.dbConfigIds || scheduleForm.value.dbConfigIds.length === 0) {
+      showNotification('error', 'Please select at least one database to back up.');
+      return;
+    }
+  } else if (scheduleForm.value.scheduleType === 'container') {
+    if (!scheduleForm.value.containerIds || scheduleForm.value.containerIds.length === 0) {
+      showNotification('error', 'Please select at least one Docker container to back up.');
+      return;
+    }
   }
   if (!scheduleForm.value.destinationId) {
-    alert('Storage destination is required.');
+    showNotification('error', 'Storage destination is required.');
     return;
   }
   try {
     const payload: any = {
       ...scheduleForm.value,
-      dbConfigId: scheduleForm.value.dbConfigIds[0],
+      dbConfigId: scheduleForm.value.dbConfigIds && scheduleForm.value.dbConfigIds.length > 0 ? scheduleForm.value.dbConfigIds[0] : '',
     };
     if (editingScheduleId.value) {
       payload.id = editingScheduleId.value;
@@ -1422,11 +1541,11 @@ const saveSchedule = async () => {
     if (res.data.success) {
       isScheduleModalOpen.value = false;
       editingScheduleId.value = null;
-      scheduleForm.value.name = '';
+      showNotification('success', 'Backup schedule saved successfully.');
       fetchAll();
     }
   } catch (err: any) {
-    alert(`Failed to save schedule: ${err.response?.data?.error || err.message}`);
+    showNotification('error', `Failed to save schedule: ${err.response?.data?.error || err.message}`);
   }
 };
 
@@ -1622,14 +1741,18 @@ onMounted(() => {
     </div>
   </div>
 
-  <div v-else class="space-y-6 max-w-7xl mx-auto font-sans">
-    <!-- Header -->
+  <div v-else class="space-y-6 max-w-7xl mx-auto font-sans">    <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Backup Manager</h1>
-        <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-          Automated database & Docker container backups, cross-host container restore, and multi-storage disaster recovery.
-        </p>
+        <button
+          type="button"
+          @click="openInfoPopup('Backup Manager', 'Automated database & Docker container backups, cross-host container restore, and multi-storage disaster recovery.')"
+          class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+          title="Backup Manager Info"
+        >
+          <Info class="w-4 h-4" />
+        </button>
       </div>
 
       <div class="flex items-center gap-2">
@@ -1734,102 +1857,187 @@ onMounted(() => {
     <!-- TAB 1: DATABASES -->
     <!-- ============================================================= -->
     <div v-if="activeTab === 'databases'" class="space-y-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-1.5">
-          <p class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Registered Databases</p>
-          <button
-            type="button"
-            @click="openInfoPopup('Registered Databases', 'Configured database targets (PostgreSQL, MySQL, MariaDB) registered for automated cron jobs and on-demand dumps. Dumps can be stored locally or shipped to remote destinations (NAS, S3, Cloudflare R2).')"
-            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
-            title="Database Targets Info"
-          >
-            <Info class="w-3.5 h-3.5" />
-          </button>
-        </div>
+      <!-- Sub-Tabs Navigation for Databases Section -->
+      <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs font-medium">
         <button
-          v-if="canManage"
-          @click="openAddDBModal"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer"
+          type="button"
+          @click="activeDbSubTab = 'registered'"
+          :class="[
+            activeDbSubTab === 'registered'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40 border-slate-200 dark:border-transparent',
+            'px-3 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
+          ]"
         >
-          <Plus class="w-3.5 h-3.5" />
-          <span>Add Database</span>
+          <Database class="w-3.5 h-3.5" />
+          <span>Registered Databases ({{ databases.length }})</span>
+        </button>
+
+        <button
+          type="button"
+          @click="activeDbSubTab = 'snapshots'"
+          :class="[
+            activeDbSubTab === 'snapshots'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40 border-slate-200 dark:border-transparent',
+            'px-3 py-1.5 rounded-lg border transition flex items-center gap-1.5 cursor-pointer'
+          ]"
+        >
+          <Archive class="w-3.5 h-3.5" />
+          <span>Database Backup Snapshots ({{ filteredDatabaseBackups.length }})</span>
         </button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div
-          v-for="db in databases"
-          :key="db.id"
-          class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
-              <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ db.name }}</h4>
+      <!-- SUB-TAB 1.1: REGISTERED DATABASES -->
+      <div v-if="activeDbSubTab === 'registered'" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Registered Databases</h2>
+            <button
+              type="button"
+              @click="openInfoPopup('Registered Databases', 'Configured database targets (PostgreSQL, MySQL, MariaDB) registered for automated cron jobs and on-demand dumps. Dumps can be stored locally or shipped to remote destinations (NAS, S3, Cloudflare R2).')"
+              class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+              title="Database Targets Info"
+            >
+              <Info class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <button
+            v-if="canManage"
+            @click="openAddDBModal"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold transition shadow-sm cursor-pointer"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Add Database</span>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            v-for="db in paginatedDatabases"
+            :key="db.id"
+            class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
+          >
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Database class="w-4 h-4 text-blue-600 dark:text-brand-400" />
+                <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ db.name }}</h4>
+              </div>
+              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-brand-400 border border-blue-200 dark:border-slate-700/60 font-semibold">
+                {{ db.dbType }}
+              </span>
             </div>
-            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-50 dark:bg-slate-800 text-blue-700 dark:text-brand-400 border border-blue-200 dark:border-slate-700/60 font-semibold">
-              {{ db.dbType }}
-            </span>
+
+            <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
+              {{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}
+            </p>
+
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="canManage"
+                  @click="handleRunSingle(db.id)"
+                  class="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-md transition cursor-pointer text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <Play class="w-3 h-3 fill-current" />
+                  <span>Backup Now</span>
+                </button>
+                <button
+                  @click="testExistingDB(db)"
+                  :disabled="testingDbId === db.id"
+                  class="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md transition cursor-pointer disabled:opacity-50 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  title="Test Connection"
+                >
+                  <RotateCw class="w-3 h-3" :class="{ 'animate-spin': testingDbId === db.id }" />
+                  <span>{{ testingDbId === db.id ? 'Testing...' : 'Test' }}</span>
+                </button>
+              </div>
+
+              <div v-if="canManage" class="flex items-center gap-1">
+                <button
+                  @click="openEditDBModal(db)"
+                  class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
+                  title="Edit Database Config"
+                >
+                  <Edit2 class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  @click="deleteDBConfig(db)"
+                  class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
+                  title="Delete Database Config"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
 
-          <p class="text-[11px] font-mono text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-[#0f1219] p-2 rounded border border-slate-200 dark:border-slate-800/80 truncate">
-            {{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}
-          </p>
-
-          <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            <div class="flex items-center gap-2">
-              <button
-                v-if="canManage"
-                @click="handleRunSingle(db.id)"
-                class="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-md transition cursor-pointer"
-              >
-                <Play class="w-3 h-3 fill-current" />
-                <span>Backup Now</span>
-              </button>
-              <button
-                @click="testExistingDB(db)"
-                :disabled="testingDbId === db.id"
-                class="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md transition cursor-pointer disabled:opacity-50"
-                title="Test Connection"
-              >
-                <RotateCw class="w-3 h-3" :class="{ 'animate-spin': testingDbId === db.id }" />
-                <span>{{ testingDbId === db.id ? 'Testing...' : 'Test' }}</span>
-              </button>
-            </div>
-
-            <div v-if="canManage" class="flex items-center gap-1">
-              <button
-                @click="openEditDBModal(db)"
-                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 transition cursor-pointer"
-                title="Edit Database Config"
-              >
-                <Edit2 class="w-3.5 h-3.5" />
-              </button>
-              <button
-                @click="deleteDBConfig(db)"
-                class="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition cursor-pointer"
-                title="Delete Database Config"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </button>
-            </div>
+          <!-- Empty state -->
+          <div v-if="databases.length === 0 && !loading" class="col-span-3 p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm">
+            <Database class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
+            <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Databases Configured</p>
+            <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
+              Click "Add Database" above to configure a PostgreSQL, MySQL, or MariaDB target for automated backups.
+            </p>
           </div>
         </div>
 
-        <!-- Empty state -->
-        <div v-if="databases.length === 0 && !loading" class="col-span-3 p-12 text-center bg-white dark:bg-[#171a23] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2 shadow-sm">
-          <Database class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
-          <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Databases Configured</p>
-          <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
-            Click "Add Database" above to configure a PostgreSQL, MySQL, or MariaDB target for automated backups.
-          </p>
+        <!-- Pagination for Registered Databases (Limit 15 rows) -->
+        <div
+          v-if="databases.length > dbPageSize"
+          class="px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-[#171a23] font-sans shadow-sm"
+        >
+          <div>
+            Showing
+            <span class="font-semibold text-slate-900 dark:text-white">{{ (dbPage - 1) * dbPageSize + 1 }}</span>
+            to
+            <span class="font-semibold text-slate-900 dark:text-white">{{ Math.min(dbPage * dbPageSize, databases.length) }}</span>
+            of
+            <span class="font-semibold text-slate-900 dark:text-white">{{ databases.length }}</span>
+            databases
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="dbPage--"
+              :disabled="dbPage === 1"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              Previous
+            </button>
+            <div class="flex items-center gap-1">
+              <button
+                v-for="p in getVisiblePages(dbPage, totalDbPages)"
+                :key="p"
+                type="button"
+                @click="typeof p === 'number' && (dbPage = p)"
+                :disabled="typeof p !== 'number'"
+                :class="[
+                  p === dbPage
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800',
+                  'w-7 h-7 rounded-lg text-xs flex items-center justify-center transition',
+                  typeof p !== 'number' ? 'cursor-default border-none !bg-transparent text-slate-400' : 'cursor-pointer'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="dbPage++"
+              :disabled="dbPage >= totalDbPages"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- ============================================================= -->
-      <!-- SECTION: DATABASE BACKUP SNAPSHOTS -->
-      <!-- ============================================================= -->
-      <div class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+      <!-- SUB-TAB 1.2: DATABASE BACKUP SNAPSHOTS -->
+      <div v-if="activeDbSubTab === 'snapshots'" class="space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-center gap-1.5">
             <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Database Backup Snapshots</h2>
@@ -1857,8 +2065,9 @@ onMounted(() => {
           <table class="w-full text-left text-xs font-mono">
             <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th class="p-3">Database / Archive</th>
-                <th class="p-3">Target Database</th>
+                <th class="p-3">Archive File</th>
+                <th class="p-3">Database</th>
+                <th class="p-3">Status</th>
                 <th class="p-3">Destination</th>
                 <th class="p-3">Size</th>
                 <th class="p-3">Created At</th>
@@ -1866,35 +2075,46 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
-              <tr v-for="b in filteredDatabaseBackups" :key="b.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+              <tr v-for="b in paginatedDatabaseBackups" :key="b.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                 <td class="p-3 font-sans">
                   <div class="flex items-center gap-2">
-                    <div class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
-                      <Database class="w-4 h-4" />
+                    <div class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
+                      <Archive class="w-4 h-4" />
                     </div>
-                    <div>
-                      <div class="flex items-center gap-1.5">
-                        <span class="font-bold text-xs text-slate-900 dark:text-white font-mono">{{ b.dbName }}</span>
-                        <span
-                          v-if="b.status === 'failed'"
-                          class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50"
-                        >
-                          Failed
-                        </span>
-                        <span
-                          v-else-if="b.status === 'running'"
-                          class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 animate-pulse"
-                        >
-                          Running
-                        </span>
-                      </div>
-                      <div class="text-[10px] text-slate-400 font-mono truncate max-w-xs" :title="b.filename">{{ b.filename }}</div>
+                    <div class="truncate max-w-xs font-mono text-xs font-semibold text-slate-900 dark:text-white" :title="b.filename">
+                      {{ b.filename }}
                     </div>
                   </div>
                 </td>
                 <td class="p-3 font-sans">
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 uppercase">
-                    {{ b.dbType }}
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-bold text-xs text-slate-900 dark:text-white font-mono">{{ b.dbName }}</span>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 uppercase">
+                      {{ b.dbType }}
+                    </span>
+                  </div>
+                </td>
+                <td class="p-3">
+                  <span
+                    v-if="b.status === 'failed'"
+                    class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 inline-flex items-center gap-1"
+                  >
+                    <AlertCircle class="w-3 h-3" />
+                    <span>FAILED</span>
+                  </span>
+                  <span
+                    v-else-if="b.status === 'running'"
+                    class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 animate-pulse inline-flex items-center gap-1"
+                  >
+                    <RotateCw class="w-3 h-3 animate-spin" />
+                    <span>RUNNING</span>
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50 inline-flex items-center gap-1"
+                  >
+                    <CheckCircle2 class="w-3 h-3" />
+                    <span>SUCCESS</span>
                   </span>
                 </td>
                 <td class="p-3 font-sans">
@@ -1939,6 +2159,59 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
+
+          <!-- Pagination Bar for Database Backup Snapshots (15 rows limit) -->
+          <div
+            v-if="filteredDatabaseBackups.length > dbBackupsPageSize"
+            class="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400 bg-slate-50/60 dark:bg-[#1c202b]/60 font-sans"
+          >
+            <div>
+              Showing
+              <span class="font-semibold text-slate-900 dark:text-white">{{ (dbBackupsPage - 1) * dbBackupsPageSize + 1 }}</span>
+              to
+              <span class="font-semibold text-slate-900 dark:text-white">{{ Math.min(dbBackupsPage * dbBackupsPageSize, filteredDatabaseBackups.length) }}</span>
+              of
+              <span class="font-semibold text-slate-900 dark:text-white">{{ filteredDatabaseBackups.length }}</span>
+              snapshots
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                @click="dbBackupsPage--"
+                :disabled="dbBackupsPage === 1"
+                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Previous
+              </button>
+              <div class="flex items-center gap-1">
+                <button
+                  v-for="p in getVisiblePages(dbBackupsPage, totalDbBackupsPages)"
+                  :key="p"
+                  type="button"
+                  @click="typeof p === 'number' && (dbBackupsPage = p)"
+                  :disabled="typeof p !== 'number'"
+                  :class="[
+                    p === dbBackupsPage
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800',
+                    'w-7 h-7 rounded-lg text-xs flex items-center justify-center transition',
+                    typeof p !== 'number' ? 'cursor-default border-none !bg-transparent text-slate-400' : 'cursor-pointer'
+                  ]"
+                >
+                  {{ p }}
+                </button>
+              </div>
+              <button
+                type="button"
+                @click="dbBackupsPage++"
+                :disabled="dbBackupsPage >= totalDbBackupsPages"
+                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Empty state when no snapshots -->
@@ -2000,7 +2273,7 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300 text-[11px]">
-            <tr v-for="b in filteredContainerBackups" :key="b.filename" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+            <tr v-for="b in paginatedContainerBackups" :key="b.filename" class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
               <td class="p-3 font-sans">
                 <div class="flex items-center gap-2">
                   <div class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
@@ -2067,6 +2340,59 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination Bar for Docker Containers (15 rows limit) -->
+        <div
+          v-if="filteredContainerBackups.length > containerPageSize"
+          class="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400 bg-slate-50/60 dark:bg-[#1c202b]/60 font-sans"
+        >
+          <div>
+            Showing
+            <span class="font-semibold text-slate-900 dark:text-white">{{ (containerPage - 1) * containerPageSize + 1 }}</span>
+            to
+            <span class="font-semibold text-slate-900 dark:text-white">{{ Math.min(containerPage * containerPageSize, filteredContainerBackups.length) }}</span>
+            of
+            <span class="font-semibold text-slate-900 dark:text-white">{{ filteredContainerBackups.length }}</span>
+            container snapshots
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="containerPage--"
+              :disabled="containerPage === 1"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              Previous
+            </button>
+            <div class="flex items-center gap-1">
+              <button
+                v-for="p in getVisiblePages(containerPage, totalContainerPages)"
+                :key="p"
+                type="button"
+                @click="typeof p === 'number' && (containerPage = p)"
+                :disabled="typeof p !== 'number'"
+                :class="[
+                  p === containerPage
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800',
+                  'w-7 h-7 rounded-lg text-xs flex items-center justify-center transition',
+                  typeof p !== 'number' ? 'cursor-default border-none !bg-transparent text-slate-400' : 'cursor-pointer'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="containerPage++"
+              :disabled="containerPage >= totalContainerPages"
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Empty State -->
@@ -2097,7 +2423,17 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'destinations'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Storage Repositories (Local Filesystem, Cloudflare R2, AWS S3, MinIO)</p>
+        <div class="flex items-center gap-1.5">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Storage Destinations</h2>
+          <button
+            type="button"
+            @click="openInfoPopup('Storage Destinations', 'Configured storage repositories (Local Filesystem, Cloudflare R2, AWS S3, MinIO, or NAS) used for storing and archiving database dumps and backups.')"
+            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+            title="Storage Destinations Info"
+          >
+            <Info class="w-3.5 h-3.5" />
+          </button>
+        </div>
         <button
           v-if="canManage"
           @click="openAddDestModal"
@@ -2181,7 +2517,17 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'schedules'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Automated Background Cron Backup Jobs</p>
+        <div class="flex items-center gap-1.5">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Cron Schedules</h2>
+          <button
+            type="button"
+            @click="openInfoPopup('Cron Schedules', 'Automated background cron backup jobs scheduled to run periodically for databases or Docker containers, with configurable retention and remote destination syncing.')"
+            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+            title="Cron Schedules Info"
+          >
+            <Info class="w-3.5 h-3.5" />
+          </button>
+        </div>
         <button
           v-if="canManage"
           @click="openAddScheduleModal"
@@ -2194,12 +2540,26 @@ onMounted(() => {
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div
-          v-for="sched in schedules"
+          v-for="sched in paginatedSchedules"
           :key="sched.id"
           class="p-4 rounded-xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 space-y-3 shadow-sm transition"
         >
           <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ sched.name }}</h4>
+            <div class="flex items-center gap-2">
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white">{{ sched.name }}</h4>
+              <span
+                v-if="sched.scheduleType === 'container'"
+                class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 font-bold"
+              >
+                Docker Container
+              </span>
+              <span
+                v-else
+                class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold"
+              >
+                Database
+              </span>
+            </div>
             <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-50 dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-slate-700/60 font-semibold">
               {{ sched.cronExpression }}
             </span>
@@ -2213,30 +2573,57 @@ onMounted(() => {
           </div>
 
           <div class="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
-            <div class="flex flex-wrap gap-1 items-center">
-              <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-1">Databases:</span>
-              <span
-                v-if="sched.dbConfigIds && sched.dbConfigIds.length > 0 && sched.dbConfigIds.length === databases.length"
-                class="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-bold"
-              >
-                All Databases ({{ databases.length }})
-              </span>
-              <template v-else-if="sched.dbConfigIds && sched.dbConfigIds.length > 0">
+            <!-- If Container Schedule -->
+            <template v-if="sched.scheduleType === 'container'">
+              <div class="flex items-center gap-1 text-[10px] text-slate-500">
+                <span>Docker Host:</span>
+                <span class="font-semibold text-slate-700 dark:text-slate-300 font-mono">
+                  {{ dockerConnections.find(c => c.id === sched.dockerConnectionId)?.name || 'Local Docker' }}
+                </span>
+              </div>
+              <div class="flex flex-wrap gap-1 items-center">
+                <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-1">Containers:</span>
+                <template v-if="sched.containerIds && sched.containerIds.length > 0">
+                  <span
+                    v-for="cid in sched.containerIds"
+                    :key="cid"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-50 dark:bg-cyan-950/40 text-cyan-800 dark:text-cyan-200 border border-cyan-200 dark:border-cyan-800 font-mono font-medium truncate max-w-[140px]"
+                    :title="cid"
+                  >
+                    {{ cid }}
+                  </span>
+                </template>
+                <span v-else class="text-[10px] text-slate-400 font-italic">No containers selected</span>
+              </div>
+            </template>
+
+            <!-- If Database Schedule -->
+            <template v-else>
+              <div class="flex flex-wrap gap-1 items-center">
+                <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-1">Databases:</span>
                 <span
-                  v-for="dbId in sched.dbConfigIds"
-                  :key="dbId"
+                  v-if="sched.dbConfigIds && sched.dbConfigIds.length > 0 && sched.dbConfigIds.length === databases.length"
+                  class="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-bold"
+                >
+                  All Databases ({{ databases.length }})
+                </span>
+                <template v-else-if="sched.dbConfigIds && sched.dbConfigIds.length > 0">
+                  <span
+                    v-for="dbId in sched.dbConfigIds"
+                    :key="dbId"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium"
+                  >
+                    {{ databases.find(d => d.id === dbId)?.name || dbId }}
+                  </span>
+                </template>
+                <span
+                  v-else
                   class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium"
                 >
-                  {{ databases.find(d => d.id === dbId)?.name || dbId }}
+                  {{ databases.find(d => d.id === sched.dbConfigId)?.name || sched.dbConfigId }}
                 </span>
-              </template>
-              <span
-                v-else
-                class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium"
-              >
-                {{ databases.find(d => d.id === sched.dbConfigId)?.name || sched.dbConfigId }}
-              </span>
-            </div>
+              </div>
+            </template>
 
             <div class="flex items-center gap-1 text-[10px] text-slate-500">
               <span>Destination:</span>
@@ -2268,8 +2655,61 @@ onMounted(() => {
           <Clock class="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto mb-2" />
           <p class="text-sm font-bold text-slate-800 dark:text-slate-300">No Scheduled Backups</p>
           <p class="text-xs text-slate-600 dark:text-slate-500 max-w-sm mx-auto">
-            Set up a cron schedule to automatically dump and upload databases at scheduled times.
+            Set up a cron schedule to automatically dump and upload databases or containers at scheduled times.
           </p>
+        </div>
+      </div>
+
+      <!-- Pagination Bar for Cron Schedules (15 rows limit) -->
+      <div
+        v-if="schedules.length > schedulesPageSize"
+        class="px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-[#171a23] font-sans shadow-sm"
+      >
+        <div>
+          Showing
+          <span class="font-semibold text-slate-900 dark:text-white">{{ (schedulesPage - 1) * schedulesPageSize + 1 }}</span>
+          to
+          <span class="font-semibold text-slate-900 dark:text-white">{{ Math.min(schedulesPage * schedulesPageSize, schedules.length) }}</span>
+          of
+          <span class="font-semibold text-slate-900 dark:text-white">{{ schedules.length }}</span>
+          schedules
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            @click="schedulesPage--"
+            :disabled="schedulesPage === 1"
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            Previous
+          </button>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="p in getVisiblePages(schedulesPage, totalSchedulesPages)"
+              :key="p"
+              type="button"
+              @click="typeof p === 'number' && (schedulesPage = p)"
+              :disabled="typeof p !== 'number'"
+              :class="[
+                p === schedulesPage
+                  ? 'bg-blue-600 text-white font-bold'
+                  : 'bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800',
+                'w-7 h-7 rounded-lg text-xs flex items-center justify-center transition',
+                typeof p !== 'number' ? 'cursor-default border-none !bg-transparent text-slate-400' : 'cursor-pointer'
+              ]"
+            >
+              {{ p }}
+            </button>
+          </div>
+          <button
+            type="button"
+            @click="schedulesPage++"
+            :disabled="schedulesPage >= totalSchedulesPages"
+            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1c202b] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>
@@ -2277,10 +2717,25 @@ onMounted(() => {
     <!-- ============================================================= -->
     <!-- TAB 4: EXECUTION HISTORY -->
     <!-- ============================================================= -->
-    <div v-if="activeTab === 'history'" class="bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
-      <table class="w-full text-left text-xs font-mono">
-        <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
-          <tr>
+    <div v-if="activeTab === 'history'" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-1.5">
+          <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Execution History</h2>
+          <button
+            type="button"
+            @click="openInfoPopup('Execution History', 'Comprehensive audit logs of all past backup and restore executions, including status, file size, duration, error logs, and downloadable archives.')"
+            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+            title="Execution History Info"
+          >
+            <Info class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-50 dark:bg-[#1c202b] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
+            <tr>
             <th class="p-3">File Archive</th>
             <th class="p-3">Database</th>
             <th class="p-3">Destination</th>
@@ -2437,6 +2892,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
+  </div>
 
     <!-- ============================================================= -->
     <!-- MODAL 1: RUN ON-DEMAND BACKUP -->
@@ -3009,7 +3465,41 @@ onMounted(() => {
             <input v-model="scheduleForm.name" required placeholder="Daily Midnight Backup" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white" />
           </div>
 
+          <!-- Backup Target Type Toggle -->
           <div>
+            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Target Type</label>
+            <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg">
+              <button
+                type="button"
+                @click="scheduleForm.scheduleType = 'database'"
+                :class="[
+                  scheduleForm.scheduleType === 'database'
+                    ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                  'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
+                ]"
+              >
+                <Database class="w-3.5 h-3.5" />
+                <span>Database Backup</span>
+              </button>
+              <button
+                type="button"
+                @click="scheduleForm.scheduleType = 'container'"
+                :class="[
+                  scheduleForm.scheduleType === 'container'
+                    ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                  'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
+                ]"
+              >
+                <Box class="w-3.5 h-3.5" />
+                <span>Docker Container</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ================= DATABASE TARGET SELECTOR ================= -->
+          <div v-if="scheduleForm.scheduleType === 'database'">
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-slate-700 dark:text-slate-400 font-bold">
                 Select Databases ({{ scheduleForm.dbConfigIds.length }} of {{ databases.length }} selected)
@@ -3055,6 +3545,94 @@ onMounted(() => {
             <p v-if="scheduleForm.dbConfigIds.length === 0" class="text-[11px] text-rose-500 mt-1 font-medium">
               * Please select at least one database.
             </p>
+          </div>
+
+          <!-- ================= CONTAINER TARGET SELECTOR ================= -->
+          <div v-else-if="scheduleForm.scheduleType === 'container'" class="space-y-3">
+            <div>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Docker Host Connection</label>
+              <select
+                v-model="scheduleForm.dockerConnectionId"
+                @change="fetchAvailableContainers(scheduleForm.dockerConnectionId)"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white"
+              >
+                <option value="">Local Docker Engine</option>
+                <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
+                  {{ conn.name }} ({{ conn.host || 'local' }})
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-slate-700 dark:text-slate-400 font-bold">
+                  Select Containers ({{ scheduleForm.containerIds.length }} of {{ availableContainers.length }} selected)
+                </label>
+                <button
+                  type="button"
+                  @click="toggleSelectAllContainers"
+                  class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer"
+                >
+                  {{ scheduleForm.containerIds.length === availableContainers.length && availableContainers.length > 0 ? 'Deselect All' : 'Select All' }}
+                </button>
+              </div>
+
+              <div v-if="loadingDockerContainers" class="p-4 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-lg">
+                <RotateCw class="w-4 h-4 animate-spin mx-auto mb-1" />
+                <span>Loading containers...</span>
+              </div>
+              <div v-else-if="availableContainers.length === 0" class="p-4 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-lg text-xs">
+                No containers found on selected Docker host.
+              </div>
+              <div v-else class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div
+                  v-for="c in availableContainers"
+                  :key="c.id"
+                  @click="toggleContainerSelection(c.id)"
+                  :class="[
+                    'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                    isContainerSelected(c.id)
+                      ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                      : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                  ]"
+                >
+                  <div class="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      :checked="isContainerSelected(c.id)"
+                      @click.stop="toggleContainerSelection(c.id)"
+                      class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                    />
+                    <div class="text-left">
+                      <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white font-mono">{{ getContainerDisplayName(c) }}</p>
+                      <p class="text-[10px] text-slate-500 font-mono truncate max-w-xs">{{ c.image || c.sourceImage || '-' }}</p>
+                    </div>
+                  </div>
+                  <span
+                    :class="[
+                      c.state === 'running' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border-emerald-200 dark:border-emerald-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700',
+                      'text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border font-semibold'
+                    ]"
+                  >
+                    {{ c.state || 'stopped' }}
+                  </span>
+                </div>
+              </div>
+              <p v-if="scheduleForm.containerIds.length === 0" class="text-[11px] text-rose-500 mt-1 font-medium">
+                * Please select at least one container.
+              </p>
+
+              <div class="pt-1">
+                <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    v-model="scheduleForm.stopDuringBackup"
+                    class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600"
+                  />
+                  <span class="font-semibold text-xs">Stop container during snapshot (guarantees filesystem quiescence)</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div>

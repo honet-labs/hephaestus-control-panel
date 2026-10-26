@@ -259,6 +259,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS db_config_ids TEXT[] DEFAULT '{}';
 		ALTER TABLE backup_schedules ALTER COLUMN db_config_id DROP NOT NULL;
+		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(20) DEFAULT 'database';
+		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS docker_connection_id VARCHAR(50);
+		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS container_ids TEXT[] DEFAULT '{}';
+		ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS stop_during_backup BOOLEAN DEFAULT false;
 
 		CREATE TABLE IF NOT EXISTS opentelemetry_configs (
 			id VARCHAR(50) PRIMARY KEY,

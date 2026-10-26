@@ -126,7 +126,7 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 		Timeout:            time.Duration(timeoutSec) * time.Second,
 		Retries:            retries,
 		ExponentialTimeout: true,
-		MaxRepetitions:     50,
+		MaxRepetitions:     30,
 		MaxOids:            gosnmp.Default.MaxOids,
 	}
 
@@ -157,10 +157,12 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 			}
 		}
 	} else {
-		// Walk operation: supports standard subtree and scalar leaves (.0)
+		// Walk operation: supports standard subtree, full root scan, and scalar leaves (.0)
 		isScalar := strings.HasSuffix(cleanOid, ".0")
-		const maxWalkResults = 3000
+		isFullRoot := cleanOid == ".1.3.6.1" || cleanOid == ".1.3" || cleanOid == ".1"
+		const maxWalkResults = 15000
 		var limitReached bool
+		seenOids := make(map[string]bool)
 
 		walkFn := func(dataUnit gosnmp.SnmpPDU) error {
 			if len(results) >= maxWalkResults {
@@ -168,6 +170,11 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 				return fmt.Errorf("walk_limit_reached")
 			}
 			oidStr := strings.TrimPrefix(dataUnit.Name, ".")
+			if seenOids[oidStr] {
+				return nil
+			}
+			seenOids[oidStr] = true
+
 			name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
 			valStr, typeStr := formatVarbind(dataUnit)
 			results = append(results, domain.SnmpQueryResult{
@@ -180,23 +187,51 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 		}
 
 		var walkErr error
-		if snmpVersion == gosnmp.Version2c {
-			walkErr = params.BulkWalk(cleanOid, walkFn)
-			// Fallback: If BulkWalk failed or returned 0 results, try standard Walk (GETNEXT)
-			if (walkErr != nil || len(results) == 0) && !limitReached {
-				walkErr = params.Walk(cleanOid, walkFn)
+		if isFullRoot {
+			// Comprehensive walk across standard MIB-2 and Enterprise vendor trees
+			// Many network devices terminate BulkWalk early or reject jumping from MIB-2 to Enterprises
+			coreSubtrees := []string{
+				".1.3.6.1.2.1", // MIB-2 (system, interfaces, ip, host resources, entity, bridge, etc.)
+				".1.3.6.1.4.1", // Private Enterprises (Cisco, Huawei, MikroTik, Linux, ZTE, etc.)
+				".1.3.6.1.3",   // Experimental MIBs
+				".1.3.6.1.6",   // SNMPv2 / SNMPv3 MIBs
+			}
+
+			for _, sub := range coreSubtrees {
+				if limitReached {
+					break
+				}
+				if snmpVersion == gosnmp.Version2c {
+					_ = params.BulkWalk(sub, walkFn)
+					if len(results) == 0 {
+						_ = params.Walk(sub, walkFn)
+					}
+				} else {
+					_ = params.Walk(sub, walkFn)
+				}
+			}
+
+			// If subtrees yielded 0 results, fallback to direct root walk
+			if len(results) == 0 && !limitReached {
+				if snmpVersion == gosnmp.Version2c {
+					walkErr = params.BulkWalk(cleanOid, walkFn)
+					if walkErr != nil || len(results) == 0 {
+						walkErr = params.Walk(cleanOid, walkFn)
+					}
+				} else {
+					walkErr = params.Walk(cleanOid, walkFn)
+				}
 			}
 		} else {
-			walkErr = params.Walk(cleanOid, walkFn)
-		}
-
-		// Fallback for full root walk (1.3.6.1): if 0 results, try standard MIB-2 (.1.3.6.1.2.1)
-		if (cleanOid == ".1.3.6.1" || cleanOid == ".1.3") && len(results) == 0 && !limitReached {
+			// Targeted subtree walk
 			if snmpVersion == gosnmp.Version2c {
-				_ = params.BulkWalk(".1.3.6.1.2.1", walkFn)
-			}
-			if len(results) == 0 {
-				_ = params.Walk(".1.3.6.1.2.1", walkFn)
+				walkErr = params.BulkWalk(cleanOid, walkFn)
+				// Fallback: If BulkWalk failed or returned 0 results, try standard Walk (GETNEXT)
+				if (walkErr != nil || len(results) == 0) && !limitReached {
+					walkErr = params.Walk(cleanOid, walkFn)
+				}
+			} else {
+				walkErr = params.Walk(cleanOid, walkFn)
 			}
 		}
 
@@ -207,14 +242,17 @@ func (s *SnmpService) Query(host string, port uint16, version string, community 
 				for _, v := range pkt.Variables {
 					if v.Type != gosnmp.NoSuchObject && v.Type != gosnmp.NoSuchInstance && v.Type != gosnmp.Null {
 						oidStr := strings.TrimPrefix(v.Name, ".")
-						name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
-						valStr, typeStr := formatVarbind(v)
-						results = append(results, domain.SnmpQueryResult{
-							OID:   oidStr,
-							Name:  name,
-							Value: valStr,
-							Type:  typeStr,
-						})
+						if !seenOids[oidStr] {
+							seenOids[oidStr] = true
+							name, _ := s.snmpRepo.TranslateOid(ctx, oidStr)
+							valStr, typeStr := formatVarbind(v)
+							results = append(results, domain.SnmpQueryResult{
+								OID:   oidStr,
+								Name:  name,
+								Value: valStr,
+								Type:  typeStr,
+							})
+						}
 					}
 				}
 				if len(results) > 0 {
@@ -461,33 +499,63 @@ type rawMibEntry struct {
 }
 
 func parseMibSyntax(text, mibName string) []domain.OidRegistry {
-	// Base symbol table initialized with well-known standard root OIDs
+	// Base symbol table initialized with well-known standard root OIDs and major vendor enterprise roots
 	symbols := map[string]string{
-		"ccitt":        "0",
-		"iso":          "1",
-		"org":          "1.3",
-		"dod":          "1.3.6",
-		"internet":     "1.3.6.1",
-		"directory":    "1.3.6.1.1",
-		"mgmt":         "1.3.6.1.2",
-		"mib-2":        "1.3.6.1.2.1",
-		"system":       "1.3.6.1.2.1.1",
-		"interfaces":   "1.3.6.1.2.1.2",
-		"at":           "1.3.6.1.2.1.3",
-		"ip":           "1.3.6.1.2.1.4",
-		"icmp":         "1.3.6.1.2.1.5",
-		"tcp":          "1.3.6.1.2.1.6",
-		"udp":          "1.3.6.1.2.1.7",
-		"egp":          "1.3.6.1.2.1.8",
-		"transmission": "1.3.6.1.2.1.10",
-		"snmp":         "1.3.6.1.2.1.11",
-		"experimental": "1.3.6.1.3",
-		"private":      "1.3.6.1.4",
-		"enterprises":  "1.3.6.1.4.1",
-		"security":     "1.3.6.1.5",
-		"snmpV2":       "1.3.6.1.6",
-		"snmpModules":  "1.3.6.1.6.3",
-		"host":         "1.3.6.1.2.1.25",
+		"ccitt":             "0",
+		"iso":               "1",
+		"org":               "1.3",
+		"dod":               "1.3.6",
+		"internet":          "1.3.6.1",
+		"directory":         "1.3.6.1.1",
+		"mgmt":              "1.3.6.1.2",
+		"mib-2":             "1.3.6.1.2.1",
+		"system":            "1.3.6.1.2.1.1",
+		"interfaces":        "1.3.6.1.2.1.2",
+		"at":                "1.3.6.1.2.1.3",
+		"ip":                "1.3.6.1.2.1.4",
+		"icmp":              "1.3.6.1.2.1.5",
+		"tcp":               "1.3.6.1.2.1.6",
+		"udp":               "1.3.6.1.2.1.7",
+		"egp":               "1.3.6.1.2.1.8",
+		"transmission":      "1.3.6.1.2.1.10",
+		"snmp":              "1.3.6.1.2.1.11",
+		"experimental":      "1.3.6.1.3",
+		"private":           "1.3.6.1.4",
+		"enterprises":       "1.3.6.1.4.1",
+		"security":          "1.3.6.1.5",
+		"snmpV2":            "1.3.6.1.6",
+		"snmpModules":       "1.3.6.1.6.3",
+		"host":              "1.3.6.1.2.1.25",
+		"hostResources":     "1.3.6.1.2.1.25",
+		"cisco":             "1.3.6.1.4.1.9",
+		"ciscoMgmt":         "1.3.6.1.4.1.9.9",
+		"ciscoExperiment":   "1.3.6.1.4.1.9.10",
+		"ciscoProducts":     "1.3.6.1.4.1.9.1",
+		"huawei":            "1.3.6.1.4.1.2011",
+		"huaweiMgmt":        "1.3.6.1.4.1.2011.5",
+		"hwDatacomm":        "1.3.6.1.4.1.2011.5.25",
+		"zte":               "1.3.6.1.4.1.3902",
+		"alcatel":           "1.3.6.1.4.1.6486",
+		"timos":             "1.3.6.1.4.1.6527",
+		"mikrotik":          "1.3.6.1.4.1.14988",
+		"ucdavis":           "1.3.6.1.4.1.2021",
+		"netSnmp":           "1.3.6.1.4.1.8072",
+		"netSnmpObjects":    "1.3.6.1.4.1.8072.1",
+		"printer":           "1.3.6.1.2.1.43",
+		"printmib":          "1.3.6.1.2.1.43",
+		"entityMIB":         "1.3.6.1.2.1.47",
+		"entityMIBObjects":  "1.3.6.1.2.1.47.1",
+		"bridge":            "1.3.6.1.2.1.17",
+		"dot1dBridge":       "1.3.6.1.2.1.17",
+		"rmon":              "1.3.6.1.2.1.16",
+		"ifMIB":             "1.3.6.1.2.1.31",
+		"ifMIBObjects":      "1.3.6.1.2.1.31.1",
+		"ipMIB":             "1.3.6.1.2.1.48",
+		"tcpMIB":            "1.3.6.1.2.1.49",
+		"udpMIB":            "1.3.6.1.2.1.50",
+		"ospf":              "1.3.6.1.2.1.14",
+		"bgp":               "1.3.6.1.2.1.15",
+		"lldpMIB":           "1.0.8802.1.1.2",
 	}
 
 	// Regex to match ASN.1 object definitions:
@@ -561,12 +629,23 @@ func parseMibSyntax(text, mibName string) []domain.OidRegistry {
 
 	// Multi-pass resolution of parent-child hierarchy
 	unresolved := rawEntries
-	for pass := 0; pass < 20; pass++ {
+	for pass := 0; pass < 25; pass++ {
 		var nextUnresolved []rawMibEntry
 		resolvedCount := 0
 
 		for _, item := range unresolved {
-			if parentOid, ok := symbols[item.parent]; ok {
+			// Check if parent is already a registered symbol
+			parentOid, ok := symbols[item.parent]
+			if !ok {
+				// Check if parent itself is written as a numeric dot OID e.g. "1.3.6.1.4.1..."
+				cleanP := strings.Trim(item.parent, ".")
+				if strings.HasPrefix(cleanP, "1.") || strings.HasPrefix(cleanP, "0.") {
+					parentOid = cleanP
+					ok = true
+				}
+			}
+
+			if ok {
 				var fullOid string
 				if item.index == "0" && strings.HasSuffix(parentOid, ".0") {
 					fullOid = parentOid
@@ -586,12 +665,7 @@ func parseMibSyntax(text, mibName string) []domain.OidRegistry {
 		}
 	}
 
-	// For any remaining unresolved nodes, assign deterministic unique fallbacks
-	for i, item := range unresolved {
-		symbols[item.name] = fmt.Sprintf("1.3.6.1.4.1.0.%d.%s", i+1, item.index)
-	}
-
-	// Build deduplicated results
+	// Build deduplicated results (ONLY nodes that successfully resolved to authentic numeric OIDs)
 	seenOids := make(map[string]domain.OidRegistry)
 	for _, item := range rawEntries {
 		oid, ok := symbols[item.name]
@@ -599,6 +673,11 @@ func parseMibSyntax(text, mibName string) []domain.OidRegistry {
 			continue
 		}
 		cleanOid := strings.Trim(oid, ".")
+		// Discard any unresolved nodes or invalid prefixes
+		if !strings.HasPrefix(cleanOid, "1.") && !strings.HasPrefix(cleanOid, "0.") {
+			continue
+		}
+
 		seenOids[cleanOid] = domain.OidRegistry{
 			OID:         cleanOid,
 			Name:        item.name,

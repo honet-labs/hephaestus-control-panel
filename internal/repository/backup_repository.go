@@ -254,7 +254,7 @@ func (r *BackupRepository) ListSchedules(ctx context.Context) ([]domain.BackupSc
 	if err != nil {
 		return nil, err
 	}
-	rows, err := pool.Query(ctx, `SELECT id, name, COALESCE(db_config_id, ''), COALESCE(db_config_ids, '{}'), destination_id, cron_expression, is_active, last_run, next_run, created_at FROM backup_schedules ORDER BY created_at DESC`)
+	rows, err := pool.Query(ctx, `SELECT id, name, COALESCE(schedule_type, 'database'), COALESCE(db_config_id, ''), COALESCE(db_config_ids, '{}'), COALESCE(docker_connection_id, ''), COALESCE(container_ids, '{}'), COALESCE(stop_during_backup, false), destination_id, cron_expression, is_active, last_run, next_run, created_at FROM backup_schedules ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +263,11 @@ func (r *BackupRepository) ListSchedules(ctx context.Context) ([]domain.BackupSc
 	var list []domain.BackupSchedule
 	for rows.Next() {
 		var s domain.BackupSchedule
-		if err := rows.Scan(&s.ID, &s.Name, &s.DBConfigID, &s.DBConfigIDs, &s.DestinationID, &s.CronExpression, &s.IsActive, &s.LastRun, &s.NextRun, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.ScheduleType, &s.DBConfigID, &s.DBConfigIDs, &s.DockerConnectionID, &s.ContainerIDs, &s.StopDuringBackup, &s.DestinationID, &s.CronExpression, &s.IsActive, &s.LastRun, &s.NextRun, &s.CreatedAt); err != nil {
 			return nil, err
+		}
+		if s.ScheduleType == "" {
+			s.ScheduleType = "database"
 		}
 		if len(s.DBConfigIDs) == 0 && s.DBConfigID != "" {
 			s.DBConfigIDs = []string{s.DBConfigID}
@@ -280,12 +283,18 @@ func (r *BackupRepository) SaveSchedule(ctx context.Context, s domain.BackupSche
 		return err
 	}
 
-	if len(s.DBConfigIDs) > 0 {
-		if s.DBConfigID == "" || s.DBConfigIDs[0] != "*" {
-			s.DBConfigID = s.DBConfigIDs[0]
+	if s.ScheduleType == "" {
+		s.ScheduleType = "database"
+	}
+
+	if s.ScheduleType == "database" {
+		if len(s.DBConfigIDs) > 0 {
+			if s.DBConfigID == "" || s.DBConfigIDs[0] != "*" {
+				s.DBConfigID = s.DBConfigIDs[0]
+			}
+		} else if s.DBConfigID != "" {
+			s.DBConfigIDs = []string{s.DBConfigID}
 		}
-	} else if s.DBConfigID != "" {
-		s.DBConfigIDs = []string{s.DBConfigID}
 	}
 
 	var dbConfigIDParam *string
@@ -293,12 +302,15 @@ func (r *BackupRepository) SaveSchedule(ctx context.Context, s domain.BackupSche
 		dbConfigIDParam = &s.DBConfigID
 	}
 
-	query := `INSERT INTO backup_schedules (id, name, db_config_id, db_config_ids, destination_id, cron_expression, is_active)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)
+	query := `INSERT INTO backup_schedules (id, name, schedule_type, db_config_id, db_config_ids, docker_connection_id, container_ids, stop_during_backup, destination_id, cron_expression, is_active)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
               ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name, db_config_id = EXCLUDED.db_config_id, db_config_ids = EXCLUDED.db_config_ids,
+                name = EXCLUDED.name, schedule_type = EXCLUDED.schedule_type,
+                db_config_id = EXCLUDED.db_config_id, db_config_ids = EXCLUDED.db_config_ids,
+                docker_connection_id = EXCLUDED.docker_connection_id, container_ids = EXCLUDED.container_ids,
+                stop_during_backup = EXCLUDED.stop_during_backup,
                 destination_id = EXCLUDED.destination_id, cron_expression = EXCLUDED.cron_expression, is_active = EXCLUDED.is_active`
-	_, err = pool.Exec(ctx, query, s.ID, s.Name, dbConfigIDParam, s.DBConfigIDs, s.DestinationID, s.CronExpression, s.IsActive)
+	_, err = pool.Exec(ctx, query, s.ID, s.Name, s.ScheduleType, dbConfigIDParam, s.DBConfigIDs, s.DockerConnectionID, s.ContainerIDs, s.StopDuringBackup, s.DestinationID, s.CronExpression, s.IsActive)
 	return err
 }
 

@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Radio,
   Search,
@@ -122,8 +123,8 @@ const profiles = ref<DiscoveryProfile[]>([
   {
     id: 'full',
     name: 'Full Comprehensive Scan',
-    description: 'Runs all discovery modules across hardware, optics, interfaces, and environmental sensors.',
-    modules: ['system', 'interfaces', 'interface_stats', 'optical_dom', 'cpu', 'memory', 'storage', 'environment', 'gpon_optics', 'rectifier']
+    description: 'Runs all discovery modules: interfaces, optics, CPU/RAM, storage, power, IP routing, printers, processes, and vendor enterprise telemetry.',
+    modules: ['system', 'interfaces', 'interface_stats', 'optical_dom', 'cpu', 'memory', 'storage', 'environment', 'gpon_optics', 'rectifier', 'printer', 'network_ip', 'software_processes', 'enterprise_telemetry']
   }
 ]);
 
@@ -198,6 +199,25 @@ const filteredSensors = computed(() => {
   }
 
   return list;
+});
+
+// Pagination for Discovery Sensors
+const sensorPage = ref(1);
+const sensorPageSize = ref(50);
+
+const totalSensorPages = computed(() => {
+  if (sensorPageSize.value <= 0) return 1;
+  return Math.ceil(filteredSensors.value.length / sensorPageSize.value) || 1;
+});
+
+const paginatedSensors = computed(() => {
+  if (sensorPageSize.value <= 0) return filteredSensors.value;
+  const start = (sensorPage.value - 1) * sensorPageSize.value;
+  return filteredSensors.value.slice(start, start + sensorPageSize.value);
+});
+
+watch([sensorFilterSearch, selectedSensorClass, sensorPageSize], () => {
+  sensorPage.value = 1;
 });
 
 // Sensor count helper for tabs
@@ -366,6 +386,25 @@ const filteredQueryResults = computed(() => {
   );
 });
 
+// Pagination for Raw Walk Results
+const walkPage = ref(1);
+const walkPageSize = ref(100);
+
+const totalWalkPages = computed(() => {
+  if (walkPageSize.value <= 0) return 1;
+  return Math.ceil(filteredQueryResults.value.length / walkPageSize.value) || 1;
+});
+
+const paginatedQueryResults = computed(() => {
+  if (walkPageSize.value <= 0) return filteredQueryResults.value;
+  const start = (walkPage.value - 1) * walkPageSize.value;
+  return filteredQueryResults.value.slice(start, start + walkPageSize.value);
+});
+
+watch([querySearch, walkPageSize], () => {
+  walkPage.value = 1;
+});
+
 // ==================== MIB REGISTRY & TRANSLATOR STATE ====================
 const mibs = ref<any[]>([]);
 const mibsLoading = ref(false);
@@ -511,11 +550,12 @@ onMounted(() => {
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header (Strictly adhering to AGENTS.md: pure text title, no icon, no emoji) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">SNMP Browser</h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Multi-vendor SNMP telemetry discovery, optical DOM transceiver analytics, interface counters, and MIB registry.
-        </p>
+        <InfoButton
+          title="SNMP Browser"
+          description="Multi-vendor SNMP telemetry discovery, optical DOM transceiver analytics, interface counters, and MIB registry."
+        />
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <button
@@ -888,7 +928,7 @@ onMounted(() => {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]/60">
                 <tr
-                  v-for="(sensor, idx) in filteredSensors"
+                  v-for="(sensor, idx) in paginatedSensors"
                   :key="idx"
                   class="hover:bg-slate-50/60 dark:hover:bg-[#151c2d] transition"
                 >
@@ -979,6 +1019,48 @@ onMounted(() => {
 
             <div v-if="filteredSensors.length === 0" class="py-12 text-center text-slate-500 dark:text-slate-400 text-xs">
               No sensors found matching filter "{{ sensorFilterSearch }}".
+            </div>
+          </div>
+
+          <!-- Pagination Footer for Sensors -->
+          <div
+            v-if="filteredSensors.length > 0"
+            class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400"
+          >
+            <div class="flex items-center gap-2">
+              <span>Showing {{ (sensorPage - 1) * sensorPageSize + 1 }} to {{ Math.min(sensorPage * sensorPageSize, filteredSensors.length) }} of {{ filteredSensors.length }} sensors</span>
+              <label class="flex items-center gap-1.5 ml-2 font-medium">
+                <span>Per page:</span>
+                <select
+                  v-model.number="sensorPageSize"
+                  class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+                >
+                  <option :value="25">25</option>
+                  <option :value="50">50</option>
+                  <option :value="100">100</option>
+                  <option :value="250">250</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="flex items-center gap-1">
+              <button
+                @click="sensorPage = Math.max(1, sensorPage - 1)"
+                :disabled="sensorPage <= 1"
+                class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                <ChevronLeft class="w-3.5 h-3.5" />
+              </button>
+              <span class="px-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                Page {{ sensorPage }} of {{ totalSensorPages }}
+              </span>
+              <button
+                @click="sensorPage = Math.min(totalSensorPages, sensorPage + 1)"
+                :disabled="sensorPage >= totalSensorPages"
+                class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+              >
+                <ChevronRight class="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </div>
@@ -1363,13 +1445,34 @@ onMounted(() => {
         <!-- Result List Cards -->
         <div class="flex-1 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg p-3 overflow-y-auto font-mono text-[11px] min-h-[420px]">
           <div
-            v-for="(res, idx) in filteredQueryResults"
+            v-for="(res, idx) in paginatedQueryResults"
             :key="idx"
             class="p-3 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-lg shadow-sm space-y-1.5 mb-2 hover:border-slate-400 dark:hover:border-slate-600 transition"
           >
             <div class="flex items-center justify-between">
-              <span class="text-slate-900 dark:text-white font-bold text-xs">{{ res.name || res.oid }}</span>
-              <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{{ res.oid }} ({{ res.type }})</span>
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-900 dark:text-white font-bold text-xs">{{ res.name || res.oid }}</span>
+                <button
+                  v-if="res.name"
+                  @click="copyToClipboard(res.name)"
+                  class="p-0.5 hover:bg-slate-100 dark:hover:bg-[#1a2233] rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  title="Copy Translated Name"
+                >
+                  <Check v-if="copiedOid === res.name" class="w-3 h-3 text-emerald-500" />
+                  <Copy v-else class="w-3 h-3" />
+                </button>
+              </div>
+              <div class="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                <span>{{ res.oid }} ({{ res.type }})</span>
+                <button
+                  @click="copyToClipboard(res.oid)"
+                  class="p-0.5 hover:bg-slate-100 dark:hover:bg-[#1a2233] rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  title="Copy OID"
+                >
+                  <Check v-if="copiedOid === res.oid" class="w-3 h-3 text-emerald-500" />
+                  <Copy v-else class="w-3 h-3" />
+                </button>
+              </div>
             </div>
             <div class="text-slate-900 dark:text-slate-200 break-all bg-slate-50 dark:bg-[#121826] px-2.5 py-1.5 rounded border border-slate-200 dark:border-[#1b2234]/60 font-semibold">
               {{ res.value }}
@@ -1379,6 +1482,48 @@ onMounted(() => {
           <div v-if="queryResults.length === 0 && !queryLoading" class="h-64 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 text-xs gap-2">
             <Radio class="w-8 h-8 text-slate-300 dark:text-slate-600" />
             <span>Run an SNMP walk or get query to view raw records here</span>
+          </div>
+        </div>
+
+        <!-- Pagination Footer for Walk Results -->
+        <div
+          v-if="filteredQueryResults.length > 0"
+          class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400"
+        >
+          <div class="flex items-center gap-2">
+            <span>Showing {{ (walkPage - 1) * walkPageSize + 1 }} to {{ Math.min(walkPage * walkPageSize, filteredQueryResults.length) }} of {{ filteredQueryResults.length }} records</span>
+            <label class="flex items-center gap-1.5 ml-2 font-medium">
+              <span>Per page:</span>
+              <select
+                v-model.number="walkPageSize"
+                class="bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+              >
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+                <option :value="250">250</option>
+                <option :value="500">500</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="flex items-center gap-1">
+            <button
+              @click="walkPage = Math.max(1, walkPage - 1)"
+              :disabled="walkPage <= 1"
+              class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+            >
+              <ChevronLeft class="w-3.5 h-3.5" />
+            </button>
+            <span class="px-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+              Page {{ walkPage }} of {{ totalWalkPages }}
+            </span>
+            <button
+              @click="walkPage = Math.min(totalWalkPages, walkPage + 1)"
+              :disabled="walkPage >= totalWalkPages"
+              class="p-1.5 rounded border border-slate-200 dark:border-[#1b2234] hover:bg-slate-100 dark:hover:bg-[#1a2233] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+            >
+              <ChevronRight class="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>

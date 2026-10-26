@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Search,
   Plus,
@@ -887,13 +888,14 @@ onMounted(() => {
   <div class="space-y-6 max-w-[1600px] mx-auto font-sans">
     <!-- Header (Strictly adhering to AGENTS.md: pure text title, no icon, no emoji) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           IP Address Management (IPAM)
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage subnets, track IP address allocations, and run periodic automated network scans.
-        </p>
+        <InfoButton
+          title="IP Address Management (IPAM)"
+          description="Manage subnets, track IP address allocations, and run periodic automated network scans."
+        />
       </div>
 
       <div class="flex items-center gap-2 shrink-0">

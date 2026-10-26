@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import { 
   Database, 
   Terminal, 
@@ -74,11 +75,14 @@ onMounted(() => {
   <div class="space-y-6 font-sans max-w-7xl mx-auto">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           System Overview
         </h1>
-        <p class="text-xs text-slate-500 dark:text-[#95CCDD]/80 mt-0.5">Quick actions, background services health, and recent database backups</p>
+        <InfoButton
+          title="System Overview"
+          description="Quick actions, background services health, and recent database backups."
+        />
       </div>
     </div>
 

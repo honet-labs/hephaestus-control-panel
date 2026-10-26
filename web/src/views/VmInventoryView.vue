@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Server,
   Cpu,
@@ -506,13 +507,14 @@ onMounted(() => {
 
     <!-- Standard Header (AGENTS.md: Pure text h1, no icons, no badges) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           Server Inventory
         </h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Comprehensive hardware, CPU architecture, memory DIMMs, storage disks, and GPU specifications.
-        </p>
+        <InfoButton
+          title="Server Inventory"
+          description="Comprehensive hardware, CPU architecture, memory DIMMs, storage disks, and GPU specifications."
+        />
       </div>
 
       <!-- Action Buttons Toolbar -->

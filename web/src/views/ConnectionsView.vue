@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import InfoButton from '../components/InfoButton.vue';
 import {
   Link2,
   Plus,
@@ -991,11 +992,12 @@ onMounted(() => {
   <div class="space-y-6 max-w-7xl mx-auto font-sans">
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
-      <div>
+      <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Add Connections</h1>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Manage API and service endpoint connections for Grafana, Prometheus, Data Prepper, and OpenSearch.
-        </p>
+        <InfoButton
+          title="Add Connections"
+          description="Manage API and service endpoint connections for Grafana, Prometheus, Data Prepper, and OpenSearch."
+        />
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
