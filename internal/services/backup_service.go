@@ -1579,7 +1579,7 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		// Download remote tar to tempImageFile
 		srcR, _, err := s.sshService.SftpDownloadWithConfig(remoteHost, remoteTar)
 		if err != nil {
-			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+			_ = s.sshService.DeleteFile(remoteHost, remoteTar)
 			_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
 			errMsg := fmt.Sprintf("failed to download image tar: %v", err)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
@@ -1589,7 +1589,7 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		imgDst, err := os.Create(tempImageFile)
 		if err != nil {
 			srcR.Close()
-			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+			_ = s.sshService.DeleteFile(remoteHost, remoteTar)
 			return nil, err
 		}
 		_, errCopy := io.Copy(imgDst, srcR)
@@ -1597,7 +1597,7 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 		srcR.Close()
 
 		// Clean up remote host
-		_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTar)
+		_ = s.sshService.DeleteFile(remoteHost, remoteTar)
 		_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
 
 		if errCopy != nil {
@@ -1853,7 +1853,7 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 		}
 		imgF.Close()
 		defer func() {
-			_ = s.sshService.DeleteFile(ctx, remoteHost.ID, remoteTarPath)
+			_ = s.sshService.DeleteFile(remoteHost, remoteTarPath)
 		}()
 
 		loadCmd := fmt.Sprintf("load -i %s", shellQuote(remoteTarPath))
@@ -1885,42 +1885,67 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 	}
 
 	// Prepare deploy request
-	ports := metadata.Ports
-	if len(req.Ports) > 0 {
-		ports = req.Ports
-	} else if len(req.PortBindings) > 0 {
-		ports = make([]domain.DockerPortMapping, 0, len(req.PortBindings))
+	var portBindings []string
+	if len(req.PortBindings) > 0 {
 		for contPortStr, hostPortStr := range req.PortBindings {
-			proto := "tcp"
-			parts := strings.Split(contPortStr, "/")
-			if len(parts) == 2 {
-				proto = parts[1]
-			}
-			ports = append(ports, domain.DockerPortMapping{
-				HostPort:      hostPortStr,
-				ContainerPort: parts[0],
-				Protocol:      proto,
-			})
+			portBindings = append(portBindings, fmt.Sprintf("%s:%s", hostPortStr, contPortStr))
 		}
-	}
-	env := metadata.Env
-	if len(req.Env) > 0 {
-		env = req.Env
-	} else if len(req.EnvStrings) > 0 {
-		env = make([]domain.DockerEnvMapping, 0, len(req.EnvStrings))
-		for _, e := range req.EnvStrings {
-			parts := strings.SplitN(e, "=", 2)
-			if len(parts) == 2 {
-				env = append(env, domain.DockerEnvMapping{Key: parts[0], Value: parts[1]})
-			} else {
-				env = append(env, domain.DockerEnvMapping{Key: parts[0], Value: ""})
+	} else if len(req.Ports) > 0 {
+		for _, p := range req.Ports {
+			if p.HostPort != "" && p.ContainerPort != "" {
+				proto := p.Protocol
+				if proto == "" || proto == "tcp" {
+					portBindings = append(portBindings, fmt.Sprintf("%s:%s", p.HostPort, p.ContainerPort))
+				} else {
+					portBindings = append(portBindings, fmt.Sprintf("%s:%s/%s", p.HostPort, p.ContainerPort, proto))
+				}
 			}
 		}
+	} else if len(metadata.Ports) > 0 {
+		for _, p := range metadata.Ports {
+			if p.HostPort != "" && p.ContainerPort != "" {
+				proto := p.Protocol
+				if proto == "" || proto == "tcp" {
+					portBindings = append(portBindings, fmt.Sprintf("%s:%s", p.HostPort, p.ContainerPort))
+				} else {
+					portBindings = append(portBindings, fmt.Sprintf("%s:%s/%s", p.HostPort, p.ContainerPort, proto))
+				}
+			}
+		}
 	}
-	volumes := metadata.Volumes
+
+	var envVars []string
+	if len(req.EnvStrings) > 0 {
+		envVars = req.EnvStrings
+	} else if len(req.Env) > 0 {
+		for _, e := range req.Env {
+			if e.Key != "" {
+				envVars = append(envVars, fmt.Sprintf("%s=%s", e.Key, e.Value))
+			}
+		}
+	} else if len(metadata.Env) > 0 {
+		for _, e := range metadata.Env {
+			if e.Key != "" {
+				envVars = append(envVars, fmt.Sprintf("%s=%s", e.Key, e.Value))
+			}
+		}
+	}
+
+	var volumeBindings []string
 	if len(req.Volumes) > 0 {
-		volumes = req.Volumes
+		for _, v := range req.Volumes {
+			if v.HostPath != "" && v.ContainerPath != "" {
+				volumeBindings = append(volumeBindings, fmt.Sprintf("%s:%s", v.HostPath, v.ContainerPath))
+			}
+		}
+	} else if len(metadata.Volumes) > 0 {
+		for _, v := range metadata.Volumes {
+			if v.HostPath != "" && v.ContainerPath != "" {
+				volumeBindings = append(volumeBindings, fmt.Sprintf("%s:%s", v.HostPath, v.ContainerPath))
+			}
+		}
 	}
+
 	restartPolicy := metadata.RestartPolicy
 	if req.RestartPolicy != "" {
 		restartPolicy = req.RestartPolicy
@@ -1955,17 +1980,17 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 	}
 
 	deployReq := domain.DeployContainerRequest{
-		Name:          containerName,
-		Image:         imageToUse,
-		Ports:         ports,
-		Volumes:       volumes,
-		Env:           env,
-		RestartPolicy: restartPolicy,
-		Network:       networkMode,
-		Command:       metadata.Command,
-		CPULimit:      metadata.CPULimit,
-		MemoryLimitMB: metadata.MemoryLimitMB,
-		StartAfter:    &startAfter,
+		Name:           containerName,
+		Image:          imageToUse,
+		PortBindings:   portBindings,
+		VolumeBindings: volumeBindings,
+		EnvVars:        envVars,
+		RestartPolicy:  restartPolicy,
+		NetworkMode:    networkMode,
+		Command:        metadata.Command,
+		CPULimit:       metadata.CPULimit,
+		MemoryLimitMB:  metadata.MemoryLimitMB,
+		StartAfter:     &startAfter,
 	}
 
 	createdID, err := s.dockerService.DeployContainerStream(ctx, req.TargetConnectionID, deployReq, nil)
