@@ -3106,7 +3106,11 @@ onMounted(() => {
             <span>EXECUTION LOG</span>
             <span>UTF-8</span>
           </div>
-          <div class="flex-1 overflow-y-auto bg-slate-950 text-emerald-400 font-mono text-[11px] p-4 rounded-xl border border-slate-800 shadow-inner whitespace-pre-wrap select-text leading-relaxed">
+          <div
+            data-terminal="true"
+            class="terminal-log-viewer flex-1 overflow-y-auto font-mono text-[11px] p-4 rounded-xl border border-slate-800 shadow-inner whitespace-pre-wrap select-text leading-relaxed"
+            style="background-color: #080b14 !important; color: #4ade80 !important;"
+          >
 {{ generateLogText(selectedHistory) }}
           </div>
         </div>
@@ -3658,7 +3662,12 @@ onMounted(() => {
             <div v-if="!inspectedContainerBackup.env || inspectedContainerBackup.env.length === 0" class="text-slate-400 italic">
               No environment variables recorded.
             </div>
-            <div v-else class="max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] bg-slate-950 p-2.5 rounded-lg text-emerald-400 whitespace-pre-wrap select-text">
+            <div
+              v-else
+              data-terminal="true"
+              class="terminal-log-viewer max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] p-2.5 rounded-lg whitespace-pre-wrap select-text"
+              style="background-color: #080b14 !important; color: #4ade80 !important;"
+            >
               <div v-for="(e, idx) in inspectedContainerBackup.env" :key="idx">
                 {{ typeof e === 'object' && e !== null ? (e.key ? `${e.key}=${e.value || ''}` : JSON.stringify(e)) : e }}
               </div>
@@ -3852,37 +3861,46 @@ onMounted(() => {
         <!-- Terminal Output Window -->
         <div
           ref="cliTerminalRef"
-          class="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed select-text space-y-1.5 bg-slate-950 dark:bg-[#070a12] text-slate-200 min-h-[300px] max-h-[460px]"
+          data-terminal="true"
+          class="cli-terminal-box terminal-log-viewer flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed select-text space-y-1.5 min-h-[300px] max-h-[460px]"
+          style="background-color: #080b14 !important; color: #f8fafc !important;"
         >
           <div
             v-for="(log, idx) in cliLogs"
             :key="idx"
             class="flex items-start gap-2.5 font-mono"
           >
-            <span class="text-slate-500 shrink-0 select-none text-[10px]">
+            <span
+              class="shrink-0 select-none text-[10px]"
+              style="color: #94a3b8 !important;"
+            >
               [{{ log.timestamp }}]
             </span>
             <span
               class="uppercase text-[9px] px-1.5 py-0.5 rounded shrink-0 font-bold tracking-wider"
-              :class="{
-                'bg-slate-800 text-slate-300': log.status === 'info',
-                'bg-blue-900/60 text-blue-300': log.status === 'progress' && log.step !== 'load',
-                'bg-purple-900/60 text-purple-300': log.status === 'progress' && log.step === 'load',
-                'bg-emerald-900/60 text-emerald-300': log.status === 'success',
-                'bg-rose-900/60 text-rose-300': log.status === 'error',
-              }"
+              :style="
+                log.status === 'error'
+                  ? 'background-color: #4c0519 !important; color: #fb7185 !important; border: 1px solid #e11d48 !important;'
+                  : log.status === 'success'
+                  ? 'background-color: #064e3b !important; color: #4ade80 !important; border: 1px solid #059669 !important;'
+                  : log.status === 'progress'
+                  ? 'background-color: #1e1b4b !important; color: #a5b4fc !important; border: 1px solid #4f46e5 !important;'
+                  : 'background-color: #1e293b !important; color: #38bdf8 !important; border: 1px solid #0284c7 !important;'
+              "
             >
               {{ log.step }}
             </span>
             <span
               class="flex-1 break-all"
-              :class="{
-                'text-slate-300': log.status === 'info',
-                'text-blue-200': log.status === 'progress' && log.step !== 'load',
-                'text-purple-200': log.status === 'progress' && log.step === 'load',
-                'text-emerald-300 font-semibold': log.status === 'success',
-                'text-rose-300 font-semibold': log.status === 'error',
-              }"
+              :style="
+                log.status === 'error'
+                  ? 'color: #fb7185 !important; font-weight: 600;'
+                  : log.status === 'success'
+                  ? 'color: #4ade80 !important; font-weight: 600;'
+                  : log.status === 'progress'
+                  ? 'color: #93c5fd !important;'
+                  : 'color: #f1f5f9 !important;'
+              "
             >
               {{ log.message }}
             </span>
@@ -3890,9 +3908,10 @@ onMounted(() => {
 
           <div
             v-if="cliIsRunning"
-            class="flex items-center gap-2 pt-2 text-slate-400 animate-pulse font-mono text-[10px]"
+            class="flex items-center gap-2 pt-2 animate-pulse font-mono text-[10px]"
+            style="color: #94a3b8 !important;"
           >
-            <span class="inline-block w-2 h-3.5 bg-slate-400"></span>
+            <span class="inline-block w-2 h-3.5" style="background-color: #38bdf8 !important;"></span>
             <span>Running background task...</span>
           </div>
         </div>

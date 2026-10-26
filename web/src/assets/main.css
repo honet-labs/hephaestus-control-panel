@@ -300,12 +300,15 @@ html.light .terminal-log-viewer *,
 html.light .terminal-content,
 html.light .terminal-content *,
 html.light [data-terminal="true"],
-html.light [data-terminal="true"] * {
+html.light [data-terminal="true"] *,
+html.light .cli-terminal-box,
+html.light .cli-terminal-box * {
   color: inherit !important;
 }
 
 html.light .terminal-log-viewer,
-html.light [data-terminal="true"] {
+html.light [data-terminal="true"],
+html.light .cli-terminal-box {
   background-color: #080b12 !important;
   color: #f1f5f9 !important;
 }
