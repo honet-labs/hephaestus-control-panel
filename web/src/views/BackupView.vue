@@ -34,12 +34,19 @@ import {
   Sliders,
   Archive,
   ExternalLink,
+  Info,
 } from 'lucide-vue-next';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const canRead = computed(() => authStore.can('backup', 'read'));
 const canManage = computed(() => authStore.can('backup', 'manage'));
+
+// Information Popup State
+const activeInfoPopup = ref<{ title: string; description: string } | null>(null);
+const openInfoPopup = (title: string, description: string) => {
+  activeInfoPopup.value = { title, description };
+};
 
 const activeTab = ref<'databases' | 'containers' | 'destinations' | 'schedules' | 'history'>('databases');
 
@@ -1392,7 +1399,17 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'databases'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-400">Registered Database Targets for Automated & On-Demand Backup</p>
+        <div class="flex items-center gap-1.5">
+          <p class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Registered Databases</p>
+          <button
+            type="button"
+            @click="openInfoPopup('Registered Databases', 'Configured database targets (PostgreSQL, MySQL, MariaDB) registered for automated cron jobs and on-demand dumps. Dumps can be stored locally or shipped to remote destinations (NAS, S3, Cloudflare R2).')"
+            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+            title="Database Targets Info"
+          >
+            <Info class="w-3.5 h-3.5" />
+          </button>
+        </div>
         <button
           v-if="canManage"
           @click="openAddDBModal"
@@ -1479,11 +1496,16 @@ onMounted(() => {
     <!-- ============================================================= -->
     <div v-if="activeTab === 'containers'" class="space-y-4">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
+        <div class="flex items-center gap-1.5">
           <h2 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Docker Container Snapshots</h2>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            OCI container image archives (.tar.gz) stored in <code class="font-mono text-[11px] text-blue-600 dark:text-blue-400">backup/container-docker</code> with full metadata for cross-host restoration.
-          </p>
+          <button
+            type="button"
+            @click="openInfoPopup('Docker Container Snapshots', 'OCI container image archives (.tar.gz) stored in backup/container-docker with complete runtime metadata (environment variables, port mappings, labels, and restart policy) for seamless cross-host restoration.')"
+            class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+            title="Snapshots Info"
+          >
+            <Info class="w-3.5 h-3.5" />
+          </button>
         </div>
         <div class="flex items-center gap-2">
           <input
@@ -2086,7 +2108,17 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Custom Snapshot Name (Optional)</label>
+            <div class="flex items-center gap-1.5 mb-1">
+              <label class="block text-slate-700 dark:text-slate-300 font-bold">Custom Snapshot Name (Optional)</label>
+              <button
+                type="button"
+                @click="openInfoPopup('Custom Snapshot Name', 'Optional custom name for this snapshot. If left blank, it defaults to the container name with a timestamp suffix (e.g. container_20261026_143000.tar.gz).\n\nArchive is saved locally to backup/container-docker.')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Naming Details"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
+            </div>
             <input
               v-model="backupContainerForm.backupName"
               type="text"
@@ -2094,10 +2126,6 @@ onMounted(() => {
               class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
           </div>
-
-          <p class="text-[11px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 p-2 rounded-lg border border-blue-200 dark:border-blue-900">
-            Archive will be saved to <code class="font-mono font-bold">backup/container-docker</code> with full metadata for restoration.
-          </p>
         </div>
 
         <div class="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -2572,9 +2600,18 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Cron Expression</label>
+            <div class="flex items-center gap-1.5 mb-1">
+              <label class="block text-slate-700 dark:text-slate-400 font-bold">Cron Expression</label>
+              <button
+                type="button"
+                @click="openInfoPopup('Cron Expression Format', 'Standard 5-field cron syntax:\n• min (0-59)\n• hour (0-23)\n• dom (day of month, 1-31)\n• mon (month, 1-12)\n• dow (day of week, 0-6, 0=Sun)\n\nPresets:\n• 0 2 * * * : Every day at 02:00 AM\n• 0 */6 * * * : Every 6 hours\n• 0 0 * * 0 : Weekly on Sunday midnight')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Cron Format Info"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
+            </div>
             <input v-model="scheduleForm.cronExpression" required placeholder="0 2 * * *" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
-            <span class="text-[10px] text-slate-500 mt-0.5 block">Format: min hour dom mon dow (e.g. 0 2 * * * for 2 AM daily)</span>
           </div>
 
           <div class="flex items-center gap-2 pt-1">
@@ -2715,8 +2752,17 @@ onMounted(() => {
               <Box class="w-5 h-5" />
             </div>
             <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Backup Docker Container</h3>
-              <p class="text-[11px] text-slate-500">Export container snapshot and runtime config to backup/container-docker</p>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Backup Docker Container</h3>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Backup Docker Container', 'Creates an OCI container snapshot image (.tar.gz) and saves runtime environment variables, port configurations, and labels to backup/container-docker.')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="Container Backup Info"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
           <button @click="isBackupContainerModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
@@ -2779,31 +2825,43 @@ onMounted(() => {
 
           <!-- Custom Snapshot Name -->
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Custom Snapshot Name (Optional)</label>
+            <div class="flex items-center gap-1.5 mb-1">
+              <label class="block text-slate-700 dark:text-slate-300 font-bold">Custom Snapshot Name (Optional)</label>
+              <button
+                type="button"
+                @click="openInfoPopup('Snapshot Name', 'Custom filename prefix for this backup. If left blank, defaults to container name with the current timestamp (e.g. container_20261026_143000.tar.gz).')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Naming Guide"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
+            </div>
             <input
               v-model="backupContainerForm.backupName"
               type="text"
               placeholder="e.g. production-snapshot-v1"
               class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
-            <p class="text-[10px] text-slate-400 mt-1">If blank, defaults to container name with timestamp.</p>
           </div>
 
           <!-- Quiescence Toggle -->
-          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 space-y-1.5">
-            <label class="flex items-start gap-2.5 cursor-pointer">
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <label class="flex items-center gap-2.5 cursor-pointer">
               <input
                 v-model="backupContainerForm.stopDuringBackup"
                 type="checkbox"
-                class="rounded border-slate-300 dark:border-slate-700 text-blue-600 mt-0.5"
+                class="rounded border-slate-300 dark:border-slate-700 text-blue-600"
               />
-              <div>
-                <span class="font-bold text-slate-800 dark:text-slate-200 block">Stop container during snapshot</span>
-                <span class="text-[11px] text-slate-500 dark:text-slate-400 block leading-relaxed">
-                  Temporarily stops the container during image commit to guarantee filesystem quiescence, and restarts it automatically when complete.
-                </span>
-              </div>
+              <span class="font-bold text-slate-800 dark:text-slate-200 text-xs">Stop container during snapshot</span>
             </label>
+            <button
+              type="button"
+              @click.prevent.stop="openInfoPopup('Container Filesystem Quiescence', 'Temporarily stops the container during image commit to guarantee filesystem quiescence (no active write transactions or corrupted database state), and automatically restarts it once snapshot creation finishes.')"
+              class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-1 rounded transition cursor-pointer"
+              title="About Quiescence"
+            >
+              <Info class="w-3.5 h-3.5" />
+            </button>
           </div>
 
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -2839,8 +2897,17 @@ onMounted(() => {
               <RotateCcw class="w-5 h-5" />
             </div>
             <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Restore Docker Container</h3>
-              <p class="text-[11px] text-slate-500">Deploy snapshot image and configuration to local or remote Docker hosts</p>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Restore Docker Container</h3>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Restore Docker Container', 'Deploys an OCI snapshot image (.tar.gz) and its configuration to a local or remote Docker host. Cross-host restore extracts the image directly and launches the container with your configured network ports, environment variables, and restart policy.')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="About Container Restore"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
           <button @click="isRestoreContainerModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
@@ -2872,9 +2939,19 @@ onMounted(() => {
           <!-- Target Docker Connection -->
           <div class="space-y-1.5">
             <div class="flex items-center justify-between">
-              <label class="block text-slate-700 dark:text-slate-300 font-bold">
-                Target Docker Connection (Restore Destination)
-              </label>
+              <div class="flex items-center gap-1.5">
+                <label class="block text-slate-700 dark:text-slate-300 font-bold">
+                  Target Docker Connection (Restore Destination)
+                </label>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Target Docker Connection', 'Select the destination Docker host where this container will be deployed. Cross-host restoration automatically transfers and extracts the OCI snapshot image via Docker API or direct SSH streaming.')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="Connection Info"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
               <router-link
                 to="/connections"
                 target="_blank"
@@ -2894,9 +2971,6 @@ onMounted(() => {
                 {{ getDockerConnectionLabel(conn) }}
               </option>
             </select>
-            <p class="text-[10px] text-slate-500">
-              Select the target Docker host to deploy this container. Cross-host restoration automatically transfers and extracts the OCI snapshot image via Docker API / SSH.
-            </p>
 
             <!-- Target Host Details Badge -->
             <div
@@ -2932,7 +3006,17 @@ onMounted(() => {
           <!-- Port Bindings Configuration -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="text-slate-700 dark:text-slate-300 font-bold">Port Mappings (Host : Container)</label>
+              <div class="flex items-center gap-1.5">
+                <label class="text-slate-700 dark:text-slate-300 font-bold">Port Mappings (Host : Container)</label>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Port Mappings', 'Maps the host network port to the container internal port (HostPort : ContainerPort). Adjust the host port if the original port is already in use on the target machine.')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="Port Mappings Info"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
               <button
                 type="button"
                 @click="addRestorePort"
@@ -2975,7 +3059,17 @@ onMounted(() => {
           <!-- Environment Variables -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="text-slate-700 dark:text-slate-300 font-bold">Environment Variables</label>
+              <div class="flex items-center gap-1.5">
+                <label class="text-slate-700 dark:text-slate-300 font-bold">Environment Variables</label>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Environment Variables', 'Key-value pairs supplied to the container runtime process. You can edit existing snapshot variables, override credentials, or add new configuration settings.')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="Environment Variables Info"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
               <button
                 type="button"
                 @click="addRestoreEnv"
@@ -3017,7 +3111,17 @@ onMounted(() => {
 
           <!-- Restart Policy -->
           <div>
-            <label class="block text-slate-700 dark:text-slate-300 font-bold mb-1">Restart Policy</label>
+            <div class="flex items-center gap-1.5 mb-1">
+              <label class="block text-slate-700 dark:text-slate-300 font-bold">Restart Policy</label>
+              <button
+                type="button"
+                @click="openInfoPopup('Restart Policy', 'Defines whether Docker automatically restarts this container when it exits or when the host daemon restarts:\n\n• unless-stopped: Automatically restarts unless explicitly stopped by user (recommended).\n• always: Always restarts regardless of exit state or manual stop.\n• on-failure: Restarts only if exited with a non-zero exit code.\n• no: Do not restart automatically.')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Restart Policy Guide"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
+            </div>
             <select
               v-model="restoreForm.restartPolicy"
               class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
@@ -3031,13 +3135,33 @@ onMounted(() => {
 
           <!-- Toggles -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <input v-model="restoreForm.startAfterRestore" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
-              <span class="font-bold text-slate-800 dark:text-slate-200">Start container after restore</span>
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <div class="flex items-center gap-2">
+                <input v-model="restoreForm.startAfterRestore" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
+                <span class="font-bold text-slate-800 dark:text-slate-200">Start container after restore</span>
+              </div>
+              <button
+                type="button"
+                @click.prevent.stop="openInfoPopup('Start Container After Restore', 'When enabled, the restored container is started immediately upon creation. If unchecked, the container remains created but in an exited/stopped state.')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Details"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
             </label>
-            <label class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <input v-model="restoreForm.replaceExisting" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
-              <span class="font-bold text-slate-800 dark:text-slate-200">Replace existing container if exists</span>
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-[#0f1219] border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <div class="flex items-center gap-2">
+                <input v-model="restoreForm.replaceExisting" type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-blue-600" />
+                <span class="font-bold text-slate-800 dark:text-slate-200">Replace existing container if exists</span>
+              </div>
+              <button
+                type="button"
+                @click.prevent.stop="openInfoPopup('Replace Existing Container', 'If a container with the same name already exists on the target host, it will be safely stopped and removed before the restored container is created.')"
+                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                title="Details"
+              >
+                <Info class="w-3.5 h-3.5" />
+              </button>
             </label>
           </div>
 
@@ -3206,6 +3330,52 @@ onMounted(() => {
             class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
           >
             {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- INFORMATION POPUP MODAL (Quick Help Guide) -->
+    <!-- ============================================================= -->
+    <div
+      v-if="activeInfoPopup"
+      class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+      @click.self="activeInfoPopup = null"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4">
+        <div class="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+              <Info class="w-4 h-4" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                {{ activeInfoPopup.title }}
+              </h3>
+              <span class="text-[10px] text-slate-400 font-medium">Information Guide</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="activeInfoPopup = null"
+            class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+          {{ activeInfoPopup.description }}
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            @click="activeInfoPopup = null"
+            class="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+          >
+            Close
           </button>
         </div>
       </div>
