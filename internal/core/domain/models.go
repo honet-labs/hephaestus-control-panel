@@ -544,11 +544,12 @@ type ContainerBackupMetadata struct {
 }
 
 type BackupContainerRunRequest struct {
-	ConnectionID  string `json:"connectionId"`
-	ContainerID   string `json:"containerId" binding:"required"`
-	ContainerName string `json:"containerName"`
-	CustomName    string `json:"customName"`
-	BackupName    string `json:"backupName"`
+	ConnectionID     string `json:"connectionId"`
+	ContainerID      string `json:"containerId" binding:"required"`
+	ContainerName    string `json:"containerName"`
+	CustomName       string `json:"customName"`
+	BackupName       string `json:"backupName"`
+	StopDuringBackup bool   `json:"stopDuringBackup"`
 }
 
 type RestoreContainerRequest struct {

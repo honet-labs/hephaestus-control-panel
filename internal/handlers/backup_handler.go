@@ -391,7 +391,10 @@ func (h *BackupHandler) RunContainerBackup(c *gin.Context) {
 		return
 	}
 
-	meta, err := h.backupService.BackupContainer(c.Request.Context(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	meta, err := h.backupService.BackupContainer(ctx, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -421,7 +424,10 @@ func (h *BackupHandler) RestoreContainer(c *gin.Context) {
 		return
 	}
 
-	details, err := h.backupService.RestoreContainer(c.Request.Context(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	details, err := h.backupService.RestoreContainer(ctx, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

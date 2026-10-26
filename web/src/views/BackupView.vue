@@ -577,7 +577,7 @@ const submitBackupContainer = async () => {
       customName: backupContainerForm.value.backupName?.trim() || undefined,
       stopDuringBackup: backupContainerForm.value.stopDuringBackup,
     };
-    const res = await axios.post('/api/v1/backup/containers/run', payload);
+    const res = await axios.post('/api/v1/backup/containers/run', payload, { timeout: 600000 });
     if (res.data.success) {
       showNotification('success', res.data.message || 'Container snapshot saved in backup/container-docker!');
       isBackupContainerModalOpen.value = false;
@@ -730,7 +730,7 @@ const submitRestoreContainer = async () => {
       replaceExisting: restoreForm.value.replaceExisting,
     };
 
-    const res = await axios.post('/api/v1/backup/containers/restore', payload);
+    const res = await axios.post('/api/v1/backup/containers/restore', payload, { timeout: 600000 });
     if (res.data.success) {
       showNotification('success', res.data.message || `Container '${restoreForm.value.newContainerName}' restored successfully!`);
       isRestoreContainerModalOpen.value = false;
@@ -2821,7 +2821,7 @@ onMounted(() => {
             >
               <RotateCw v-if="backupContainerRunning" class="w-3.5 h-3.5 animate-spin" />
               <Box v-else class="w-3.5 h-3.5" />
-              <span>{{ backupContainerRunning ? 'Creating Snapshot...' : 'Start Container Backup' }}</span>
+              <span>{{ backupContainerRunning ? 'Creating Snapshot & Streaming...' : 'Start Container Backup' }}</span>
             </button>
           </div>
         </form>

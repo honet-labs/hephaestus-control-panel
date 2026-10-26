@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -192,6 +193,168 @@ _exec_docker %s
 	}
 
 	return stdout, stderr, nil
+}
+
+// StreamRemoteDockerSave streams `docker save <imageTag>` directly from remote SSH stdout
+// with on-the-fly gzip compression, eliminating disk writes to remote /tmp and slow SFTP overhead.
+func (s *DockerService) StreamRemoteDockerSave(ctx context.Context, conn *domain.DockerConnection, imageTag string, dst io.Writer) error {
+	remoteHost, err := s.resolveRemoteHost(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	client, err := s.sshService.Dial(remoteHost)
+	if err != nil {
+		return fmt.Errorf("failed to connect to remote host via SSH: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	socketPath := "/var/run/docker.sock"
+	if conn.SocketPath != "" {
+		socketPath = conn.SocketPath
+	}
+
+	escapedPass := ""
+	if remoteHost.Password != nil && *remoteHost.Password != "" {
+		escapedPass = strings.ReplaceAll(*remoteHost.Password, "'", "'\\''")
+	}
+
+	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
+_SOCK="%s"
+export DOCKER_HOST="unix://$_SOCK"
+_P='%s'
+
+if command -v gzip >/dev/null 2>&1; then
+    if [ "$(id -u)" -eq 0 ] || docker ps >/dev/null 2>&1; then
+        docker save %s | gzip -1
+    elif [ -n "$_P" ]; then
+        echo "$_P" | sudo -S -p '' docker save %s | gzip -1
+    elif sudo -n true 2>/dev/null; then
+        sudo -n docker save %s | gzip -1
+    else
+        docker save %s | gzip -1
+    fi
+else
+    if [ "$(id -u)" -eq 0 ] || docker ps >/dev/null 2>&1; then
+        docker save %s
+    elif [ -n "$_P" ]; then
+        echo "$_P" | sudo -S -p '' docker save %s
+    elif sudo -n true 2>/dev/null; then
+        sudo -n docker save %s
+    else
+        docker save %s
+    fi
+fi
+`, socketPath, escapedPass,
+		shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag),
+		shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag),
+	)
+
+	stdoutPipe, err := session.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH stdout pipe: %w", err)
+	}
+
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+
+	if err := session.Start(script); err != nil {
+		return fmt.Errorf("failed to start remote docker save: %w", err)
+	}
+
+	br := bufio.NewReader(stdoutPipe)
+	magic, err := br.Peek(2)
+	var errCopy error
+	if err == nil && len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gzR, gzErr := gzip.NewReader(br)
+		if gzErr != nil {
+			return fmt.Errorf("failed to initialize gzip decompressor: %w", gzErr)
+		}
+		defer gzR.Close()
+		_, errCopy = io.Copy(dst, gzR)
+	} else {
+		_, errCopy = io.Copy(dst, br)
+	}
+
+	errWait := session.Wait()
+	if errCopy != nil {
+		return fmt.Errorf("failed during remote image stream copy: %w", errCopy)
+	}
+	if errWait != nil {
+		errStr := strings.TrimSpace(stderrBuf.String())
+		if errStr != "" {
+			return fmt.Errorf("remote docker save failed: %s (%w)", errStr, errWait)
+		}
+		return fmt.Errorf("remote docker save failed: %w", errWait)
+	}
+
+	return nil
+}
+
+// StreamRemoteDockerLoad streams uncompressed/compressed image.tar into remote `docker load` via SSH stdin
+func (s *DockerService) StreamRemoteDockerLoad(ctx context.Context, conn *domain.DockerConnection, src io.Reader) error {
+	remoteHost, err := s.resolveRemoteHost(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	client, err := s.sshService.Dial(remoteHost)
+	if err != nil {
+		return fmt.Errorf("failed to connect to remote host via SSH: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	socketPath := "/var/run/docker.sock"
+	if conn.SocketPath != "" {
+		socketPath = conn.SocketPath
+	}
+
+	escapedPass := ""
+	if remoteHost.Password != nil && *remoteHost.Password != "" {
+		escapedPass = strings.ReplaceAll(*remoteHost.Password, "'", "'\\''")
+	}
+
+	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
+_SOCK="%s"
+export DOCKER_HOST="unix://$_SOCK"
+_P='%s'
+
+if [ "$(id -u)" -eq 0 ] || docker ps >/dev/null 2>&1; then
+    docker load
+elif [ -n "$_P" ]; then
+    echo "$_P" | sudo -S -p '' docker load
+elif sudo -n true 2>/dev/null; then
+    sudo -n docker load
+else
+    docker load
+fi
+`, socketPath, escapedPass)
+
+	session.Stdin = src
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+
+	if err := session.Run(script); err != nil {
+		errStr := strings.TrimSpace(stderrBuf.String())
+		if errStr != "" {
+			return fmt.Errorf("remote docker load failed: %s (%w)", errStr, err)
+		}
+		return fmt.Errorf("remote docker load failed: %w", err)
+	}
+
+	return nil
 }
 
 // -------------------------------------------------------------

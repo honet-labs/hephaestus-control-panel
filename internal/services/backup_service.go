@@ -1524,6 +1524,14 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 	}
 	cleanName = sanitizeContainerName(cleanName)
 
+	wasRunning := inspect.IsRunning
+	if req.StopDuringBackup && wasRunning {
+		_ = s.dockerService.StopContainer(ctx, req.ConnectionID, req.ContainerID, 10)
+		defer func() {
+			_ = s.dockerService.StartContainer(context.Background(), req.ConnectionID, req.ContainerID)
+		}()
+	}
+
 	now := time.Now()
 	timeStr := now.Format("20060102_150405")
 	backupTag := fmt.Sprintf("hcp-backup-%s:%s", cleanName, timeStr)
@@ -1553,13 +1561,6 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 
 	// 1. Commit container & export image tar
 	if conn.HostType == "ssh" || conn.RemoteHostID != nil {
-		remoteHost, err := s.dockerService.resolveRemoteHost(ctx, conn)
-		if err != nil {
-			errMsg := err.Error()
-			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
-			return nil, err
-		}
-
 		commitCmd := fmt.Sprintf("commit %s %s", shellQuote(req.ContainerID), shellQuote(backupTag))
 		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, conn, commitCmd); err != nil {
 			errMsg := fmt.Sprintf("docker commit failed: %v", err)
@@ -1567,43 +1568,23 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 			return nil, fmt.Errorf("remote commit failed: %w", err)
 		}
 
-		remoteTar := fmt.Sprintf("/tmp/hcp_save_%s.tar", uuid.New().String()[:8])
-		saveCmd := fmt.Sprintf("save %s -o %s", shellQuote(backupTag), shellQuote(remoteTar))
-		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, conn, saveCmd); err != nil {
-			_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
-			errMsg := fmt.Sprintf("docker save failed: %v", err)
-			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
-			return nil, fmt.Errorf("remote save failed: %w", err)
-		}
-
-		// Download remote tar to tempImageFile
-		srcR, _, err := s.sshService.SftpDownloadWithConfig(remoteHost, remoteTar)
-		if err != nil {
-			_ = s.sshService.DeleteFile(remoteHost, remoteTar)
-			_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
-			errMsg := fmt.Sprintf("failed to download image tar: %v", err)
-			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
-			return nil, err
-		}
+		defer func() {
+			_, _, _ = s.dockerService.runRemoteDockerCommand(context.Background(), conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
+		}()
 
 		imgDst, err := os.Create(tempImageFile)
 		if err != nil {
-			srcR.Close()
-			_ = s.sshService.DeleteFile(remoteHost, remoteTar)
+			errMsg := fmt.Sprintf("failed to create temporary image file: %v", err)
+			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
 			return nil, err
 		}
-		_, errCopy := io.Copy(imgDst, srcR)
+
+		errSave := s.dockerService.StreamRemoteDockerSave(ctx, conn, backupTag, imgDst)
 		imgDst.Close()
-		srcR.Close()
-
-		// Clean up remote host
-		_ = s.sshService.DeleteFile(remoteHost, remoteTar)
-		_, _, _ = s.dockerService.runRemoteDockerCommand(ctx, conn, fmt.Sprintf("rmi -f %s", shellQuote(backupTag)))
-
-		if errCopy != nil {
-			errMsg := fmt.Sprintf("failed to save image locally: %v", errCopy)
+		if errSave != nil {
+			errMsg := fmt.Sprintf("remote docker save streaming failed: %v", errSave)
 			_ = s.backupRepo.UpdateHistoryStatus(ctx, historyID, "failed", 0, &errMsg)
-			return nil, errCopy
+			return nil, errSave
 		}
 	} else {
 		// Local Docker
@@ -1837,27 +1818,13 @@ func (s *BackupService) RestoreContainer(ctx context.Context, req domain.Restore
 
 	// Load image into target connection
 	if targetConn.HostType == "ssh" || targetConn.RemoteHostID != nil {
-		remoteHost, err := s.dockerService.resolveRemoteHost(ctx, targetConn)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve remote host: %w", err)
-		}
-
-		remoteTarPath := fmt.Sprintf("/tmp/hcp_load_%s.tar", uuid.New().String()[:8])
 		imgF, err := os.Open(tempImagePath)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.sshService.SftpUploadWithConfig(remoteHost, remoteTarPath, imgF); err != nil {
-			imgF.Close()
-			return nil, fmt.Errorf("failed to upload image to remote host: %w", err)
-		}
-		imgF.Close()
-		defer func() {
-			_ = s.sshService.DeleteFile(remoteHost, remoteTarPath)
-		}()
+		defer imgF.Close()
 
-		loadCmd := fmt.Sprintf("load -i %s", shellQuote(remoteTarPath))
-		if _, _, err := s.dockerService.runRemoteDockerCommand(ctx, targetConn, loadCmd); err != nil {
+		if err := s.dockerService.StreamRemoteDockerLoad(ctx, targetConn, imgF); err != nil {
 			return nil, fmt.Errorf("docker load failed on remote host: %w", err)
 		}
 	} else {
