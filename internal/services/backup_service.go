@@ -1526,7 +1526,7 @@ func (s *BackupService) BackupContainer(ctx context.Context, req domain.BackupCo
 
 	wasRunning := inspect.IsRunning
 	if req.StopDuringBackup && wasRunning {
-		_ = s.dockerService.StopContainer(ctx, req.ConnectionID, req.ContainerID, 10)
+		_ = s.dockerService.StopContainer(ctx, req.ConnectionID, req.ContainerID)
 		defer func() {
 			_ = s.dockerService.StartContainer(context.Background(), req.ConnectionID, req.ContainerID)
 		}()
