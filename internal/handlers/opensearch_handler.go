@@ -26,8 +26,20 @@ func NewOpenSearchHandler(openSearchService *services.OpenSearchService) *OpenSe
 	}
 }
 
+func (h *OpenSearchHandler) getRequestContext(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	configID := strings.TrimSpace(c.Query("configId"))
+	if configID == "" {
+		configID = strings.TrimSpace(c.GetHeader("X-OpenSearch-Config-Id"))
+	}
+	if configID != "" {
+		return services.ContextWithConfigID(ctx, configID)
+	}
+	return ctx
+}
+
 func (h *OpenSearchHandler) GetHealth(c *gin.Context) {
-	health, err := h.openSearchService.GetClusterHealth(c.Request.Context())
+	health, err := h.openSearchService.GetClusterHealth(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error()})
 		return
@@ -36,7 +48,7 @@ func (h *OpenSearchHandler) GetHealth(c *gin.Context) {
 }
 
 func (h *OpenSearchHandler) GetNodesStats(c *gin.Context) {
-	stats, err := h.openSearchService.GetNodesStats(c.Request.Context())
+	stats, err := h.openSearchService.GetNodesStats(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error()})
 		return
@@ -45,7 +57,7 @@ func (h *OpenSearchHandler) GetNodesStats(c *gin.Context) {
 }
 
 func (h *OpenSearchHandler) GetNodesInfo(c *gin.Context) {
-	info, err := h.openSearchService.GetNodesInfo(c.Request.Context())
+	info, err := h.openSearchService.GetNodesInfo(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error()})
 		return
@@ -54,7 +66,7 @@ func (h *OpenSearchHandler) GetNodesInfo(c *gin.Context) {
 }
 
 func (h *OpenSearchHandler) GetIndices(c *gin.Context) {
-	indices, err := h.openSearchService.GetIndices(c.Request.Context())
+	indices, err := h.openSearchService.GetIndices(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error()})
 		return
@@ -63,7 +75,7 @@ func (h *OpenSearchHandler) GetIndices(c *gin.Context) {
 }
 
 func (h *OpenSearchHandler) GetShards(c *gin.Context) {
-	shards, err := h.openSearchService.GetShards(c.Request.Context())
+	shards, err := h.openSearchService.GetShards(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error()})
 		return
@@ -72,7 +84,7 @@ func (h *OpenSearchHandler) GetShards(c *gin.Context) {
 }
 
 func (h *OpenSearchHandler) GetRecovery(c *gin.Context) {
-	recovery, err := h.openSearchService.GetRecovery(c.Request.Context())
+	recovery, err := h.openSearchService.GetRecovery(h.getRequestContext(c))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": err.Error(), "data": []interface{}{}})
 		return
@@ -82,8 +94,18 @@ func (h *OpenSearchHandler) GetRecovery(c *gin.Context) {
 
 func (h *OpenSearchHandler) GetConfig(c *gin.Context) {
 	userID, userRole := getUserContext(c)
-	cfg, err := h.openSearchService.GetActiveConfigForUser(c.Request.Context(), userID, userRole)
-	if err != nil {
+	configID := strings.TrimSpace(c.Query("configId"))
+	if configID == "" {
+		configID = strings.TrimSpace(c.GetHeader("X-OpenSearch-Config-Id"))
+	}
+	var cfg *domain.OpenSearchConfig
+	var err error
+	if configID != "" {
+		cfg, err = h.openSearchService.GetConfigByID(c.Request.Context(), configID)
+	} else {
+		cfg, err = h.openSearchService.GetActiveConfigForUser(c.Request.Context(), userID, userRole)
+	}
+	if err != nil || cfg == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": nil})
 		return
 	}
@@ -92,6 +114,41 @@ func (h *OpenSearchHandler) GetConfig(c *gin.Context) {
 		safeCfg.Password = "••••••••"
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": safeCfg})
+}
+
+func (h *OpenSearchHandler) ActivateConfig(c *gin.Context) {
+	userID, userRole := getUserContext(c)
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		id = strings.TrimSpace(c.Query("id"))
+	}
+	if id == "" {
+		var req struct {
+			ID string `json:"id"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		id = strings.TrimSpace(req.ID)
+	}
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Configuration ID is required"})
+		return
+	}
+
+	cfg, err := h.openSearchService.SetActiveConfig(c.Request.Context(), id, userID, userRole)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	safeCfg := *cfg
+	if safeCfg.Password != "" {
+		safeCfg.Password = "••••••••"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("OpenSearch cluster connection '%s' activated successfully", safeCfg.Name),
+		"data":    safeCfg,
+	})
 }
 
 func (h *OpenSearchHandler) ListConfigs(c *gin.Context) {
@@ -335,7 +392,7 @@ func (h *OpenSearchHandler) ExecuteQuery(c *gin.Context) {
 		}
 	}
 
-	res, err := h.openSearchService.ExecuteQuery(c.Request.Context(), method, endpoint, bodyBytes)
+	res, err := h.openSearchService.ExecuteQuery(h.getRequestContext(c), method, endpoint, bodyBytes)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

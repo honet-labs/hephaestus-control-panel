@@ -42,6 +42,11 @@ import {
   HelpCircle,
   FileText,
   Upload,
+  ChevronDown,
+  Plus,
+  Edit3,
+  Globe,
+  Lock,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import { useAuthStore } from '../stores/auth';
@@ -156,6 +161,44 @@ const testResult = ref<string | null>(null);
 const testSuccess = ref(false);
 const isTestingConnection = ref(false);
 const isSavingConfig = ref(false);
+
+// Multi-Connection State & Switcher
+const connections = ref<any[]>([]);
+const selectedConnectionId = ref<string>('');
+const isSwitchingConnection = ref(false);
+const isConnectionDropdownOpen = ref(false);
+const isEditingConnection = ref(false);
+
+// HCP Standard Auto-dismiss Notification Banner (3000ms as per AGENTS.md)
+const notification = ref<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+let notificationTimer: ReturnType<typeof setTimeout> | null = null;
+const showNotification = (type: 'success' | 'error' | 'warning', message: string) => {
+  if (notificationTimer) clearTimeout(notificationTimer);
+  notification.value = { type, message };
+  notificationTimer = setTimeout(() => {
+    notification.value = null;
+    notificationTimer = null;
+  }, 3000);
+};
+
+// HCP Standard Delete Confirmation Modal State (as per AGENTS.md)
+const showDeleteModal = ref(false);
+const connectionToDelete = ref<any | null>(null);
+const isDeletingConnection = ref(false);
+
+// Active Selected Connection metadata
+const currentConnection = computed(() => {
+  const found = connections.value.find((c: any) => c.id === selectedConnectionId.value);
+  if (found) return found;
+  return {
+    id: configForm.value.id || '',
+    name: configForm.value.name || 'OpenSearch Cluster',
+    host: configForm.value.host || '',
+    port: configForm.value.port || 9200,
+    useSsl: configForm.value.useSsl || false,
+    isActive: configForm.value.isActive !== false,
+  };
+});
 
 // Filter & Search states
 const indexSearch = ref('');
@@ -1321,7 +1364,164 @@ const isShardDimmed = (shard: any) => {
   return Boolean(targetIndex && currentIndex && targetIndex !== currentIndex);
 };
 
-// Configuration Methods
+// Configuration & Multi-Connection Methods
+const fetchConnections = async () => {
+  try {
+    const res = await axios.get('/api/v1/opensearch/configs');
+    if (res.data.success && Array.isArray(res.data.data)) {
+      connections.value = res.data.data;
+      if (!selectedConnectionId.value) {
+        const active = connections.value.find((c: any) => c.isActive);
+        if (active) {
+          selectedConnectionId.value = active.id;
+        } else if (connections.value.length > 0) {
+          selectedConnectionId.value = connections.value[0].id;
+        }
+      }
+      if (selectedConnectionId.value) {
+        axios.defaults.headers.common['X-OpenSearch-Config-Id'] = selectedConnectionId.value;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load OpenSearch connections:', err);
+  }
+};
+
+const switchConnection = async (connId: string) => {
+  if (!connId) return;
+  isConnectionDropdownOpen.value = false;
+  if (connId === selectedConnectionId.value && clusterHealth.value) {
+    return;
+  }
+  isSwitchingConnection.value = true;
+  try {
+    const res = await axios.post(`/api/v1/opensearch/configs/${connId}/activate`);
+    if (res.data.success) {
+      selectedConnectionId.value = connId;
+      axios.defaults.headers.common['X-OpenSearch-Config-Id'] = connId;
+
+      connections.value.forEach((c: any) => {
+        c.isActive = (c.id === connId);
+      });
+
+      if (res.data.data) {
+        const c = res.data.data;
+        configForm.value = {
+          id: c.id || '',
+          name: c.name || '',
+          host: c.host || '',
+          port: c.port || 9200,
+          username: c.username || '',
+          password: '',
+          useSsl: c.useSsl || false,
+          verifySsl: c.verifySsl || false,
+          isActive: true,
+        };
+      }
+
+      showNotification('success', `Switched to connection: ${currentConnection.value.name}`);
+      countdown.value = refreshIntervalSec.value;
+      await fetchClusterData();
+    } else {
+      showNotification('error', res.data.error || 'Failed to switch connection');
+    }
+  } catch (err: any) {
+    showNotification('error', err.response?.data?.error || err.message || 'Failed to switch connection');
+  } finally {
+    isSwitchingConnection.value = false;
+  }
+};
+
+const resetFormForNewConnection = () => {
+  isEditingConnection.value = false;
+  configForm.value = {
+    id: '',
+    name: '',
+    host: '',
+    port: 9200,
+    username: '',
+    password: '',
+    useSsl: false,
+    verifySsl: false,
+    isActive: true,
+  };
+  testResult.value = null;
+  testSuccess.value = false;
+};
+
+const editConnection = (conn: any) => {
+  isEditingConnection.value = true;
+  configForm.value = {
+    id: conn.id || '',
+    name: conn.name || '',
+    host: conn.host || '',
+    port: conn.port || 9200,
+    username: conn.username || '',
+    password: '',
+    useSsl: conn.useSsl || false,
+    verifySsl: conn.verifySsl || false,
+    isActive: conn.isActive !== false,
+  };
+  testResult.value = null;
+  testSuccess.value = false;
+};
+
+const promptDeleteConnection = (conn: any) => {
+  connectionToDelete.value = conn;
+  showDeleteModal.value = true;
+};
+
+const executeDeleteConnection = async () => {
+  if (!connectionToDelete.value) return;
+  isDeletingConnection.value = true;
+  try {
+    const res = await axios.delete(`/api/v1/opensearch/config/${connectionToDelete.value.id}`);
+    if (res.data.success) {
+      showNotification('success', `Connection "${connectionToDelete.value.name}" deleted successfully.`);
+      showDeleteModal.value = false;
+      const wasActive = connectionToDelete.value.id === selectedConnectionId.value;
+      connectionToDelete.value = null;
+      await fetchConnections();
+      if (wasActive && connections.value.length > 0) {
+        const nextActive = connections.value.find((c: any) => c.isActive) || connections.value[0];
+        await switchConnection(nextActive.id);
+      } else if (connections.value.length === 0) {
+        selectedConnectionId.value = '';
+        delete axios.defaults.headers.common['X-OpenSearch-Config-Id'];
+        clusterHealth.value = null;
+      }
+    } else {
+      showNotification('error', res.data.error || 'Failed to delete connection');
+    }
+  } catch (err: any) {
+    showNotification('error', err.response?.data?.error || err.message || 'Failed to delete connection');
+  } finally {
+    isDeletingConnection.value = false;
+  }
+};
+
+const testSpecificConnection = async (conn: any) => {
+  try {
+    showNotification('warning', `Testing connection to "${conn.name}"...`);
+    const res = await axios.post('/api/v1/opensearch/test', {
+      id: conn.id,
+      host: conn.host,
+      port: conn.port,
+      username: conn.username,
+      password: conn.password || '',
+      useSsl: conn.useSsl,
+      verifySsl: conn.verifySsl,
+    });
+    if (res.data.success) {
+      showNotification('success', `Connected: Cluster "${res.data.data?.cluster_name || conn.name}" status is ${res.data.data?.status || 'green'}.`);
+    } else {
+      showNotification('error', res.data.error || `Connection test failed for "${conn.name}"`);
+    }
+  } catch (err: any) {
+    showNotification('error', err.response?.data?.error || err.message || 'Connection test failed');
+  }
+};
+
 const fetchActiveConfig = async () => {
   try {
     const res = await axios.get('/api/v1/opensearch/config');
@@ -1338,6 +1538,10 @@ const fetchActiveConfig = async () => {
         verifySsl: c.verifySsl || false,
         isActive: c.isActive !== false,
       };
+      if (!selectedConnectionId.value && c.id) {
+        selectedConnectionId.value = c.id;
+        axios.defaults.headers.common['X-OpenSearch-Config-Id'] = c.id;
+      }
     }
   } catch (err) {
     console.error('Failed to load OpenSearch config:', err);
@@ -1375,12 +1579,20 @@ const handleSaveConfig = async () => {
   try {
     const res = await axios.post('/api/v1/opensearch/config', configForm.value);
     if (res.data.success) {
-      alert('OpenSearch configuration saved successfully!');
+      showNotification('success', 'OpenSearch configuration saved successfully!');
+      await fetchConnections();
+      if (res.data.data?.id) {
+        selectedConnectionId.value = res.data.data.id;
+        axios.defaults.headers.common['X-OpenSearch-Config-Id'] = res.data.data.id;
+      }
+      isEditingConnection.value = false;
       activeTab.value = 'overview';
       fetchClusterData();
+    } else {
+      showNotification('error', res.data.error || 'Failed to save configuration');
     }
   } catch (err: any) {
-    alert(`Failed to save config: ${err.response?.data?.error || err.message}`);
+    showNotification('error', `Failed to save config: ${err.response?.data?.error || err.message}`);
   } finally {
     isSavingConfig.value = false;
   }
@@ -1416,7 +1628,7 @@ const handleBackToPortal = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   if (route.query.tab && typeof route.query.tab === 'string') {
     activeTab.value = route.query.tab as any;
   }
@@ -1439,7 +1651,8 @@ onMounted(() => {
     countdown.value = refreshIntervalSec.value;
   }
 
-  fetchActiveConfig();
+  await fetchConnections();
+  await fetchActiveConfig();
   fetchClusterData();
   startTimer();
 });
@@ -1456,14 +1669,109 @@ onUnmounted(() => {
       v-if="showHeader"
       class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md"
     >
-      <!-- Left: Title and Status -->
+      <!-- Left: Title, Connection Switcher Dropdown, and Health Status -->
       <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2">
-          <Database class="w-4 h-4 text-slate-400" />
+        <div>
           <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">
             OpenSearch Cluster Monitor
-            <span v-if="isEmbedMode && configForm.name" class="text-slate-400 font-normal"> · {{ configForm.name }}</span>
+            <span v-if="isEmbedMode && currentConnection.name" class="text-slate-400 font-normal"> · {{ currentConnection.name }}</span>
           </h1>
+        </div>
+
+        <!-- Connection Switcher Dropdown (Only if not embed mode) -->
+        <div v-if="!isEmbedMode" class="relative">
+          <button
+            type="button"
+            @click="isConnectionDropdownOpen = !isConnectionDropdownOpen"
+            class="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#14161b] hover:dark:bg-[#1f2430] border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 transition cursor-pointer"
+            :title="'Active Cluster: ' + (currentConnection.name || 'Select Connection')"
+          >
+            <span
+              class="w-2 h-2 rounded-full shrink-0"
+              :class="clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : 'bg-rose-500'"
+            ></span>
+            <span class="max-w-[120px] sm:max-w-[170px] truncate font-semibold text-slate-900 dark:text-white">
+              {{ currentConnection.name || 'Default Cluster' }}
+            </span>
+            <span v-if="currentConnection.host" class="hidden lg:inline text-[10px] font-mono text-slate-400 truncate max-w-[110px]">
+              {{ currentConnection.host }}:{{ currentConnection.port }}
+            </span>
+            <ChevronDown
+              class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200"
+              :class="{ 'rotate-180': isConnectionDropdownOpen }"
+            />
+          </button>
+
+          <!-- Click outside backdrop -->
+          <div
+            v-if="isConnectionDropdownOpen"
+            class="fixed inset-0 z-40"
+            @click="isConnectionDropdownOpen = false"
+          ></div>
+
+          <!-- Dropdown menu -->
+          <div
+            v-if="isConnectionDropdownOpen"
+            class="absolute left-0 mt-1.5 w-72 sm:w-80 bg-white dark:bg-[#181c25] border border-slate-200 dark:border-[#262c3a] rounded-xl shadow-2xl z-50 p-1.5 text-xs animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div class="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+              <span class="font-bold text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                Switch Cluster Connection
+              </span>
+              <span class="text-[10px] text-slate-400 font-mono">
+                {{ connections.length }} {{ connections.length === 1 ? 'cluster' : 'clusters' }}
+              </span>
+            </div>
+
+            <div class="max-h-60 overflow-y-auto py-1 space-y-0.5">
+              <div
+                v-for="conn in connections"
+                :key="conn.id"
+                @click="switchConnection(conn.id)"
+                class="flex items-center justify-between p-2 rounded-lg cursor-pointer transition"
+                :class="conn.id === selectedConnectionId
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-900/60'
+                  : 'hover:bg-slate-100 dark:hover:bg-[#202634] text-slate-700 dark:text-slate-300'"
+              >
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span
+                    class="w-2 h-2 rounded-full shrink-0"
+                    :class="conn.id === selectedConnectionId
+                      ? (clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : 'bg-rose-500')
+                      : 'bg-slate-300 dark:bg-slate-600'"
+                  ></span>
+                  <div class="truncate">
+                    <div class="truncate text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>{{ conn.name }}</span>
+                      <span v-if="conn.id === selectedConnectionId" class="text-[9px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 font-bold uppercase tracking-wider">
+                        ACTIVE
+                      </span>
+                    </div>
+                    <div class="text-[11px] font-mono text-slate-400 truncate">
+                      {{ conn.useSsl ? 'https://' : 'http://' }}{{ conn.host }}:{{ conn.port }}
+                    </div>
+                  </div>
+                </div>
+
+                <Check v-if="conn.id === selectedConnectionId" class="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 ml-2" />
+              </div>
+
+              <div v-if="connections.length === 0" class="p-3 text-center text-slate-400 text-xs">
+                No OpenSearch connections registered yet.
+              </div>
+            </div>
+
+            <div class="pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+              <button
+                type="button"
+                @click="isConnectionDropdownOpen = false; activeTab = 'connection'; resetFormForNewConnection();"
+                class="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition font-medium cursor-pointer"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>Add / Manage Connections</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Connection Status Pill -->
@@ -2996,54 +3304,264 @@ onUnmounted(() => {
       </div>
 
       <!-- ================================================================= -->
-      <!-- TAB 5: CONNECTION CONFIGURATION -->
+      <!-- TAB 5: CONNECTION CONFIGURATION & MANAGEMENT -->
       <!-- ================================================================= -->
-      <div v-if="activeTab === 'connection'" class="max-w-2xl mx-auto space-y-6">
-        <div class="p-6 bg-[#1b1e26] border border-slate-800/80 rounded-xl space-y-6 shadow-xl">
-          <div class="flex items-center gap-3 border-b border-slate-800 pb-4">
-            <Sliders class="w-5 h-5 text-brand-400" />
+      <div v-if="activeTab === 'connection'" class="max-w-4xl mx-auto space-y-6">
+        
+        <!-- Section 1: Configured Connections List -->
+        <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 sm:p-6 space-y-4 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
             <div>
-              <h3 class="text-sm font-bold text-white">Cluster Connection Settings</h3>
-              <p class="text-xs text-slate-400">Configure connection credentials to your OpenSearch cluster</p>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Configured Cluster Connections</h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Switch active cluster telemetry monitoring or manage OpenSearch &amp; Elasticsearch endpoints.
+              </p>
             </div>
+            <button
+              v-if="canManage"
+              type="button"
+              @click="resetFormForNewConnection"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              <span>Add New Connection</span>
+            </button>
+          </div>
+
+          <!-- Connections Table / Cards -->
+          <div v-if="connections.length > 0" class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50 dark:bg-[#14161b] border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th class="py-2.5 px-3 font-semibold">Cluster Name</th>
+                  <th class="py-2.5 px-3 font-semibold">Endpoint</th>
+                  <th class="py-2.5 px-3 font-semibold text-center">Status</th>
+                  <th class="py-2.5 px-3 font-semibold text-center">Visibility</th>
+                  <th class="py-2.5 px-3 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+                <tr
+                  v-for="conn in connections"
+                  :key="conn.id"
+                  class="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition"
+                  :class="conn.id === selectedConnectionId ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''"
+                >
+                  <!-- Name with Dot -->
+                  <td class="py-3 px-3">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="w-2 h-2 rounded-full shrink-0"
+                        :class="conn.id === selectedConnectionId
+                          ? (clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : 'bg-rose-500')
+                          : 'bg-slate-300 dark:bg-slate-600'"
+                      ></span>
+                      <div>
+                        <div class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>{{ conn.name }}</span>
+                          <span
+                            v-if="conn.id === selectedConnectionId"
+                            class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300"
+                          >
+                            ACTIVE
+                          </span>
+                        </div>
+                        <div v-if="conn.ownerUsername" class="text-[10px] text-slate-400">
+                          Owner: {{ conn.ownerUsername }}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- Endpoint -->
+                  <td class="py-3 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                    <div class="flex items-center gap-1.5">
+                      <span class="px-1 py-0.2 rounded text-[9px] font-mono uppercase" :class="conn.useSsl ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'">
+                        {{ conn.useSsl ? 'HTTPS' : 'HTTP' }}
+                      </span>
+                      <span>{{ conn.host }}:{{ conn.port }}</span>
+                    </div>
+                  </td>
+
+                  <!-- Status -->
+                  <td class="py-3 px-3 text-center">
+                    <span
+                      v-if="conn.id === selectedConnectionId && clusterHealth"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase"
+                      :class="clusterHealth.status === 'green' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' : clusterHealth.status === 'yellow' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30' : 'bg-rose-50 dark:bg-red-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-red-500/30'"
+                    >
+                      <span class="w-1.5 h-1.5 rounded-full" :class="clusterHealth.status === 'green' ? 'bg-emerald-500' : clusterHealth.status === 'yellow' ? 'bg-amber-500' : 'bg-red-500'"></span>
+                      <span>{{ clusterHealth.status }}</span>
+                    </span>
+                    <span v-else class="text-[10px] text-slate-400 font-mono">
+                      Ready
+                    </span>
+                  </td>
+
+                  <!-- Visibility -->
+                  <td class="py-3 px-3 text-center">
+                    <span
+                      class="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium uppercase"
+                      :class="conn.visibility === 'public'
+                        ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'"
+                    >
+                      {{ conn.visibility || 'private' }}
+                    </span>
+                  </td>
+
+                  <!-- Actions -->
+                  <td class="py-3 px-3 text-right">
+                    <div class="flex items-center justify-end gap-1.5">
+                      <!-- Switch / Activate Button -->
+                      <button
+                        v-if="conn.id !== selectedConnectionId"
+                        type="button"
+                        @click="switchConnection(conn.id)"
+                        :disabled="isSwitchingConnection"
+                        class="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/80 text-blue-600 dark:text-blue-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                        title="Switch active monitor to this cluster"
+                      >
+                        {{ isSwitchingConnection ? '...' : 'Switch' }}
+                      </button>
+                      <span
+                        v-else
+                        class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-medium cursor-default"
+                      >
+                        Active
+                      </span>
+
+                      <!-- Test Connection Button -->
+                      <button
+                        type="button"
+                        @click="testSpecificConnection(conn)"
+                        class="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Test cluster ping"
+                      >
+                        <Zap class="w-3.5 h-3.5" />
+                      </button>
+
+                      <!-- Edit Button -->
+                      <button
+                        v-if="canManage"
+                        type="button"
+                        @click="editConnection(conn)"
+                        class="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Edit connection settings"
+                      >
+                        <Edit3 class="w-3.5 h-3.5" />
+                      </button>
+
+                      <!-- Delete Button -->
+                      <button
+                        v-if="canManage"
+                        type="button"
+                        @click="promptDeleteConnection(conn)"
+                        class="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                        title="Delete connection"
+                      >
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-else class="text-center py-6 text-slate-400 text-xs">
+            No cluster connections found. Fill out the form below to register your OpenSearch cluster.
+          </div>
+        </div>
+
+        <!-- Section 2: Connection Form (Add / Edit) -->
+        <div class="p-6 bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-6 shadow-sm">
+          <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+            <div class="flex items-center gap-3">
+              <Sliders class="w-5 h-5 text-slate-400" />
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                  {{ isEditingConnection ? 'Edit Connection: ' + configForm.name : 'Register OpenSearch Connection' }}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                  Configure endpoint host, authentication credentials, and TLS options.
+                </p>
+              </div>
+            </div>
+            <button
+              v-if="isEditingConnection"
+              type="button"
+              @click="resetFormForNewConnection"
+              class="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+            >
+              Cancel Edit
+            </button>
           </div>
 
           <form @submit.prevent="handleSaveConfig" class="space-y-4 text-xs">
             <div>
-              <label class="block text-slate-400 mb-1 font-medium">Cluster Name</label>
-              <input v-model="configForm.name" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. Production Cluster" />
+              <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Cluster Name</label>
+              <input
+                v-model="configForm.name"
+                required
+                class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                placeholder="e.g. Production Cluster or Staging OpenSearch"
+              />
             </div>
 
-            <div class="grid grid-cols-3 gap-4">
-              <div class="col-span-2">
-                <label class="block text-slate-400 mb-1 font-medium">OpenSearch Host / IP</label>
-                <input v-model="configForm.host" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="e.g. 103.171.31.56 or search.example.com" />
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div class="sm:col-span-2">
+                <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">OpenSearch Host / IP</label>
+                <input
+                  v-model="configForm.host"
+                  required
+                  class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                  placeholder="e.g. 10.0.0.12 or search.internal"
+                />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-medium">HTTP Port</label>
-                <input v-model.number="configForm.port" type="number" required class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" />
+                <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">HTTP Port</label>
+                <input
+                  v-model.number="configForm.port"
+                  type="number"
+                  required
+                  class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                />
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label class="block text-slate-400 mb-1 font-medium">Username (Optional)</label>
-                <input v-model="configForm.username" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500" placeholder="admin" />
+                <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Username (Optional)</label>
+                <input
+                  v-model="configForm.username"
+                  class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  placeholder="admin"
+                />
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-medium">Password (Encrypted AES-256)</label>
-                <input v-model="configForm.password" type="password" class="w-full bg-[#14161b] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono" placeholder="••••••••" />
+                <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Password (Encrypted AES-256)</label>
+                <input
+                  v-model="configForm.password"
+                  type="password"
+                  class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                  placeholder="••••••••"
+                />
               </div>
             </div>
 
-            <div class="flex items-center gap-6 pt-2">
+            <div class="flex flex-wrap items-center gap-6 pt-2">
               <label class="flex items-center gap-2 cursor-pointer">
-                <input v-model="configForm.useSsl" type="checkbox" class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0" />
-                <span class="text-slate-300">Use HTTPS (SSL/TLS)</span>
+                <input v-model="configForm.useSsl" type="checkbox" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0" />
+                <span class="text-slate-700 dark:text-slate-300">Use HTTPS (SSL/TLS)</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input v-model="configForm.verifySsl" type="checkbox" class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0" />
-                <span class="text-slate-300">Verify SSL Certificate</span>
+                <input v-model="configForm.verifySsl" type="checkbox" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0" />
+                <span class="text-slate-700 dark:text-slate-300">Verify SSL Certificate</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="configForm.isActive" type="checkbox" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0" />
+                <span class="text-slate-700 dark:text-slate-300 font-semibold">Set as Active Cluster</span>
               </label>
             </div>
 
@@ -3051,32 +3569,42 @@ onUnmounted(() => {
               v-if="testResult"
               class="p-3 rounded-lg text-xs"
               :class="isTestingConnection
-                ? 'bg-sky-500/10 border border-sky-500/20 text-sky-400 animate-pulse'
+                ? 'bg-sky-50 dark:bg-sky-500/10 border border-sky-300 dark:border-sky-500/20 text-sky-700 dark:text-sky-400 animate-pulse'
                 : testSuccess
-                ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
-                : 'bg-red-500/10 border border-red-500/20 text-red-400'"
+                ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                : 'bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/20 text-red-700 dark:text-red-400'"
             >
               {{ testResult }}
             </div>
 
-            <div class="flex items-center justify-between pt-4 border-t border-slate-800">
+            <div class="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
                 @click="handleTestConnection"
                 :disabled="isTestingConnection"
-                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
+                class="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
               >
                 {{ isTestingConnection ? 'Testing...' : 'Test Connection' }}
               </button>
 
-              <button
-                v-if="canManage"
-                type="submit"
-                :disabled="isSavingConfig"
-                class="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-lg transition disabled:opacity-50 cursor-pointer"
-              >
-                {{ isSavingConfig ? 'Saving...' : 'Save Configuration' }}
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="isEditingConnection"
+                  type="button"
+                  @click="resetFormForNewConnection"
+                  class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  v-if="canManage"
+                  type="submit"
+                  :disabled="isSavingConfig"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition disabled:opacity-50 cursor-pointer"
+                >
+                  {{ isSavingConfig ? 'Saving...' : (isEditingConnection ? 'Update Configuration' : 'Save & Activate') }}
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -3432,6 +3960,57 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Standard Delete Confirmation Modal (as per AGENTS.md) -->
+    <div
+      v-if="showDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-4 text-center">
+        <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Delete Connection?</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ connectionToDelete?.name || 'this connection' }}</strong>? This action cannot be undone.
+          </p>
+        </div>
+        <div class="flex items-center justify-center gap-2 pt-2">
+          <button
+            type="button"
+            @click="showDeleteModal = false; connectionToDelete = null;"
+            class="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="executeDeleteConnection"
+            :disabled="isDeletingConnection"
+            class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            {{ isDeletingConnection ? 'Deleting...' : 'Confirm Delete' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast Banner (Auto-dismiss in 3000ms as per AGENTS.md) -->
+    <div
+      v-if="notification"
+      class="fixed top-14 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border animate-in fade-in slide-in-from-top-2 duration-200"
+      :class="notification.type === 'success'
+        ? 'bg-emerald-50 dark:bg-emerald-950/90 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+        : notification.type === 'warning'
+        ? 'bg-amber-50 dark:bg-amber-950/90 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200'
+        : 'bg-rose-50 dark:bg-rose-950/90 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'"
+    >
+      <CheckCircle2 v-if="notification.type === 'success'" class="w-4 h-4 text-emerald-500 shrink-0" />
+      <AlertTriangle v-else-if="notification.type === 'warning'" class="w-4 h-4 text-amber-500 shrink-0" />
+      <AlertCircle v-else class="w-4 h-4 text-rose-500 shrink-0" />
+      <span>{{ notification.message }}</span>
     </div>
 
   </div>

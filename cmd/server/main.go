@@ -333,6 +333,8 @@ func main() {
 		api.GET("/opensearch/config", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetConfig)
 		api.GET("/opensearch/configs", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ListConfigs)
 		api.POST("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.SaveConfig)
+		api.POST("/opensearch/configs/:id/activate", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ActivateConfig)
+		api.POST("/opensearch/activate", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ActivateConfig)
 		api.DELETE("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
 		api.DELETE("/opensearch/config/:id", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
 		api.POST("/opensearch/test", middleware.RequirePermission("opensearch", "read"), openSearchHandler.TestConnection)

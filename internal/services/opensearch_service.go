@@ -75,6 +75,23 @@ func IsMaskedOrEmptyPassword(p string) bool {
 	return isMasked
 }
 
+type opensearchConfigContextKey struct{}
+
+// ContextWithConfigID returns a context with a targeted OpenSearch configuration ID
+func ContextWithConfigID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, opensearchConfigContextKey{}, id)
+}
+
+func (s *OpenSearchService) getConfigFromContext(ctx context.Context) (*domain.OpenSearchConfig, error) {
+	if val, ok := ctx.Value(opensearchConfigContextKey{}).(string); ok && strings.TrimSpace(val) != "" {
+		cfg, err := s.GetConfigByID(ctx, strings.TrimSpace(val))
+		if err == nil && cfg != nil {
+			return cfg, nil
+		}
+	}
+	return s.GetActiveConfig(ctx)
+}
+
 func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSearchConfig, error) {
 	pool, err := database.GetPool()
 	if err != nil {
@@ -85,8 +102,7 @@ func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSe
 		SELECT id, name, host, port, username, password, use_ssl, verify_ssl, is_active, created_at,
 		       user_id, COALESCE(visibility, 'private')
 		FROM opensearch_configs
-		WHERE is_active = true
-		ORDER BY created_at DESC
+		ORDER BY is_active DESC, created_at DESC
 		LIMIT 1
 	`
 	var cfg domain.OpenSearchConfig
@@ -125,8 +141,7 @@ func (s *OpenSearchService) GetActiveConfigForUser(ctx context.Context, userID i
 			       (SELECT COUNT(*) FROM opensearch_shares WHERE config_id = c.id) AS shares_count
 			FROM opensearch_configs c
 			LEFT JOIN users u ON c.user_id = u.id
-			WHERE c.is_active = true
-			ORDER BY c.created_at DESC
+			ORDER BY c.is_active DESC, c.created_at DESC
 			LIMIT 1
 		`
 	} else {
@@ -138,9 +153,8 @@ func (s *OpenSearchService) GetActiveConfigForUser(ctx context.Context, userID i
 			FROM opensearch_configs c
 			LEFT JOIN users u ON c.user_id = u.id
 			LEFT JOIN opensearch_shares oss ON c.id = oss.config_id AND oss.user_id = $1
-			WHERE c.is_active = true
-			  AND (c.visibility = 'public' OR c.user_id = $1 OR oss.user_id = $1)
-			ORDER BY (c.user_id = $1) DESC, c.created_at DESC
+			WHERE (c.visibility = 'public' OR c.user_id = $1 OR oss.user_id = $1)
+			ORDER BY c.is_active DESC, (c.user_id = $1) DESC, c.created_at DESC
 			LIMIT 1
 		`
 		args = append(args, userID)
@@ -332,7 +346,71 @@ func (s *OpenSearchService) DeleteConfig(ctx context.Context, id string, userID 
 	} else {
 		_, err = pool.Exec(ctx, "DELETE FROM opensearch_configs WHERE is_active = true")
 	}
+	if err == nil {
+		// If no active config remains, mark the newest available config as active
+		var activeCount int
+		_ = pool.QueryRow(ctx, "SELECT COUNT(*) FROM opensearch_configs WHERE is_active = true").Scan(&activeCount)
+		if activeCount == 0 {
+			_, _ = pool.Exec(ctx, "UPDATE opensearch_configs SET is_active = true WHERE id = (SELECT id FROM opensearch_configs ORDER BY created_at DESC LIMIT 1)")
+		}
+	}
 	return err
+}
+
+func (s *OpenSearchService) SetActiveConfig(ctx context.Context, configID string, userID int, userRole string) (*domain.OpenSearchConfig, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, fmt.Errorf("database connection unavailable: %w", err)
+	}
+
+	isAdmin := domain.IsAdminRole(userRole)
+
+	// Verify existence and user permission to access this config
+	if !isAdmin && userID > 0 {
+		var count int
+		checkQuery := `
+			SELECT COUNT(*)
+			FROM opensearch_configs c
+			LEFT JOIN opensearch_shares oss ON c.id = oss.config_id AND oss.user_id = $2
+			WHERE c.id = $1 AND (c.visibility = 'public' OR c.user_id = $2 OR oss.user_id = $2)
+		`
+		errCheck := pool.QueryRow(ctx, checkQuery, configID, userID).Scan(&count)
+		if errCheck != nil || count == 0 {
+			return nil, fmt.Errorf("configuration not found or access denied")
+		}
+	} else {
+		var count int
+		errCheck := pool.QueryRow(ctx, "SELECT COUNT(*) FROM opensearch_configs WHERE id = $1", configID).Scan(&count)
+		if errCheck != nil || count == 0 {
+			return nil, fmt.Errorf("configuration not found")
+		}
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Deactivate other configs
+	if _, err := tx.Exec(ctx, "UPDATE opensearch_configs SET is_active = false"); err != nil {
+		return nil, fmt.Errorf("failed to reset active configurations: %w", err)
+	}
+
+	// Activate target config
+	tag, err := tx.Exec(ctx, "UPDATE opensearch_configs SET is_active = true WHERE id = $1", configID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to activate configuration: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("configuration not found")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return s.GetConfigByID(ctx, configID)
 }
 
 func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearchConfig, userID int, userRole string) (*domain.OpenSearchConfig, error) {
@@ -386,6 +464,11 @@ func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearc
 		assignedUserID = &userID
 	}
 
+	if cfg.IsActive {
+		// Ensure other configs are set to inactive
+		_, _ = pool.Exec(ctx, "UPDATE opensearch_configs SET is_active = false WHERE id != $1", cfg.ID)
+	}
+
 	query := `
 		INSERT INTO opensearch_configs (id, name, host, port, username, password, use_ssl, verify_ssl, is_active, user_id, visibility, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
@@ -413,7 +496,7 @@ func (s *OpenSearchService) SaveConfig(ctx context.Context, cfg domain.OpenSearc
 }
 
 func (s *OpenSearchService) doRequest(ctx context.Context, method, endpoint string) ([]byte, error) {
-	cfg, err := s.GetActiveConfig(ctx)
+	cfg, err := s.getConfigFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("no active OpenSearch configuration found: %w", err)
 	}
@@ -598,7 +681,7 @@ func (s *OpenSearchService) TestConnection(ctx context.Context, host string, por
 
 // ExecuteQuery executes a direct query or command against the active OpenSearch cluster (Dev Tools / Query Workbench)
 func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint string, body []byte) (*domain.OpenSearchQueryResult, error) {
-	cfg, err := s.GetActiveConfig(ctx)
+	cfg, err := s.getConfigFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("no active OpenSearch configuration found: %w", err)
 	}
