@@ -1669,109 +1669,13 @@ onUnmounted(() => {
       v-if="showHeader"
       class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md"
     >
-      <!-- Left: Title, Connection Switcher Dropdown, and Health Status -->
+      <!-- Left: Title and Health Status -->
       <div class="flex items-center gap-3">
         <div>
           <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">
             OpenSearch Cluster Monitor
             <span v-if="isEmbedMode && currentConnection.name" class="text-slate-400 font-normal"> · {{ currentConnection.name }}</span>
           </h1>
-        </div>
-
-        <!-- Connection Switcher Dropdown (Only if not embed mode) -->
-        <div v-if="!isEmbedMode" class="relative">
-          <button
-            type="button"
-            @click="isConnectionDropdownOpen = !isConnectionDropdownOpen"
-            class="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#14161b] hover:dark:bg-[#1f2430] border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 transition cursor-pointer"
-            :title="'Active Cluster: ' + (currentConnection.name || 'Select Connection')"
-          >
-            <span
-              class="w-2 h-2 rounded-full shrink-0"
-              :class="clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : 'bg-rose-500'"
-            ></span>
-            <span class="max-w-[120px] sm:max-w-[170px] truncate font-semibold text-slate-900 dark:text-white">
-              {{ currentConnection.name || 'Default Cluster' }}
-            </span>
-            <span v-if="currentConnection.host" class="hidden lg:inline text-[10px] font-mono text-slate-400 truncate max-w-[110px]">
-              {{ currentConnection.host }}:{{ currentConnection.port }}
-            </span>
-            <ChevronDown
-              class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200"
-              :class="{ 'rotate-180': isConnectionDropdownOpen }"
-            />
-          </button>
-
-          <!-- Click outside backdrop -->
-          <div
-            v-if="isConnectionDropdownOpen"
-            class="fixed inset-0 z-40"
-            @click="isConnectionDropdownOpen = false"
-          ></div>
-
-          <!-- Dropdown menu -->
-          <div
-            v-if="isConnectionDropdownOpen"
-            class="absolute left-0 mt-1.5 w-72 sm:w-80 bg-white dark:bg-[#181c25] border border-slate-200 dark:border-[#262c3a] rounded-xl shadow-2xl z-50 p-1.5 text-xs animate-in fade-in zoom-in-95 duration-150"
-          >
-            <div class="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-              <span class="font-bold text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Switch Cluster Connection
-              </span>
-              <span class="text-[10px] text-slate-400 font-mono">
-                {{ connections.length }} {{ connections.length === 1 ? 'cluster' : 'clusters' }}
-              </span>
-            </div>
-
-            <div class="max-h-60 overflow-y-auto py-1 space-y-0.5">
-              <div
-                v-for="conn in connections"
-                :key="conn.id"
-                @click="switchConnection(conn.id)"
-                class="flex items-center justify-between p-2 rounded-lg cursor-pointer transition"
-                :class="conn.id === selectedConnectionId
-                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-900/60'
-                  : 'hover:bg-slate-100 dark:hover:bg-[#202634] text-slate-700 dark:text-slate-300'"
-              >
-                <div class="flex items-center gap-2.5 min-w-0">
-                  <span
-                    class="w-2 h-2 rounded-full shrink-0"
-                    :class="conn.id === selectedConnectionId
-                      ? (clusterHealth?.status === 'green' ? 'bg-emerald-500' : clusterHealth?.status === 'yellow' ? 'bg-amber-500' : 'bg-rose-500')
-                      : 'bg-slate-300 dark:bg-slate-600'"
-                  ></span>
-                  <div class="truncate">
-                    <div class="truncate text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>{{ conn.name }}</span>
-                      <span v-if="conn.id === selectedConnectionId" class="text-[9px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 font-bold uppercase tracking-wider">
-                        ACTIVE
-                      </span>
-                    </div>
-                    <div class="text-[11px] font-mono text-slate-400 truncate">
-                      {{ conn.useSsl ? 'https://' : 'http://' }}{{ conn.host }}:{{ conn.port }}
-                    </div>
-                  </div>
-                </div>
-
-                <Check v-if="conn.id === selectedConnectionId" class="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 ml-2" />
-              </div>
-
-              <div v-if="connections.length === 0" class="p-3 text-center text-slate-400 text-xs">
-                No OpenSearch connections registered yet.
-              </div>
-            </div>
-
-            <div class="pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
-              <button
-                type="button"
-                @click="isConnectionDropdownOpen = false; activeTab = 'connection'; resetFormForNewConnection();"
-                class="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition font-medium cursor-pointer"
-              >
-                <Plus class="w-3.5 h-3.5" />
-                <span>Add / Manage Connections</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- Connection Status Pill -->
@@ -1859,7 +1763,7 @@ onUnmounted(() => {
           { id: 'indices', label: 'Indices' },
           { id: 'shards', label: 'Shards & Allocation' },
           { id: 'query', label: 'Dev Tools / Query' },
-          { id: 'connection', label: 'Connection' },
+          { id: 'connection', label: 'Connections' },
           { id: 'logs', label: 'Logs' }
         ]"
         :key="tab.id"
@@ -3308,6 +3212,42 @@ onUnmounted(() => {
       <!-- ================================================================= -->
       <div v-if="activeTab === 'connection'" class="max-w-4xl mx-auto space-y-6">
         
+        <!-- Active Cluster Overview Banner -->
+        <div class="p-4 sm:p-5 rounded-xl border border-blue-200 dark:border-[#22304d] bg-blue-50/50 dark:bg-[#121929] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div class="flex items-center gap-3.5">
+            <div class="w-10 h-10 rounded-xl bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <Server class="w-5 h-5" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-slate-900 dark:text-white">{{ currentConnection.name }}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800/60">
+                  CURRENT ACTIVE CLUSTER
+                </span>
+                <span
+                  v-if="clusterHealth"
+                  class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase"
+                  :class="clusterHealth.status === 'green' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30' : clusterHealth.status === 'yellow' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30' : 'bg-rose-50 dark:bg-red-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-red-500/30'"
+                >
+                  {{ clusterHealth.status }}
+                </span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+                {{ currentConnection.useSsl ? 'https://' : 'http://' }}{{ currentConnection.host }}:{{ currentConnection.port }}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              @click="activeTab = 'overview'"
+              class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+            >
+              View Cluster Overview
+            </button>
+          </div>
+        </div>
+
         <!-- Section 1: Configured Connections List -->
         <div class="bg-white dark:bg-[#1b1e26] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 sm:p-6 space-y-4 shadow-sm">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
@@ -3412,23 +3352,25 @@ onUnmounted(() => {
 
                   <!-- Actions -->
                   <td class="py-3 px-3 text-right">
-                    <div class="flex items-center justify-end gap-1.5">
+                    <div class="flex items-center justify-end gap-2">
                       <!-- Switch / Activate Button -->
                       <button
                         v-if="conn.id !== selectedConnectionId"
                         type="button"
                         @click="switchConnection(conn.id)"
                         :disabled="isSwitchingConnection"
-                        class="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/80 text-blue-600 dark:text-blue-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+                        class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                         title="Switch active monitor to this cluster"
                       >
-                        {{ isSwitchingConnection ? '...' : 'Switch' }}
+                        <Check class="w-3.5 h-3.5" />
+                        <span>Switch Connection</span>
                       </button>
                       <span
                         v-else
-                        class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-medium cursor-default"
+                        class="px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-xs font-bold border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 cursor-default"
                       >
-                        Active
+                        <Check class="w-3.5 h-3.5" />
+                        <span>Active</span>
                       </span>
 
                       <!-- Test Connection Button -->
