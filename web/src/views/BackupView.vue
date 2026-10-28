@@ -35,6 +35,7 @@ import {
   Archive,
   ExternalLink,
   Info,
+  Search,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -443,11 +444,52 @@ const scheduleForm = ref({
   isActive: true,
 });
 
+const getContainerRawName = (c: any) => {
+  if (!c) return '';
+  let name = c.name;
+  if (!name && Array.isArray(c.names) && c.names.length > 0) {
+    name = c.names[0].replace(/^\//, '');
+  }
+  return (name || (c.id ? c.id.slice(0, 12) : 'container')).replace(/^\//, '');
+};
+
+const scheduleContainerSearch = ref('');
+const scheduleDatabaseSearch = ref('');
+
+const filteredScheduleContainers = computed(() => {
+  if (!scheduleContainerSearch.value.trim()) return availableContainers.value;
+  const q = scheduleContainerSearch.value.toLowerCase().trim();
+  return availableContainers.value.filter((c: any) => {
+    const name = getContainerRawName(c).toLowerCase();
+    const image = (c.image || c.sourceImage || '').toLowerCase();
+    const state = (c.state || c.status || '').toLowerCase();
+    return name.includes(q) || image.includes(q) || state.includes(q);
+  });
+});
+
+const filteredScheduleDatabases = computed(() => {
+  if (!scheduleDatabaseSearch.value.trim()) return databases.value;
+  const q = scheduleDatabaseSearch.value.toLowerCase().trim();
+  return databases.value.filter((db: any) => {
+    const name = (db.name || '').toLowerCase();
+    const host = (db.host || '').toLowerCase();
+    const dbName = (db.databaseName || '').toLowerCase();
+    const type = (db.dbType || '').toLowerCase();
+    return name.includes(q) || host.includes(q) || dbName.includes(q) || type.includes(q);
+  });
+});
+
 const toggleSelectAllDatabases = () => {
-  if (scheduleForm.value.dbConfigIds.length === databases.value.length) {
-    scheduleForm.value.dbConfigIds = [];
+  const currentList = filteredScheduleDatabases.value;
+  if (currentList.length === 0) return;
+  const allCurrentSelected = currentList.every((d: any) => scheduleForm.value.dbConfigIds.includes(d.id));
+  if (allCurrentSelected) {
+    scheduleForm.value.dbConfigIds = scheduleForm.value.dbConfigIds.filter(
+      (id) => !currentList.some((d: any) => d.id === id)
+    );
   } else {
-    scheduleForm.value.dbConfigIds = databases.value.map((d: any) => d.id);
+    const newIds = new Set([...scheduleForm.value.dbConfigIds, ...currentList.map((d: any) => d.id)]);
+    scheduleForm.value.dbConfigIds = Array.from(newIds);
   }
 };
 
@@ -465,10 +507,16 @@ const toggleDatabaseSelection = (id: string) => {
 };
 
 const toggleSelectAllContainers = () => {
-  if (scheduleForm.value.containerIds.length === availableContainers.value.length && availableContainers.value.length > 0) {
-    scheduleForm.value.containerIds = [];
+  const currentList = filteredScheduleContainers.value;
+  if (currentList.length === 0) return;
+  const allCurrentSelected = currentList.every((c: any) => scheduleForm.value.containerIds.includes(c.id));
+  if (allCurrentSelected) {
+    scheduleForm.value.containerIds = scheduleForm.value.containerIds.filter(
+      (id) => !currentList.some((c: any) => c.id === id)
+    );
   } else {
-    scheduleForm.value.containerIds = availableContainers.value.map((c: any) => c.id);
+    const newIds = new Set([...scheduleForm.value.containerIds, ...currentList.map((c: any) => c.id)]);
+    scheduleForm.value.containerIds = Array.from(newIds);
   }
 };
 
@@ -500,6 +548,8 @@ const openAddScheduleModal = () => {
     cronExpression: '0 2 * * *',
     isActive: true,
   };
+  scheduleContainerSearch.value = '';
+  scheduleDatabaseSearch.value = '';
   if (defDockerConn && availableContainers.value.length === 0) {
     fetchAvailableContainers(defDockerConn);
   }
@@ -532,6 +582,8 @@ const openEditScheduleModal = (sched: any) => {
     cronExpression: sched.cronExpression || '0 2 * * *',
     isActive: sched.isActive !== undefined ? sched.isActive : true,
   };
+  scheduleContainerSearch.value = '';
+  scheduleDatabaseSearch.value = '';
 
   if (defDockerConn) {
     fetchAvailableContainers(defDockerConn);
@@ -2898,8 +2950,8 @@ onMounted(() => {
     <!-- MODAL 1: RUN ON-DEMAND BACKUP -->
     <!-- ============================================================= -->
     <div v-if="isRunBackupModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4 animate-in fade-in">
-      <div class="w-full max-w-md bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+      <div class="w-full max-w-2xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans max-h-[92vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Play class="w-4 h-4 text-emerald-600 dark:text-emerald-400 fill-current" />
             <span>Run On-Demand Backup</span>
@@ -2910,7 +2962,7 @@ onMounted(() => {
         </div>
 
         <!-- Target Type Switcher -->
-        <div class="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
           <button
             type="button"
             @click="runBackupTargetType = 'database'"
@@ -2940,7 +2992,7 @@ onMounted(() => {
         </div>
 
         <!-- Form for Database Backup -->
-        <div v-if="runBackupTargetType === 'database'" class="space-y-3 text-xs">
+        <div v-if="runBackupTargetType === 'database'" class="space-y-3 text-xs overflow-y-auto pr-1 flex-1">
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-slate-700 dark:text-slate-400 font-bold">
@@ -2955,31 +3007,33 @@ onMounted(() => {
               </button>
             </div>
 
-            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1">
               <div
                 v-for="db in databases"
                 :key="db.id"
                 @click="toggleRunDatabaseSelection(db.id)"
                 :class="[
-                  'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                  'p-2.5 rounded-xl border flex items-center justify-between gap-2 transition cursor-pointer',
                   isRunDatabaseSelected(db.id)
-                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-800 text-blue-900 dark:text-blue-200 shadow-xs'
                     : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
                 ]"
               >
-                <div class="flex items-center gap-2.5">
+                <div class="flex items-center gap-2.5 min-w-0">
                   <input
                     type="checkbox"
                     :checked="isRunDatabaseSelected(db.id)"
                     @click.stop="toggleRunDatabaseSelection(db.id)"
-                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 shrink-0 cursor-pointer"
                   />
-                  <div class="text-left">
-                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white">{{ db.name }}</p>
-                    <p class="text-[10px] text-slate-500 font-mono">{{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}</p>
+                  <div class="min-w-0">
+                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white truncate" :title="db.name">{{ db.name }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono truncate" :title="`${db.username}@${db.host}:${db.port}/${db.databaseName}`">
+                      {{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}
+                    </p>
                   </div>
                 </div>
-                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold">
+                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold shrink-0">
                   {{ db.dbType }}
                 </span>
               </div>
@@ -3448,96 +3502,120 @@ onMounted(() => {
     <!-- MODAL 4: ADD CRON SCHEDULE -->
     <!-- ============================================================= -->
     <div v-if="isScheduleModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/75 backdrop-blur-sm p-4">
-      <div class="w-full max-w-md bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans">
-        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+      <div class="w-full max-w-3xl bg-white dark:bg-[#171a23] border border-slate-200 dark:border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 font-sans max-h-[92vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Clock class="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <span>{{ editingScheduleId ? 'Edit Backup Schedule' : 'Add Backup Schedule' }}</span>
           </h3>
-          <button @click="isScheduleModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <button @click="isScheduleModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
             <X class="w-4 h-4" />
           </button>
         </div>
 
-        <form @submit.prevent="saveSchedule" class="space-y-3 text-xs">
-          <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Schedule Name</label>
-            <input v-model="scheduleForm.name" required placeholder="Daily Midnight Backup" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white" />
-          </div>
+        <form @submit.prevent="saveSchedule" class="space-y-4 text-xs overflow-y-auto pr-1 flex-1">
+          <!-- Top Row: Schedule Name and Target Type side-by-side -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Schedule Name</label>
+              <input
+                v-model="scheduleForm.name"
+                required
+                placeholder="Daily Midnight Backup"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
 
-          <!-- Backup Target Type Toggle -->
-          <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Target Type</label>
-            <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg">
-              <button
-                type="button"
-                @click="scheduleForm.scheduleType = 'database'"
-                :class="[
-                  scheduleForm.scheduleType === 'database'
-                    ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
-                  'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
-                ]"
-              >
-                <Database class="w-3.5 h-3.5" />
-                <span>Database Backup</span>
-              </button>
-              <button
-                type="button"
-                @click="scheduleForm.scheduleType = 'container'"
-                :class="[
-                  scheduleForm.scheduleType === 'container'
-                    ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
-                  'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
-                ]"
-              >
-                <Box class="w-3.5 h-3.5" />
-                <span>Docker Container</span>
-              </button>
+            <!-- Backup Target Type Toggle -->
+            <div>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Target Type</label>
+              <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  @click="scheduleForm.scheduleType = 'database'"
+                  :class="[
+                    scheduleForm.scheduleType === 'database'
+                      ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
+                  ]"
+                >
+                  <Database class="w-3.5 h-3.5" />
+                  <span>Database Backup</span>
+                </button>
+                <button
+                  type="button"
+                  @click="scheduleForm.scheduleType = 'container'"
+                  :class="[
+                    scheduleForm.scheduleType === 'container'
+                      ? 'bg-white dark:bg-[#1f2430] text-blue-600 dark:text-white font-bold shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+                    'py-1.5 px-3 rounded-md text-xs transition cursor-pointer flex items-center justify-center gap-1.5'
+                  ]"
+                >
+                  <Box class="w-3.5 h-3.5" />
+                  <span>Docker Container</span>
+                </button>
+              </div>
             </div>
           </div>
 
           <!-- ================= DATABASE TARGET SELECTOR ================= -->
-          <div v-if="scheduleForm.scheduleType === 'database'">
-            <div class="flex items-center justify-between mb-1.5">
+          <div v-if="scheduleForm.scheduleType === 'database'" class="space-y-2">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
               <label class="text-slate-700 dark:text-slate-400 font-bold">
                 Select Databases ({{ scheduleForm.dbConfigIds.length }} of {{ databases.length }} selected)
               </label>
-              <button
-                type="button"
-                @click="toggleSelectAllDatabases"
-                class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer"
-              >
-                {{ scheduleForm.dbConfigIds.length === databases.length ? 'Deselect All' : 'Select All' }}
-              </button>
+              <div class="flex items-center gap-2">
+                <div class="relative">
+                  <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    v-model="scheduleDatabaseSearch"
+                    type="text"
+                    placeholder="Search databases..."
+                    class="pl-8 pr-2.5 py-1 text-[11px] bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 w-36 sm:w-48"
+                  />
+                </div>
+                <button
+                  type="button"
+                  @click="toggleSelectAllDatabases"
+                  class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer whitespace-nowrap"
+                >
+                  {{ scheduleForm.dbConfigIds.length === filteredScheduleDatabases.length && filteredScheduleDatabases.length > 0 ? 'Deselect All' : 'Select All' }}
+                </button>
+              </div>
             </div>
 
-            <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            <div v-if="filteredScheduleDatabases.length === 0" class="p-6 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+              No databases match your search.
+            </div>
+            <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 sm:max-h-72 overflow-y-auto pr-1">
               <div
-                v-for="db in databases"
+                v-for="db in filteredScheduleDatabases"
                 :key="db.id"
                 @click="toggleDatabaseSelection(db.id)"
                 :class="[
-                  'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                  'p-2.5 rounded-xl border flex items-center justify-between gap-2 transition cursor-pointer',
                   isDatabaseSelected(db.id)
-                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-800 text-blue-900 dark:text-blue-200 shadow-xs'
                     : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
                 ]"
               >
-                <div class="flex items-center gap-2.5">
+                <div class="flex items-center gap-2.5 min-w-0">
                   <input
                     type="checkbox"
                     :checked="isDatabaseSelected(db.id)"
                     @click.stop="toggleDatabaseSelection(db.id)"
-                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                    class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 shrink-0 cursor-pointer"
                   />
-                  <div class="text-left">
-                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white">{{ db.name }}</p>
-                    <p class="text-[10px] text-slate-500 font-mono">{{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}</p>
+                  <div class="min-w-0">
+                    <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white truncate" :title="db.name">{{ db.name }}</p>
+                    <p class="text-[10px] text-slate-500 font-mono truncate" :title="`${db.username}@${db.host}:${db.port}/${db.databaseName}`">
+                      {{ db.username }}@{{ db.host }}:{{ db.port }}/{{ db.databaseName }}
+                    </p>
                   </div>
                 </div>
-                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold">
+                <span class="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 font-semibold shrink-0">
                   {{ db.dbType }}
                 </span>
               </div>
@@ -3554,7 +3632,7 @@ onMounted(() => {
               <select
                 v-model="scheduleForm.dockerConnectionId"
                 @change="fetchAvailableContainers(scheduleForm.dockerConnectionId)"
-                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="">Local Docker Engine</option>
                 <option v-for="conn in dockerConnections" :key="conn.id" :value="conn.id">
@@ -3563,114 +3641,163 @@ onMounted(() => {
               </select>
             </div>
 
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
+            <div class="space-y-2">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
                 <label class="text-slate-700 dark:text-slate-400 font-bold">
                   Select Containers ({{ scheduleForm.containerIds.length }} of {{ availableContainers.length }} selected)
                 </label>
-                <button
-                  type="button"
-                  @click="toggleSelectAllContainers"
-                  class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer"
-                >
-                  {{ scheduleForm.containerIds.length === availableContainers.length && availableContainers.length > 0 ? 'Deselect All' : 'Select All' }}
-                </button>
+                <div class="flex items-center gap-2">
+                  <div class="relative">
+                    <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      v-model="scheduleContainerSearch"
+                      type="text"
+                      placeholder="Search container..."
+                      class="pl-8 pr-2.5 py-1 text-[11px] bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-md text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 w-36 sm:w-48"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    @click="toggleSelectAllContainers"
+                    class="text-[11px] font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 cursor-pointer whitespace-nowrap"
+                  >
+                    {{ scheduleForm.containerIds.length === filteredScheduleContainers.length && filteredScheduleContainers.length > 0 ? 'Deselect All' : 'Select All' }}
+                  </button>
+                </div>
               </div>
 
-              <div v-if="loadingDockerContainers" class="p-4 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-lg">
+              <div v-if="loadingDockerContainers" class="p-6 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800">
                 <RotateCw class="w-4 h-4 animate-spin mx-auto mb-1" />
                 <span>Loading containers...</span>
               </div>
-              <div v-else-if="availableContainers.length === 0" class="p-4 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-lg text-xs">
+              <div v-else-if="availableContainers.length === 0" class="p-6 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
                 No containers found on selected Docker host.
               </div>
-              <div v-else class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div v-else-if="filteredScheduleContainers.length === 0" class="p-6 text-center text-slate-400 bg-slate-50 dark:bg-[#0f1219] rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                No containers match your search.
+              </div>
+              <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 sm:max-h-72 overflow-y-auto pr-1">
                 <div
-                  v-for="c in availableContainers"
+                  v-for="c in filteredScheduleContainers"
                   :key="c.id"
                   @click="toggleContainerSelection(c.id)"
                   :class="[
-                    'p-2 rounded-lg border flex items-center justify-between transition cursor-pointer',
+                    'p-2.5 rounded-xl border flex items-center justify-between gap-2 transition cursor-pointer',
                     isContainerSelected(c.id)
-                      ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800/80 text-blue-900 dark:text-blue-200'
+                      ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-800 text-blue-900 dark:text-blue-200 shadow-xs'
                       : 'bg-slate-50 dark:bg-[#0f1219] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
                   ]"
                 >
-                  <div class="flex items-center gap-2.5">
+                  <div class="flex items-center gap-2.5 min-w-0">
                     <input
                       type="checkbox"
                       :checked="isContainerSelected(c.id)"
                       @click.stop="toggleContainerSelection(c.id)"
-                      class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 cursor-pointer"
+                      class="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-blue-600 shrink-0 cursor-pointer"
                     />
-                    <div class="text-left">
-                      <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white font-mono">{{ getContainerDisplayName(c) }}</p>
-                      <p class="text-[10px] text-slate-500 font-mono truncate max-w-xs">{{ c.image || c.sourceImage || '-' }}</p>
+                    <div class="min-w-0">
+                      <p class="font-bold text-xs leading-tight text-slate-900 dark:text-white font-mono truncate" :title="getContainerRawName(c)">
+                        {{ getContainerRawName(c) }}
+                      </p>
+                      <p class="text-[10px] text-slate-500 font-mono truncate" :title="c.image || c.sourceImage">
+                        {{ c.image || c.sourceImage || '-' }}
+                      </p>
                     </div>
                   </div>
                   <span
                     :class="[
-                      c.state === 'running' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border-emerald-200 dark:border-emerald-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700',
-                      'text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border font-semibold'
+                      c.state === 'running' || c.status?.includes('Up')
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700',
+                      'text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border font-semibold shrink-0'
                     ]"
                   >
-                    {{ c.state || 'stopped' }}
+                    {{ c.state || (c.status?.includes('Up') ? 'running' : 'exited') }}
                   </span>
                 </div>
               </div>
               <p v-if="scheduleForm.containerIds.length === 0" class="text-[11px] text-rose-500 mt-1 font-medium">
                 * Please select at least one container.
               </p>
-
-              <div class="pt-1">
-                <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    v-model="scheduleForm.stopDuringBackup"
-                    class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600"
-                  />
-                  <span class="font-semibold text-xs">Stop container during snapshot (guarantees filesystem quiescence)</span>
-                </label>
-              </div>
             </div>
           </div>
 
-          <div>
-            <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Destination</label>
-            <select v-model="scheduleForm.destinationId" required class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white">
-              <option v-for="d in destinations" :key="d.id" :value="d.id">
-                {{ d.name }} ({{ d.destType }})
-              </option>
-            </select>
+          <!-- Destination & Cron in a 2-column grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-slate-700 dark:text-slate-400 mb-1 font-bold">Select Destination</label>
+              <select
+                v-model="scheduleForm.destinationId"
+                required
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              >
+                <option v-for="d in destinations" :key="d.id" :value="d.id">
+                  {{ d.name }} ({{ d.destType }})
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <div class="flex items-center gap-1.5 mb-1">
+                <label class="block text-slate-700 dark:text-slate-400 font-bold">Cron Expression</label>
+                <button
+                  type="button"
+                  @click="openInfoPopup('Cron Expression Format', 'Standard 5-field cron syntax:\n• min (0-59)\n• hour (0-23)\n• dom (day of month, 1-31)\n• mon (month, 1-12)\n• dow (day of week, 0-6, 0=Sun)\n\nPresets:\n• 0 2 * * * : Every day at 02:00 AM\n• 0 */6 * * * : Every 6 hours\n• 0 0 * * 0 : Weekly on Sunday midnight')"
+                  class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
+                  title="Cron Format Info"
+                >
+                  <Info class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <input
+                v-model="scheduleForm.cronExpression"
+                required
+                placeholder="0 2 * * *"
+                class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
           </div>
 
-          <div>
-            <div class="flex items-center gap-1.5 mb-1">
-              <label class="block text-slate-700 dark:text-slate-400 font-bold">Cron Expression</label>
+          <!-- Bottom Footer Bar: Options & Actions -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 text-xs">
+              <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  v-model="scheduleForm.isActive"
+                  class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600"
+                />
+                <span class="font-semibold">Schedule is Active</span>
+              </label>
+
+              <label
+                v-if="scheduleForm.scheduleType === 'container'"
+                class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300"
+              >
+                <input
+                  type="checkbox"
+                  v-model="scheduleForm.stopDuringBackup"
+                  class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600"
+                />
+                <span class="font-semibold">Stop container during snapshot</span>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 shrink-0">
               <button
                 type="button"
-                @click="openInfoPopup('Cron Expression Format', 'Standard 5-field cron syntax:\n• min (0-59)\n• hour (0-23)\n• dom (day of month, 1-31)\n• mon (month, 1-12)\n• dow (day of week, 0-6, 0=Sun)\n\nPresets:\n• 0 2 * * * : Every day at 02:00 AM\n• 0 */6 * * * : Every 6 hours\n• 0 0 * * 0 : Weekly on Sunday midnight')"
-                class="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-0.5 rounded transition cursor-pointer"
-                title="Cron Format Info"
+                @click="isScheduleModalOpen = false"
+                class="px-4 py-2 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg transition cursor-pointer"
               >
-                <Info class="w-3.5 h-3.5" />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
+              >
+                {{ editingScheduleId ? 'Update Schedule' : 'Save Schedule' }}
               </button>
             </div>
-            <input v-model="scheduleForm.cronExpression" required placeholder="0 2 * * *" class="w-full bg-slate-50 dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-slate-900 dark:text-white font-mono" />
-          </div>
-
-          <div class="flex items-center gap-2 pt-1">
-            <label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
-              <input type="checkbox" v-model="scheduleForm.isActive" class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600" />
-              <span class="font-semibold">Schedule is Active</span>
-            </label>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" @click="isScheduleModalOpen = false" class="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">Cancel</button>
-            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow cursor-pointer">
-              {{ editingScheduleId ? 'Update Schedule' : 'Save Schedule' }}
-            </button>
           </div>
         </form>
       </div>
