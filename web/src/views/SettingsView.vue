@@ -105,11 +105,11 @@ const services = ref<ServiceItem[]>([
   },
   {
     id: 'srv-backup',
-    name: 'Backup Server (PostgreSQL / MySQL)',
+    name: 'Backup & Restore Engine (Databases & Docker Containers)',
     status: 'running',
-    type: 'Backup Server (PostgreSQL / MySQL)',
+    type: 'Backup & Restore Engine (Databases & Docker Containers)',
     updated: '18 seconds ago',
-    description: 'Scheduled automated database dumps, gzip compression, and cloud S3 archiving',
+    description: 'Automated scheduled database dumps (PostgreSQL/MySQL), container volume snapshots, instant restore engine, and cloud/NAS archiving',
     moduleKey: 'Backup',
     elapsedSec: 18,
     threads: 2,
@@ -129,11 +129,11 @@ const services = ref<ServiceItem[]>([
   },
   {
     id: 'srv-discovery',
-    name: 'Discovery Server (ARP / Subnet)',
+    name: 'Network Topology & Device Discovery Server (ARP)',
     status: 'running',
-    type: 'Discovery Server (ARP / Subnet)',
+    type: 'Network Topology & Device Discovery Server (ARP)',
     updated: '6 seconds ago',
-    description: 'Automated network topology scanner, ARP lookup, and MAC address discovery daemon',
+    description: 'Automated network topology scanner, ARP lookup, and MAC vendor device discovery daemon',
     moduleKey: 'Topology',
     elapsedSec: 6,
     threads: 5,
@@ -200,30 +200,6 @@ const services = ref<ServiceItem[]>([
     queued: 0,
   },
   {
-    id: 'srv-grok',
-    name: 'Grok Engine & Log Parser',
-    status: 'running',
-    type: 'Grok Engine & Log Parser',
-    updated: '22 seconds ago',
-    description: 'Pattern matching, regex parser, and log structure transformation engine',
-    moduleKey: 'Grok',
-    elapsedSec: 22,
-    threads: 4,
-    queued: 0,
-  },
-  {
-    id: 'srv-dataprepper',
-    name: 'Data Prepper Pipeline Validator',
-    status: 'running',
-    type: 'Data Prepper Pipeline Validator',
-    updated: '16 seconds ago',
-    description: 'Data Prepper YAML configuration validator, buffer health check, and sink router',
-    moduleKey: 'DataPrepper',
-    elapsedSec: 16,
-    threads: 2,
-    queued: 0,
-  },
-  {
     id: 'srv-ipam',
     name: 'IPAM Network Scanner (IP Allocation & Discovery)',
     status: 'running',
@@ -236,6 +212,183 @@ const services = ref<ServiceItem[]>([
     queued: 0,
   },
 ]);
+
+// Service Documentation & Capability Details for Modal Popup
+interface ServiceDocInfo {
+  title: string;
+  category: string;
+  purpose: string;
+  features: string[];
+  architecture: string;
+  connectedModules: string[];
+}
+
+const serviceDocMap: Record<string, ServiceDocInfo> = {
+  'srv-icmp': {
+    title: 'Network Server (ICMP Ping Sweep)',
+    category: 'Network Monitoring & Availability',
+    purpose: 'Engine pemindaian ketersediaan host dan latensi jaringan secara berkala ke seluruh subnet terdaftar menggunakan protokol ICMP echo request.',
+    features: [
+      'Multi-threaded concurrent ping sweep ke ratusan target sekaligus',
+      'Pengukuran Round-Trip Time (RTT latency) dan kalkulasi packet loss persentase',
+      'Deteksi otomatis status perangkat Up/Down secara real-time',
+      'Penyimpanan history latensi ke basis data timeseries',
+    ],
+    architecture: 'Go Goroutines Concurrency Pool dengan raw socket ICMP listener & rate-limiting per subnet.',
+    connectedModules: ['Network Topology', 'Monitoring Instances', 'Alerting Rules'],
+  },
+  'srv-opensearch': {
+    title: 'Data Server (OpenSearch Cluster Poller)',
+    category: 'Log & Search Engine Telemetry',
+    purpose: 'Daemon pemantau kesehatan klaster OpenSearch, utilisasi hardware node, status replikasi shard, dan kinerja indeks log.',
+    features: [
+      'Polling otomatis cluster health (Green / Yellow / Red)',
+      'Statistik utilisasi JVM heap, CPU, dan disk per node klaster',
+      'Monitoring alokasi primary dan replica shard',
+      'Integrasi workbench OpenSearch DevTools Query Console',
+    ],
+    architecture: 'HTTP/REST OpenSearch client background runner dengan context timeout dan connection keep-alive.',
+    connectedModules: ['OpenSearch Cluster Manager', 'DevTools Query Workbench', 'Grok Logs Ingestion'],
+  },
+  'srv-backup': {
+    title: 'Backup & Restore Engine (Databases & Docker Containers)',
+    category: 'Disaster Recovery & Data Protection',
+    purpose: 'Engine otomatisasi backup terjadwal dan pemulihan (restore) database PostgreSQL/MySQL, snapshot container volume Docker, kompresi arsip gzip, serta sinkronisasi multi-tujuan (Local, S3, NAS via SSH/SMB).',
+    features: [
+      'Automated scheduled database dumps (PostgreSQL pg_dump & MySQL mysqldump)',
+      'Docker container & volume tar archive snapshots',
+      'Instant restore engine untuk pemulihan cepat database & container',
+      'Kompresi arsip gzip stream dan verifikasi integritas checksum',
+      'Multi-storage destination support: Local Storage, AWS S3 / Cloudflare R2, dan NAS (SSH/SMB)',
+      'Retention lifecycle policy & automated cleanup backup usang',
+    ],
+    architecture: 'Background worker pool goroutines terintegrasi dengan Cron Scheduler dan Docker socket/SSH exec streaming.',
+    connectedModules: ['Database & Container Backup Manager', 'Remote Hosts', 'Worker Pool'],
+  },
+  'srv-snmp': {
+    title: 'SNMP Trap & Poller Server',
+    category: 'Network Hardware Telemetry',
+    purpose: 'Server penerima SNMP trap (UDP port 162) dan poller OID real-time untuk perangkat keras jaringan (Switch, Router, AP, Firewall).',
+    features: [
+      'Mendukung protokol SNMP v1, v2c, dan v3 (USM authentication & privacy encryption)',
+      'UDP socket daemon listener untuk trap & inform event',
+      'Dynamic OID query walker dan MIB dictionary compiler bawaan',
+      'Translasi OID numerik menjadi representasi nama label yang mudah dibaca',
+    ],
+    architecture: 'Asynchronous UDP socket listener dengan worker channel queue dan OID subtree walker.',
+    connectedModules: ['SNMP Browser & Trap Receiver', 'Network Topology', 'Alerting Rules'],
+  },
+  'srv-discovery': {
+    title: 'Network Topology & Device Discovery Server (ARP)',
+    category: 'Network Topology & Asset Discovery',
+    purpose: 'Daemon pemindaian topologi jaringan lokal, inspeksi tabel ARP, dan pendeteksi vendor perangkat berdasarkan MAC address OUI database.',
+    features: [
+      'Automated ARP table inspection untuk menemukan host yang aktif di segmen jaringan',
+      'Lookup vendor perangkat keras otomatis berbasis IEEE OUI MAC prefix',
+      'Pemetaan hubungan antar perangkat (switch, router, host) untuk graf visualisasi topologi',
+      'Peringatan otomatis saat terdeteksi perangkat asing (rogue/new host) di subnet',
+    ],
+    architecture: 'Periodic ARP cache crawler & passive subnet packet analyzer.',
+    connectedModules: ['Network Topology', 'IPAM Scanner', 'Remote Hosts'],
+  },
+  'srv-cron': {
+    title: 'Event & Scheduler Server (Cron Engine)',
+    category: 'Task Automation & Scheduling',
+    purpose: 'Mesin penjadwalan terpusat berbasis cron expression untuk mengeksekusi tugas-tugas periodik sistem di latar belakang.',
+    features: [
+      'Eksekusi tugas terjadwal presisi detik menggunakan cron expression',
+      'Pemicu backup otomatis database dan snapshot container',
+      'Pembersihan berkala log audit usang dan sesi user kadaluarsa',
+      'Dispatching job batch asinkron ke worker pool',
+    ],
+    architecture: 'Robfig Cron Go engine dengan concurrent safe job runner dan error recovery wrapper.',
+    connectedModules: ['Backup Schedules', 'Security Audit Logs', 'System Maintenance'],
+  },
+  'srv-alert': {
+    title: 'Alert & Notification Dispatcher',
+    category: 'Incident Management & Alerting',
+    purpose: 'Engine evaluasi ambang batas (threshold) metrik, eskalasi insiden, dan pengiriman notifikasi otomatis multi-channel.',
+    features: [
+      'Evaluasi kondisi metrik CPU, Memory, Disk, dan Host Availability secara berkelanjutan',
+      'Eskalasi tingkat keparahan insiden (Info, Warning, Critical)',
+      'Pengiriman alert multi-channel: Telegram, Discord, Slack, Email, dan Custom Webhooks',
+      'Mekanisme deduplikasi dan cooldown alert untuk mencegah alert fatigue',
+    ],
+    architecture: 'Threshold evaluation loop dengan asynchronous webhook dispatcher channel.',
+    connectedModules: ['Monitoring Instances', 'Notification Webhooks', 'Event Logs'],
+  },
+  'srv-prometheus': {
+    title: 'Prometheus & PromQL Telemetry Collector',
+    category: 'High-Frequency Metrics Ingestion',
+    purpose: 'Bridge pengumpul metrik frekuensi tinggi dari Prometheus node_exporter dan evaluator query PromQL.',
+    features: [
+      'Scraping berkala endpoint Prometheus node exporter target',
+      'Eksekusi query PromQL untuk agregasi utilisasi sumber daya host',
+      'Dukungan time-series metric formatting untuk grafik interaktif',
+      'Penyimpanan cache metrik untuk performa dashboard monitoring instan',
+    ],
+    architecture: 'Concurrent HTTP scrape client dengan connection pooling dan PromQL parser.',
+    connectedModules: ['Monitoring Instances', 'Prometheus Config', 'Dashboard Overview'],
+  },
+  'srv-ssh-telemetry': {
+    title: 'SSH Telemetry Server (Agentless Poller)',
+    category: 'Agentless Infrastructure Monitoring',
+    purpose: 'Daemon pengambil metrik server Linux secara agentless langsung melalui koneksi SSH tanpa instalasi software tambahan di host target.',
+    features: [
+      'Pengambilan real-time metrik CPU (/proc/stat), RAM (/proc/meminfo), Disk (df), dan Network I/O',
+      '100% agentless tanpa perlu menginstal agent apapun di server remote',
+      'Connection pool SSH terenkripsi dengan auto-reconnect dan fallback',
+      'Dukungan eksekusi perintah monitoring aman non-root',
+    ],
+    architecture: 'Go crypto/ssh pooled sessions dengan concurrent goroutine per-host dan exponential backoff retry.',
+    connectedModules: ['Monitoring Instances (Agentless)', 'Remote Hosts', 'Host Metrics'],
+  },
+  'srv-worker': {
+    title: 'Heavy Background Worker Pool',
+    category: 'Async Job Processing',
+    purpose: 'Worker pool berbasis goroutine konkuren untuk memproses tugas-tugas berat asinkron tanpa memblokir server HTTP.',
+    features: [
+      'Concurrency thread tuning dinamis dari UI System Settings',
+      'Pemrosesan tugas kompresi backup, export laporan berkas, dan bulk IP sweep',
+      'Antrian tugas berbasis channel FIFO dengan perlindungan memory leak',
+      'Pemantauan status pekerjaan aktif dan antrian real-time (T/Q ratio)',
+    ],
+    architecture: 'Goroutine worker pool pattern dengan generic task interface dan buffered job channels.',
+    connectedModules: ['Backup Manager', 'Report Generator', 'IPAM Scanner'],
+  },
+  'srv-ipam': {
+    title: 'IPAM Network Scanner (Subnet Sweeper)',
+    category: 'IP Address Management',
+    purpose: 'Scanner alokasi alamat IP dan pelacak pemanfaatan subnet secara otomatis di seluruh infrastruktur jaringan.',
+    features: [
+      'Pemindaian otomatis rentang subnet CIDR (misal /24, /16)',
+      'Pelacakan status IP (Active, Reserved, Available, Inactive)',
+      'Fingerprinting OS dan deteksi hostname perangkat aktif',
+      'Kalkulasi persentase kapasitas subnet dan riwayat pergerakan IP',
+    ],
+    architecture: 'High-throughput parallel subnet sweeper dengan sliding window worker goroutines.',
+    connectedModules: ['IPAM Subnet Manager', 'Network Topology', 'Discovery Server'],
+  },
+};
+
+const showServiceInfoModal = ref(false);
+const selectedServiceItem = ref<ServiceItem | null>(null);
+const selectedServiceDoc = ref<ServiceDocInfo | null>(null);
+
+const openServiceInfoModal = (service: ServiceItem) => {
+  selectedServiceItem.value = service;
+  // Match key by prefix or id
+  const key = Object.keys(serviceDocMap).find(k => service.id.startsWith(k) || k.startsWith(service.id)) || 'srv-icmp';
+  selectedServiceDoc.value = serviceDocMap[key] || {
+    title: service.name,
+    category: service.moduleKey || 'System Daemon',
+    purpose: service.description,
+    features: ['Real-time background polling', 'Thread tuning concurrency control', 'Automated health status reporting'],
+    architecture: 'Go Goroutine Worker daemon integrated with HCP Engine.',
+    connectedModules: [service.moduleKey || 'System Settings'],
+  };
+  showServiceInfoModal.value = true;
+};
 
 const servicesSearch = ref('');
 const loadingServices = ref(false);
@@ -1270,7 +1423,17 @@ onUnmounted(() => {
               <!-- 2. Nama Services -->
               <td class="py-3 px-4">
                 <div>
-                  <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-700 dark:group-hover:text-emerald-400 transition">{{ srv.name }}</p>
+                  <div class="flex items-center gap-1.5">
+                    <p class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-blue-700 dark:group-hover:text-emerald-400 transition">{{ srv.name }}</p>
+                    <button
+                      type="button"
+                      @click="openServiceInfoModal(srv)"
+                      class="text-slate-400 hover:text-blue-600 dark:hover:text-teal-400 cursor-pointer p-0.5 rounded transition"
+                      title="Lihat detail fungsi & arsitektur service ini"
+                    >
+                      <Info class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">{{ srv.description }}</p>
                 </div>
               </td>
@@ -2690,7 +2853,7 @@ onUnmounted(() => {
           <!-- Item 6: Discovery Server -->
           <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
             <div>
-              <p class="text-xs font-bold text-slate-900 dark:text-white">Discovery Server (ARP / Subnet)</p>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Network Topology & Device Discovery Server (ARP)</p>
               <p class="text-[11px] text-slate-500 dark:text-slate-400">Topology discovery and ARP scanner (Recommended: 5, Range: 2–20)</p>
             </div>
             <div class="flex items-center gap-2">
@@ -2777,51 +2940,15 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Item 11: Grok Engine & Log Parser -->
+          <!-- Item 11: Backup & Restore Engine -->
           <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
             <div>
-              <p class="text-xs font-bold text-slate-900 dark:text-white">Grok Engine & Log Parser</p>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400">Regex pattern matching and syslog parser (Recommended: 4, Range: 1–20)</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <input
-                v-model.number="serviceThreads.grok"
-                type="number"
-                min="1"
-                max="20"
-                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
-              />
-              <span class="text-[11px] text-slate-400">threads</span>
-            </div>
-          </div>
-
-          <!-- Item 12: Backup Server -->
-          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
-            <div>
-              <p class="text-xs font-bold text-slate-900 dark:text-white">Backup Server (PostgreSQL / MySQL)</p>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400">Concurrent dump executions (Recommended: 2, Range: 1–5)</p>
+              <p class="text-xs font-bold text-slate-900 dark:text-white">Backup & Restore Engine (Databases & Docker Containers)</p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Concurrent dump & snapshot executions (Recommended: 2, Range: 1–5)</p>
             </div>
             <div class="flex items-center gap-2">
               <input
                 v-model.number="serviceThreads.backup"
-                type="number"
-                min="1"
-                max="5"
-                class="w-20 bg-white dark:bg-[#0f1219] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-center font-mono text-xs text-slate-900 dark:text-white font-bold"
-              />
-              <span class="text-[11px] text-slate-400">threads</span>
-            </div>
-          </div>
-
-          <!-- Item 13: Data Prepper Pipeline Validator -->
-          <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#151926]">
-            <div>
-              <p class="text-xs font-bold text-slate-900 dark:text-white">Data Prepper Pipeline Validator</p>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400">YAML pipeline validator & sink router (Recommended: 2, Range: 1–5)</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <input
-                v-model.number="serviceThreads.dataPrepper"
                 type="number"
                 min="1"
                 max="5"
@@ -2855,9 +2982,117 @@ onUnmounted(() => {
               :disabled="savingThreads"
               class="px-4 py-1.5 bg-[#4274D9] hover:bg-[#3461c2] text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
             >
-              {{ savingThreads ? 'Saving...' : 'Save & Apply Threads' }}
+              {{ savingThreads ? 'Applying...' : 'Apply Threads' }}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- SERVICE DETAILS & PURPOSE INFO MODAL                          -->
+    <!-- ============================================================= -->
+    <div
+      v-if="showServiceInfoModal && selectedServiceDoc && selectedServiceItem"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in"
+    >
+      <div
+        class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-5 text-left max-h-[90vh] flex flex-col"
+      >
+        <!-- Modal Header -->
+        <div class="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
+                {{ selectedServiceDoc.category }}
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
+                Active Daemon
+              </span>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white mt-1.5 tracking-tight">
+              {{ selectedServiceDoc.title }}
+            </h3>
+          </div>
+          <button
+            @click="showServiceInfoModal = false"
+            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Modal Body (Scrollable) -->
+        <div class="overflow-y-auto space-y-4 pr-1 text-xs flex-1">
+          <!-- 1. Tujuan & Penjelasan Fungsi -->
+          <div class="space-y-1.5">
+            <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
+              Tujuan & Fungsi Layanan
+            </h4>
+            <p class="text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-[#151926] p-3 rounded-xl border border-slate-200/80 dark:border-slate-800">
+              {{ selectedServiceDoc.purpose }}
+            </p>
+          </div>
+
+          <!-- 2. Fitur-Fitur Utama -->
+          <div class="space-y-2">
+            <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
+              Fitur & Kemampuan Utama
+            </h4>
+            <ul class="space-y-1.5 pl-1">
+              <li
+                v-for="(feat, fIdx) in selectedServiceDoc.features"
+                :key="fIdx"
+                class="flex items-start gap-2 text-slate-600 dark:text-slate-300"
+              >
+                <CheckCircle2 class="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <span>{{ feat }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 3. Arsitektur Engine & Protokol -->
+          <div class="space-y-1.5">
+            <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
+              Arsitektur Teknis
+            </h4>
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px]">
+              {{ selectedServiceDoc.architecture }}
+            </div>
+          </div>
+
+          <!-- 4. Modul HCP Terhubung & Concurrency Thread -->
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 space-y-1">
+              <p class="text-[10px] font-semibold text-slate-400 uppercase">Concurrency / Threads</p>
+              <p class="text-xs font-bold font-mono text-slate-900 dark:text-white">
+                {{ selectedServiceItem.threads }} Threads ({{ selectedServiceItem.queued }} queued)
+              </p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 space-y-1">
+              <p class="text-[10px] font-semibold text-slate-400 uppercase">Modul HCP Terkait</p>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="(mod, mIdx) in selectedServiceDoc.connectedModules"
+                  :key="mIdx"
+                  class="px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-800 text-[10px] text-slate-700 dark:text-slate-300 font-medium"
+                >
+                  {{ mod }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
+          <button
+            type="button"
+            @click="showServiceInfoModal = false"
+            class="px-4 py-1.5 bg-[#4274D9] hover:bg-[#3461c2] text-white rounded-lg text-xs font-bold transition cursor-pointer"
+          >
+            Tutup
+          </button>
         </div>
       </div>
     </div>

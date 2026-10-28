@@ -822,7 +822,96 @@ const highlightedResponseHtml = computed(() => {
   return syntaxHighlightJson(queryResult.value.data);
 });
 
-// Robust Dev Tools Request Parser
+// Request Block Interface for Multi-Query dev tools
+interface RequestBlock {
+  method: string;
+  endpoint: string;
+  body: any;
+  bodyText: string;
+  startLine: number; // 0-indexed
+  endLine: number;   // 0-indexed
+  raw: string;
+}
+
+// Extract all valid query blocks from console input
+function getConsoleRequestBlocks(fullText: string): RequestBlock[] {
+  const lines = fullText.split('\n');
+  const blocks: RequestBlock[] = [];
+  let currentStart = -1;
+  let currentMethod = 'GET';
+  let currentEndpoint = '/_search';
+  let currentBodyLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) {
+      if (currentStart !== -1) currentBodyLines.push(lines[i]);
+      continue;
+    }
+
+    const match = trimmed.match(/^(GET|POST|PUT|DELETE|HEAD)\s+(.+)$/i);
+    const isEndpointOnly = (trimmed.startsWith('/') || trimmed.startsWith('_')) && !trimmed.startsWith('//');
+
+    if (match || (isEndpointOnly && currentStart === -1)) {
+      if (currentStart !== -1) {
+        const bText = currentBodyLines.join('\n').trim();
+        let bVal: any = null;
+        if (bText) {
+          if (currentEndpoint.includes('_bulk')) {
+            bVal = bText.endsWith('\n') ? bText : bText + '\n';
+          } else {
+            try { bVal = JSON.parse(bText); } catch { bVal = bText; }
+          }
+        }
+        blocks.push({
+          method: currentMethod,
+          endpoint: currentEndpoint.startsWith('/') ? currentEndpoint : '/' + currentEndpoint,
+          bodyText: bText,
+          body: bVal,
+          startLine: currentStart,
+          endLine: i - 1,
+          raw: lines.slice(currentStart, i).join('\n'),
+        });
+      }
+
+      currentStart = i;
+      currentMethod = match ? match[1].toUpperCase() : 'GET';
+      let ep = match ? match[2].trim() : trimmed;
+      if (!ep.startsWith('/')) ep = '/' + ep;
+      currentEndpoint = ep;
+      currentBodyLines = [];
+    } else {
+      if (currentStart !== -1) {
+        currentBodyLines.push(lines[i]);
+      }
+    }
+  }
+
+  if (currentStart !== -1) {
+    const bText = currentBodyLines.join('\n').trim();
+    let bVal: any = null;
+    if (bText) {
+      if (currentEndpoint.includes('_bulk')) {
+        bVal = bText.endsWith('\n') ? bText : bText + '\n';
+      } else {
+        try { bVal = JSON.parse(bText); } catch { bVal = bText; }
+      }
+    }
+    blocks.push({
+      method: currentMethod,
+      endpoint: currentEndpoint.startsWith('/') ? currentEndpoint : '/' + currentEndpoint,
+      bodyText: bText,
+      body: bVal,
+      startLine: currentStart,
+      endLine: lines.length - 1,
+      raw: lines.slice(currentStart).join('\n'),
+    });
+  }
+
+  return blocks;
+}
+
+// Robust Dev Tools Request Parser for single query text
 function parseConsoleQuery(rawText: string) {
   const lines = rawText.split('\n');
   let method = 'GET';
@@ -854,7 +943,15 @@ function parseConsoleQuery(rawText: string) {
   let body: any = null;
   let bodyText = '';
   if (bodyStartIndex !== -1 && bodyStartIndex < lines.length) {
-    bodyText = lines.slice(bodyStartIndex).join('\n').trim();
+    const bodyLines: string[] = [];
+    for (let j = bodyStartIndex; j < lines.length; j++) {
+      const lineTrim = lines[j].trim();
+      if (/^(GET|POST|PUT|DELETE|HEAD)\s+/i.test(lineTrim)) {
+        break; // Stop at next request header
+      }
+      bodyLines.push(lines[j]);
+    }
+    bodyText = bodyLines.join('\n').trim();
   }
 
   if (bodyText) {
@@ -872,12 +969,358 @@ function parseConsoleQuery(rawText: string) {
   return { method, endpoint, body, bodyText };
 }
 
+// Determine active query to execute: Prioritizes blocked/selected text, otherwise current cursor query block
+function getActiveQueryToExecute(): {
+  method: string;
+  endpoint: string;
+  body: any;
+  bodyText: string;
+  isSelected: boolean;
+  startLine: number;
+  rawText: string;
+} {
+  const textarea = editorTextareaRef.value;
+  if (!textarea) {
+    const fallback = parseConsoleQuery(consoleInput.value);
+    return { ...fallback, isSelected: false, startLine: 0, rawText: consoleInput.value };
+  }
+
+  const selStart = textarea.selectionStart;
+  const selEnd = textarea.selectionEnd;
+  const text = textarea.value;
+
+  // 1. IF TEXT IS SELECTED (BLOCKED): ONLY EXECUTE THE SELECTED TEXT
+  if (selStart !== selEnd) {
+    const selectedText = text.substring(selStart, selEnd).trim();
+    if (selectedText) {
+      const textBeforeSel = text.substring(0, selStart);
+      const selStartLine = textBeforeSel.split('\n').length - 1;
+      const parsed = parseConsoleQuery(selectedText);
+      return {
+        ...parsed,
+        isSelected: true,
+        startLine: selStartLine,
+        rawText: selectedText,
+      };
+    }
+  }
+
+  // 2. IF NO SELECTION: FIND THE QUERY BLOCK ENCLOSING THE CURRENT CURSOR
+  const textBeforeCursor = text.substring(0, selStart);
+  const cursorLine = textBeforeCursor.split('\n').length - 1; // 0-indexed
+
+  const blocks = getConsoleRequestBlocks(text);
+  if (blocks.length > 0) {
+    const activeBlock = blocks.find(b => cursorLine >= b.startLine && cursorLine <= b.endLine) || blocks[0];
+    return {
+      method: activeBlock.method,
+      endpoint: activeBlock.endpoint,
+      body: activeBlock.body,
+      bodyText: activeBlock.bodyText,
+      isSelected: false,
+      startLine: activeBlock.startLine,
+      rawText: activeBlock.raw,
+    };
+  }
+
+  const fallback = parseConsoleQuery(text);
+  return { ...fallback, isSelected: false, startLine: 0, rawText: text };
+}
+
+// Reactive UI states for dynamic play button & query execution
+const activePlayButtonTop = ref(10);
+const isTextSelected = ref(false);
+const activeRequestSummary = ref<{ method: string; endpoint: string } | null>(null);
+
+// Update floating play button position based on cursor or selection
+const updateActiveQueryPosition = () => {
+  const textarea = editorTextareaRef.value;
+  if (!textarea) return;
+
+  const target = getActiveQueryToExecute();
+  isTextSelected.value = target.isSelected;
+  activeRequestSummary.value = {
+    method: target.method,
+    endpoint: target.endpoint,
+  };
+
+  const lineY = target.startLine * 22 + 10;
+  const relativeTop = lineY - textarea.scrollTop;
+  activePlayButtonTop.value = Math.max(10, Math.min(textarea.clientHeight - 40, relativeTop));
+};
+
+// DSL Suggestions Modal & Autocomplete State
+const showDslModal = ref(false);
+const dslActiveCategory = ref<string>('All');
+const dslSearch = ref('');
+const copiedDslSnippet = ref<string | null>(null);
+
+// Inline Autocomplete Popup in Editor
+const showInlineAutocomplete = ref(false);
+const inlineSuggestions = ref<{ label: string; detail: string; snippet: string }[]>([]);
+const activeSuggestionIndex = ref(0);
+
+// Comprehensive OpenSearch Query DSL Templates
+const dslSnippets = [
+  {
+    name: 'Match All',
+    category: 'Search Queries',
+    desc: 'Retrieve all documents from index with default scoring',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}`,
+  },
+  {
+    name: 'Match Text (Full-Text Search)',
+    category: 'Search Queries',
+    desc: 'Standard full-text query with text analysis',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "match": {\n      "message": "error"\n    }\n  }\n}`,
+  },
+  {
+    name: 'Term (Exact Keyword Match)',
+    category: 'Search Queries',
+    desc: 'Exact match without text analysis (keyword fields)',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "term": {\n      "status.keyword": "critical"\n    }\n  }\n}`,
+  },
+  {
+    name: 'Multi-Match Query',
+    category: 'Search Queries',
+    desc: 'Search query across multiple fields with boosting',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "multi_match": {\n      "query": "connection refused",\n      "fields": ["title^2", "message", "hostname"]\n    }\n  }\n}`,
+  },
+  {
+    name: 'Wildcard Search',
+    category: 'Search Queries',
+    desc: 'Match documents matching wildcard pattern (* and ?)',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "wildcard": {\n      "hostname.keyword": "agent-*"\n    }\n  }\n}`,
+  },
+  {
+    name: 'Range Filter (Timestamp / Date)',
+    category: 'Filters & Booleans',
+    desc: 'Filter documents within relative date boundary (e.g. now-24h)',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "range": {\n      "@timestamp": {\n        "gte": "now-24h",\n        "lte": "now"\n      }\n    }\n  }\n}`,
+  },
+  {
+    name: 'Boolean Query (Compound must, filter, should)',
+    category: 'Filters & Booleans',
+    desc: 'Combine multiple query clauses with strict filter caching',
+    template: `GET /<index>/_search\n{\n  "query": {\n    "bool": {\n      "must": [\n        { "match": { "message": "exception" } }\n      ],\n      "filter": [\n        { "term": { "service.keyword": "api-gateway" } },\n        { "range": { "@timestamp": { "gte": "now-1h" } } }\n      ]\n    }\n  }\n}`,
+  },
+  {
+    name: 'Terms Aggregation (Top Categories)',
+    category: 'Aggregations',
+    desc: 'Bucket documents by top terms/keys and calculate counts',
+    template: `GET /<index>/_search\n{\n  "size": 0,\n  "aggs": {\n    "top_hosts": {\n      "terms": {\n        "field": "hostname.keyword",\n        "size": 10\n      }\n    }\n  }\n}`,
+  },
+  {
+    name: 'Date Histogram (Events over Time)',
+    category: 'Aggregations',
+    desc: 'Bucket timeseries log events into 1-hour intervals',
+    template: `GET /<index>/_search\n{\n  "size": 0,\n  "aggs": {\n    "events_over_time": {\n      "date_histogram": {\n        "field": "@timestamp",\n        "calendar_interval": "1h"\n      }\n    }\n  }\n}`,
+  },
+  {
+    name: 'Sort & Pagination',
+    category: 'Pagination & Sort',
+    desc: 'Paginate results with offset (from), size, and timestamp sort',
+    template: `GET /<index>/_search\n{\n  "from": 0,\n  "size": 25,\n  "sort": [\n    { "@timestamp": { "order": "desc" } }\n  ],\n  "_source": ["@timestamp", "hostname", "level", "message"]\n}`,
+  },
+  {
+    name: 'Cat Indices (Indices Table & Health)',
+    category: 'Cluster APIs',
+    desc: 'Display tabular list of indices with doc counts and storage size',
+    template: `GET _cat/indices?v&s=index`,
+  },
+  {
+    name: 'Cat Nodes (Nodes & Hardware Stats)',
+    category: 'Cluster APIs',
+    desc: 'Show cluster nodes, IPs, CPU, heap percent, and roles',
+    template: `GET _cat/nodes?v&h=name,ip,node.role,heap.percent,cpu,ram.percent`,
+  },
+  {
+    name: 'Cluster Health (Green / Yellow / Red)',
+    category: 'Cluster APIs',
+    desc: 'Quick check of cluster status, active shards, and unassigned shards',
+    template: `GET _cluster/health?pretty`,
+  },
+  {
+    name: 'Cat Shards (Shard Allocation)',
+    category: 'Cluster APIs',
+    desc: 'Detailed placement of primary & replica shards across nodes',
+    template: `GET _cat/shards?v`,
+  },
+];
+
+// OpenSearch DSL Keywords dictionary for inline autocompletion
+const dslKeywords = [
+  { label: '"query"', detail: 'Root query clause', snippet: '"query": {\n  "match_all": {}\n}' },
+  { label: '"match_all"', detail: 'Match all documents', snippet: '"match_all": {}' },
+  { label: '"match"', detail: 'Full-text match search', snippet: '"match": {\n  "field": "value"\n}' },
+  { label: '"term"', detail: 'Exact keyword match', snippet: '"term": {\n  "field.keyword": "value"\n}' },
+  { label: '"terms"', detail: 'Multiple exact matches', snippet: '"terms": {\n  "field.keyword": ["val1", "val2"]\n}' },
+  { label: '"bool"', detail: 'Boolean compound query', snippet: '"bool": {\n  "must": [],\n  "filter": [],\n  "should": [],\n  "must_not": []\n}' },
+  { label: '"range"', detail: 'Range condition filter', snippet: '"range": {\n  "@timestamp": {\n    "gte": "now-24h",\n    "lte": "now"\n  }\n}' },
+  { label: '"must"', detail: 'Must clause in bool', snippet: '"must": [\n  {\n    "match": { "field": "value" }\n  }\n]' },
+  { label: '"filter"', detail: 'Filter clause in bool (cached)', snippet: '"filter": [\n  {\n    "term": { "status": "active" }\n  }\n]' },
+  { label: '"should"', detail: 'Should clause in bool (OR)', snippet: '"should": [\n  {\n    "match": { "field": "value" }\n  }\n]' },
+  { label: '"size"', detail: 'Limit results count', snippet: '"size": 20,' },
+  { label: '"from"', detail: 'Pagination offset', snippet: '"from": 0,' },
+  { label: '"sort"', detail: 'Sort order definition', snippet: '"sort": [\n  { "@timestamp": { "order": "desc" } }\n],' },
+  { label: '"_source"', detail: 'Field filter inclusion', snippet: '"_source": ["@timestamp", "message"],' },
+  { label: '"aggs"', detail: 'Aggregations / analytics', snippet: '"aggs": {\n  "top_items": {\n    "terms": { "field": "item.keyword", "size": 10 }\n  }\n}' },
+  { label: 'GET _cat/indices?v', detail: 'Cat indices table', snippet: 'GET _cat/indices?v' },
+  { label: 'GET _cat/nodes?v', detail: 'Cat cluster nodes', snippet: 'GET _cat/nodes?v' },
+  { label: 'GET _cluster/health', detail: 'Cluster health status', snippet: 'GET _cluster/health?pretty' },
+  { label: 'POST /<index>/_search', detail: 'Search endpoint', snippet: 'POST /<index>/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}' },
+];
+
+const filteredDslSnippets = computed(() => {
+  let list = dslSnippets;
+  if (dslActiveCategory.value !== 'All') {
+    list = list.filter(s => s.category === dslActiveCategory.value);
+  }
+  if (dslSearch.value.trim()) {
+    const q = dslSearch.value.toLowerCase().trim();
+    list = list.filter(s => s.name.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q) || s.template.toLowerCase().includes(q));
+  }
+  return list;
+});
+
+const insertDslSnippet = (snippet: { template: string }) => {
+  const textarea = editorTextareaRef.value;
+  if (!textarea) {
+    consoleInput.value += '\n\n' + snippet.template;
+    showDslModal.value = false;
+    return;
+  }
+
+  const selStart = textarea.selectionStart;
+  const selEnd = textarea.selectionEnd;
+  const before = consoleInput.value.substring(0, selStart);
+  const after = consoleInput.value.substring(selEnd);
+
+  const prefix = before.endsWith('\n') || !before ? '' : '\n\n';
+  const newContent = before + prefix + snippet.template + '\n' + after;
+  consoleInput.value = newContent;
+  showDslModal.value = false;
+
+  nextTick(() => {
+    textarea.focus();
+    const newPos = before.length + prefix.length + snippet.template.length;
+    textarea.setSelectionRange(newPos, newPos);
+    updateActiveQueryPosition();
+  });
+};
+
+const copyDslSnippet = async (snippet: { name: string; template: string }) => {
+  try {
+    await navigator.clipboard.writeText(snippet.template);
+    copiedDslSnippet.value = snippet.name;
+    setTimeout(() => { copiedDslSnippet.value = null; }, 2000);
+  } catch (_) {}
+};
+
+// Editor Keydown & Keyboard Navigation
+const onEditorKeydown = (e: KeyboardEvent) => {
+  // Ctrl+Enter or Cmd+Enter -> Execute Query
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    executeOpenSearchQuery();
+    return;
+  }
+
+  // Ctrl+Space -> Trigger DSL suggestions inline
+  if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
+    e.preventDefault();
+    inlineSuggestions.value = dslKeywords;
+    activeSuggestionIndex.value = 0;
+    showInlineAutocomplete.value = true;
+    return;
+  }
+
+  // If inline autocomplete is visible
+  if (showInlineAutocomplete.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeSuggestionIndex.value = (activeSuggestionIndex.value + 1) % inlineSuggestions.value.length;
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeSuggestionIndex.value = (activeSuggestionIndex.value - 1 + inlineSuggestions.value.length) % inlineSuggestions.value.length;
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const item = inlineSuggestions.value[activeSuggestionIndex.value];
+      if (item) {
+        selectInlineSuggestion(item);
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      showInlineAutocomplete.value = false;
+      return;
+    }
+  }
+};
+
+const onEditorKeyup = () => {
+  updateActiveQueryPosition();
+};
+
+const onEditorInput = () => {
+  updateActiveQueryPosition();
+  const textarea = editorTextareaRef.value;
+  if (!textarea) return;
+
+  const text = textarea.value;
+  const cursor = textarea.selectionStart;
+  const textBefore = text.substring(0, cursor);
+  const match = textBefore.match(/([a-zA-Z0-9_"/-]+)$/);
+
+  if (match && match[1].length >= 2) {
+    const word = match[1].toLowerCase();
+    const matched = dslKeywords.filter(k => k.label.toLowerCase().includes(word) || k.detail.toLowerCase().includes(word));
+    if (matched.length > 0) {
+      inlineSuggestions.value = matched;
+      activeSuggestionIndex.value = 0;
+      showInlineAutocomplete.value = true;
+      return;
+    }
+  }
+  showInlineAutocomplete.value = false;
+};
+
+const selectInlineSuggestion = (item: { snippet: string }) => {
+  const textarea = editorTextareaRef.value;
+  if (!textarea) return;
+
+  const text = textarea.value;
+  const cursor = textarea.selectionStart;
+  const textBefore = text.substring(0, cursor);
+  const after = text.substring(cursor);
+
+  // Replace active token if typing
+  const match = textBefore.match(/([a-zA-Z0-9_"/-]+)$/);
+  const replaceStart = match ? cursor - match[1].length : cursor;
+  const before = text.substring(0, replaceStart);
+
+  consoleInput.value = before + item.snippet + after;
+  showInlineAutocomplete.value = false;
+
+  nextTick(() => {
+    textarea.focus();
+    const newPos = before.length + item.snippet.length;
+    textarea.setSelectionRange(newPos, newPos);
+    updateActiveQueryPosition();
+  });
+};
+
 // Execute OpenSearch Dev Tools Query
 const executeOpenSearchQuery = async () => {
   queryLoading.value = true;
   queryError.value = '';
 
-  const { method, endpoint, body, bodyText } = parseConsoleQuery(consoleInput.value);
+  const { method, endpoint, body, bodyText, isSelected, rawText } = getActiveQueryToExecute();
   queryMethod.value = method as any;
   queryEndpoint.value = endpoint;
   queryBody.value = bodyText;
@@ -900,11 +1343,11 @@ const executeOpenSearchQuery = async () => {
         raw: res.data.data.raw,
       };
 
-      // Add to query history (max 20)
+      // Add executed query block or selection to query history (max 20)
       queryHistory.value.unshift({
         method,
         endpoint,
-        body: consoleInput.value,
+        body: rawText || `${method} ${endpoint}`,
         timestamp: new Date().toLocaleTimeString(),
         status: res.data.data.statusCode || 200,
       });
@@ -2646,6 +3089,16 @@ onUnmounted(() => {
             <div class="flex items-center gap-4 text-slate-600 dark:text-slate-300">
               <button
                 type="button"
+                @click="showDslModal = true"
+                class="hover:text-teal-600 dark:hover:text-teal-400 font-medium cursor-pointer transition flex items-center gap-1 text-teal-600 dark:text-teal-400"
+                title="OpenSearch Query DSL Templates & Snippets"
+              >
+                <Code2 class="w-3.5 h-3.5" />
+                <span>DSL Suggestions</span>
+              </button>
+
+              <button
+                type="button"
                 @click="showHistoryModal = true"
                 class="hover:text-teal-600 dark:hover:text-teal-400 font-medium cursor-pointer transition flex items-center gap-1"
                 title="View recent queries history"
@@ -2746,15 +3199,42 @@ onUnmounted(() => {
                     ref="editorTextareaRef"
                     v-model="consoleInput"
                     @scroll="onEditorScroll"
-                    @keydown.ctrl.enter.prevent="executeOpenSearchQuery"
-                    @keydown.meta.enter.prevent="executeOpenSearchQuery"
+                    @click="updateActiveQueryPosition"
+                    @select="updateActiveQueryPosition"
+                    @keyup="onEditorKeyup"
+                    @keydown="onEditorKeydown"
+                    @input="onEditorInput"
                     spellcheck="false"
                     class="w-full h-full flex-1 py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre tab-4"
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
                   ></textarea>
 
+                  <!-- Inline DSL Autocomplete Dropdown -->
+                  <div
+                    v-if="showInlineAutocomplete && inlineSuggestions.length > 0"
+                    class="absolute z-30 bottom-4 right-6 w-80 max-h-60 overflow-y-auto bg-white dark:bg-[#151b2b] border border-teal-500/40 rounded-xl shadow-2xl p-1.5 text-xs font-mono animate-in fade-in"
+                  >
+                    <div class="px-2 py-1 text-[10px] font-sans font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1 flex items-center justify-between">
+                      <span>DSL Autocomplete (Tab/Enter)</span>
+                      <span class="text-[9px]">Esc to close</span>
+                    </div>
+                    <div
+                      v-for="(sug, idx) in inlineSuggestions"
+                      :key="idx"
+                      @click="selectInlineSuggestion(sug)"
+                      class="px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center justify-between gap-2 transition"
+                      :class="activeSuggestionIndex === idx ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'"
+                    >
+                      <span class="text-teal-600 dark:text-teal-400 font-semibold">{{ sug.label }}</span>
+                      <span class="text-[10px] text-slate-400 font-sans font-normal truncate max-w-[130px]">{{ sug.detail }}</span>
+                    </div>
+                  </div>
+
                   <!-- Floating Action Button (Matches Screenshot: Teal Box with Play ▶ and Wrench 🔧) -->
-                  <div class="absolute top-2.5 right-4 z-20 flex items-center gap-1 bg-white/95 dark:bg-[#151b2b]/95 border border-teal-500/40 rounded-md p-0.5 shadow-md backdrop-blur-xs">
+                  <div
+                    class="absolute right-4 z-20 flex items-center gap-1 bg-white/95 dark:bg-[#151b2b]/95 border border-teal-500/40 rounded-md p-0.5 shadow-md backdrop-blur-xs transition-all duration-150"
+                    :style="{ top: `${activePlayButtonTop}px` }"
+                  >
                     <!-- Play Button with "Send request" Tooltip -->
                     <div class="relative group">
                       <button
@@ -2762,7 +3242,7 @@ onUnmounted(() => {
                         @click="executeOpenSearchQuery"
                         :disabled="queryLoading"
                         class="p-1 hover:bg-teal-50 dark:hover:bg-teal-950/60 text-[#00805a] dark:text-[#00a699] rounded transition cursor-pointer flex items-center justify-center disabled:opacity-50"
-                        title="Send request (Ctrl+Enter)"
+                        :title="isTextSelected ? 'Send selected query (Ctrl+Enter)' : 'Send request (Ctrl+Enter)'"
                       >
                         <RotateCw v-if="queryLoading" class="w-3.5 h-3.5 animate-spin" />
                         <Play v-else class="w-3.5 h-3.5 fill-current" />
@@ -2771,7 +3251,7 @@ onUnmounted(() => {
                       <!-- Dark Tooltip matching Kibana UI -->
                       <div class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-30">
                         <div class="px-2.5 py-1 bg-slate-900 text-white text-[11px] font-sans font-medium rounded shadow-xl whitespace-nowrap">
-                          Send request
+                          {{ isTextSelected ? 'Send selected query' : 'Send request' }}
                         </div>
                         <div class="w-2 h-1 border-x-4 border-x-transparent border-t-4 border-t-slate-900"></div>
                       </div>
@@ -3201,6 +3681,117 @@ onUnmounted(() => {
                 class="px-4 py-1.5 bg-[#00805a] hover:bg-[#00704e] text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
                 Load into Console
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- MODAL: DSL SUGGESTIONS & TEMPLATES -->
+        <!-- ================================================================= -->
+        <div
+          v-if="showDslModal"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs animate-in fade-in"
+        >
+          <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-2xl w-full max-w-3xl shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1f283d] pb-3 shrink-0">
+              <div class="flex items-center gap-2">
+                <Code2 class="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">Query DSL Suggestions & Templates</h3>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">Pre-built query templates for OpenSearch search, bool filters, metrics, and aggregations</p>
+                </div>
+              </div>
+              <button
+                @click="showDslModal = false"
+                class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+
+            <!-- Category Filter Tabs & Search -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+              <div class="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 text-xs">
+                <button
+                  v-for="cat in dslCategories"
+                  :key="cat"
+                  @click="dslActiveCategory = cat"
+                  type="button"
+                  class="px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition whitespace-nowrap"
+                  :class="dslActiveCategory === cat ? 'bg-teal-600 text-white font-semibold' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                >
+                  {{ cat }}
+                </button>
+              </div>
+
+              <div class="relative w-full sm:w-56">
+                <input
+                  v-model="dslSearch"
+                  type="text"
+                  placeholder="Filter queries..."
+                  class="w-full bg-[#f8fafc] dark:bg-[#141824] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-teal-500 placeholder-slate-400"
+                />
+              </div>
+            </div>
+
+            <!-- List of DSL Snippets -->
+            <div class="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[300px]">
+              <div
+                v-if="filteredDslSnippets.length === 0"
+                class="text-center py-12 text-slate-400 dark:text-slate-500 text-xs"
+              >
+                No DSL suggestions matching your filter.
+              </div>
+
+              <div
+                v-for="(snippet, sIdx) in filteredDslSnippets"
+                :key="'dsl-card-' + sIdx"
+                class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-[#f8fafc] dark:bg-[#141824] space-y-2.5 transition hover:border-teal-500/40"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200">{{ snippet.name }}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/20">
+                      {{ snippet.category }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      @click="copyDslSnippet(snippet)"
+                      class="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check v-if="copiedDslSnippet === snippet.name" class="w-3 h-3 text-emerald-500" />
+                      <Copy v-else class="w-3 h-3 text-slate-400" />
+                      <span>{{ copiedDslSnippet === snippet.name ? 'Copied' : 'Copy' }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      @click="insertDslSnippet(snippet)"
+                      class="px-3 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 shadow-xs"
+                    >
+                      <span>Insert into Console</span>
+                    </button>
+                  </div>
+                </div>
+
+                <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{{ snippet.desc }}</p>
+
+                <!-- Code Block Preview -->
+                <pre class="p-2.5 bg-slate-900 text-teal-300 rounded-lg text-[11px] font-mono overflow-x-auto max-h-36 leading-relaxed select-all">{{ snippet.template }}</pre>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-[#1f283d] shrink-0 text-xs text-slate-500 dark:text-slate-400">
+              <span class="font-mono text-[11px]">Tip: Press Ctrl+Space in Console to trigger inline DSL autocomplete</span>
+              <button
+                @click="showDslModal = false"
+                class="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold cursor-pointer transition"
+              >
+                Close
               </button>
             </div>
           </div>
