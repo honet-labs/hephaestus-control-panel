@@ -1827,11 +1827,21 @@ const formatBytesHuman = (bytes: number | null | undefined): string => {
 };
 
 const formatRateMB = (mbVal: number | null | undefined): string => {
-  if (!mbVal || mbVal <= 0) return '0 B/s';
+  if (mbVal === null || mbVal === undefined || mbVal <= 0 || isNaN(mbVal)) return '0 B/s';
   const bytesSec = mbVal * 1024 * 1024;
   if (bytesSec < 1024) return `${bytesSec.toFixed(0)} B/s`;
   if (bytesSec < 1024 * 1024) return `${(bytesSec / 1024).toFixed(1)} KB/s`;
-  return `${(bytesSec / (1024 * 1024)).toFixed(2)} MB/s`;
+  if (bytesSec < 1024 * 1024 * 1024) return `${(bytesSec / (1024 * 1024)).toFixed(2)} MB/s`;
+  return `${(bytesSec / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+};
+
+const formatRateBits = (mbVal: number | null | undefined): string => {
+  if (mbVal === null || mbVal === undefined || mbVal <= 0 || isNaN(mbVal)) return '0 bps';
+  const bitsSec = mbVal * 1024 * 1024 * 8;
+  if (bitsSec < 1000) return `${bitsSec.toFixed(0)} bps`;
+  if (bitsSec < 1000 * 1000) return `${(bitsSec / 1000).toFixed(1)} Kbps`;
+  if (bitsSec < 1000 * 1000 * 1000) return `${(bitsSec / (1000 * 1000)).toFixed(2)} Mbps`;
+  return `${(bitsSec / (1000 * 1000 * 1000)).toFixed(2)} Gbps`;
 };
 
 // Close dropdown on outside click
@@ -2385,25 +2395,25 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Net Download Row -->
+          <!-- Net RX Row -->
           <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
+            <div class="flex items-center gap-1.5 w-14 shrink-0 text-slate-500 dark:text-slate-400">
               <ArrowDown class="w-3.5 h-3.5 text-slate-400" />
-              <span>Download:</span>
+              <span>RX:</span>
             </div>
             <div class="font-semibold font-mono text-xs text-slate-800 dark:text-slate-200">
-              {{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s
+              {{ formatRateMB(inst.liveMetrics?.netDownloadMb) }}
             </div>
           </div>
 
-          <!-- Net Upload Row -->
+          <!-- Net TX Row -->
           <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1.5 w-20 shrink-0 text-slate-500 dark:text-slate-400">
+            <div class="flex items-center gap-1.5 w-14 shrink-0 text-slate-500 dark:text-slate-400">
               <ArrowUp class="w-3.5 h-3.5 text-slate-400" />
-              <span>Upload:</span>
+              <span>TX:</span>
             </div>
             <div class="font-semibold font-mono text-xs text-slate-800 dark:text-slate-200">
-              {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
+              {{ formatRateMB(inst.liveMetrics?.netUploadMb) }}
             </div>
           </div>
         </div>
@@ -2511,8 +2521,8 @@ onUnmounted(() => {
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">CPU</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[115px]">Memory</th>
               <th class="py-3 px-2.5 2xl:px-3.5 min-w-[95px]">Disk</th>
-              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">Net Download</th>
-              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">Net Upload</th>
+              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">RX</th>
+              <th class="py-3 px-2.5 2xl:px-3.5 min-w-[105px]">TX</th>
               <th class="py-3 px-2.5 2xl:px-3.5 text-right min-w-[65px]">Actions</th>
             </tr>
           </thead>
@@ -2701,19 +2711,19 @@ onUnmounted(() => {
                   </div>
                 </td>
 
-                <!-- Net Download Column -->
+                <!-- RX Column -->
                 <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
                   <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                     <ArrowDown class="w-3 h-3 text-slate-400 shrink-0" />
-                    <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
+                    <span>{{ formatRateMB(inst.liveMetrics?.netDownloadMb) }}</span>
                   </div>
                 </td>
 
-                <!-- Net Upload Column -->
+                <!-- TX Column -->
                 <td class="py-3 px-2.5 2xl:px-3.5 font-semibold whitespace-nowrap">
                   <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                     <ArrowUp class="w-3 h-3 text-slate-400 shrink-0" />
-                    <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
+                    <span>{{ formatRateMB(inst.liveMetrics?.netUploadMb) }}</span>
                   </div>
                 </td>
 
@@ -2984,7 +2994,7 @@ onUnmounted(() => {
                           <span>Network Activity</span>
                         </div>
                         <span class="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {{ ((inst.liveMetrics?.netDownloadMb || 0) + (inst.liveMetrics?.netUploadMb || 0)).toFixed(2) }} MB/s
+                          {{ formatRateMB((inst.liveMetrics?.netDownloadMb || 0) + (inst.liveMetrics?.netUploadMb || 0)) }}
                         </span>
                       </div>
 
@@ -2992,14 +3002,14 @@ onUnmounted(() => {
                         <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-[#141b2a] border border-slate-100 dark:border-[#1e273d]">
                           <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                             <ArrowDown class="w-3.5 h-3.5 text-slate-400" />
-                            <span>Download (Rx):</span>
+                            <span>RX:</span>
                           </div>
                           <div class="text-right">
                             <div class="font-mono font-semibold text-slate-900 dark:text-white">
-                              {{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s
+                              {{ formatRateMB(inst.liveMetrics?.netDownloadMb) }}
                             </div>
                             <div class="text-[10px] font-mono text-slate-400">
-                              {{ ((inst.liveMetrics?.netDownloadMb || 0) * 8).toFixed(2) }} Mbps
+                              {{ formatRateBits(inst.liveMetrics?.netDownloadMb) }}
                             </div>
                           </div>
                         </div>
@@ -3007,14 +3017,14 @@ onUnmounted(() => {
                         <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-[#141b2a] border border-slate-100 dark:border-[#1e273d]">
                           <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                             <ArrowUp class="w-3.5 h-3.5 text-slate-400" />
-                            <span>Upload (Tx):</span>
+                            <span>TX:</span>
                           </div>
                           <div class="text-right">
                             <div class="font-mono font-semibold text-slate-900 dark:text-white">
-                              {{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s
+                              {{ formatRateMB(inst.liveMetrics?.netUploadMb) }}
                             </div>
                             <div class="text-[10px] font-mono text-slate-400">
-                              {{ ((inst.liveMetrics?.netUploadMb || 0) * 8).toFixed(2) }} Mbps
+                              {{ formatRateBits(inst.liveMetrics?.netUploadMb) }}
                             </div>
                           </div>
                         </div>

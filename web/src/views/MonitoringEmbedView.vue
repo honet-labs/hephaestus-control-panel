@@ -356,6 +356,15 @@ const formatBytesHuman = (bytes: number | null | undefined): string => {
   return `${val.toFixed(1)} ${units[idx]}`;
 };
 
+const formatRateMB = (mbVal: number | null | undefined): string => {
+  if (mbVal === null || mbVal === undefined || mbVal <= 0 || isNaN(mbVal)) return '0 B/s';
+  const bytesSec = mbVal * 1024 * 1024;
+  if (bytesSec < 1024) return `${bytesSec.toFixed(0)} B/s`;
+  if (bytesSec < 1024 * 1024) return `${(bytesSec / 1024).toFixed(1)} KB/s`;
+  if (bytesSec < 1024 * 1024 * 1024) return `${(bytesSec / (1024 * 1024)).toFixed(2)} MB/s`;
+  return `${(bytesSec / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+};
+
 const isSshInstance = (inst: MonitoringInstance): boolean => {
   if (inst.connectionMethod === 'ssh' || (inst as any).metricSource === 'ssh') return true;
   if (inst.connectionMethod === 'prometheus' || (inst as any).metricSource === 'prometheus') return false;
@@ -446,8 +455,8 @@ onUnmounted(() => {
               <th class="py-3 px-3 min-w-[120px]">CPU</th>
               <th class="py-3 px-3 min-w-[130px]">Memory</th>
               <th class="py-3 px-3 min-w-[130px]">Disk</th>
-              <th class="py-3 px-3 min-w-[105px]">Net Download</th>
-              <th class="py-3 px-3 min-w-[105px]">Net Upload</th>
+              <th class="py-3 px-3 min-w-[105px]">RX</th>
+              <th class="py-3 px-3 min-w-[105px]">TX</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-[#1a2236]">
@@ -591,19 +600,19 @@ onUnmounted(() => {
                 </div>
               </td>
 
-              <!-- Net Download Column -->
+              <!-- RX Column -->
               <td class="py-3.5 px-3 font-semibold whitespace-nowrap">
                 <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                   <ArrowDown class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>{{ (inst.liveMetrics?.netDownloadMb || 0).toFixed(2) }} MB/s</span>
+                  <span>{{ formatRateMB(inst.liveMetrics?.netDownloadMb) }}</span>
                 </div>
               </td>
 
-              <!-- Net Upload Column -->
+              <!-- TX Column -->
               <td class="py-3.5 px-3 font-semibold whitespace-nowrap">
                 <div class="flex items-center gap-1 font-mono text-slate-800 dark:text-slate-200">
                   <ArrowUp class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>{{ (inst.liveMetrics?.netUploadMb || 0).toFixed(2) }} MB/s</span>
+                  <span>{{ formatRateMB(inst.liveMetrics?.netUploadMb) }}</span>
                 </div>
               </td>
             </tr>
@@ -711,20 +720,20 @@ onUnmounted(() => {
               <!-- Network RX / TX -->
               <td class="py-3.5 px-3 font-mono text-[11px] whitespace-nowrap">
                 <div class="text-slate-700 dark:text-slate-300">
-                  <span class="text-slate-400 text-[10px]">RX:</span> {{ (c.netRxRateMb || 0).toFixed(2) }} MB/s
+                  <span class="text-slate-400 text-[10px]">RX:</span> {{ formatRateMB(c.netRxRateMb) }}
                 </div>
                 <div class="text-slate-700 dark:text-slate-300">
-                  <span class="text-slate-400 text-[10px]">TX:</span> {{ (c.netTxRateMb || 0).toFixed(2) }} MB/s
+                  <span class="text-slate-400 text-[10px]">TX:</span> {{ formatRateMB(c.netTxRateMb) }}
                 </div>
               </td>
 
               <!-- Block Read / Write -->
               <td class="py-3.5 px-3 font-mono text-[11px] whitespace-nowrap">
                 <div class="text-slate-700 dark:text-slate-300">
-                  <span class="text-slate-400 text-[10px]">R:</span> {{ (c.blockReadRateMb || 0).toFixed(2) }} MB/s
+                  <span class="text-slate-400 text-[10px]">R:</span> {{ formatRateMB(c.blockReadRateMb) }}
                 </div>
                 <div class="text-slate-700 dark:text-slate-300">
-                  <span class="text-slate-400 text-[10px]">W:</span> {{ (c.blockWriteRateMb || 0).toFixed(2) }} MB/s
+                  <span class="text-slate-400 text-[10px]">W:</span> {{ formatRateMB(c.blockWriteRateMb) }}
                 </div>
               </td>
 
