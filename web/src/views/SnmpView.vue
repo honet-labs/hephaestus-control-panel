@@ -547,7 +547,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-7xl mx-auto font-sans">
+  <div class="space-y-6 max-w-[1600px] w-full mx-auto font-sans">
     <!-- Header (Strictly adhering to AGENTS.md: pure text title, no icon, no emoji) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div class="flex items-center gap-2">
@@ -915,15 +915,15 @@ onMounted(() => {
 
           <!-- Sensors Table -->
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs">
+            <table class="w-full text-left text-xs min-w-[900px]">
               <thead class="bg-slate-50 dark:bg-[#121826] border-y border-slate-200 dark:border-[#1b2234] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 <tr>
-                  <th class="py-2.5 px-3">Class</th>
-                  <th class="py-2.5 px-3">Sensor Component / Metric</th>
-                  <th class="py-2.5 px-3">Reading / Value</th>
-                  <th class="py-2.5 px-3">SNMP OID</th>
-                  <th class="py-2.5 px-3">OID Translate</th>
-                  <th class="py-2.5 px-3 text-right">Raw Value</th>
+                  <th class="py-2.5 px-3 w-28 whitespace-nowrap">Class</th>
+                  <th class="py-2.5 px-3 min-w-[220px]">Sensor Component / Metric</th>
+                  <th class="py-2.5 px-3 w-40 whitespace-nowrap">Reading / Value</th>
+                  <th class="py-2.5 px-3 w-56 whitespace-nowrap">SNMP OID</th>
+                  <th class="py-2.5 px-3 w-56 whitespace-nowrap">OID Translate</th>
+                  <th class="py-2.5 pl-3 pr-4 text-right w-36 whitespace-nowrap">Raw Value</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]/60">
@@ -1010,7 +1010,7 @@ onMounted(() => {
                   </td>
 
                   <!-- Raw Value -->
-                  <td class="py-2.5 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 text-right whitespace-nowrap">
+                  <td class="py-2.5 pl-3 pr-4 font-mono text-[11px] text-slate-500 dark:text-slate-400 text-right whitespace-nowrap">
                     {{ sensor.rawValue }}
                   </td>
                 </tr>
@@ -1185,7 +1185,7 @@ onMounted(() => {
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
+          <table class="w-full text-left text-xs min-w-[900px]">
             <thead class="bg-slate-50 dark:bg-[#121826] border-y border-slate-200 dark:border-[#1b2234] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               <tr>
                 <th class="py-2.5 px-3">Status</th>
