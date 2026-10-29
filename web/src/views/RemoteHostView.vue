@@ -1812,7 +1812,7 @@ const downloadRdpFile = (host?: RemoteHost) => {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showNotice(`File .rdp untuk "${host.name || host.host}" berhasil diunduh. Silakan buka file untuk koneksi Remote Desktop.`);
+  showNotice(`.rdp file for "${host.name || host.host}" downloaded successfully. Please launch the file to connect via Remote Desktop.`);
 };
 
 // Fetch Host Telemetry
@@ -2506,7 +2506,7 @@ const executeDeleteRemoteItem = async () => {
     });
     if (res.data.success) {
       logSftp('response', `Deleted "${sftpItemToDelete.value.name}" successfully.`);
-      showNotice(`"${sftpItemToDelete.value.name}" berhasil dihapus.`);
+      showNotice(`"${sftpItemToDelete.value.name}" deleted successfully.`);
       showSftpDeleteModal.value = false;
       if (selectedRemoteFile.value?.name === sftpItemToDelete.value?.name) {
         selectedRemoteFile.value = null;
@@ -2539,7 +2539,7 @@ const executeCreateFolder = async () => {
     });
     if (res.data.success) {
       logSftp('response', `Directory "${folderName}" created successfully.`);
-      showNotice(`Folder "${folderName}" berhasil dibuat.`);
+      showNotice(`Directory "${folderName}" created successfully.`);
       showSftpMkdirModal.value = false;
       sftpNewFolderName.value = '';
       await fetchDestSftpFiles();
@@ -2847,7 +2847,7 @@ const executeDeleteHost = async () => {
         }
       }
       await fetchHosts();
-      showNotice(`Server "${hostToDelete.value.name}" berhasil dihapus.`);
+      showNotice(`Server "${hostToDelete.value.name}" deleted successfully.`);
       showDeleteHostModal.value = false;
       hostToDelete.value = null;
     }
@@ -5419,7 +5419,7 @@ onUnmounted(() => {
               placeholder="••••••••"
             />
             <p v-if="selectedProtocolPreset === 'rdp'" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Password dapat disimpan untuk memudahkan konfigurasi koneksi Remote Desktop Windows.
+              Password can be saved to facilitate Windows Remote Desktop (RDP) connections.
             </p>
             <p v-else-if="hostForm.id" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
               Leave blank to keep existing saved password.

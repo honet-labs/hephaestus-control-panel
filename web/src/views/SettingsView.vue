@@ -227,66 +227,66 @@ const serviceDocMap: Record<string, ServiceDocInfo> = {
   'srv-icmp': {
     title: 'Network Server (ICMP Ping Sweep)',
     category: 'Network Monitoring & Availability',
-    purpose: 'Engine pemindaian ketersediaan host dan latensi jaringan secara berkala ke seluruh subnet terdaftar menggunakan protokol ICMP echo request.',
+    purpose: 'Periodic host availability and network latency scanning daemon querying all registered subnets using ICMP echo requests.',
     features: [
-      'Multi-threaded concurrent ping sweep ke ratusan target sekaligus',
-      'Pengukuran Round-Trip Time (RTT latency) dan kalkulasi packet loss persentase',
-      'Deteksi otomatis status perangkat Up/Down secara real-time',
-      'Penyimpanan history latensi ke basis data timeseries',
+      'Concurrent multi-threaded ping sweeps targeting hundreds of endpoints simultaneously',
+      'Round-trip time (RTT latency) measurements and packet loss percentage calculation',
+      'Automated real-time host Up/Down status detection and transition dispatch',
+      'Historical latency telemetry retention in time-series database',
     ],
-    architecture: 'Go Goroutines Concurrency Pool dengan raw socket ICMP listener & rate-limiting per subnet.',
+    architecture: 'Go Goroutine Concurrency Pool with raw ICMP socket listeners and per-subnet rate-limiting.',
     connectedModules: ['Network Topology', 'Monitoring Instances', 'Alerting Rules'],
   },
   'srv-opensearch': {
     title: 'Data Server (OpenSearch Cluster Poller)',
     category: 'Log & Search Engine Telemetry',
-    purpose: 'Daemon pemantau kesehatan klaster OpenSearch, utilisasi hardware node, status replikasi shard, dan kinerja indeks log.',
+    purpose: 'Continuous health monitoring daemon tracking OpenSearch cluster status, node resource utilization, shard replication, and log index health.',
     features: [
-      'Polling otomatis cluster health (Green / Yellow / Red)',
-      'Statistik utilisasi JVM heap, CPU, dan disk per node klaster',
-      'Monitoring alokasi primary dan replica shard',
-      'Integrasi workbench OpenSearch DevTools Query Console',
+      'Automated cluster health telemetry polling (Green / Yellow / Red)',
+      'Per-node JVM heap, CPU, and disk storage utilization statistics',
+      'Primary and replica shard allocation tracking across cluster nodes',
+      'OpenSearch DevTools Query Workbench integration',
     ],
-    architecture: 'HTTP/REST OpenSearch client background runner dengan context timeout dan connection keep-alive.',
-    connectedModules: ['OpenSearch Cluster Manager', 'DevTools Query Workbench', 'Grok Logs Ingestion'],
+    architecture: 'HTTP/REST OpenSearch client background poller with context timeouts and connection keep-alive.',
+    connectedModules: ['OpenSearch Cluster Manager', 'DevTools Query Workbench', 'Log Ingestion Engine'],
   },
   'srv-backup': {
     title: 'Backup & Restore Engine (Databases & Docker Containers)',
     category: 'Disaster Recovery & Data Protection',
-    purpose: 'Engine otomatisasi backup terjadwal dan pemulihan (restore) database PostgreSQL/MySQL, snapshot container volume Docker, kompresi arsip gzip, serta sinkronisasi multi-tujuan (Local, S3, NAS via SSH/SMB).',
+    purpose: 'Automated scheduled backup and instant restore engine supporting PostgreSQL and MySQL database dumps, Docker container volume snapshots, gzip compression, and multi-destination synchronization (Local Storage, AWS S3, Cloudflare R2, and NAS via SSH/SMB).',
     features: [
       'Automated scheduled database dumps (PostgreSQL pg_dump & MySQL mysqldump)',
       'Docker container & volume tar archive snapshots',
-      'Instant restore engine untuk pemulihan cepat database & container',
-      'Kompresi arsip gzip stream dan verifikasi integritas checksum',
-      'Multi-storage destination support: Local Storage, AWS S3 / Cloudflare R2, dan NAS (SSH/SMB)',
-      'Retention lifecycle policy & automated cleanup backup usang',
+      'Instant restore engine for rapid database and container volume recovery',
+      'Gzip stream compression and SHA-256 checksum integrity verification',
+      'Multi-storage destination support: Local Storage, AWS S3 / Cloudflare R2, and NAS (SSH/SMB)',
+      'Retention lifecycle policy and automated cleanup of obsolete archives',
     ],
-    architecture: 'Background worker pool goroutines terintegrasi dengan Cron Scheduler dan Docker socket/SSH exec streaming.',
+    architecture: 'Background worker pool goroutines integrated with Cron Scheduler, Docker API socket, and streaming SSH execution.',
     connectedModules: ['Database & Container Backup Manager', 'Remote Hosts', 'Worker Pool'],
   },
   'srv-snmp': {
     title: 'SNMP Trap & Poller Server',
     category: 'Network Hardware Telemetry',
-    purpose: 'Server penerima SNMP trap (UDP port 162) dan poller OID real-time untuk perangkat keras jaringan (Switch, Router, AP, Firewall).',
+    purpose: 'High-throughput SNMP trap receiver (UDP port 162) and real-time OID poller for network appliances (Switches, Routers, Access Points, Firewalls).',
     features: [
-      'Mendukung protokol SNMP v1, v2c, dan v3 (USM authentication & privacy encryption)',
-      'UDP socket daemon listener untuk trap & inform event',
-      'Dynamic OID query walker dan MIB dictionary compiler bawaan',
-      'Translasi OID numerik menjadi representasi nama label yang mudah dibaca',
+      'Support for SNMP v1, v2c, and v3 protocols (USM authentication and privacy encryption)',
+      'UDP socket daemon listener for trap and inform events',
+      'Dynamic OID subtree walker and built-in MIB dictionary compiler',
+      'Numerical OID translation to human-readable MIB labels and metrics',
     ],
-    architecture: 'Asynchronous UDP socket listener dengan worker channel queue dan OID subtree walker.',
+    architecture: 'Asynchronous UDP socket listener with worker channel queue and OID subtree walker.',
     connectedModules: ['SNMP Browser & Trap Receiver', 'Network Topology', 'Alerting Rules'],
   },
   'srv-discovery': {
     title: 'Network Topology & Device Discovery Server (ARP)',
     category: 'Network Topology & Asset Discovery',
-    purpose: 'Daemon pemindaian topologi jaringan lokal, inspeksi tabel ARP, dan pendeteksi vendor perangkat berdasarkan MAC address OUI database.',
+    purpose: 'Local network topology discovery daemon inspecting ARP tables, subnet neighbors, and detecting hardware vendors via the IEEE OUI MAC prefix database.',
     features: [
-      'Automated ARP table inspection untuk menemukan host yang aktif di segmen jaringan',
-      'Lookup vendor perangkat keras otomatis berbasis IEEE OUI MAC prefix',
-      'Pemetaan hubungan antar perangkat (switch, router, host) untuk graf visualisasi topologi',
-      'Peringatan otomatis saat terdeteksi perangkat asing (rogue/new host) di subnet',
+      'Automated ARP table inspection to discover active hosts across network segments',
+      'Hardware vendor lookup based on IEEE OUI MAC address prefixes',
+      'Inter-device mapping (switches, routers, hosts) for interactive topology graphs',
+      'Automated alerts when unknown or rogue devices appear on monitored subnets',
     ],
     architecture: 'Periodic ARP cache crawler & passive subnet packet analyzer.',
     connectedModules: ['Network Topology', 'IPAM Scanner', 'Remote Hosts'],
@@ -294,79 +294,79 @@ const serviceDocMap: Record<string, ServiceDocInfo> = {
   'srv-cron': {
     title: 'Event & Scheduler Server (Cron Engine)',
     category: 'Task Automation & Scheduling',
-    purpose: 'Mesin penjadwalan terpusat berbasis cron expression untuk mengeksekusi tugas-tugas periodik sistem di latar belakang.',
+    purpose: 'Centralized cron-based scheduling engine executing background maintenance routines, backup schedules, and batch jobs.',
     features: [
-      'Eksekusi tugas terjadwal presisi detik menggunakan cron expression',
-      'Pemicu backup otomatis database dan snapshot container',
-      'Pembersihan berkala log audit usang dan sesi user kadaluarsa',
-      'Dispatching job batch asinkron ke worker pool',
+      'Second-precision scheduled job execution using standard cron expressions',
+      'Automated triggers for database dumps and container snapshots',
+      'Periodic cleanup of obsolete audit logs and expired user sessions',
+      'Dispatching asynchronous batch tasks to the worker pool',
     ],
-    architecture: 'Robfig Cron Go engine dengan concurrent safe job runner dan error recovery wrapper.',
+    architecture: 'Robfig Cron Go engine with concurrent-safe job runners and panic recovery wrappers.',
     connectedModules: ['Backup Schedules', 'Security Audit Logs', 'System Maintenance'],
   },
   'srv-alert': {
     title: 'Alert & Notification Dispatcher',
     category: 'Incident Management & Alerting',
-    purpose: 'Engine evaluasi ambang batas (threshold) metrik, eskalasi insiden, dan pengiriman notifikasi otomatis multi-channel.',
+    purpose: 'Metric threshold evaluation engine handling incident escalation and automated multi-channel notification dispatching.',
     features: [
-      'Evaluasi kondisi metrik CPU, Memory, Disk, dan Host Availability secara berkelanjutan',
-      'Eskalasi tingkat keparahan insiden (Info, Warning, Critical)',
-      'Pengiriman alert multi-channel: Telegram, Discord, Slack, Email, dan Custom Webhooks',
-      'Mekanisme deduplikasi dan cooldown alert untuk mencegah alert fatigue',
+      'Continuous evaluation of CPU, Memory, Disk, and Host Availability metric thresholds',
+      'Incident severity escalation (Info, Warning, Critical)',
+      'Multi-channel alert dispatching: Telegram, Discord, Slack, Email, and Custom Webhooks',
+      'Deduplication and cooldown mechanisms to prevent alert fatigue',
     ],
-    architecture: 'Threshold evaluation loop dengan asynchronous webhook dispatcher channel.',
+    architecture: 'Threshold evaluation loop with asynchronous webhook dispatcher channel.',
     connectedModules: ['Monitoring Instances', 'Notification Webhooks', 'Event Logs'],
   },
   'srv-prometheus': {
     title: 'Prometheus & PromQL Telemetry Collector',
     category: 'High-Frequency Metrics Ingestion',
-    purpose: 'Bridge pengumpul metrik frekuensi tinggi dari Prometheus node_exporter dan evaluator query PromQL.',
+    purpose: 'High-frequency metrics bridge scraping Prometheus node_exporter endpoints and evaluating PromQL aggregation queries.',
     features: [
-      'Scraping berkala endpoint Prometheus node exporter target',
-      'Eksekusi query PromQL untuk agregasi utilisasi sumber daya host',
-      'Dukungan time-series metric formatting untuk grafik interaktif',
-      'Penyimpanan cache metrik untuk performa dashboard monitoring instan',
+      'Periodic scraping of Prometheus node_exporter endpoints',
+      'PromQL query execution for resource utilization aggregation',
+      'Time-series metric formatting for interactive charts',
+      'Telemetry caching for instant dashboard responsiveness',
     ],
-    architecture: 'Concurrent HTTP scrape client dengan connection pooling dan PromQL parser.',
+    architecture: 'Concurrent HTTP scrape client with connection pooling and PromQL parser.',
     connectedModules: ['Monitoring Instances', 'Prometheus Config', 'Dashboard Overview'],
   },
   'srv-ssh-telemetry': {
     title: 'SSH Telemetry Server (Agentless Poller)',
     category: 'Agentless Infrastructure Monitoring',
-    purpose: 'Daemon pengambil metrik server Linux secara agentless langsung melalui koneksi SSH tanpa instalasi software tambahan di host target.',
+    purpose: 'Agentless Linux server telemetry daemon polling host metrics directly over secure SSH sessions without requiring client agent software.',
     features: [
-      'Pengambilan real-time metrik CPU (/proc/stat), RAM (/proc/meminfo), Disk (df), dan Network I/O',
-      '100% agentless tanpa perlu menginstal agent apapun di server remote',
-      'Connection pool SSH terenkripsi dengan auto-reconnect dan fallback',
-      'Dukungan eksekusi perintah monitoring aman non-root',
+      'Real-time telemetry ingestion: CPU (/proc/stat), RAM (/proc/meminfo), Disk (df), and Network I/O',
+      '100% agentless operation without installing agents on remote servers',
+      'Encrypted SSH connection pooling with auto-reconnect and exponential fallback',
+      'Secure non-root monitoring command execution',
     ],
-    architecture: 'Go crypto/ssh pooled sessions dengan concurrent goroutine per-host dan exponential backoff retry.',
+    architecture: 'Go crypto/ssh pooled sessions with concurrent per-host goroutines and exponential backoff retry.',
     connectedModules: ['Monitoring Instances (Agentless)', 'Remote Hosts', 'Host Metrics'],
   },
   'srv-worker': {
     title: 'Heavy Background Worker Pool',
     category: 'Async Job Processing',
-    purpose: 'Worker pool berbasis goroutine konkuren untuk memproses tugas-tugas berat asinkron tanpa memblokir server HTTP.',
+    purpose: 'Concurrent goroutine-based worker pool processing heavy asynchronous tasks without blocking HTTP server responses.',
     features: [
-      'Concurrency thread tuning dinamis dari UI System Settings',
-      'Pemrosesan tugas kompresi backup, export laporan berkas, dan bulk IP sweep',
-      'Antrian tugas berbasis channel FIFO dengan perlindungan memory leak',
-      'Pemantauan status pekerjaan aktif dan antrian real-time (T/Q ratio)',
+      'Dynamic thread concurrency tuning from System Settings UI',
+      'Processing archive compression, report generation, and bulk subnet sweeps',
+      'FIFO channel task queue with memory leak protection',
+      'Active task and queue ratio monitoring in real time (T/Q ratio)',
     ],
-    architecture: 'Goroutine worker pool pattern dengan generic task interface dan buffered job channels.',
+    architecture: 'Goroutine worker pool pattern with generic task interface and buffered job channels.',
     connectedModules: ['Backup Manager', 'Report Generator', 'IPAM Scanner'],
   },
   'srv-ipam': {
     title: 'IPAM Network Scanner (Subnet Sweeper)',
     category: 'IP Address Management',
-    purpose: 'Scanner alokasi alamat IP dan pelacak pemanfaatan subnet secara otomatis di seluruh infrastruktur jaringan.',
+    purpose: 'Automated IP address allocation scanner and subnet utilization tracker across the enterprise network infrastructure.',
     features: [
-      'Pemindaian otomatis rentang subnet CIDR (misal /24, /16)',
-      'Pelacakan status IP (Active, Reserved, Available, Inactive)',
-      'Fingerprinting OS dan deteksi hostname perangkat aktif',
-      'Kalkulasi persentase kapasitas subnet dan riwayat pergerakan IP',
+      'Automated CIDR subnet range scanning (e.g., /24, /16)',
+      'IP allocation tracking (Active, Reserved, Available, Inactive)',
+      'OS fingerprinting and active device hostname detection',
+      'Subnet capacity utilization metrics and IP movement history',
     ],
-    architecture: 'High-throughput parallel subnet sweeper dengan sliding window worker goroutines.',
+    architecture: 'High-throughput parallel subnet sweeper with sliding window worker goroutines.',
     connectedModules: ['IPAM Subnet Manager', 'Network Topology', 'Discovery Server'],
   },
 };
@@ -1297,7 +1297,7 @@ onUnmounted(() => {
         ]"
       >
         <Activity class="w-3.5 h-3.5" />
-        <span>Status Services ({{ services.length }})</span>
+        <span>Service Daemons ({{ services.length }})</span>
       </button>
 
       <button
@@ -1347,7 +1347,7 @@ onUnmounted(() => {
     </div>
 
     <!-- ============================================================= -->
-    <!-- TAB 1: STATUS SERVICES (4 Core Columns + View Log Modal) -->
+    <!-- TAB 1: SERVICE DAEMONS (4 Core Columns + View Log Modal) -->
     <!-- ============================================================= -->
     <div v-if="activeTab === 'services'" class="space-y-4 animate-in fade-in duration-150">
       <div class="flex items-center justify-between">
@@ -1394,10 +1394,10 @@ onUnmounted(() => {
         <table class="w-full text-left text-xs border-collapse">
           <thead class="bg-slate-100 dark:bg-[#20242e] text-slate-700 dark:text-slate-400 text-[10px] uppercase font-bold tracking-wider border-b border-slate-300 dark:border-slate-800 select-none">
             <tr>
-              <th class="py-3 px-4 w-36">Status Services</th>
-              <th class="py-3 px-4">Nama Services</th>
+              <th class="py-3 px-4 w-36">Service Status</th>
+              <th class="py-3 px-4">Service Name</th>
               <th class="py-3 px-4 w-28 text-center">
-                <div class="inline-flex items-center justify-center gap-1 cursor-help" title="Current threads / Queued tasks (Threads : Antrian)">
+                <div class="inline-flex items-center justify-center gap-1 cursor-help" title="Current threads / Queued tasks (Threads : Queued)">
                   <span>T/Q</span>
                   <Info class="w-3 h-3 text-slate-400" />
                 </div>
@@ -1412,7 +1412,7 @@ onUnmounted(() => {
               :key="srv.id"
               class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition group"
             >
-              <!-- 1. Status Services -->
+              <!-- 1. Service Status -->
               <td class="py-3 px-4 whitespace-nowrap">
                 <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400 text-[11px] font-bold">
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -1420,7 +1420,7 @@ onUnmounted(() => {
                 </div>
               </td>
 
-              <!-- 2. Nama Services -->
+              <!-- 2. Service Name -->
               <td class="py-3 px-4">
                 <div>
                   <div class="flex items-center gap-1.5">
@@ -1429,7 +1429,7 @@ onUnmounted(() => {
                       type="button"
                       @click="openServiceInfoModal(srv)"
                       class="text-slate-400 hover:text-blue-600 dark:hover:text-teal-400 cursor-pointer p-0.5 rounded transition"
-                      title="Lihat detail fungsi & arsitektur service ini"
+                      title="View service purpose & technical architecture"
                     >
                       <Info class="w-3.5 h-3.5" />
                     </button>
@@ -3024,20 +3024,20 @@ onUnmounted(() => {
 
         <!-- Modal Body (Scrollable) -->
         <div class="overflow-y-auto space-y-4 pr-1 text-xs flex-1">
-          <!-- 1. Tujuan & Penjelasan Fungsi -->
+          <!-- 1. Purpose & Functional Role -->
           <div class="space-y-1.5">
             <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
-              Tujuan & Fungsi Layanan
+              Service Purpose & Role
             </h4>
             <p class="text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-[#151926] p-3 rounded-xl border border-slate-200/80 dark:border-slate-800">
               {{ selectedServiceDoc.purpose }}
             </p>
           </div>
 
-          <!-- 2. Fitur-Fitur Utama -->
+          <!-- 2. Key Features -->
           <div class="space-y-2">
             <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
-              Fitur & Kemampuan Utama
+              Key Features & Capabilities
             </h4>
             <ul class="space-y-1.5 pl-1">
               <li
@@ -3051,17 +3051,17 @@ onUnmounted(() => {
             </ul>
           </div>
 
-          <!-- 3. Arsitektur Engine & Protokol -->
+          <!-- 3. Technical Architecture & Protocols -->
           <div class="space-y-1.5">
             <h4 class="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px] tracking-wider">
-              Arsitektur Teknis
+              Technical Architecture
             </h4>
             <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px]">
               {{ selectedServiceDoc.architecture }}
             </div>
           </div>
 
-          <!-- 4. Modul HCP Terhubung & Concurrency Thread -->
+          <!-- 4. Connected HCP Modules & Concurrency Thread -->
           <div class="grid grid-cols-2 gap-3 pt-1">
             <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 space-y-1">
               <p class="text-[10px] font-semibold text-slate-400 uppercase">Concurrency / Threads</p>
@@ -3070,7 +3070,7 @@ onUnmounted(() => {
               </p>
             </div>
             <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#151926] border border-slate-200/80 dark:border-slate-800 space-y-1">
-              <p class="text-[10px] font-semibold text-slate-400 uppercase">Modul HCP Terkait</p>
+              <p class="text-[10px] font-semibold text-slate-400 uppercase">Connected HCP Modules</p>
               <div class="flex flex-wrap gap-1">
                 <span
                   v-for="(mod, mIdx) in selectedServiceDoc.connectedModules"
@@ -3091,7 +3091,7 @@ onUnmounted(() => {
             @click="showServiceInfoModal = false"
             class="px-4 py-1.5 bg-[#4274D9] hover:bg-[#3461c2] text-white rounded-lg text-xs font-bold transition cursor-pointer"
           >
-            Tutup
+            Close
           </button>
         </div>
       </div>

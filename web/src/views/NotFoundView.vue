@@ -22,9 +22,9 @@ const goBack = () => {
 
       <div class="space-y-2">
         <span class="text-xs font-bold tracking-widest text-blue-600 dark:text-[#95CCDD] uppercase">Error 404</span>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Halaman Tidak Ditemukan</h1>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Page Not Found</h1>
         <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs mx-auto">
-          Alamat atau URL yang Anda tuju tidak tersedia atau telah dipindahkan.
+          The page or resource you are looking for does not exist or has been moved.
         </p>
       </div>
 
@@ -34,7 +34,7 @@ const goBack = () => {
           class="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
-          <span>Kembali</span>
+          <span>Go Back</span>
         </button>
 
         <router-link
