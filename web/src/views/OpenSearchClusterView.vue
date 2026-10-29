@@ -1055,10 +1055,69 @@ const dslActiveCategory = ref<string>('All');
 const dslSearch = ref('');
 const copiedDslSnippet = ref<string | null>(null);
 
-// Inline Autocomplete Popup in Editor
+// Inline Autocomplete Popup in Editor (Positioned dynamically by caret coordinates)
 const showInlineAutocomplete = ref(false);
 const inlineSuggestions = ref<{ label: string; detail: string; snippet: string }[]>([]);
 const activeSuggestionIndex = ref(0);
+const autocompleteTop = ref(40);
+const autocompleteLeft = ref(20);
+
+let textMeasureCanvas: HTMLCanvasElement | null = null;
+const measureMonospaceText = (text: string, textarea: HTMLTextAreaElement): number => {
+  if (typeof document === 'undefined') return text.length * 7.2;
+  try {
+    if (!textMeasureCanvas) {
+      textMeasureCanvas = document.createElement('canvas');
+    }
+    const ctx = textMeasureCanvas.getContext('2d');
+    if (ctx) {
+      const style = window.getComputedStyle(textarea);
+      const fontSize = style.fontSize || '12px';
+      const fontFamily = style.fontFamily || 'monospace';
+      ctx.font = `${fontSize} ${fontFamily}`;
+      const visualText = text.replace(/\t/g, '    ');
+      return ctx.measureText(visualText).width;
+    }
+  } catch (_) {}
+  return text.length * 7.2;
+};
+
+const updateAutocompletePosition = () => {
+  const textarea = editorTextareaRef.value;
+  if (!textarea) return;
+
+  const cursor = textarea.selectionStart || 0;
+  const text = textarea.value || '';
+  const textBefore = text.substring(0, cursor);
+
+  const lines = textBefore.split('\n');
+  const lineIdx = lines.length - 1;
+  const currentLineText = lines[lineIdx];
+
+  const paddingTop = 12; // py-3
+  const paddingLeft = 14; // px-3.5
+  const lineHeight = 22; // leading-[22px]
+
+  // Vertical position
+  const caretY = paddingTop + lineIdx * lineHeight - textarea.scrollTop;
+  const dropdownHeight = Math.min(240, 36 + inlineSuggestions.value.length * 30);
+  const containerHeight = textarea.clientHeight || 400;
+
+  if (caretY + lineHeight + dropdownHeight > containerHeight && caretY > dropdownHeight) {
+    autocompleteTop.value = Math.max(8, caretY - dropdownHeight - 4);
+  } else {
+    autocompleteTop.value = Math.max(8, caretY + lineHeight + 4);
+  }
+
+  // Horizontal position
+  const textWidth = measureMonospaceText(currentLineText, textarea);
+  const caretX = paddingLeft + textWidth - textarea.scrollLeft;
+  const dropdownWidth = 320; // w-80
+  const containerWidth = textarea.clientWidth || 600;
+  // Keep dropdown from overflowing off-screen or covering play button on the right edge
+  const maxLeft = Math.max(14, containerWidth - dropdownWidth - 65);
+  autocompleteLeft.value = Math.max(14, Math.min(caretX, maxLeft));
+};
 
 // Comprehensive OpenSearch Query DSL Templates
 const dslSnippets = [
@@ -1232,6 +1291,9 @@ const onEditorKeydown = (e: KeyboardEvent) => {
     inlineSuggestions.value = dslKeywords;
     activeSuggestionIndex.value = 0;
     showInlineAutocomplete.value = true;
+    nextTick(() => {
+      updateAutocompletePosition();
+    });
     return;
   }
 
@@ -1263,8 +1325,11 @@ const onEditorKeydown = (e: KeyboardEvent) => {
   }
 };
 
-const onEditorKeyup = () => {
+const onEditorKeyup = (e: KeyboardEvent) => {
   updateActiveQueryPosition();
+  if (showInlineAutocomplete.value && !['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+    updateAutocompletePosition();
+  }
 };
 
 const onEditorInput = () => {
@@ -1284,13 +1349,42 @@ const onEditorInput = () => {
       inlineSuggestions.value = matched;
       activeSuggestionIndex.value = 0;
       showInlineAutocomplete.value = true;
+      nextTick(() => {
+        updateAutocompletePosition();
+      });
       return;
     }
   }
   showInlineAutocomplete.value = false;
 };
 
-const selectInlineSuggestion = (item: { snippet: string }) => {
+const onEditorClick = () => {
+  updateActiveQueryPosition();
+  const textarea = editorTextareaRef.value;
+  if (!textarea) return;
+
+  const text = textarea.value;
+  const cursor = textarea.selectionStart;
+  const textBefore = text.substring(0, cursor);
+  const match = textBefore.match(/([a-zA-Z0-9_"/-]+)$/);
+
+  if (match && match[1].length >= 2) {
+    const word = match[1].toLowerCase();
+    const matched = dslKeywords.filter(k => k.label.toLowerCase().includes(word) || k.detail.toLowerCase().includes(word));
+    if (matched.length > 0) {
+      inlineSuggestions.value = matched;
+      activeSuggestionIndex.value = 0;
+      showInlineAutocomplete.value = true;
+      nextTick(() => {
+        updateAutocompletePosition();
+      });
+      return;
+    }
+  }
+  showInlineAutocomplete.value = false;
+};
+
+const selectInlineSuggestion = (item: { snippet: string; label?: string }) => {
   const textarea = editorTextareaRef.value;
   if (!textarea) return;
 
@@ -1302,14 +1396,26 @@ const selectInlineSuggestion = (item: { snippet: string }) => {
   // Replace active token if typing
   const match = textBefore.match(/([a-zA-Z0-9_"/-]+)$/);
   const replaceStart = match ? cursor - match[1].length : cursor;
-  const before = text.substring(0, replaceStart);
+  let before = text.substring(0, replaceStart);
 
-  consoleInput.value = before + item.snippet + after;
+  let snippetToInsert = item.snippet;
+
+  // Handle case where user already typed the HTTP method (e.g. GET _ca -> selects GET _cat/indices?v)
+  const methodMatch = before.match(/(GET|POST|PUT|DELETE|HEAD)\s+$/i);
+  if (methodMatch) {
+    const existingMethod = methodMatch[1].toUpperCase();
+    const snippetMethodMatch = snippetToInsert.match(/^(GET|POST|PUT|DELETE|HEAD)\s+/i);
+    if (snippetMethodMatch && snippetMethodMatch[1].toUpperCase() === existingMethod) {
+      snippetToInsert = snippetToInsert.substring(snippetMethodMatch[0].length);
+    }
+  }
+
+  consoleInput.value = before + snippetToInsert + after;
   showInlineAutocomplete.value = false;
 
   nextTick(() => {
     textarea.focus();
-    const newPos = before.length + item.snippet.length;
+    const newPos = before.length + snippetToInsert.length;
     textarea.setSelectionRange(newPos, newPos);
     updateActiveQueryPosition();
   });
@@ -1512,6 +1618,10 @@ const startResize = (e: MouseEvent) => {
 const onEditorScroll = () => {
   if (editorTextareaRef.value && editorGutterRef.value) {
     editorGutterRef.value.scrollTop = editorTextareaRef.value.scrollTop;
+  }
+  updateActiveQueryPosition();
+  if (showInlineAutocomplete.value) {
+    updateAutocompletePosition();
   }
 };
 
@@ -3199,7 +3309,7 @@ onUnmounted(() => {
                     ref="editorTextareaRef"
                     v-model="consoleInput"
                     @scroll="onEditorScroll"
-                    @click="updateActiveQueryPosition"
+                    @click="onEditorClick"
                     @select="updateActiveQueryPosition"
                     @keyup="onEditorKeyup"
                     @keydown="onEditorKeydown"
@@ -3209,10 +3319,14 @@ onUnmounted(() => {
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
                   ></textarea>
 
-                  <!-- Inline DSL Autocomplete Dropdown -->
+                  <!-- Inline DSL Autocomplete Dropdown (Follows Cursor) -->
                   <div
                     v-if="showInlineAutocomplete && inlineSuggestions.length > 0"
-                    class="absolute z-30 bottom-4 right-6 w-80 max-h-60 overflow-y-auto bg-white dark:bg-[#151b2b] border border-teal-500/40 rounded-xl shadow-2xl p-1.5 text-xs font-mono animate-in fade-in"
+                    class="absolute z-30 w-80 max-h-60 overflow-y-auto bg-white dark:bg-[#151b2b] border border-teal-500/40 rounded-xl shadow-2xl p-1.5 text-xs font-mono animate-in fade-in transition-[top,left] duration-75 pointer-events-auto"
+                    :style="{
+                      top: `${autocompleteTop}px`,
+                      left: `${autocompleteLeft}px`,
+                    }"
                   >
                     <div class="px-2 py-1 text-[10px] font-sans font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 mb-1 flex items-center justify-between">
                       <span>DSL Autocomplete (Tab/Enter)</span>
@@ -3221,7 +3335,7 @@ onUnmounted(() => {
                     <div
                       v-for="(sug, idx) in inlineSuggestions"
                       :key="idx"
-                      @click="selectInlineSuggestion(sug)"
+                      @mousedown.prevent="selectInlineSuggestion(sug)"
                       class="px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center justify-between gap-2 transition"
                       :class="activeSuggestionIndex === idx ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'"
                     >
