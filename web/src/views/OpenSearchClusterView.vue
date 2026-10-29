@@ -1285,6 +1285,16 @@ const onEditorKeydown = (e: KeyboardEvent) => {
     return;
   }
 
+  // Ctrl+I or Cmd+I or Ctrl+Alt+L -> Auto-indent / Beautify Console
+  if (
+    ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) ||
+    ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'l' || e.key === 'L'))
+  ) {
+    e.preventDefault();
+    beautifyConsoleJson(false);
+    return;
+  }
+
   // Ctrl+Space -> Trigger DSL suggestions inline
   if ((e.ctrlKey || e.metaKey) && e.code === 'Space') {
     e.preventDefault();
@@ -1321,6 +1331,112 @@ const onEditorKeydown = (e: KeyboardEvent) => {
       e.preventDefault();
       showInlineAutocomplete.value = false;
       return;
+    }
+  }
+
+  // Tab key -> Insert 2 spaces or indent/unindent without blurring textarea
+  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    const textarea = editorTextareaRef.value;
+    if (textarea) {
+      const s = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+
+      if (e.shiftKey) {
+        // Shift+Tab -> unindent current line(s)
+        const textBefore = text.substring(0, s);
+        const lastLineStart = textBefore.lastIndexOf('\n') + 1;
+        const fullBlock = text.substring(lastLineStart, end);
+        const unindented = fullBlock.split('\n').map(l => l.replace(/^ {1,2}/, '')).join('\n');
+
+        consoleInput.value = text.substring(0, lastLineStart) + unindented + text.substring(end);
+        nextTick(() => {
+          const newPos = Math.max(lastLineStart, s - 2);
+          textarea.setSelectionRange(newPos, newPos);
+          updateActiveQueryPosition();
+        });
+      } else {
+        if (s === end) {
+          // Insert 2 spaces
+          consoleInput.value = text.substring(0, s) + '  ' + text.substring(end);
+          nextTick(() => {
+            textarea.setSelectionRange(s + 2, s + 2);
+            updateActiveQueryPosition();
+          });
+        } else {
+          // Indent selected lines
+          const lastLineStart = text.substring(0, s).lastIndexOf('\n') + 1;
+          const fullBlock = text.substring(lastLineStart, end);
+          const indented = fullBlock.split('\n').map(l => '  ' + l).join('\n');
+          consoleInput.value = text.substring(0, lastLineStart) + indented + text.substring(end);
+          nextTick(() => {
+            textarea.setSelectionRange(s + 2, lastLineStart + indented.length);
+            updateActiveQueryPosition();
+          });
+        }
+      }
+    }
+    return;
+  }
+
+  // Enter key -> Smart Auto-Indent
+  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const textarea = editorTextareaRef.value;
+    if (textarea) {
+      const cursor = textarea.selectionStart;
+      const text = textarea.value;
+      const textBefore = text.substring(0, cursor);
+      const textAfter = text.substring(cursor);
+
+      const lines = textBefore.split('\n');
+      const currentLine = lines[lines.length - 1];
+      const indentMatch = currentLine.match(/^(\s*)/);
+      const currentIndent = indentMatch ? indentMatch[1] : '';
+
+      const trimmedBefore = currentLine.trimEnd();
+      const endsWithOpen = /[{[]$/.test(trimmedBefore);
+      const nextChar = textAfter.trimStart()[0];
+      const startsWithClose = nextChar === '}' || nextChar === ']';
+
+      if (endsWithOpen) {
+        e.preventDefault();
+        if (startsWithClose) {
+          // Expand {|} to:
+          // {
+          //   |
+          // }
+          const newIndent = currentIndent + '  ';
+          const insertion = '\n' + newIndent + '\n' + currentIndent;
+          consoleInput.value = textBefore + insertion + textAfter;
+          nextTick(() => {
+            const newPos = cursor + 1 + newIndent.length;
+            textarea.setSelectionRange(newPos, newPos);
+            updateActiveQueryPosition();
+          });
+        } else {
+          const newIndent = currentIndent + '  ';
+          const insertion = '\n' + newIndent;
+          consoleInput.value = textBefore + insertion + textAfter;
+          nextTick(() => {
+            const newPos = cursor + insertion.length;
+            textarea.setSelectionRange(newPos, newPos);
+            updateActiveQueryPosition();
+          });
+        }
+        return;
+      } else if (currentIndent) {
+        // Carry forward existing indentation
+        e.preventDefault();
+        const insertion = '\n' + currentIndent;
+        consoleInput.value = textBefore + insertion + textAfter;
+        nextTick(() => {
+          const newPos = cursor + insertion.length;
+          textarea.setSelectionRange(newPos, newPos);
+          updateActiveQueryPosition();
+        });
+        return;
+      }
     }
   }
 };
@@ -1423,6 +1539,8 @@ const selectInlineSuggestion = (item: { snippet: string; label?: string }) => {
 
 // Execute OpenSearch Dev Tools Query
 const executeOpenSearchQuery = async () => {
+  beautifyConsoleJson(false);
+
   queryLoading.value = true;
   queryError.value = '';
 
@@ -1485,16 +1603,16 @@ const executeOpenSearchQuery = async () => {
   }
 };
 
-// Beautify / Auto-indent JSON in Console
-const beautifyConsoleJson = () => {
-  const { method, endpoint, bodyText } = parseConsoleQuery(consoleInput.value);
-  if (!bodyText) return;
+// Helper to format/beautify JSON or JSON-like block with 2 spaces
+const formatJsonText = (jsonStr: string, isBulk = false): string => {
+  const trimmed = jsonStr.trim();
+  if (!trimmed) return '';
 
-  if (endpoint.includes('_bulk')) {
-    const lines = bodyText.split('\n');
-    const formatted = lines
-      .map(line => {
-        const t = line.trim();
+  if (isBulk) {
+    const lines = trimmed.split('\n');
+    return lines
+      .map(l => {
+        const t = l.trim();
         if (!t) return '';
         try {
           return JSON.stringify(JSON.parse(t));
@@ -1504,17 +1622,104 @@ const beautifyConsoleJson = () => {
       })
       .filter(Boolean)
       .join('\n');
-    consoleInput.value = `${method} ${endpoint}\n${formatted}\n`;
-  } else {
-    try {
-      const parsed = JSON.parse(bodyText);
-      consoleInput.value = `${method} ${endpoint}\n${JSON.stringify(parsed, null, 2)}`;
-    } catch (e: any) {
-      queryError.value = `Unable to format JSON: ${e.message}`;
-      setTimeout(() => { queryError.value = ''; }, 3000);
-    }
   }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    // If strict JSON.parse fails, format line by line with indentation tracking
+    const lines = trimmed.split('\n');
+    let depth = 0;
+    const formatted: string[] = [];
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const startsWithClose = /^[}\]]/.test(line);
+      const currentDepth = Math.max(0, startsWithClose ? depth - 1 : depth);
+      formatted.push('  '.repeat(currentDepth) + line);
+
+      let openCount = 0;
+      let closeCount = 0;
+      let inString = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"' && (i === 0 || line[i - 1] !== '\\')) {
+          inString = !inString;
+        } else if (!inString) {
+          if (ch === '{' || ch === '[') openCount++;
+          if (ch === '}' || ch === ']') closeCount++;
+        }
+      }
+      depth = Math.max(0, depth + (openCount - closeCount));
+    }
+    return formatted.join('\n');
+  }
+};
+
+// Beautify / Auto-indent JSON in Console (Supports multiple queries and single queries)
+const beautifyConsoleJson = (onlyActive = false) => {
+  const textarea = editorTextareaRef.value;
+  const blocks = getConsoleRequestBlocks(consoleInput.value);
+  if (blocks.length === 0) return;
+
+  const target = getActiveQueryToExecute();
+  let cursorRestorePos: number | null = null;
+  if (textarea) {
+    cursorRestorePos = textarea.selectionStart;
+  }
+
+  if (onlyActive && target.bodyText) {
+    const formattedBody = formatJsonText(target.bodyText, target.endpoint.includes('_bulk'));
+    const newBlockText = `${target.method} ${target.endpoint}\n${formattedBody}`;
+    if (target.isSelected && textarea) {
+      const s = textarea.selectionStart;
+      const e = textarea.selectionEnd;
+      consoleInput.value = consoleInput.value.substring(0, s) + newBlockText + consoleInput.value.substring(e);
+    } else {
+      const formattedBlocks = blocks.map(b => {
+        if (b.startLine === target.startLine) {
+          if (!b.bodyText) return `${b.method} ${b.endpoint}`;
+          return `${b.method} ${b.endpoint}\n${formatJsonText(b.bodyText, b.endpoint.includes('_bulk'))}`;
+        }
+        return b.raw;
+      });
+      consoleInput.value = formattedBlocks.join('\n\n');
+    }
+  } else {
+    // Format ALL query blocks across the console!
+    const formattedBlocks = blocks.map(b => {
+      if (!b.bodyText) {
+        return `${b.method} ${b.endpoint}`;
+      }
+      const formattedBody = formatJsonText(b.bodyText, b.endpoint.includes('_bulk'));
+      return `${b.method} ${b.endpoint}\n${formattedBody}`;
+    });
+    consoleInput.value = formattedBlocks.join('\n\n');
+  }
+
   showWrenchMenu.value = false;
+
+  nextTick(() => {
+    if (textarea) {
+      textarea.focus();
+      if (cursorRestorePos !== null) {
+        const safePos = Math.min(cursorRestorePos, consoleInput.value.length);
+        textarea.setSelectionRange(safePos, safePos);
+      }
+      updateActiveQueryPosition();
+    }
+  });
+};
+
+// Auto-beautify on paste
+const onEditorPaste = () => {
+  setTimeout(() => {
+    const text = consoleInput.value;
+    if (text.includes('{') && text.includes('}')) {
+      beautifyConsoleJson(false);
+    }
+  }, 40);
 };
 
 // Copy as cURL command
@@ -3209,6 +3414,16 @@ onUnmounted(() => {
 
               <button
                 type="button"
+                @click="beautifyConsoleJson(false)"
+                class="hover:text-teal-600 dark:hover:text-teal-400 font-medium cursor-pointer transition flex items-center gap-1 text-slate-600 dark:text-slate-300"
+                title="Auto-indent / Beautify Console (Ctrl+I)"
+              >
+                <Sparkles class="w-3.5 h-3.5 text-slate-400" />
+                <span>Auto-indent</span>
+              </button>
+
+              <button
+                type="button"
                 @click="showHistoryModal = true"
                 class="hover:text-teal-600 dark:hover:text-teal-400 font-medium cursor-pointer transition flex items-center gap-1"
                 title="View recent queries history"
@@ -3314,6 +3529,7 @@ onUnmounted(() => {
                     @keyup="onEditorKeyup"
                     @keydown="onEditorKeydown"
                     @input="onEditorInput"
+                    @paste="onEditorPaste"
                     spellcheck="false"
                     class="w-full h-full flex-1 py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre tab-4"
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
@@ -3388,15 +3604,18 @@ onUnmounted(() => {
                       <!-- Wrench Dropdown Popover -->
                       <div
                         v-if="showWrenchMenu"
-                        class="absolute right-0 top-full mt-1.5 w-48 bg-white dark:bg-[#151b2b] border border-slate-200 dark:border-[#222c42] rounded-lg shadow-2xl py-1 text-xs z-30 animate-in fade-in zoom-in-95"
+                        class="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-[#151b2b] border border-slate-200 dark:border-[#222c42] rounded-lg shadow-2xl py-1 text-xs z-30 animate-in fade-in zoom-in-95"
                       >
                         <button
                           type="button"
-                          @click="beautifyConsoleJson"
-                          class="w-full text-left px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 flex items-center gap-2 cursor-pointer"
+                          @click="beautifyConsoleJson(false)"
+                          class="w-full text-left px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 flex items-center justify-between cursor-pointer"
                         >
-                          <Sparkles class="w-3.5 h-3.5 text-slate-400" />
-                          <span>Auto-indent (Beautify)</span>
+                          <div class="flex items-center gap-2">
+                            <Sparkles class="w-3.5 h-3.5 text-slate-400" />
+                            <span>Auto-indent (Beautify)</span>
+                          </div>
+                          <kbd class="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700">Ctrl+I</kbd>
                         </button>
                         <button
                           type="button"
