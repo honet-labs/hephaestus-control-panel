@@ -2538,10 +2538,10 @@ onUnmounted(() => {
       </button>
     </nav>
 
-    <!-- Main Content Container (Uses natural browser window scrolling) -->
+    <!-- Main Content Container (Uses natural browser window scrolling, full height for Query tab) -->
     <main
-      class="flex-1 p-3.5 sm:p-5 md:p-6 space-y-6 w-full"
-      :class="['query', 'shards', 'indices', 'logs'].includes(activeTab) ? 'max-w-none' : 'max-w-[1600px] mx-auto'"
+      class="flex-1 w-full"
+      :class="activeTab === 'query' ? 'p-3 sm:p-4 max-w-none flex flex-col min-h-0' : ['shards', 'indices', 'logs'].includes(activeTab) ? 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-none' : 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-[1600px] mx-auto'"
     >
       
       <!-- ================================================================= -->
@@ -3375,11 +3375,11 @@ onUnmounted(() => {
       <!-- ================================================================= -->
       <!-- TAB: DEV TOOLS / OPENSEARCH CONSOLE WORKBENCH -->
       <!-- ================================================================= -->
-      <div v-if="activeTab === 'query'" class="space-y-4">
+      <div v-if="activeTab === 'query'" class="flex-1 flex flex-col h-[calc(100vh-140px)] min-h-[580px]">
         <!-- Main Console Outer Card -->
-        <div class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-lg">
+        <div class="flex-1 flex flex-col h-full bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-lg">
           <!-- Top Navigation Tabs (Console & Query Profiler) -->
-          <div class="flex items-center gap-6 px-4 pt-3 border-b border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#111624]">
+          <div class="flex items-center gap-6 px-4 pt-3 border-b border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#111624] shrink-0">
             <button
               type="button"
               @click="activeDevToolsTab = 'console'"
@@ -3399,7 +3399,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Sub-header Toolbar: History, Settings, Help, Export, Import + Status Badges -->
-          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2 bg-[#f8fafc] dark:bg-[#131826] border-b border-slate-200 dark:border-[#1f283d] select-none text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2 bg-[#f8fafc] dark:bg-[#131826] border-b border-slate-200 dark:border-[#1f283d] select-none text-xs shrink-0">
             <!-- Left Toolbar Action Links -->
             <div class="flex items-center gap-4 text-slate-600 dark:text-slate-300">
               <button
@@ -3493,15 +3493,15 @@ onUnmounted(() => {
           </div>
 
           <!-- DEV TOOLS CONSOLE TAB -->
-          <div v-if="activeDevToolsTab === 'console'">
+          <div v-if="activeDevToolsTab === 'console'" class="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
             <!-- Split Dual Pane Console View -->
             <div
               ref="splitContainerRef"
-              class="flex flex-col lg:flex-row relative bg-white dark:bg-[#111624] min-h-[580px] lg:min-h-[620px]"
+              class="flex-1 flex flex-col lg:flex-row relative bg-white dark:bg-[#111624] h-full min-h-0 overflow-hidden"
             >
               <!-- LEFT PANE: Request Console Editor -->
               <div
-                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] min-h-[300px] lg:min-h-[620px]"
+                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[260px] lg:min-h-0"
                 :style="{ width: editorWidthPercent + '%' }"
               >
                 <!-- Editor Line Numbers Gutter -->
@@ -3659,7 +3659,7 @@ onUnmounted(() => {
               </div>
 
               <!-- RIGHT PANE: Response Inspector -->
-              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] min-h-[300px] lg:min-h-[620px]">
+              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[260px] lg:min-h-0">
                 <!-- Response Line Numbers Gutter with Fold Arrows ▾ -->
                 <div
                   ref="responseGutterRef"
@@ -3683,7 +3683,7 @@ onUnmounted(() => {
                 <div
                   ref="responseContainerRef"
                   @scroll="onResponseScroll"
-                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text"
+                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full"
                 >
                   <!-- Loading State -->
                   <div v-if="queryLoading" class="h-full flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
@@ -3728,7 +3728,7 @@ onUnmounted(() => {
           </div>
 
           <!-- QUERY PROFILER TAB -->
-          <div v-else-if="activeDevToolsTab === 'profiler'" class="p-6 space-y-6">
+          <div v-else-if="activeDevToolsTab === 'profiler'" class="flex-1 overflow-y-auto p-6 space-y-6">
             <div class="border-b border-slate-200 dark:border-[#1f283d] pb-4">
               <h3 class="text-sm font-bold text-slate-900 dark:text-white">OpenSearch Query Profiler</h3>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
