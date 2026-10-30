@@ -3515,13 +3515,13 @@ onUnmounted(() => {
             >
               <!-- LEFT PANE: Request Console Editor -->
               <div
-                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[260px] lg:min-h-0"
+                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[260px] lg:min-h-0 self-stretch"
                 :style="{ width: editorWidthPercent + '%' }"
               >
                 <!-- Editor Line Numbers Gutter -->
                 <div
                   ref="editorGutterRef"
-                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0"
+                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0 h-full self-stretch"
                 >
                   <div
                     v-for="lineNum in editorLines"
@@ -3533,7 +3533,7 @@ onUnmounted(() => {
                 </div>
 
                 <!-- Editor Textarea Area -->
-                <div class="relative flex-1 flex flex-col h-full overflow-hidden">
+                <div class="relative flex-1 h-full min-h-0 self-stretch overflow-hidden">
                   <textarea
                     ref="editorTextareaRef"
                     v-model="consoleInput"
@@ -3545,7 +3545,7 @@ onUnmounted(() => {
                     @input="onEditorInput"
                     @paste="onEditorPaste"
                     spellcheck="false"
-                    class="w-full h-full flex-1 py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre tab-4"
+                    class="absolute inset-0 w-full h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre tab-4"
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
                   ></textarea>
 
@@ -3673,11 +3673,11 @@ onUnmounted(() => {
               </div>
 
               <!-- RIGHT PANE: Response Inspector -->
-              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[260px] lg:min-h-0">
+              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[260px] lg:min-h-0 self-stretch">
                 <!-- Response Line Numbers Gutter with Fold Arrows ▾ -->
                 <div
                   ref="responseGutterRef"
-                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0"
+                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0 h-full self-stretch"
                 >
                   <div
                     v-for="item in responseLineItems"
@@ -3697,7 +3697,7 @@ onUnmounted(() => {
                 <div
                   ref="responseContainerRef"
                   @scroll="onResponseScroll"
-                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full"
+                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full self-stretch"
                 >
                   <!-- Loading State -->
                   <div v-if="queryLoading" class="h-full flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
