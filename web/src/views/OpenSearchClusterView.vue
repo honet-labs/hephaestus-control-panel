@@ -768,15 +768,19 @@ const formattedResponseStr = computed(() => {
 const responseLineItems = computed(() => {
   if (!formattedResponseStr.value) return [];
   const lines = formattedResponseStr.value.split('\n');
-  return lines.map((line, idx) => {
+  const count = Math.max(lines.length, editorLines.value.length, 40);
+  const items = [];
+  for (let idx = 0; idx < count; idx++) {
+    const line = lines[idx] || '';
     const trimmed = line.trim();
     // OpenSearch Console displays ▾ on lines opening an object or array
     const hasFold = trimmed.endsWith('{') || trimmed.endsWith('[') || trimmed === '{' || trimmed === '[';
-    return {
+    items.push({
       lineNum: idx + 1,
       hasFold,
-    };
-  });
+    });
+  }
+  return items;
 });
 
 function escapeHtml(str: string) {
@@ -3521,6 +3525,18 @@ onUnmounted(() => {
                 <span class="px-2.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700/80 text-slate-800 dark:text-slate-200 text-xs font-mono font-medium tracking-tight shadow-xs">
                   {{ queryResult.latencyMs }} ms
                 </span>
+
+                <!-- Clean Copy Response Button in Toolbar (no longer floating over output text) -->
+                <button
+                  type="button"
+                  @click="copyResponseJson"
+                  class="px-2.5 py-0.5 bg-white dark:bg-[#151b2b] hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded text-xs font-medium shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  title="Copy full response to clipboard"
+                >
+                  <Check v-if="copiedQueryResult" class="w-3.5 h-3.5 text-emerald-500" />
+                  <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                  <span>{{ copiedQueryResult ? 'Copied' : 'Copy' }}</span>
+                </button>
               </template>
             </div>
           </div>
@@ -3725,10 +3741,10 @@ onUnmounted(() => {
                     <span class="text-xs font-mono">Executing query against OpenSearch cluster...</span>
                   </div>
 
-                  <!-- Syntax Highlighted Response matching Kibana/OpenSearch Dev Tools -->
+                  <!-- Syntax Highlighted Response matching Kibana/OpenSearch Dev Tools (Unobstructed full width) -->
                   <pre
                     v-else-if="queryResult"
-                    class="whitespace-pre font-mono leading-[22px] focus:outline-none select-text"
+                    class="whitespace-pre font-mono leading-[22px] focus:outline-none select-text pr-12 min-w-max"
                     v-html="highlightedResponseHtml"
                   ></pre>
 
@@ -3744,19 +3760,6 @@ onUnmounted(() => {
                     </p>
                   </div>
                 </div>
-
-                <!-- Quick Copy Button on Response Corner -->
-                <button
-                  v-if="queryResult && !queryLoading"
-                  type="button"
-                  @click="copyResponseJson"
-                  class="absolute top-2.5 right-4 px-2.5 py-1 bg-white/90 hover:bg-white dark:bg-[#151b2b]/90 dark:hover:bg-[#151b2b] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md text-[11px] font-medium shadow-xs transition cursor-pointer flex items-center gap-1.5 z-20 backdrop-blur-xs"
-                  title="Copy full response to clipboard"
-                >
-                  <Check v-if="copiedQueryResult" class="w-3.5 h-3.5 text-emerald-500" />
-                  <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
-                  <span>{{ copiedQueryResult ? 'Copied' : 'Copy' }}</span>
-                </button>
               </div>
             </div>
           </div>
