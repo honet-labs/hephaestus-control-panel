@@ -183,21 +183,24 @@ const handleRevokeConnectionShare = async (shareId: string) => {
   }
 };
 
-// Hide/Show Sensitive Details (URL, IP Address, Username)
+// Hide/Show Sensitive Details in Active Registry Cards (URL, IP Address, Username)
 const HIDE_SENSITIVE_KEY = 'hcp_connections_hide_sensitive';
 const hideSensitive = ref<boolean>(localStorage.getItem(HIDE_SENSITIVE_KEY) === 'true');
 
-// Per-item visibility override map (id -> boolean)
+// Per-item visibility override map for registry cards (id -> boolean)
 const itemVisibility = ref<Record<string, boolean>>({});
 
-// Per-field visibility in left form (fieldKey -> boolean)
-const fieldVisibility = ref<Record<string, boolean>>({});
+// Show/Hide password toggle in form inputs (fieldKey -> boolean)
+const showPasswords = ref<Record<string, boolean>>({});
+
+const togglePasswordVisibility = (key: string) => {
+  showPasswords.value[key] = !showPasswords.value[key];
+};
 
 const toggleHideSensitive = () => {
   hideSensitive.value = !hideSensitive.value;
   localStorage.setItem(HIDE_SENSITIVE_KEY, String(hideSensitive.value));
   itemVisibility.value = {};
-  fieldVisibility.value = {};
 };
 
 const isItemMasked = (id: string): boolean => {
@@ -210,18 +213,6 @@ const isItemMasked = (id: string): boolean => {
 const toggleItemVisibility = (id: string) => {
   const current = isItemMasked(id);
   itemVisibility.value[id] = !current;
-};
-
-const isFieldVisible = (fieldKey: string): boolean => {
-  if (fieldVisibility.value[fieldKey] !== undefined) {
-    return fieldVisibility.value[fieldKey];
-  }
-  return !hideSensitive.value;
-};
-
-const toggleFieldVisibility = (fieldKey: string) => {
-  const current = isFieldVisible(fieldKey);
-  fieldVisibility.value[fieldKey] = !current;
 };
 
 const maskSensitiveUrl = (url?: string): string => {
@@ -1080,63 +1071,42 @@ onMounted(() => {
           <!-- ================= 1. GRAFANA FIELDS ================= -->
           <template v-if="form.type === 'Grafana Core API'">
             <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">API Endpoint URL</label>
-                <button
-                  type="button"
-                  @click="toggleFieldVisibility('grafanaUrl')"
-                  class="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-                  :title="isFieldVisible('grafanaUrl') ? 'Hide URL' : 'Show URL'"
-                >
-                  <EyeOff v-if="!isFieldVisible('grafanaUrl')" class="w-3 h-3 text-slate-400" />
-                  <Eye v-else class="w-3 h-3 text-slate-400" />
-                  <span>{{ isFieldVisible('grafanaUrl') ? 'Hide' : 'Show' }}</span>
-                </button>
-              </div>
-              <div class="relative">
-                <input
-                  v-model="form.url"
-                  :type="isFieldVisible('grafanaUrl') ? 'text' : 'password'"
-                  required
-                  placeholder="http://10.20.3.3:3030/"
-                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg pl-3 pr-8 py-2 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  @click="toggleFieldVisibility('grafanaUrl')"
-                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                >
-                  <EyeOff v-if="!isFieldVisible('grafanaUrl')" class="w-3.5 h-3.5" />
-                  <Eye v-else class="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">API Endpoint URL</label>
+              <input
+                v-model="form.url"
+                type="text"
+                required
+                placeholder="http://10.20.3.3:3030/"
+                class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-[#4274D9] text-xs font-mono"
+              />
             </div>
             <div>
               <div class="flex items-center justify-between mb-1">
                 <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Bearer Service Account Token</label>
                 <button
                   type="button"
-                  @click="toggleFieldVisibility('grafanaToken')"
+                  @click="togglePasswordVisibility('grafanaToken')"
                   class="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 >
-                  <EyeOff v-if="!isFieldVisible('grafanaToken')" class="w-3 h-3 text-slate-400" />
+                  <EyeOff v-if="showPasswords.grafanaToken" class="w-3 h-3 text-slate-400" />
                   <Eye v-else class="w-3 h-3 text-slate-400" />
-                  <span>{{ isFieldVisible('grafanaToken') ? 'Hide' : 'Show' }}</span>
+                  <span>{{ showPasswords.grafanaToken ? 'Hide' : 'Show' }}</span>
                 </button>
               </div>
               <div class="relative">
                 <input
                   v-model="form.token"
-                  :type="isFieldVisible('grafanaToken') ? 'password' : 'text'"
+                  :type="showPasswords.grafanaToken ? 'text' : 'password'"
                   placeholder="••••••••••••••••••••"
                   class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg pl-3 pr-8 py-2 text-slate-900 dark:text-white placeholder-slate-600 focus:outline-none focus:border-[#4274D9] text-xs font-mono"
                 />
                 <button
                   type="button"
-                  @click="toggleFieldVisibility('grafanaToken')"
-                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  @click="togglePasswordVisibility('grafanaToken')"
+                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                  :title="showPasswords.grafanaToken ? 'Hide token' : 'Show token'"
                 >
-                  <EyeOff v-if="isFieldVisible('grafanaToken')" class="w-3.5 h-3.5" />
+                  <EyeOff v-if="showPasswords.grafanaToken" class="w-3.5 h-3.5" />
                   <Eye v-else class="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1168,34 +1138,13 @@ onMounted(() => {
             <div v-if="form.accessMode === 'ssh'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
               <div class="grid grid-cols-3 gap-2">
                 <div class="col-span-2">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Host IP</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('promSshHost')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('promSshHost') ? 'Hide IP' : 'Show IP'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('promSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div class="relative">
-                    <input
-                      v-model="form.sshHost"
-                      :type="isFieldVisible('promSshHost') ? 'text' : 'password'"
-                      placeholder="10.20.3.4"
-                      class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('promSshHost')"
-                      class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      <EyeOff v-if="!isFieldVisible('promSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
+                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH Host IP</label>
+                  <input
+                    v-model="form.sshHost"
+                    type="text"
+                    placeholder="10.20.3.4"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
                 </div>
                 <div>
                   <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Port</label>
@@ -1204,38 +1153,35 @@ onMounted(() => {
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
+                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH User</label>
+                  <input
+                    v-model="form.sshUser"
+                    type="text"
+                    placeholder="root"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
+                </div>
+                <div>
                   <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">SSH User</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('promSshUser')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('promSshUser') ? 'Hide User' : 'Show User'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('promSshUser')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
+                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">Password</label>
                   </div>
                   <div class="relative">
                     <input
-                      v-model="form.sshUser"
-                      :type="isFieldVisible('promSshUser') ? 'text' : 'password'"
-                      placeholder="root"
+                      v-model="form.sshPassword"
+                      :type="showPasswords.promSshPassword ? 'text' : 'password'"
+                      placeholder="••••••"
                       class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
                     />
                     <button
                       type="button"
-                      @click="toggleFieldVisibility('promSshUser')"
+                      @click="togglePasswordVisibility('promSshPassword')"
                       class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      :title="showPasswords.promSshPassword ? 'Hide password' : 'Show password'"
                     >
-                      <EyeOff v-if="!isFieldVisible('promSshUser')" class="w-3 h-3" />
+                      <EyeOff v-if="showPasswords.promSshPassword" class="w-3 h-3" />
                       <Eye v-else class="w-3 h-3" />
                     </button>
                   </div>
-                </div>
-                <div>
-                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Password</label>
-                  <input v-model="form.sshPassword" type="password" placeholder="••••••" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
                 </div>
               </div>
             </div>
@@ -1277,34 +1223,13 @@ onMounted(() => {
             <div v-if="form.accessMode === 'ssh'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
               <div class="grid grid-cols-3 gap-2">
                 <div class="col-span-2">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Host IP</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dpSshHost')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('dpSshHost') ? 'Hide IP' : 'Show IP'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dpSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div class="relative">
-                    <input
-                      v-model="form.sshHost"
-                      :type="isFieldVisible('dpSshHost') ? 'text' : 'password'"
-                      placeholder="10.10.5.87"
-                      class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dpSshHost')"
-                      class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dpSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
+                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH Host IP</label>
+                  <input
+                    v-model="form.sshHost"
+                    type="text"
+                    placeholder="10.10.5.87"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
                 </div>
                 <div>
                   <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Port</label>
@@ -1313,38 +1238,36 @@ onMounted(() => {
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
+                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH User</label>
+                  <input
+                    v-model="form.sshUser"
+                    type="text"
+                    placeholder="root"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
+                </div>
+                <div>
                   <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">SSH User</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dpSshUser')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('dpSshUser') ? 'Hide User' : 'Show User'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dpSshUser')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
+                    <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase">Password</label>
                   </div>
                   <div class="relative">
                     <input
-                      v-model="form.sshUser"
-                      :type="isFieldVisible('dpSshUser') ? 'text' : 'password'"
-                      placeholder="root"
+                      v-model="form.sshPassword"
+                      :type="showPasswords.dpSshPassword ? 'text' : 'password'"
+                      autocomplete="new-password"
+                      placeholder="••••••"
                       class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
                     />
                     <button
                       type="button"
-                      @click="toggleFieldVisibility('dpSshUser')"
+                      @click="togglePasswordVisibility('dpSshPassword')"
                       class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      :title="showPasswords.dpSshPassword ? 'Hide password' : 'Show password'"
                     >
-                      <EyeOff v-if="!isFieldVisible('dpSshUser')" class="w-3 h-3" />
+                      <EyeOff v-if="showPasswords.dpSshPassword" class="w-3 h-3" />
                       <Eye v-else class="w-3 h-3" />
                     </button>
                   </div>
-                </div>
-                <div>
-                  <label class="block text-slate-600 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Password</label>
-                  <input v-model="form.sshPassword" type="password" autocomplete="new-password" placeholder="••••••" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
                 </div>
               </div>
             </div>
@@ -1364,36 +1287,14 @@ onMounted(() => {
           <template v-if="form.type === 'OpenSearch Cluster'">
             <div class="grid grid-cols-3 gap-2">
               <div class="col-span-2">
-                <div class="flex items-center justify-between mb-1">
-                  <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Cluster Host / IP</label>
-                  <button
-                    type="button"
-                    @click="toggleFieldVisibility('osHost')"
-                    class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer text-[10px] flex items-center gap-1"
-                    :title="isFieldVisible('osHost') ? 'Hide Host' : 'Show Host'"
-                  >
-                    <EyeOff v-if="!isFieldVisible('osHost')" class="w-3 h-3" />
-                    <Eye v-else class="w-3 h-3" />
-                    <span>{{ isFieldVisible('osHost') ? 'Hide' : 'Show' }}</span>
-                  </button>
-                </div>
-                <div class="relative">
-                  <input
-                    v-model="form.osHost"
-                    :type="isFieldVisible('osHost') ? 'text' : 'password'"
-                    required
-                    placeholder="103.171.31.56"
-                    class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg pl-3 pr-8 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
-                  />
-                  <button
-                    type="button"
-                    @click="toggleFieldVisibility('osHost')"
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  >
-                    <EyeOff v-if="!isFieldVisible('osHost')" class="w-3.5 h-3.5" />
-                    <Eye v-else class="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Cluster Host / IP</label>
+                <input
+                  v-model="form.osHost"
+                  type="text"
+                  required
+                  placeholder="103.171.31.56"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
+                />
               </div>
               <div>
                 <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Port</label>
@@ -1402,50 +1303,51 @@ onMounted(() => {
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Username</label>
-                  <button
-                    type="button"
-                    @click="toggleFieldVisibility('osUser')"
-                    class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer text-[10px] flex items-center gap-1"
-                    :title="isFieldVisible('osUser') ? 'Hide User' : 'Show User'"
-                  >
-                    <EyeOff v-if="!isFieldVisible('osUser')" class="w-3 h-3" />
-                    <Eye v-else class="w-3 h-3" />
-                    <span>{{ isFieldVisible('osUser') ? 'Hide' : 'Show' }}</span>
-                  </button>
-                </div>
-                <div class="relative">
-                  <input
-                    v-model="form.osUser"
-                    :type="isFieldVisible('osUser') ? 'text' : 'password'"
-                    placeholder="admin"
-                    class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg pl-3 pr-8 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
-                  />
-                  <button
-                    type="button"
-                    @click="toggleFieldVisibility('osUser')"
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  >
-                    <EyeOff v-if="!isFieldVisible('osUser')" class="w-3.5 h-3.5" />
-                    <Eye v-else class="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Username</label>
+                <input
+                  v-model="form.osUser"
+                  type="text"
+                  placeholder="admin"
+                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
+                />
               </div>
               <div>
                 <div class="flex items-center justify-between mb-1">
                   <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider">Password</label>
-                  <span v-if="editingId && editingRawType === 'opensearch'" class="text-[9px] text-emerald-600 dark:text-emerald-400 font-normal">
-                    (saved)
-                  </span>
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="editingId && editingRawType === 'opensearch'" class="text-[9px] text-emerald-600 dark:text-emerald-400 font-normal">
+                      (saved)
+                    </span>
+                    <button
+                      type="button"
+                      @click="togglePasswordVisibility('osPassword')"
+                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer text-[10px] flex items-center gap-1"
+                      :title="showPasswords.osPassword ? 'Hide Password' : 'Show Password'"
+                    >
+                      <EyeOff v-if="showPasswords.osPassword" class="w-3 h-3" />
+                      <Eye v-else class="w-3 h-3" />
+                      <span>{{ showPasswords.osPassword ? 'Hide' : 'Show' }}</span>
+                    </button>
+                  </div>
                 </div>
-                <input
-                  v-model="form.osPassword"
-                  type="password"
-                  autocomplete="new-password"
-                  :placeholder="editingId && editingRawType === 'opensearch' ? '•••••••• (leave blank to keep current)' : '••••••'"
-                  class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg px-3 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
-                />
+                <div class="relative">
+                  <input
+                    v-model="form.osPassword"
+                    :type="showPasswords.osPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    :placeholder="editingId && editingRawType === 'opensearch' ? '•••••••• (leave blank to keep current)' : '••••••'"
+                    class="w-full bg-slate-50 dark:bg-[#141824] border border-slate-300 dark:border-[#1b2234] rounded-lg pl-3 pr-8 py-2 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-[#4274D9]"
+                  />
+                  <button
+                    type="button"
+                    @click="togglePasswordVisibility('osPassword')"
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    :title="showPasswords.osPassword ? 'Hide Password' : 'Show Password'"
+                  >
+                    <EyeOff v-if="showPasswords.osPassword" class="w-3.5 h-3.5" />
+                    <Eye v-else class="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1472,7 +1374,7 @@ onMounted(() => {
             </div>
           </template>
 
-          <!-- ================= 4. DOCKER ENGINE FIELDS ================= -->
+          <!-- ================= 5. DOCKER ENGINE FIELDS ================= -->
           <template v-if="form.type === 'Docker Engine (Socket / SSH / TCP)'">
             <div>
               <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider mb-1">Docker Driver Mode</label>
@@ -1531,34 +1433,13 @@ onMounted(() => {
             <div v-if="form.dockerDriver === 'ssh'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
               <div class="grid grid-cols-3 gap-2">
                 <div class="col-span-2">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Host IP / Domain</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dockerSshHost')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('dockerSshHost') ? 'Hide Host' : 'Show Host'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dockerSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div class="relative">
-                    <input
-                      v-model="form.dockerSshHost"
-                      :type="isFieldVisible('dockerSshHost') ? 'text' : 'password'"
-                      placeholder="10.20.3.10"
-                      class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dockerSshHost')"
-                      class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dockerSshHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH Host IP / Domain</label>
+                  <input
+                    v-model="form.dockerSshHost"
+                    type="text"
+                    placeholder="10.20.3.10"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
                 </div>
                 <div>
                   <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Port</label>
@@ -1567,38 +1448,33 @@ onMounted(() => {
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">SSH Username</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dockerSshUser')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('dockerSshUser') ? 'Hide User' : 'Show User'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dockerSshUser')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">SSH Username</label>
+                  <input
+                    v-model="form.dockerSshUser"
+                    type="text"
+                    placeholder="root"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Password / Key</label>
                   <div class="relative">
                     <input
-                      v-model="form.dockerSshUser"
-                      :type="isFieldVisible('dockerSshUser') ? 'text' : 'password'"
-                      placeholder="root"
+                      v-model="form.dockerSshPassword"
+                      :type="showPasswords.dockerSshPassword ? 'text' : 'password'"
+                      placeholder="••••••"
                       class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
                     />
                     <button
                       type="button"
-                      @click="toggleFieldVisibility('dockerSshUser')"
+                      @click="togglePasswordVisibility('dockerSshPassword')"
                       class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      :title="showPasswords.dockerSshPassword ? 'Hide password' : 'Show password'"
                     >
-                      <EyeOff v-if="!isFieldVisible('dockerSshUser')" class="w-3 h-3" />
+                      <EyeOff v-if="showPasswords.dockerSshPassword" class="w-3 h-3" />
                       <Eye v-else class="w-3 h-3" />
                     </button>
                   </div>
-                </div>
-                <div>
-                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Password / Key</label>
-                  <input v-model="form.dockerSshPassword" type="password" placeholder="••••••" class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs" />
                 </div>
               </div>
             </div>
@@ -1607,34 +1483,13 @@ onMounted(() => {
             <div v-if="form.dockerDriver === 'tcp'" class="space-y-2 p-3 bg-slate-50 dark:bg-[#141824] border border-slate-200 dark:border-[#1b2234] rounded-lg">
               <div class="grid grid-cols-3 gap-2">
                 <div class="col-span-2">
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase">TCP Host / IP</label>
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dockerTcpHost')"
-                      class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      :title="isFieldVisible('dockerTcpHost') ? 'Hide Host' : 'Show Host'"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dockerTcpHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div class="relative">
-                    <input
-                      v-model="form.dockerTcpHost"
-                      :type="isFieldVisible('dockerTcpHost') ? 'text' : 'password'"
-                      placeholder="10.20.3.15"
-                      class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded pl-2 pr-7 py-1 text-slate-900 dark:text-white font-mono text-xs"
-                    />
-                    <button
-                      type="button"
-                      @click="toggleFieldVisibility('dockerTcpHost')"
-                      class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      <EyeOff v-if="!isFieldVisible('dockerTcpHost')" class="w-3 h-3" />
-                      <Eye v-else class="w-3 h-3" />
-                    </button>
-                  </div>
+                  <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">TCP Host / IP</label>
+                  <input
+                    v-model="form.dockerTcpHost"
+                    type="text"
+                    placeholder="10.20.3.15"
+                    class="w-full bg-white dark:bg-[#0e121c] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-white font-mono text-xs"
+                  />
                 </div>
                 <div>
                   <label class="block text-slate-700 dark:text-slate-400 text-[10px] font-bold uppercase mb-0.5">Port</label>
