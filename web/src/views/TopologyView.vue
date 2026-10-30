@@ -146,6 +146,53 @@ const newSheetVisibility = ref<'public' | 'private'>('private');
 
 // UI Controls & Sidebars
 const isSidebarCollapsed = ref(false);
+const DEFAULT_SIDEBAR_WIDTH = 340;
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 640;
+
+const savedSidebarWidth = typeof window !== 'undefined' ? localStorage.getItem('hcp_topology_sidebar_width') : null;
+const sidebarWidth = ref<number>(
+  savedSidebarWidth ? Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, parseInt(savedSidebarWidth, 10) || DEFAULT_SIDEBAR_WIDTH)) : DEFAULT_SIDEBAR_WIDTH
+);
+const isResizingSidebar = ref(false);
+
+const resetSidebarWidth = () => {
+  sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH;
+  try {
+    localStorage.setItem('hcp_topology_sidebar_width', String(DEFAULT_SIDEBAR_WIDTH));
+  } catch (_) {}
+};
+
+const startSidebarResize = (e: MouseEvent) => {
+  e.preventDefault();
+  isResizingSidebar.value = true;
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'col-resize';
+
+  const startX = e.clientX;
+  const initialWidth = sidebarWidth.value;
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    const delta = moveEvent.clientX - startX;
+    const newWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, initialWidth + delta));
+    sidebarWidth.value = Math.round(newWidth);
+  };
+
+  const onMouseUp = () => {
+    isResizingSidebar.value = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+    try {
+      localStorage.setItem('hcp_topology_sidebar_width', String(sidebarWidth.value));
+    } catch (_) {}
+  };
+
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+};
+
 const selectedNode = ref<Device | null>(null);
 const selectedEdge = ref<any | null>(null);
 const selectedDiscoveredIds = ref<string[]>([]);
@@ -1542,13 +1589,26 @@ onUnmounted(() => {
     <!-- ================================================================= -->
     <div class="flex-1 flex overflow-hidden relative">
 
-      <!-- 1. LEFT SIDEBAR: DISCOVERED DEVICES -->
+      <!-- 1. LEFT SIDEBAR: DISCOVERED DEVICES (Resizable) -->
       <aside
+        :style="isSidebarCollapsed ? { width: '0px' } : { width: `${sidebarWidth}px` }"
         :class="[
-          'bg-white dark:bg-[#171a21] border-r border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 z-20 shrink-0 select-none',
-          isSidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
+          'bg-white dark:bg-[#171a21] border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shrink-0 select-none relative',
+          isSidebarCollapsed ? 'w-0 overflow-hidden border-none' : '',
+          isResizingSidebar ? 'transition-none' : 'transition-[width] duration-200'
         ]"
       >
+        <!-- Resizer Splitter Handle (Right edge of sidebar) -->
+        <div
+          v-if="!isSidebarCollapsed"
+          @mousedown="startSidebarResize"
+          @dblclick="resetSidebarWidth"
+          class="absolute top-0 -right-1 w-2.5 h-full hover:w-3 cursor-col-resize z-30 transition-all select-none group flex items-center justify-center hover:bg-blue-500/20"
+          title="Drag to resize Discovered Devices panel (Double click to reset)"
+        >
+          <div class="h-10 w-1 bg-slate-300 dark:bg-slate-700 group-hover:bg-blue-500 rounded-full transition"></div>
+        </div>
+
         <!-- Sidebar Header -->
         <div class="p-3 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
           <div class="flex items-center gap-2">
@@ -1557,6 +1617,15 @@ onUnmounted(() => {
               {{ allDevices.length }}
             </span>
           </div>
+          <!-- Reset width indicator button if resized -->
+          <button
+            v-if="sidebarWidth !== DEFAULT_SIDEBAR_WIDTH"
+            @click="resetSidebarWidth"
+            class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-mono underline cursor-pointer"
+            title="Reset panel width to default (340px)"
+          >
+            Reset
+          </button>
         </div>
 
         <!-- Multi-select Action Buttons -->
@@ -1583,17 +1652,17 @@ onUnmounted(() => {
         </div>
 
         <!-- Filter Inputs -->
-        <div class="p-2.5 space-y-2 border-b border-slate-800/80">
+        <div class="p-2.5 space-y-2 border-b border-slate-200 dark:border-slate-800/80">
           <input
             v-model="searchDiscoveredQuery"
             placeholder="Filter devices..."
-            class="w-full bg-[#111317] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition"
+            class="w-full bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
           />
 
           <div class="grid grid-cols-2 gap-2">
             <select
               v-model="typeFilter"
-              class="bg-[#111317] border border-slate-800 text-slate-300 text-[11px] rounded-lg px-2 py-1 focus:outline-none"
+              class="bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-[11px] rounded-lg px-2 py-1 focus:outline-none"
             >
               <option value="ALL">All Types</option>
               <option v-for="t in availableTypes" :key="t" :value="t">{{ t }}</option>
@@ -1601,7 +1670,7 @@ onUnmounted(() => {
 
             <select
               v-model="tagFilter"
-              class="bg-[#111317] border border-slate-800 text-slate-300 text-[11px] rounded-lg px-2 py-1 focus:outline-none"
+              class="bg-slate-50 dark:bg-[#111317] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-[11px] rounded-lg px-2 py-1 focus:outline-none"
             >
               <option value="ALL">All Tags</option>
             </select>
@@ -1609,19 +1678,19 @@ onUnmounted(() => {
         </div>
 
         <!-- Device List -->
-        <div class="flex-1 overflow-y-auto p-2 space-y-1.5 divide-y divide-slate-800/40 font-sans">
+        <div class="flex-1 overflow-y-auto p-2 space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/40 font-sans">
           <div
             v-for="dev in filteredDiscoveredDevices"
             :key="dev.id"
             class="pt-1.5 flex items-center justify-between group hover:bg-slate-100 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition"
           >
-            <div class="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+            <div class="flex items-center gap-2 overflow-hidden flex-1 mr-2 min-w-0">
               <input
                 v-if="canManageActiveSheet"
                 type="checkbox"
                 :value="dev.id"
                 v-model="selectedDiscoveredIds"
-                class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                class="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0 w-3.5 h-3.5 shrink-0"
               />
               <div class="w-6 h-6 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700/60">
                 <component
@@ -1632,11 +1701,11 @@ onUnmounted(() => {
                   ]"
                 />
               </div>
-              <div class="overflow-hidden">
-                <p class="text-xs font-medium text-slate-900 dark:text-slate-200 truncate">{{ dev.name }}</p>
-                <div class="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
-                  <span>{{ dev.ipAddress }}</span>
-                  <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase text-[8px] font-bold">
+              <div class="overflow-hidden min-w-0 flex-1">
+                <p class="text-xs font-medium text-slate-900 dark:text-slate-200 truncate" :title="dev.name">{{ dev.name }}</p>
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono flex-wrap">
+                  <span class="truncate" :title="dev.ipAddress">{{ dev.ipAddress }}</span>
+                  <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase text-[8px] font-bold shrink-0">
                     {{ dev.deviceType || 'UNKNOWN' }}
                   </span>
                 </div>
@@ -1649,7 +1718,7 @@ onUnmounted(() => {
                 <button
                   v-if="isDeviceOnCanvas(dev.id)"
                   @click="handleRemoveDeviceFromCanvas(dev.id)"
-                  class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-rose-500/20 text-slate-600 dark:text-slate-400 hover:text-rose-400 text-[10px] font-mono transition"
+                  class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-rose-500/20 text-slate-600 dark:text-slate-400 hover:text-rose-400 text-[10px] font-mono transition cursor-pointer"
                   title="Click to remove from canvas sheet (keeps in sidebar inventory)"
                 >
                   <span>Added</span>
@@ -1658,7 +1727,7 @@ onUnmounted(() => {
                 <button
                   v-else
                   @click="handleAddDeviceToCanvas(dev)"
-                  class="flex items-center gap-1 px-2 py-0.5 rounded border border-cyan-500/60 text-cyan-400 hover:bg-cyan-500/10 text-[10px] font-bold transition"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded border border-cyan-500/60 text-cyan-500 dark:text-cyan-400 hover:bg-cyan-500/10 text-[10px] font-bold transition cursor-pointer"
                   title="Add to canvas sheet"
                 >
                   <Plus class="w-2.5 h-2.5" />
@@ -1666,7 +1735,7 @@ onUnmounted(() => {
                 </button>
                 <button
                   @click="handleOpenEditDevice(dev)"
-                  class="p-1 hover:text-slate-900 dark:hover:text-white text-slate-500 transition"
+                  class="p-1 hover:text-slate-900 dark:hover:text-white text-slate-500 transition cursor-pointer"
                   title="Edit device info"
                 >
                   <Edit2 class="w-3 h-3" />
@@ -1695,8 +1764,9 @@ onUnmounted(() => {
       <!-- Sidebar Toggle Collapse Button -->
       <button
         @click="isSidebarCollapsed = !isSidebarCollapsed"
-        class="absolute left-0 top-1/2 -translate-y-1/2 z-30 p-1 rounded-r bg-slate-800 text-slate-400 hover:text-white border-y border-r border-slate-700 shadow-md transition"
-        :style="{ left: isSidebarCollapsed ? '0px' : '288px' }"
+        class="absolute top-1/2 -translate-y-1/2 z-30 p-1 rounded-r bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white border-y border-r border-slate-200 dark:border-slate-700 shadow-md transition-all cursor-pointer"
+        :style="{ left: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }"
+        :title="isSidebarCollapsed ? 'Expand Discovered Devices panel' : 'Collapse Discovered Devices panel'"
       >
         <ChevronRight v-if="isSidebarCollapsed" class="w-3.5 h-3.5" />
         <ChevronLeft v-else class="w-3.5 h-3.5" />
