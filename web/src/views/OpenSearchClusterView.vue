@@ -745,11 +745,16 @@ const QUERY_PRESETS: QueryPreset[] = [
   },
 ];
 
-// Computed editor line numbers (always show at least 40 lines so gutter is fully populated like an IDE)
+// Computed total rows across Dev Tools console so both editor and response display the exact same number of rows
+const totalDevToolsRows = computed(() => {
+  const editorLineCount = (consoleInput.value || '').split('\n').length;
+  const responseLineCount = formattedResponseStr.value ? formattedResponseStr.value.split('\n').length : 0;
+  return Math.max(editorLineCount, responseLineCount, 40);
+});
+
+// Computed editor line numbers (always synchronized with totalDevToolsRows)
 const editorLines = computed(() => {
-  const lines = consoleInput.value.split('\n');
-  const count = Math.max(lines.length, 40);
-  return Array.from({ length: count }, (_, idx) => idx + 1);
+  return Array.from({ length: totalDevToolsRows.value }, (_, idx) => idx + 1);
 });
 
 // Computed response string and folding lines
@@ -765,10 +770,10 @@ const formattedResponseStr = computed(() => {
   }
 });
 
+// Computed response line numbers & folding lines (always synchronized with totalDevToolsRows)
 const responseLineItems = computed(() => {
-  if (!formattedResponseStr.value) return [];
-  const lines = formattedResponseStr.value.split('\n');
-  const count = Math.max(lines.length, editorLines.value.length, 40);
+  const lines = (formattedResponseStr.value || '').split('\n');
+  const count = totalDevToolsRows.value;
   const items = [];
   for (let idx = 0; idx < count; idx++) {
     const line = lines[idx] || '';
@@ -3581,7 +3586,10 @@ onUnmounted(() => {
                     @paste="onEditorPaste"
                     spellcheck="false"
                     class="w-full flex-1 min-h-[450px] h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre"
-                    style="tab-size: 2;"
+                    :style="{
+                      tabSize: 2,
+                      paddingBottom: `${Math.max(12, (totalDevToolsRows - ((consoleInput || '').split('\n').length)) * 22 + 12)}px`
+                    }"
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
                   ></textarea>
 
@@ -3745,6 +3753,9 @@ onUnmounted(() => {
                   <pre
                     v-else-if="queryResult"
                     class="whitespace-pre font-mono leading-[22px] focus:outline-none select-text pr-12 min-w-max"
+                    :style="{
+                      paddingBottom: `${Math.max(12, (totalDevToolsRows - ((formattedResponseStr || '').split('\n').length)) * 22 + 12)}px`
+                    }"
                     v-html="highlightedResponseHtml"
                   ></pre>
 

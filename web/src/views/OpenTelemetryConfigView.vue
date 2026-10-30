@@ -1202,32 +1202,6 @@ onMounted(async () => {
 
               <!-- Right side: Host Quick Action Buttons -->
               <div class="flex items-center gap-1.5 flex-wrap">
-
-                <!-- Validate Config Button -->
-                <button
-                  @click="validateConfig"
-                  :disabled="validating"
-                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
-                  title="Validate configuration syntax and schema with otelcol validate"
-                >
-                  <Loader2 v-if="validating" class="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-slate-400" />
-                  <CheckCheck v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                  <span>{{ validating ? 'Validating...' : 'Validate Config' }}</span>
-                </button>
-
-                <!-- Restart Service Button -->
-                <button
-                  v-if="canManage"
-                  @click="restartCurrentService('restart')"
-                  :disabled="restartingService"
-                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#161d2c] dark:hover:bg-[#1f2a3f] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#243046] transition cursor-pointer disabled:opacity-50"
-                  title="Restart systemd service immediately"
-                >
-                  <Loader2 v-if="restartingService" class="w-3.5 h-3.5 animate-spin text-slate-500 dark:text-slate-400" />
-                  <Play v-else class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                  <span>{{ restartingService ? 'Restarting...' : 'Restart Agent' }}</span>
-                </button>
-
                 <!-- Presets dropdown button -->
                 <button
                   v-if="canManage"
@@ -1291,37 +1265,15 @@ onMounted(async () => {
                     </span>
                   </div>
                   <p class="text-xs text-emerald-800 dark:text-emerald-300/90 mt-0.5">
-                    {{ validationResult.message || 'Configuration is valid and passed collector schema check.' }} You can safely restart the OpenTelemetry service now.
+                    {{ validationResult.message || 'Configuration is valid and passed collector schema check.' }}
                   </p>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0 flex-wrap">
-                <button
-                  v-if="canManage && hasUnsavedChanges"
-                  @click="saveConfig"
-                  :disabled="saving"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
-                  title="Deploy changes and restart agent service"
-                >
-                  <Loader2 v-if="saving" class="w-3.5 h-3.5 animate-spin" />
-                  <Save v-else class="w-3.5 h-3.5" />
-                  <span>{{ saving ? 'Deploying...' : 'Deploy & Restart' }}</span>
-                </button>
-                <button
-                  v-if="canManage"
-                  @click="restartCurrentService('restart')"
-                  :disabled="restartingService"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
-                  title="Restart collector systemd service immediately"
-                >
-                  <Loader2 v-if="restartingService" class="w-3.5 h-3.5 animate-spin" />
-                  <Play v-else class="w-3.5 h-3.5" />
-                  <span>{{ restartingService ? 'Restarting...' : 'Restart Service Now' }}</span>
-                </button>
+              <div class="flex items-center gap-2 shrink-0">
                 <button
                   @click="validationResult = null"
                   class="p-1.5 text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-100 rounded-lg cursor-pointer"
-                  title="Dismiss"
+                  title="Dismiss notification"
                 >
                   <X class="w-4 h-4" />
                 </button>
