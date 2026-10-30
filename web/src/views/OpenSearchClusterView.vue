@@ -745,10 +745,11 @@ const QUERY_PRESETS: QueryPreset[] = [
   },
 ];
 
-// Computed editor line numbers
+// Computed editor line numbers (always show at least 40 lines so gutter is fully populated like an IDE)
 const editorLines = computed(() => {
   const lines = consoleInput.value.split('\n');
-  return lines.map((_, idx) => idx + 1);
+  const count = Math.max(lines.length, 40);
+  return Array.from({ length: count }, (_, idx) => idx + 1);
 });
 
 // Computed response string and folding lines
@@ -1475,11 +1476,32 @@ const onEditorInput = () => {
   showInlineAutocomplete.value = false;
 };
 
-const onEditorClick = () => {
-  updateActiveQueryPosition();
+const onEditorClick = (e: MouseEvent) => {
   const textarea = editorTextareaRef.value;
   if (!textarea) return;
 
+  // If user clicks in empty area below existing lines, automatically pad newlines so cursor lands on clicked line
+  const rect = textarea.getBoundingClientRect();
+  const clickY = e.clientY - rect.top + textarea.scrollTop - 12; // 12px = py-3
+  if (clickY > 0) {
+    const clickedLine = Math.floor(clickY / 22);
+    const currentLines = consoleInput.value.split('\n');
+    if (clickedLine >= currentLines.length) {
+      const needed = clickedLine - currentLines.length + 1;
+      consoleInput.value += '\n'.repeat(needed);
+      nextTick(() => {
+        if (textarea) {
+          const len = consoleInput.value.length;
+          textarea.setSelectionRange(len, len);
+          textarea.focus();
+          updateActiveQueryPosition();
+        }
+      });
+      return;
+    }
+  }
+
+  updateActiveQueryPosition();
   const text = textarea.value;
   const cursor = textarea.selectionStart;
   const textBefore = text.substring(0, cursor);
@@ -1540,21 +1562,19 @@ const selectInlineSuggestion = (item: { snippet: string; label?: string }) => {
 
 // Execute OpenSearch Dev Tools Query
 const executeOpenSearchQuery = async () => {
-  beautifyConsoleJson(false);
-
   queryLoading.value = true;
   queryError.value = '';
 
-  const { method, endpoint, body, bodyText, isSelected, rawText } = getActiveQueryToExecute();
-  queryMethod.value = method as any;
-  queryEndpoint.value = endpoint;
-  queryBody.value = bodyText;
-
-  const startTime = Date.now();
   try {
+    const { method, endpoint, body, bodyText, isSelected, rawText } = getActiveQueryToExecute();
+    queryMethod.value = (method || 'GET') as any;
+    queryEndpoint.value = endpoint || '/_search';
+    queryBody.value = bodyText || '';
+
+    const startTime = Date.now();
     const res = await axios.post('/api/v1/opensearch/query', {
-      method,
-      endpoint,
+      method: method || 'GET',
+      endpoint: endpoint || '/_search',
       body,
     });
 
@@ -1570,9 +1590,9 @@ const executeOpenSearchQuery = async () => {
 
       // Add executed query block or selection to query history (max 20)
       queryHistory.value.unshift({
-        method,
-        endpoint,
-        body: rawText || `${method} ${endpoint}`,
+        method: method || 'GET',
+        endpoint: endpoint || '/_search',
+        body: rawText || `${method || 'GET'} ${endpoint || '/_search'}`,
         timestamp: new Date().toLocaleTimeString(),
         status: res.data.data.statusCode || 200,
       });
@@ -1590,13 +1610,12 @@ const executeOpenSearchQuery = async () => {
       };
     }
   } catch (err: any) {
-    const elapsed = Date.now() - startTime;
     const errMsg = err.response?.data?.error || err.message || 'Error connecting to OpenSearch API';
     queryError.value = errMsg;
     queryResult.value = {
       statusCode: err.response?.status || 502,
       statusText: err.response?.statusText || 'ERR',
-      latencyMs: elapsed,
+      latencyMs: 0,
       data: { error: errMsg, details: err.response?.data },
     };
   } finally {
@@ -3515,13 +3534,13 @@ onUnmounted(() => {
             >
               <!-- LEFT PANE: Request Console Editor -->
               <div
-                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[260px] lg:min-h-0 self-stretch"
+                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[450px] self-stretch"
                 :style="{ width: editorWidthPercent + '%' }"
               >
                 <!-- Editor Line Numbers Gutter -->
                 <div
                   ref="editorGutterRef"
-                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0 h-full self-stretch"
+                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0 h-full min-h-[450px] self-stretch"
                 >
                   <div
                     v-for="lineNum in editorLines"
@@ -3532,8 +3551,8 @@ onUnmounted(() => {
                   </div>
                 </div>
 
-                <!-- Editor Textarea Area -->
-                <div class="relative flex-1 h-full min-h-0 self-stretch overflow-hidden">
+                <!-- Editor Textarea Area (In-flow flex layout with minimum 450px height) -->
+                <div class="relative flex-1 flex flex-col h-full min-h-[450px] self-stretch overflow-hidden">
                   <textarea
                     ref="editorTextareaRef"
                     v-model="consoleInput"
@@ -3545,7 +3564,8 @@ onUnmounted(() => {
                     @input="onEditorInput"
                     @paste="onEditorPaste"
                     spellcheck="false"
-                    class="absolute inset-0 w-full h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre tab-4"
+                    class="w-full flex-1 min-h-[450px] h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre"
+                    style="tab-size: 2;"
                     placeholder="METHOD endpoint&#10;{&#10;  &quot;query&quot;: { &quot;match_all&quot;: {} }&#10;}"
                   ></textarea>
 
@@ -3673,11 +3693,11 @@ onUnmounted(() => {
               </div>
 
               <!-- RIGHT PANE: Response Inspector -->
-              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[260px] lg:min-h-0 self-stretch">
+              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[450px] self-stretch">
                 <!-- Response Line Numbers Gutter with Fold Arrows ▾ -->
                 <div
                   ref="responseGutterRef"
-                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0 h-full self-stretch"
+                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0 h-full min-h-[450px] self-stretch"
                 >
                   <div
                     v-for="item in responseLineItems"
@@ -3697,7 +3717,7 @@ onUnmounted(() => {
                 <div
                   ref="responseContainerRef"
                   @scroll="onResponseScroll"
-                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full self-stretch"
+                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full min-h-[450px] self-stretch"
                 >
                   <!-- Loading State -->
                   <div v-if="queryLoading" class="h-full flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
