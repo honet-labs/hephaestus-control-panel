@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
@@ -21,7 +21,9 @@ import {
   Eye,
   EyeOff,
   Users,
-  Share2
+  Share2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -61,6 +63,36 @@ const registry = ref<RegistryItem[]>([]);
 const loading = ref(false);
 const testStatus = ref<{ message: string; success: boolean } | null>(null);
 const testing = ref(false);
+
+// Pagination for Active Registry (5 items per page)
+const REGISTRY_PAGE_SIZE = 5;
+const registryPage = ref(1);
+
+const registryTotalPages = computed(() => Math.max(1, Math.ceil(registry.value.length / REGISTRY_PAGE_SIZE)));
+
+const paginatedRegistry = computed(() => {
+  const start = (registryPage.value - 1) * REGISTRY_PAGE_SIZE;
+  return registry.value.slice(start, start + REGISTRY_PAGE_SIZE);
+});
+
+const getVisiblePages = (current: number, total: number): number[] => {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, -1, total];
+  }
+  if (current >= total - 3) {
+    return [1, -1, total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, -1, current - 1, current, current + 1, -1, total];
+};
+
+watch(registryTotalPages, (newTotal) => {
+  if (registryPage.value > newTotal) {
+    registryPage.value = Math.max(1, newTotal);
+  }
+});
 
 // Edit Mode State
 const editingId = ref<string | null>(null);
@@ -642,6 +674,11 @@ const handleEditConnection = (item: RegistryItem) => {
   editingId.value = item.id;
   editingRawType.value = item.rawType;
   testStatus.value = null;
+
+  const itemIndex = registry.value.findIndex(r => r.id === item.id);
+  if (itemIndex !== -1) {
+    registryPage.value = Math.floor(itemIndex / REGISTRY_PAGE_SIZE) + 1;
+  }
 
   if (item.rawType === 'grafana') {
     form.value.type = 'Grafana Core API';
@@ -1602,7 +1639,7 @@ onMounted(() => {
         <!-- Registry Cards List -->
         <div class="space-y-3">
           <div
-            v-for="item in registry"
+            v-for="item in paginatedRegistry"
             :key="item.id"
             :class="[
               'p-4 bg-white dark:bg-[#0e121c] border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm transition group',
@@ -1747,6 +1784,59 @@ onMounted(() => {
             <p class="text-[11px] text-slate-500 max-w-sm mx-auto">
               Fill out the form on the left to register your first Grafana, Prometheus, Data Prepper, or OpenSearch instance.
             </p>
+          </div>
+        </div>
+
+        <!-- Pagination Controls (Visible when connections exceed 5 items) -->
+        <div
+          v-if="registry.length > REGISTRY_PAGE_SIZE"
+          class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400 select-none"
+        >
+          <div class="text-[11px] font-medium">
+            Showing <strong class="text-slate-800 dark:text-slate-200">{{ (registryPage - 1) * REGISTRY_PAGE_SIZE + 1 }}</strong> to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(registryPage * REGISTRY_PAGE_SIZE, registry.length) }}</strong> of
+            <strong class="text-slate-800 dark:text-slate-200">{{ registry.length }}</strong> connections
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="registryPage--"
+              :disabled="registryPage <= 1"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+              <span>Prev</span>
+            </button>
+
+            <div class="flex items-center gap-1">
+              <template v-for="(p, idx) in getVisiblePages(registryPage, registryTotalPages)" :key="idx">
+                <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+                <button
+                  v-else
+                  type="button"
+                  @click="registryPage = p"
+                  :class="[
+                    registryPage === p
+                      ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                      : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                    'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                  ]"
+                >
+                  {{ p }}
+                </button>
+              </template>
+            </div>
+
+            <button
+              type="button"
+              @click="registryPage++"
+              :disabled="registryPage >= registryTotalPages"
+              class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
+            >
+              <span>Next</span>
+              <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
+            </button>
           </div>
         </div>
       </div>
