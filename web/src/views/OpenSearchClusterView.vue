@@ -22,6 +22,7 @@ import {
   Terminal,
   ExternalLink,
   AlertCircle,
+  Info,
   X,
   Zap,
   Share2,
@@ -2065,6 +2066,11 @@ const parseNodesData = (stats: any, info: any) => {
     const priCount = nodeShards.filter(s => s.prirep === 'p' || s.type === 'Primary').length;
     const repCount = nodeShards.filter(s => s.prirep === 'r' || s.type === 'Replica').length;
 
+    let ramPct = os.mem?.used_percent ?? 0;
+    if (os.mem?.actual_used_in_bytes && os.mem?.total_in_bytes) {
+      ramPct = Math.round((os.mem.actual_used_in_bytes / os.mem.total_in_bytes) * 100);
+    }
+
     nodesArr.push({
       name: n.name || nodeId,
       ip: n.ip || inf.ip || '-',
@@ -2072,7 +2078,7 @@ const parseNodesData = (stats: any, info: any) => {
       load: `${load1} / ${load5} / ${load15}`,
       heapPercent: `${heapPct}%`,
       uptime: formatUptime(jvm.uptime_in_millis || 0),
-      ram: `${os.mem?.used_percent ?? 0}%`,
+      ram: `${ramPct}%`,
       jvmHeap: `${formatBytes(jvmHeapUsed)} / ${formatBytes(jvmHeapMax)}`,
       diskPercent: `${diskPct}%`,
       diskUsage: `${formatBytes(diskUsed)} / ${formatBytes(diskTotal)}`,
@@ -2845,7 +2851,15 @@ onUnmounted(() => {
             </div>
 
             <div>
-              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">RAM</p>
+              <div class="flex items-center gap-1 mb-1">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">OS RAM</p>
+                <div
+                  class="cursor-help text-slate-400 hover:text-slate-200"
+                  title="Host OS memory reported by OpenSearch (_nodes/stats/os). In Linux, this includes page cache and buffer caches allocated to Lucene segment files. Refer to JVM Heap for actual OpenSearch application memory pressure."
+                >
+                  <Info class="w-3 h-3 text-slate-400" />
+                </div>
+              </div>
               <p class="text-sm font-bold text-white font-mono">{{ node.ram }}</p>
               <div class="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">JVM Heap</div>
               <div class="text-xs font-mono text-slate-300 mt-0.5">{{ node.jvmHeap }}</div>
