@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import {
@@ -533,28 +533,13 @@ const exportIndicesToCsv = () => {
 const activeDevToolsTab = ref<'console' | 'profiler'>('console');
 
 // Default console input matching the user's screenshot
-const consoleInput = ref(
-`POST _bulk
+const DEFAULT_CONSOLE_INPUT = `POST _bulk
 { "create": { "_index": "students", "_id": "2" } }
 { "name": "Jonathan Powers", "gpa": 3.85, "grad_year": 2025 }
 { "create": { "_index": "students", "_id": "3" } }
-{ "name": "Jane Doe", "gpa": 3.52, "grad_year": 2024 }`
-);
+{ "name": "Jane Doe", "gpa": 3.52, "grad_year": 2024 }`;
 
-const queryMethod = ref<'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'>('POST');
-const queryEndpoint = ref('/_bulk');
-const queryBody = ref('');
-const queryLoading = ref(false);
-const queryError = ref('');
-
-// Pre-populated with the exact response from the OpenSearch Dev Tools screenshot
-const queryResult = ref<{
-  statusCode: number;
-  statusText: string;
-  latencyMs: number;
-  data: any;
-  raw?: string;
-} | null>({
+const DEFAULT_QUERY_RESULT = {
   statusCode: 200,
   statusText: 'OK',
   latencyMs: 651,
@@ -596,11 +581,9 @@ const queryResult = ref<{
       }
     ]
   }
-});
+};
 
-const copiedQueryResult = ref(false);
-const copiedCurl = ref(false);
-const queryHistory = ref<Array<{ method: string; endpoint: string; body: string; timestamp: string; status: number }>>([
+const DEFAULT_QUERY_HISTORY = [
   {
     method: 'POST',
     endpoint: '/_bulk',
@@ -608,7 +591,61 @@ const queryHistory = ref<Array<{ method: string; endpoint: string; body: string;
     timestamp: 'Recent',
     status: 200
   }
-]);
+];
+
+const loadSavedConsoleInput = (): string => {
+  if (typeof window === 'undefined') return DEFAULT_CONSOLE_INPUT;
+  try {
+    const saved = localStorage.getItem('hcp_opensearch_console_query');
+    return saved !== null ? saved : DEFAULT_CONSOLE_INPUT;
+  } catch {
+    return DEFAULT_CONSOLE_INPUT;
+  }
+};
+
+const loadSavedQueryResult = () => {
+  if (typeof window === 'undefined') return DEFAULT_QUERY_RESULT;
+  try {
+    const saved = localStorage.getItem('hcp_opensearch_console_result');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (_) {}
+  return DEFAULT_QUERY_RESULT;
+};
+
+const loadSavedQueryHistory = () => {
+  if (typeof window === 'undefined') return DEFAULT_QUERY_HISTORY;
+  try {
+    const saved = localStorage.getItem('hcp_opensearch_console_history');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  return DEFAULT_QUERY_HISTORY;
+};
+
+const consoleInput = ref(loadSavedConsoleInput());
+
+const queryMethod = ref<'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'>('POST');
+const queryEndpoint = ref('/_bulk');
+const queryBody = ref('');
+const queryLoading = ref(false);
+const queryError = ref('');
+
+// Pre-populated with saved response or default screenshot mock
+const queryResult = ref<{
+  statusCode: number;
+  statusText: string;
+  latencyMs: number;
+  data: any;
+  raw?: string;
+} | null>(loadSavedQueryResult());
+
+const copiedQueryResult = ref(false);
+const copiedCurl = ref(false);
+const queryHistory = ref<Array<{ method: string; endpoint: string; body: string; timestamp: string; status: number }>>(loadSavedQueryHistory());
 
 // Modals & Menu State
 const showHistoryModal = ref(false);
@@ -624,13 +661,43 @@ const consoleFontSize = ref<'11' | '12' | '13' | '14'>('12');
 const wrapResponse = ref(true);
 
 // Resizing state
-const editorWidthPercent = ref(50);
+const savedWidth = typeof window !== 'undefined' ? localStorage.getItem('hcp_opensearch_console_width') : null;
+const editorWidthPercent = ref(savedWidth ? Math.max(20, Math.min(80, parseInt(savedWidth, 10) || 50)) : 50);
 const isResizing = ref(false);
 const splitContainerRef = ref<HTMLElement | null>(null);
 const editorTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const editorGutterRef = ref<HTMLElement | null>(null);
 const responseContainerRef = ref<HTMLElement | null>(null);
 const responseGutterRef = ref<HTMLElement | null>(null);
+
+// Persist Query DSL workbench sessions across reloads & tab navigation
+watch(consoleInput, (val) => {
+  try {
+    localStorage.setItem('hcp_opensearch_console_query', val);
+  } catch (_) {}
+});
+
+watch(queryResult, (val) => {
+  try {
+    if (val) {
+      localStorage.setItem('hcp_opensearch_console_result', JSON.stringify(val));
+    } else {
+      localStorage.removeItem('hcp_opensearch_console_result');
+    }
+  } catch (_) {}
+}, { deep: true });
+
+watch(queryHistory, (val) => {
+  try {
+    localStorage.setItem('hcp_opensearch_console_history', JSON.stringify(val));
+  } catch (_) {}
+}, { deep: true });
+
+watch(editorWidthPercent, (val) => {
+  try {
+    localStorage.setItem('hcp_opensearch_console_width', String(val));
+  } catch (_) {}
+});
 
 // Profiler tab state
 const profilerQueryInput = ref(
@@ -1859,9 +1926,23 @@ const onEditorScroll = () => {
   }
 };
 
+const onEditorGutterWheel = (e: WheelEvent) => {
+  if (editorTextareaRef.value) {
+    editorTextareaRef.value.scrollTop += e.deltaY;
+    if (e.deltaX) editorTextareaRef.value.scrollLeft += e.deltaX;
+  }
+};
+
 const onResponseScroll = () => {
   if (responseContainerRef.value && responseGutterRef.value) {
     responseGutterRef.value.scrollTop = responseContainerRef.value.scrollTop;
+  }
+};
+
+const onResponseGutterWheel = (e: WheelEvent) => {
+  if (responseContainerRef.value) {
+    responseContainerRef.value.scrollTop += e.deltaY;
+    if (e.deltaX) responseContainerRef.value.scrollLeft += e.deltaX;
   }
 };
 
@@ -2455,7 +2536,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30">
+  <div
+    class="w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30"
+    :class="activeTab === 'query' ? 'h-screen max-h-screen overflow-hidden' : 'min-h-screen'"
+  >
     <!-- Top Header Bar (Sticky at top) -->
     <header
       v-if="showHeader"
@@ -2572,10 +2656,10 @@ onUnmounted(() => {
       </button>
     </nav>
 
-    <!-- Main Content Container (Uses natural browser window scrolling, full height for Query tab) -->
+    <!-- Main Content Container (Uses natural browser window scrolling, locked full height for Query tab) -->
     <main
       class="flex-1 w-full"
-      :class="activeTab === 'query' ? 'p-3 sm:p-4 max-w-none flex flex-col min-h-0' : ['shards', 'indices', 'logs'].includes(activeTab) ? 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-none' : 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-[1600px] mx-auto'"
+      :class="activeTab === 'query' ? 'p-2 sm:p-3 max-w-none flex flex-col min-h-0 overflow-hidden' : ['shards', 'indices', 'logs'].includes(activeTab) ? 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-none' : 'p-3.5 sm:p-5 md:p-6 space-y-6 max-w-[1600px] mx-auto'"
     >
       
       <!-- ================================================================= -->
@@ -3417,9 +3501,9 @@ onUnmounted(() => {
       <!-- ================================================================= -->
       <!-- TAB: DEV TOOLS / OPENSEARCH CONSOLE WORKBENCH -->
       <!-- ================================================================= -->
-      <div v-if="activeTab === 'query'" class="flex-1 flex flex-col h-[calc(100vh-140px)] min-h-[580px]">
+      <div v-if="activeTab === 'query'" class="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
         <!-- Main Console Outer Card -->
-        <div class="flex-1 flex flex-col h-full bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-lg">
+        <div class="flex-1 flex flex-col h-full min-h-0 bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl overflow-hidden shadow-lg">
           <!-- Top Navigation Tabs (Console & Query Profiler) -->
           <div class="flex items-center gap-6 px-4 pt-3 border-b border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#111624] shrink-0">
             <button
@@ -3555,13 +3639,14 @@ onUnmounted(() => {
             >
               <!-- LEFT PANE: Request Console Editor -->
               <div
-                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-[450px] self-stretch"
+                class="relative flex flex-row overflow-hidden bg-white dark:bg-[#111624] h-full min-h-0 self-stretch"
                 :style="{ width: editorWidthPercent + '%' }"
               >
                 <!-- Editor Line Numbers Gutter -->
                 <div
                   ref="editorGutterRef"
-                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0 h-full min-h-[450px] self-stretch"
+                  @wheel.prevent="onEditorGutterWheel"
+                  class="w-10 sm:w-12 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#f0f2f5] dark:bg-[#0d1017] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-600 space-y-0 h-full min-h-0 self-stretch"
                 >
                   <div
                     v-for="lineNum in editorLines"
@@ -3572,8 +3657,8 @@ onUnmounted(() => {
                   </div>
                 </div>
 
-                <!-- Editor Textarea Area (In-flow flex layout with minimum 450px height) -->
-                <div class="relative flex-1 flex flex-col h-full min-h-[450px] self-stretch overflow-hidden">
+                <!-- Editor Textarea Area (In-flow flex layout) -->
+                <div class="relative flex-1 flex flex-col h-full min-h-0 self-stretch overflow-hidden">
                   <textarea
                     ref="editorTextareaRef"
                     v-model="consoleInput"
@@ -3585,7 +3670,7 @@ onUnmounted(() => {
                     @input="onEditorInput"
                     @paste="onEditorPaste"
                     spellcheck="false"
-                    class="w-full flex-1 min-h-[450px] h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre"
+                    class="w-full flex-1 min-h-0 h-full py-3 px-3.5 bg-white dark:bg-[#111624] text-slate-900 dark:text-slate-100 font-mono text-xs leading-[22px] border-none outline-none resize-none selection:bg-teal-500/25 overflow-y-auto whitespace-pre overscroll-contain"
                     :style="{
                       tabSize: 2,
                       paddingBottom: `${Math.max(12, (totalDevToolsRows - ((consoleInput || '').split('\n').length)) * 22 + 12)}px`
@@ -3717,11 +3802,12 @@ onUnmounted(() => {
               </div>
 
               <!-- RIGHT PANE: Response Inspector -->
-              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-[450px] self-stretch">
+              <div class="flex-1 relative flex flex-row overflow-hidden bg-[#f8fafc] dark:bg-[#0f1420] h-full min-h-0 self-stretch">
                 <!-- Response Line Numbers Gutter with Fold Arrows ▾ -->
                 <div
                   ref="responseGutterRef"
-                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0 h-full min-h-[450px] self-stretch"
+                  @wheel.prevent="onResponseGutterWheel"
+                  class="w-12 sm:w-14 shrink-0 py-3 select-none text-right pr-2 text-xs font-mono leading-[22px] overflow-hidden bg-[#eef1f6] dark:bg-[#0c1018] border-r border-slate-200 dark:border-[#1e2536] text-slate-400 dark:text-slate-500 space-y-0 h-full min-h-0 self-stretch"
                 >
                   <div
                     v-for="item in responseLineItems"
@@ -3741,7 +3827,7 @@ onUnmounted(() => {
                 <div
                   ref="responseContainerRef"
                   @scroll="onResponseScroll"
-                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full min-h-[450px] self-stretch"
+                  class="flex-1 py-3 px-3.5 overflow-auto font-mono text-xs leading-[22px] select-text h-full min-h-0 self-stretch overscroll-contain"
                 >
                   <!-- Loading State -->
                   <div v-if="queryLoading" class="h-full flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
