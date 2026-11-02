@@ -110,6 +110,8 @@ interface GraphLink {
   id: string;
   pipelineId: string;
   pipelineName: string;
+  pipelineIds?: string[];
+  pipelineNames?: string[];
   signal: 'metrics' | 'logs' | 'traces';
   sourceNodeId: string;
   targetNodeId: string;
@@ -570,19 +572,50 @@ const parsedModel = computed(() => {
       }
 
       if (inPipelines) {
-        // First pipeline key under pipelines establishes pipelineIndent
-        if (pipelineIndent === -1 && lineIndent > pipelinesBaseIndent && trimmedNoComment.endsWith(':')) {
-          pipelineIndent = lineIndent;
+        const potentialKey = cleanVal(trimmedNoComment.replace(/:.*$/, ''));
+        const KEYWORDS = ['receivers', 'processors', 'exporters', 'connectors'];
+        const isPipelineKeyword = KEYWORDS.includes(potentialKey.toLowerCase());
+
+        // Check if this line is an in-pipeline field (receivers:, processors:, exporters:)
+        if (currentPipeline && (isPipelineKeyword || trimmedNoComment.startsWith('receivers:') || trimmedNoComment.startsWith('processors:') || trimmedNoComment.startsWith('exporters:'))) {
+          if (trimmedNoComment.startsWith('receivers:') || potentialKey === 'receivers') {
+            inListField = 'receivers';
+            const rest = trimmedNoComment.replace(/^receivers:\s*/, '');
+            parseListOrInline(rest, currentPipeline.receivers!);
+          } else if (trimmedNoComment.startsWith('processors:') || potentialKey === 'processors') {
+            inListField = 'processors';
+            const rest = trimmedNoComment.replace(/^processors:\s*/, '');
+            parseListOrInline(rest, currentPipeline.processors!);
+          } else if (trimmedNoComment.startsWith('exporters:') || potentialKey === 'exporters') {
+            inListField = 'exporters';
+            const rest = trimmedNoComment.replace(/^exporters:\s*/, '');
+            parseListOrInline(rest, currentPipeline.exporters!);
+          }
+          continue;
         }
 
-        // When at pipelineIndent and ends with colon, new pipeline
-        if (lineIndent === pipelineIndent && trimmedNoComment.endsWith(':')) {
+        // Check if list item (- item) under inListField
+        if (currentPipeline && trimmedNoComment.startsWith('-') && inListField) {
+          const val = cleanVal(trimmedNoComment.replace(/^-\s*/, ''));
+          if (val) {
+            if (inListField === 'receivers' && !currentPipeline.receivers!.includes(val)) currentPipeline.receivers!.push(val);
+            if (inListField === 'processors' && !currentPipeline.processors!.includes(val)) currentPipeline.processors!.push(val);
+            if (inListField === 'exporters' && !currentPipeline.exporters!.includes(val)) currentPipeline.exporters!.push(val);
+          }
+          continue;
+        }
+
+        // New pipeline definition: line ending with colon and NOT a keyword like receivers/processors/exporters
+        const lowerPotKey = potentialKey.toLowerCase();
+        const isValidSignal = lowerPotKey.startsWith('metrics') || lowerPotKey.startsWith('logs') || lowerPotKey.startsWith('traces');
+
+        if (trimmedNoComment.endsWith(':') && !isPipelineKeyword && (isValidSignal || lineIndent > pipelinesBaseIndent)) {
           finalizePipeline();
-          currentPipelineKey = cleanVal(trimmedNoComment.slice(0, -1));
+          pipelineIndent = lineIndent;
+          currentPipelineKey = potentialKey;
           let signal: 'metrics' | 'logs' | 'traces' = 'metrics';
-          const lowerKey = currentPipelineKey.toLowerCase();
-          if (lowerKey.startsWith('logs')) signal = 'logs';
-          else if (lowerKey.startsWith('traces')) signal = 'traces';
+          if (lowerPotKey.startsWith('logs')) signal = 'logs';
+          else if (lowerPotKey.startsWith('traces')) signal = 'traces';
 
           currentPipeline = {
             id: currentPipelineKey,
@@ -594,33 +627,58 @@ const parsedModel = computed(() => {
           };
           continue;
         }
-
-        if (currentPipeline && lineIndent > pipelineIndent) {
-          const trimmed = lineWithoutComment;
-          if (trimmed.startsWith('receivers:')) {
-            inListField = 'receivers';
-            parseListOrInline(trimmed.slice('receivers:'.length), currentPipeline.receivers!);
-          } else if (trimmed.startsWith('processors:')) {
-            inListField = 'processors';
-            parseListOrInline(trimmed.slice('processors:'.length), currentPipeline.processors!);
-          } else if (trimmed.startsWith('exporters:')) {
-            inListField = 'exporters';
-            parseListOrInline(trimmed.slice('exporters:'.length), currentPipeline.exporters!);
-          } else if (trimmed.startsWith('-') && inListField) {
-            const val = cleanVal(trimmed.replace(/^-\s*/, ''));
-            if (val) {
-              if (inListField === 'receivers' && !currentPipeline.receivers!.includes(val)) currentPipeline.receivers!.push(val);
-              if (inListField === 'processors' && !currentPipeline.processors!.includes(val)) currentPipeline.processors!.push(val);
-              if (inListField === 'exporters' && !currentPipeline.exporters!.includes(val)) currentPipeline.exporters!.push(val);
-            }
-          }
-        }
       }
     }
   }
 
   finalizeComponent();
   finalizePipeline();
+
+  // Auto-register any component declared in pipelines that wasn't declared in top blocks
+  pipelinesList.forEach((pipe) => {
+    (pipe.receivers || []).forEach((r) => {
+      const id = 'receiver:' + r;
+      if (!componentsMap.has(id)) {
+        componentsMap.set(id, {
+          id,
+          category: 'receiver',
+          name: r,
+          type: r.split('/')[0],
+          instanceName: r.includes('/') ? r.split('/').slice(1).join('/') : undefined,
+          rawSnippet: `${r}:`,
+          pipelines: [pipe.name],
+        });
+      }
+    });
+    (pipe.processors || []).forEach((p) => {
+      const id = 'processor:' + p;
+      if (!componentsMap.has(id)) {
+        componentsMap.set(id, {
+          id,
+          category: 'processor',
+          name: p,
+          type: p.split('/')[0],
+          instanceName: p.includes('/') ? p.split('/').slice(1).join('/') : undefined,
+          rawSnippet: `${p}:`,
+          pipelines: [pipe.name],
+        });
+      }
+    });
+    (pipe.exporters || []).forEach((e) => {
+      const id = 'exporter:' + e;
+      if (!componentsMap.has(id)) {
+        componentsMap.set(id, {
+          id,
+          category: 'exporter',
+          name: e,
+          type: e.split('/')[0],
+          instanceName: e.includes('/') ? e.split('/').slice(1).join('/') : undefined,
+          rawSnippet: `${e}:`,
+          pipelines: [pipe.name],
+        });
+      }
+    });
+  });
 
   // Cross-reference pipelines into components with category-aware matching
   const findCompForCat = (cat: 'receiver' | 'processor' | 'exporter', name: string): OTelComponent | undefined => {
@@ -804,9 +862,15 @@ const graphData = computed(() => {
     isInferred = false
   ) => {
     if (!source || !target) return;
-    // Avoid duplicate links
+    // Avoid duplicate links and track all pipelines sharing this link
     const dup = links.find((l) => l.sourceNodeId === source.id && l.targetNodeId === target.id);
-    if (dup) return;
+    if (dup) {
+      if (!dup.pipelineNames) dup.pipelineNames = [dup.pipelineName];
+      if (!dup.pipelineNames.includes(pipeName)) dup.pipelineNames.push(pipeName);
+      if (!dup.pipelineIds) dup.pipelineIds = [dup.pipelineId];
+      if (!dup.pipelineIds.includes(pipeId)) dup.pipelineIds.push(pipeId);
+      return;
+    }
 
     const isVertical = Math.abs(source.x - target.x) < 25;
     let pathD = '';
@@ -850,6 +914,8 @@ const graphData = computed(() => {
       id: `link-${linkCounter++}`,
       pipelineId: pipeId,
       pipelineName: pipeName,
+      pipelineIds: [pipeId],
+      pipelineNames: [pipeName],
       signal,
       sourceNodeId: source.id,
       targetNodeId: target.id,
@@ -1084,7 +1150,7 @@ const isNodeInActivePipeline = (node: GraphNode): boolean => {
   }
   const pipelines = parsedModel.value?.pipelines || [];
   const p = pipelines.find((pipe) => pipe && (pipe.name === targetPipeName || pipe.id === targetPipeName));
-  if (!p) return true;
+  if (!p) return false;
   const nName = (node.component?.name || '').toLowerCase();
   const nType = (node.component?.type || '').toLowerCase();
 
@@ -1103,7 +1169,10 @@ const isNodeInActivePipeline = (node: GraphNode): boolean => {
 
 const isLinkInActivePipeline = (link: GraphLink): boolean => {
   if (selectedPipelineFilter.value === 'all') return true;
-  return link.pipelineName === selectedPipelineFilter.value || link.pipelineId === selectedPipelineFilter.value;
+  const target = selectedPipelineFilter.value;
+  if (link.pipelineNames && link.pipelineNames.includes(target)) return true;
+  if (link.pipelineIds && link.pipelineIds.includes(target)) return true;
+  return link.pipelineName === target || link.pipelineId === target;
 };
 
 const isLinkDimmed = (link: GraphLink): boolean => {
@@ -1760,7 +1829,7 @@ onMounted(async () => {
             >
               Auto-Routed
             </span>
-            <span>{{ (graphData.links || []).length }} active links</span>
+            <span>{{ selectedPipelineFilter === 'all' ? (graphData.links || []).length : (graphData.links || []).filter(l => isLinkInActivePipeline(l)).length }} active links</span>
           </div>
         </div>
 
