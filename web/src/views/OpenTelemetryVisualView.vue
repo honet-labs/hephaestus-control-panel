@@ -124,7 +124,35 @@ interface GraphLink {
   midX: number;
   midY: number;
   isInferred?: boolean;
+  color?: string;
+  isShared?: boolean;
 }
+
+// ==================== PIPELINE COLOR PALETTE ====================
+// Curated distinct color tokens for multi-pipeline topology disambiguation
+const PIPELINE_PALETTE = [
+  { stroke: '#10b981', glow: '#10b981', name: 'emerald' }, // Green (metrics/host)
+  { stroke: '#a855f7', glow: '#a855f7', name: 'purple' },  // Violet/Purple (metrics/haproxy)
+  { stroke: '#06b6d4', glow: '#06b6d4', name: 'cyan' },    // Cyan/Teal
+  { stroke: '#f59e0b', glow: '#f59e0b', name: 'amber' },   // Amber/Gold
+  { stroke: '#f43f5e', glow: '#f43f5e', name: 'rose' },    // Rose
+  { stroke: '#3b82f6', glow: '#3b82f6', name: 'blue' },    // Blue
+  { stroke: '#14b8a6', glow: '#14b8a6', name: 'teal' },    // Teal
+  { stroke: '#ec4899', glow: '#ec4899', name: 'pink' },    // Pink
+];
+
+const getPipelineColor = (pipeIdOrName: string, index?: number) => {
+  if (typeof index === 'number' && index >= 0) {
+    return PIPELINE_PALETTE[index % PIPELINE_PALETTE.length];
+  }
+  if (!pipeIdOrName) return PIPELINE_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < pipeIdOrName.length; i++) {
+    hash = (hash << 5) - hash + pipeIdOrName.charCodeAt(i);
+    hash |= 0;
+  }
+  return PIPELINE_PALETTE[Math.abs(hash) % PIPELINE_PALETTE.length];
+};
 
 // ==================== DEFAULT TEMPLATES ====================
 const DEFAULT_SAMPLE_CONFIG = `receivers:
@@ -869,6 +897,7 @@ const graphData = computed(() => {
       if (!dup.pipelineNames.includes(pipeName)) dup.pipelineNames.push(pipeName);
       if (!dup.pipelineIds) dup.pipelineIds = [dup.pipelineId];
       if (!dup.pipelineIds.includes(pipeId)) dup.pipelineIds.push(pipeId);
+      dup.isShared = true;
       return;
     }
 
@@ -910,6 +939,9 @@ const graphData = computed(() => {
       midY = u * u * u * sy + 3 * u * u * t * cy1 + 3 * u * t * t * cy2 + t * t * t * ty;
     }
 
+    const pipeIdx = pipelines.findIndex((p) => p && (p.id === pipeId || p.name === pipeName));
+    const pipeColor = getPipelineColor(pipeName || pipeId, pipeIdx >= 0 ? pipeIdx : undefined);
+
     links.push({
       id: `link-${linkCounter++}`,
       pipelineId: pipeId,
@@ -928,6 +960,7 @@ const graphData = computed(() => {
       midX,
       midY,
       isInferred,
+      color: pipeColor.stroke,
     });
   };
 
@@ -1691,24 +1724,29 @@ onMounted(async () => {
             All ({{ availablePipelines.length }})
           </button>
 
-          <!-- Pipeline Specific Tabs with Signal Badges -->
+          <!-- Pipeline Specific Tabs with Signal Badges and Distinct Color Dot -->
           <button
-            v-for="p in availablePipelines"
+            v-for="(p, pIdx) in availablePipelines"
             :key="p.id"
             @click="togglePipelineFilter(p.id)"
             class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
             :class="
               selectedPipelineFilter === p.id
-                ? 'bg-blue-600 text-white font-bold shadow-xs ring-2 ring-blue-500/30'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-xs'
                 : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
             "
           >
+            <!-- Pipeline color dot indicator -->
+            <span
+              class="w-2 h-2 rounded-full shrink-0 shadow-xs"
+              :style="{ backgroundColor: getPipelineColor(p.name, pIdx).stroke }"
+            />
             <span>{{ p.name }}</span>
             <span
               class="text-[9px] px-1 py-0.2 rounded font-mono uppercase tracking-wider"
               :class="
                 selectedPipelineFilter === p.id
-                  ? 'bg-white/20 text-white'
+                  ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900'
                   : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
               "
             >
@@ -2003,35 +2041,44 @@ onMounted(async () => {
                   stroke-linecap="round"
                 />
 
-                <!-- Active dashed curved line (Green like the user's reference) -->
+                <!-- Active dashed curved line with distinct pipeline color -->
                 <path
                   :d="link.pathD"
                   fill="none"
                   stroke-linecap="round"
                   :stroke-width="isLinkHighlighted(link) && selectedPipelineFilter !== 'all' ? 3.5 : 2.5"
                   class="transition-all duration-300"
-                  :class="isLinkDimmed(link) ? 'stroke-slate-300/30 dark:stroke-slate-700/30' : 'stroke-emerald-500'"
+                  :class="isLinkDimmed(link) ? 'stroke-slate-300/30 dark:stroke-slate-700/30' : ''"
+                  :stroke="isLinkDimmed(link) ? undefined : (link.color || '#10b981')"
                   stroke-dasharray="7 5"
                 />
 
-                <!-- Pill badge on curve showing metadata/latency/interval (just like the screenshot's '0.974 ms') -->
+                <!-- Pill badge on curve showing metadata/latency/interval with matching pipeline color -->
                 <g
                   v-if="link.badgeLabel && !isLinkDimmed(link)"
                   :transform="`translate(${link.midX}, ${link.midY})`"
                   class="cursor-pointer transition-opacity duration-300"
                 >
                   <rect
-                    :x="-Math.max(28, (link.badgeLabel.length * 3.8) + 10)"
+                    :x="-Math.max(28, (link.badgeLabel.length * 3.8) + 12)"
                     y="-11"
-                    :width="Math.max(56, (link.badgeLabel.length * 7.6) + 20)"
+                    :width="Math.max(56, (link.badgeLabel.length * 7.6) + 24)"
                     height="22"
                     rx="11"
                     ry="11"
-                    class="fill-white dark:fill-[#121826] stroke-slate-200 dark:stroke-[#293681] shadow-xs"
+                    class="fill-white dark:fill-[#121826] shadow-xs"
+                    :stroke="link.color || '#10b981'"
                     stroke-width="1.2"
                   />
+                  <!-- Small colored indicator dot inside badge -->
+                  <circle
+                    :cx="-Math.max(28, (link.badgeLabel.length * 3.8) + 12) + 9"
+                    cy="0"
+                    r="2.5"
+                    :fill="link.color || '#10b981'"
+                  />
                   <text
-                    x="0"
+                    x="4"
                     y="3.5"
                     text-anchor="middle"
                     class="text-[10px] font-bold fill-slate-700 dark:fill-slate-300 font-mono tracking-tight pointer-events-none"
