@@ -622,18 +622,34 @@ const parsedModel = computed(() => {
   finalizeComponent();
   finalizePipeline();
 
-  // Cross-reference pipelines into components
+  // Cross-reference pipelines into components with category-aware matching
+  const findCompForCat = (cat: 'receiver' | 'processor' | 'exporter', name: string): OTelComponent | undefined => {
+    if (!name) return undefined;
+    const clean = name.trim().replace(/^['"]|['"]$/g, '');
+    const direct = componentsMap.get(`${cat}:${clean}`);
+    if (direct) return direct;
+    const lower = clean.toLowerCase();
+    for (const c of componentsMap.values()) {
+      if (c.category === cat) {
+        if (c.name.toLowerCase() === lower) return c;
+        if (c.name.endsWith('/' + clean) || clean.endsWith('/' + c.name)) return c;
+        if (c.type === clean) return c;
+      }
+    }
+    return undefined;
+  };
+
   pipelinesList.forEach((pipe) => {
     pipe.receivers.forEach((rName) => {
-      const c = componentsMap.get(`receiver:${rName}`);
+      const c = findCompForCat('receiver', rName);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
     pipe.processors.forEach((pName) => {
-      const c = componentsMap.get(`processor:${pName}`);
+      const c = findCompForCat('processor', pName);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
     pipe.exporters.forEach((eName) => {
-      const c = componentsMap.get(`exporter:${eName}`);
+      const c = findCompForCat('exporter', eName);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
   });
@@ -658,24 +674,11 @@ const activePipelines = computed(() => {
 // ==================== TOPOLOGY GRAPH COMPUTATION ====================
 // Generates nodes and curved links replicating the user's reference hop topology
 const graphData = computed(() => {
-  const { components } = parsedModel.value;
-  const pipelines = activePipelines.value;
+  const { components, pipelines } = parsedModel.value;
 
-  // Filter components relevant to active pipelines if specific pipeline is selected
-  let activeComponents = components;
-  if (pipelines.length > 0 && selectedPipelineFilter.value !== 'all') {
-    const relevantNames = new Set<string>();
-    pipelines.forEach((p) => {
-      p.receivers.forEach((r) => relevantNames.add(`receiver:${r}`));
-      p.processors.forEach((pr) => relevantNames.add(`processor:${pr}`));
-      p.exporters.forEach((e) => relevantNames.add(`exporter:${e}`));
-    });
-    activeComponents = components.filter((c) => relevantNames.has(`${c.category}:${c.name}`));
-  }
-
-  const rawReceivers = activeComponents.filter((c) => c.category === 'receiver');
-  const rawProcessors = activeComponents.filter((c) => c.category === 'processor');
-  const rawExporters = activeComponents.filter((c) => c.category === 'exporter');
+  const rawReceivers = components.filter((c) => c.category === 'receiver');
+  const rawProcessors = components.filter((c) => c.category === 'processor');
+  const rawExporters = components.filter((c) => c.category === 'exporter');
 
   // Pipeline vertical alignment: rank components by the earliest pipeline they appear in
   // This lines up components belonging to the same pipeline horizontally, drastically eliminating crossing lines
@@ -1037,6 +1040,70 @@ const getNodeColor = (category: string) => {
     haloFill: 'rgba(16, 185, 129, 0.14)',
     haloStroke: 'rgba(16, 185, 129, 0.45)',
   };
+};
+
+// ==================== PIPELINE FILTER & HIGHLIGHT HELPERS ====================
+const togglePipelineFilter = (pipeId: string) => {
+  if (selectedPipelineFilter.value === pipeId) {
+    selectedPipelineFilter.value = 'all';
+  } else {
+    selectedPipelineFilter.value = pipeId;
+  }
+};
+
+const isNodeInActivePipeline = (node: GraphNode): boolean => {
+  if (selectedPipelineFilter.value === 'all') return true;
+  const targetPipeName = selectedPipelineFilter.value;
+  if (node.component.pipelines && node.component.pipelines.includes(targetPipeName)) {
+    return true;
+  }
+  const p = parsedModel.value.pipelines.find((pipe) => pipe.name === targetPipeName || pipe.id === targetPipeName);
+  if (!p) return true;
+  const nName = node.component.name.toLowerCase();
+  const nType = (node.component.type || '').toLowerCase();
+
+  const matches = (list: string[]) =>
+    list.some((item) => {
+      const clean = item.toLowerCase().trim();
+      return clean === nName || clean === nType || nName.endsWith('/' + clean) || clean.endsWith('/' + nName);
+    });
+
+  if (node.category === 'receiver') return matches(p.receivers);
+  if (node.category === 'processor') return matches(p.processors);
+  if (node.category === 'exporter') return matches(p.exporters);
+  return false;
+};
+
+const isLinkInActivePipeline = (link: GraphLink): boolean => {
+  if (selectedPipelineFilter.value === 'all') return true;
+  return link.pipelineName === selectedPipelineFilter.value || link.pipelineId === selectedPipelineFilter.value;
+};
+
+const isLinkDimmed = (link: GraphLink): boolean => {
+  if (hoveredNodeId.value) {
+    return link.sourceNodeId !== hoveredNodeId.value && link.targetNodeId !== hoveredNodeId.value;
+  }
+  if (selectedPipelineFilter.value !== 'all') {
+    return !isLinkInActivePipeline(link);
+  }
+  return false;
+};
+
+const isLinkHighlighted = (link: GraphLink): boolean => {
+  if (hoveredNodeId.value) {
+    return link.sourceNodeId === hoveredNodeId.value || link.targetNodeId === hoveredNodeId.value;
+  }
+  if (selectedPipelineFilter.value !== 'all') {
+    return isLinkInActivePipeline(link);
+  }
+  return true;
+};
+
+const isNodeDimmed = (node: GraphNode): boolean => {
+  if (selectedPipelineFilter.value !== 'all') {
+    return !isNodeInActivePipeline(node);
+  }
+  return false;
 };
 
 // ==================== CANVAS INTERACTION HELPERS ====================
@@ -1520,11 +1587,11 @@ onMounted(async () => {
         <button
           v-for="p in availablePipelines"
           :key="p.id"
-          @click="selectedPipelineFilter = p.id"
+          @click="togglePipelineFilter(p.id)"
           class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
           :class="
             selectedPipelineFilter === p.id
-              ? 'bg-blue-600 text-white font-bold shadow-xs'
+              ? 'bg-blue-600 text-white font-bold shadow-xs ring-2 ring-blue-500/30'
               : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
           "
         >
@@ -1644,7 +1711,21 @@ onMounted(async () => {
 
           <div class="flex items-center gap-2 text-[11px] text-slate-400">
             <span
-              v-if="graphData.hasInferredLinks"
+              v-if="selectedPipelineFilter !== 'all'"
+              class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-semibold flex items-center gap-1.5"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              <span>Active: <strong class="font-mono">{{ selectedPipelineFilter }}</strong></span>
+              <button
+                @click="selectedPipelineFilter = 'all'"
+                class="hover:text-blue-800 dark:hover:text-white cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                title="Reset to All Pipelines"
+              >
+                ×
+              </button>
+            </span>
+            <span
+              v-else-if="graphData.hasInferredLinks"
               class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-semibold"
               title="Dataflow routes intelligently inferred"
             >
@@ -1714,17 +1795,18 @@ onMounted(async () => {
               <g
                 v-for="link in graphData.links"
                 :key="link.id"
-                class="transition-opacity duration-200"
+                class="transition-opacity duration-300"
                 :class="{
-                  'opacity-100': !hoveredNodeId || hoveredNodeId === link.sourceNodeId || hoveredNodeId === link.targetNodeId,
-                  'opacity-20': hoveredNodeId && hoveredNodeId !== link.sourceNodeId && hoveredNodeId !== link.targetNodeId,
+                  'opacity-100': !isLinkDimmed(link),
+                  'opacity-10 pointer-events-none': isLinkDimmed(link),
                 }"
               >
                 <!-- Outer glow / background track -->
                 <path
                   :d="link.pathD"
                   fill="none"
-                  class="stroke-slate-200 dark:stroke-[#1b2336]"
+                  class="stroke-slate-200 dark:stroke-[#1b2336] transition-all duration-300"
+                  :class="isLinkDimmed(link) ? 'stroke-slate-200/30 dark:stroke-[#1b2336]/30' : ''"
                   stroke-width="5"
                   stroke-linecap="round"
                 />
@@ -1734,18 +1816,17 @@ onMounted(async () => {
                   :d="link.pathD"
                   fill="none"
                   stroke-linecap="round"
-                  stroke-width="2.5"
-                  class="stroke-emerald-500 transition-all duration-300"
+                  :stroke-width="isLinkHighlighted(link) && selectedPipelineFilter !== 'all' ? 3.5 : 2.5"
+                  class="transition-all duration-300"
+                  :class="isLinkDimmed(link) ? 'stroke-slate-300/30 dark:stroke-slate-700/30' : 'stroke-emerald-500'"
                   stroke-dasharray="7 5"
                 />
 
-
-
                 <!-- Pill badge on curve showing metadata/latency/interval (just like the screenshot's '0.974 ms') -->
                 <g
-                  v-if="link.badgeLabel"
+                  v-if="link.badgeLabel && !isLinkDimmed(link)"
                   :transform="`translate(${link.midX}, ${link.midY})`"
-                  class="cursor-pointer"
+                  class="cursor-pointer transition-opacity duration-300"
                 >
                   <rect
                     :x="-Math.max(28, (link.badgeLabel.length * 3.8) + 10)"
@@ -1775,7 +1856,11 @@ onMounted(async () => {
                 v-for="node in graphData.nodes"
                 :key="node.id"
                 :transform="`translate(${node.x}, ${node.y})`"
-                class="cursor-pointer group"
+                class="cursor-pointer group transition-all duration-300"
+                :class="{
+                  'opacity-100': !isNodeDimmed(node),
+                  'opacity-25 hover:opacity-80': isNodeDimmed(node),
+                }"
                 @click="inspectNode(node.component)"
                 @mouseenter="hoveredNodeId = node.id"
                 @mouseleave="hoveredNodeId = null"
@@ -1794,7 +1879,10 @@ onMounted(async () => {
                 <circle
                   r="31"
                   class="transition-all duration-200"
-                  :class="(hoveredNodeId === node.id || inspectedNode?.name === node.component.name) ? 'scale-110' : ''"
+                  :class="{
+                    'scale-115 stroke-[3]': isNodeInActivePipeline(node) && selectedPipelineFilter !== 'all',
+                    'scale-110': (hoveredNodeId === node.id || inspectedNode?.name === node.component.name) && selectedPipelineFilter === 'all',
+                  }"
                   :fill="getNodeColor(node.category).haloFill"
                   :stroke="getNodeColor(node.category).haloStroke"
                   stroke-width="2"
