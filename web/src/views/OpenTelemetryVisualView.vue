@@ -611,14 +611,14 @@ const graphData = computed(() => {
 
   const maxRows = Math.max(receivers.length, processors.length, exporters.length, 1);
   const rowHeight = 140;
-  const canvasHeight = Math.max(540, maxRows * rowHeight + 160);
-  const canvasWidth = 1180;
+  const canvasHeight = Math.max(540, maxRows * rowHeight + 140);
+  const canvasWidth = 1420;
 
   // X Coordinates for the 3 hop tiers: Receivers -> Processors -> Targets
   const colX = {
     receiver: 180,
-    processor: 590,
-    exporter: 1000,
+    processor: 710,
+    exporter: 1240,
   };
 
   const nodes: GraphNode[] = [];
@@ -1117,8 +1117,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- Root Container adhering strictly to AGENTS.md (No double padding) -->
-  <div class="space-y-6 max-w-7xl mx-auto font-sans">
+  <!-- Root Container adhering strictly to AGENTS.md (No double padding, full responsive width max-w-[1600px]) -->
+  <div class="space-y-6 w-full max-w-[1600px] mx-auto font-sans">
     <!-- Header Section (Standard HCP Header: Clean plain text <h1>, no icons or badges inside <h1>) -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div>
@@ -1410,8 +1410,8 @@ onMounted(async () => {
         v-show="viewMode === 'visual' || viewMode === 'split'"
         class="bg-white dark:bg-[#0a0e17] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm relative flex flex-col"
         :class="{
-          'h-[640px]': viewMode === 'visual',
-          'h-[580px] lg:col-span-7': viewMode === 'split',
+          'h-[680px]': viewMode === 'visual',
+          'h-[600px] lg:col-span-7': viewMode === 'split',
         }"
       >
         <!-- Canvas Stage Legend & Metrics Header -->
@@ -1485,10 +1485,10 @@ onMounted(async () => {
               <text x="180" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 1 • RECEIVERS
               </text>
-              <text x="590" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text x="710" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 2 • PROCESSORS
               </text>
-              <text x="1000" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text x="1240" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 3 • TARGETS
               </text>
             </g>
