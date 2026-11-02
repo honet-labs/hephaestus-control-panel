@@ -301,7 +301,7 @@ const validationResult = ref<{
 
 // Real-time YAML validation
 const yamlSyntaxCheck = computed(() => {
-  if (!yamlContent.value || !yamlContent.value.trim()) {
+  if (!yamlContent.value || typeof yamlContent.value !== 'string' || !yamlContent.value.trim()) {
     return { valid: true, error: null, line: null };
   }
   const lines = yamlContent.value.split('\n');
@@ -355,7 +355,7 @@ const gutterRef = ref<HTMLDivElement | null>(null);
 
 // Line numbers generator
 const lineNumbers = computed(() => {
-  if (!yamlContent.value) return Array.from({ length: 25 }, (_, i) => i + 1);
+  if (!yamlContent.value || typeof yamlContent.value !== 'string') return Array.from({ length: 25 }, (_, i) => i + 1);
   const count = yamlContent.value.split('\n').length;
   return Array.from({ length: Math.max(count, 25) }, (_, i) => i + 1);
 });
@@ -639,18 +639,28 @@ const parsedModel = computed(() => {
     return undefined;
   };
 
-  pipelinesList.forEach((pipe) => {
-    pipe.receivers.forEach((rName) => {
+  (pipelinesList || []).forEach((pipe) => {
+    if (!pipe) return;
+    (pipe.receivers || []).forEach((rName) => {
       const c = findCompForCat('receiver', rName);
-      if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      if (c) {
+        if (!c.pipelines) c.pipelines = [];
+        if (!c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      }
     });
-    pipe.processors.forEach((pName) => {
+    (pipe.processors || []).forEach((pName) => {
       const c = findCompForCat('processor', pName);
-      if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      if (c) {
+        if (!c.pipelines) c.pipelines = [];
+        if (!c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      }
     });
-    pipe.exporters.forEach((eName) => {
+    (pipe.exporters || []).forEach((eName) => {
       const c = findCompForCat('exporter', eName);
-      if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      if (c) {
+        if (!c.pipelines) c.pipelines = [];
+        if (!c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
+      }
     });
   });
 
@@ -661,34 +671,39 @@ const parsedModel = computed(() => {
 });
 
 // Available pipeline filters
-const availablePipelines = computed(() => parsedModel.value.pipelines);
+const availablePipelines = computed(() => parsedModel.value?.pipelines || []);
 
 // Active pipelines based on selected filter
 const activePipelines = computed(() => {
+  const pipes = parsedModel.value?.pipelines || [];
   if (selectedPipelineFilter.value === 'all') {
-    return parsedModel.value.pipelines;
+    return pipes;
   }
-  return parsedModel.value.pipelines.filter((p) => p.name === selectedPipelineFilter.value);
+  return pipes.filter((p) => p && p.name === selectedPipelineFilter.value);
 });
 
 // ==================== TOPOLOGY GRAPH COMPUTATION ====================
 // Generates nodes and curved links replicating the user's reference hop topology
 const graphData = computed(() => {
-  const { components, pipelines } = parsedModel.value;
+  const model = parsedModel.value || { components: [], pipelines: [] };
+  const components = model.components || [];
+  const pipelines = model.pipelines || [];
 
-  const rawReceivers = components.filter((c) => c.category === 'receiver');
-  const rawProcessors = components.filter((c) => c.category === 'processor');
-  const rawExporters = components.filter((c) => c.category === 'exporter');
+  const rawReceivers = components.filter((c) => c && c.category === 'receiver');
+  const rawProcessors = components.filter((c) => c && c.category === 'processor');
+  const rawExporters = components.filter((c) => c && c.category === 'exporter');
 
   // Pipeline vertical alignment: rank components by the earliest pipeline they appear in
   // This lines up components belonging to the same pipeline horizontally, drastically eliminating crossing lines
   const getComponentPipelineRank = (comp: OTelComponent): number => {
+    if (!comp || !comp.name) return 999;
     const cName = comp.name.toLowerCase();
     for (let pIdx = 0; pIdx < pipelines.length; pIdx++) {
       const p = pipelines[pIdx];
-      const matchRx = p.receivers.some((r) => r.toLowerCase().includes(cName) || cName.includes(r.toLowerCase()));
-      const matchPr = p.processors.some((pr) => pr.toLowerCase().includes(cName) || cName.includes(pr.toLowerCase()));
-      const matchEx = p.exporters.some((e) => e.toLowerCase().includes(cName) || cName.includes(e.toLowerCase()));
+      if (!p) continue;
+      const matchRx = (p.receivers || []).some((r) => r && (r.toLowerCase().includes(cName) || cName.includes(r.toLowerCase())));
+      const matchPr = (p.processors || []).some((pr) => pr && (pr.toLowerCase().includes(cName) || cName.includes(pr.toLowerCase())));
+      const matchEx = (p.exporters || []).some((e) => e && (e.toLowerCase().includes(cName) || cName.includes(e.toLowerCase())));
       if (matchRx || matchPr || matchEx) return pIdx;
     }
     return 999;
@@ -740,7 +755,7 @@ const graphData = computed(() => {
   // Helper to resolve a node by name or fuzzy type
   const resolveNode = (category: 'receiver' | 'processor' | 'exporter', name: string): GraphNode | undefined => {
     if (!name) return undefined;
-    const clean = name.trim().replace(/^['"]|['"]$/g, '');
+    const clean = String(name).trim().replace(/^['"]|['"]$/g, '');
 
     // 1. Exact match
     const direct = nodeMap.get(`${category}:${clean}`);
@@ -749,15 +764,16 @@ const graphData = computed(() => {
     // 2. Case-insensitive exact match
     const lower = clean.toLowerCase();
     for (const [id, node] of nodeMap.entries()) {
-      if (node.category === category && node.component.name.toLowerCase() === lower) {
+      if (node.category === category && node.component && node.component.name && node.component.name.toLowerCase() === lower) {
         return node;
       }
     }
 
     // 3. Sub-instance or slash match
     for (const [id, node] of nodeMap.entries()) {
-      if (node.category === category) {
-        if (node.component.name.endsWith('/' + clean) || clean.endsWith('/' + node.component.name)) {
+      if (node.category === category && node.component) {
+        const cName = node.component.name || '';
+        if (cName.endsWith('/' + clean) || clean.endsWith('/' + cName)) {
           return node;
         }
         if (node.component.type === clean) {
@@ -768,6 +784,10 @@ const graphData = computed(() => {
 
     return undefined;
   };
+
+  const receiverNodes = receivers.map((c) => resolveNode('receiver', c.name)).filter(Boolean) as GraphNode[];
+  const processorNodes = processors.map((c) => resolveNode('processor', c.name)).filter(Boolean) as GraphNode[];
+  const exporterNodes = exporters.map((c) => resolveNode('exporter', c.name)).filter(Boolean) as GraphNode[];
 
   // Generate curved Bézier links connecting Receiver -> Processor -> Exporter
   const links: GraphLink[] = [];
@@ -783,6 +803,7 @@ const graphData = computed(() => {
     badgeLabel?: string,
     isInferred = false
   ) => {
+    if (!source || !target) return;
     // Avoid duplicate links
     const dup = links.find((l) => l.sourceNodeId === source.id && l.targetNodeId === target.id);
     if (dup) return;
@@ -846,9 +867,10 @@ const graphData = computed(() => {
 
   // 1. Process explicit pipelines from YAML
   pipelines.forEach((pipe) => {
-    const pipeReceivers = pipe.receivers.map((r) => resolveNode('receiver', r)).filter(Boolean) as GraphNode[];
-    const pipeProcessors = pipe.processors.map((p) => resolveNode('processor', p)).filter(Boolean) as GraphNode[];
-    const pipeExporters = pipe.exporters.map((e) => resolveNode('exporter', e)).filter(Boolean) as GraphNode[];
+    if (!pipe) return;
+    const pipeReceivers = (pipe.receivers || []).map((r) => resolveNode('receiver', r)).filter(Boolean) as GraphNode[];
+    const pipeProcessors = (pipe.processors || []).map((p) => resolveNode('processor', p)).filter(Boolean) as GraphNode[];
+    const pipeExporters = (pipe.exporters || []).map((e) => resolveNode('exporter', e)).filter(Boolean) as GraphNode[];
 
     if (pipeProcessors.length > 0) {
       // Receiver -> First Processor
@@ -860,7 +882,7 @@ const graphData = computed(() => {
           pipe.id,
           pipe.name,
           pipe.signal,
-          rx.component.interval || undefined
+          rx.component?.interval || undefined
         );
       });
 
@@ -880,7 +902,7 @@ const graphData = computed(() => {
       const lastProc = pipeProcessors[pipeProcessors.length - 1];
       pipeExporters.forEach((ex) => {
         let badge: string | undefined = undefined;
-        if (ex.component.endpoint && ex.component.endpoint.includes(':')) {
+        if (ex.component?.endpoint && ex.component.endpoint.includes(':')) {
           const spl = ex.component.endpoint.split(':');
           badge = `:${spl[spl.length - 1]}`;
         }
@@ -897,8 +919,8 @@ const graphData = computed(() => {
       // Direct Receiver -> Exporters (no processors in pipeline)
       pipeReceivers.forEach((rx) => {
         pipeExporters.forEach((ex) => {
-          let badge: string | undefined = rx.component.interval;
-          if (!badge && ex.component.endpoint && ex.component.endpoint.includes(':')) {
+          let badge: string | undefined = rx.component?.interval;
+          if (!badge && ex.component?.endpoint && ex.component.endpoint.includes(':')) {
             badge = `:${ex.component.endpoint.split(':').pop()}`;
           }
           createLink(
@@ -918,63 +940,65 @@ const graphData = computed(() => {
   // Clean 1-to-1 parallel telemetry pipelines instead of full-mesh crossing lines
   let hasInferredLinks = false;
 
-  if (autoConnectEnabled.value && (links.length === 0 || receivers.some((r) => !links.some((l) => l.sourceNodeId === r.id)) || exporters.some((e) => !links.some((l) => l.targetNodeId === e.id)))) {
+  if (autoConnectEnabled.value && (links.length === 0 || receiverNodes.some((r) => !links.some((l) => l.sourceNodeId === r.id)) || exporterNodes.some((e) => !links.some((l) => l.targetNodeId === e.id)))) {
     const connectedSources = new Set(links.map((l) => l.sourceNodeId));
     const connectedTargets = new Set(links.map((l) => l.targetNodeId));
 
-    const orphanReceivers = receivers.filter((r) => !connectedSources.has(r.id));
-    const orphanExporters = exporters.filter((e) => !connectedTargets.has(e.id));
+    const orphanReceivers = receiverNodes.filter((r) => !connectedSources.has(r.id));
+    const orphanExporters = exporterNodes.filter((e) => !connectedTargets.has(e.id));
 
     // When 0 explicit links exist in entire graph:
-    if (links.length === 0 && receivers.length > 0 && exporters.length > 0) {
+    if (links.length === 0 && receiverNodes.length > 0 && exporterNodes.length > 0) {
       hasInferredLinks = true;
 
-      receivers.forEach((rx, idx) => {
-        const rxName = rx.component.name.toLowerCase();
-        let matchedEx = exporters.find((ex) => {
-          const exName = ex.component.name.toLowerCase();
+      receiverNodes.forEach((rx, idx) => {
+        const rxName = (rx.component?.name || '').toLowerCase();
+        let matchedEx = exporterNodes.find((ex) => {
+          const exName = (ex.component?.name || '').toLowerCase();
           return exName.includes(rxName) || rxName.includes(exName);
         });
         if (!matchedEx) {
-          matchedEx = exporters[Math.min(idx, exporters.length - 1)];
+          matchedEx = exporterNodes[Math.min(idx, exporterNodes.length - 1)];
         }
 
-        const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
+        const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
 
-        if (targetProc) {
-          createLink(rx, targetProc, 'auto', 'inferred', 'metrics', rx.component.interval || undefined, true);
-          createLink(targetProc, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint && matchedEx.component.endpoint.includes(':') ? `:${matchedEx.component.endpoint.split(':').pop()}` : undefined, true);
-        } else {
-          createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', rx.component.interval || undefined, true);
+        if (targetProc && matchedEx) {
+          createLink(rx, targetProc, 'auto', 'inferred', 'metrics', rx.component?.interval || undefined, true);
+          createLink(targetProc, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component?.endpoint && matchedEx.component.endpoint.includes(':') ? `:${matchedEx.component.endpoint.split(':').pop()}` : undefined, true);
+        } else if (matchedEx) {
+          createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', rx.component?.interval || undefined, true);
         }
       });
     } else {
       // Cleanly connect orphan components
       orphanReceivers.forEach((rx, idx) => {
+        if (exporterNodes.length === 0) return;
         hasInferredLinks = true;
-        const rxName = rx.component.name.toLowerCase();
-        let matchedEx = orphanExporters.find((ex) => ex.component.name.toLowerCase().includes(rxName)) || orphanExporters[0] || exporters[Math.min(idx, exporters.length - 1)];
+        const rxName = (rx.component?.name || '').toLowerCase();
+        let matchedEx = orphanExporters.find((ex) => (ex.component?.name || '').toLowerCase().includes(rxName)) || orphanExporters[0] || exporterNodes[Math.min(idx, exporterNodes.length - 1)];
         if (matchedEx) {
-          const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
+          const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
           if (targetProc) {
-            createLink(rx, targetProc, 'orphan', 'inferred', 'metrics', rx.component.interval || undefined, true);
+            createLink(rx, targetProc, 'orphan', 'inferred', 'metrics', rx.component?.interval || undefined, true);
             createLink(targetProc, matchedEx, 'orphan', 'inferred', 'metrics', undefined, true);
           } else {
-            createLink(rx, matchedEx, 'orphan', 'inferred', 'metrics', rx.component.interval || undefined, true);
+            createLink(rx, matchedEx, 'orphan', 'inferred', 'metrics', rx.component?.interval || undefined, true);
           }
         }
       });
 
       orphanExporters.forEach((ex, idx) => {
+        if (receiverNodes.length === 0) return;
         if (!links.some((l) => l.targetNodeId === ex.id)) {
           hasInferredLinks = true;
-          const exName = ex.component.name.toLowerCase();
-          const matchedRx = receivers.find((rx) => exName.includes(rx.component.name.toLowerCase())) || receivers[Math.min(idx, receivers.length - 1)];
+          const exName = (ex.component?.name || '').toLowerCase();
+          const matchedRx = receiverNodes.find((rx) => exName.includes((rx.component?.name || '').toLowerCase())) || receiverNodes[Math.min(idx, receiverNodes.length - 1)];
           if (matchedRx) {
-            const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
+            const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
             if (targetProc) {
               createLink(matchedRx, targetProc, 'orphan', 'inferred', 'metrics', undefined, true);
-              createLink(targetProc, ex, 'orphan', 'inferred', 'metrics', ex.component.endpoint && ex.component.endpoint.includes(':') ? `:${ex.component.endpoint.split(':').pop()}` : undefined, true);
+              createLink(targetProc, ex, 'orphan', 'inferred', 'metrics', ex.component?.endpoint && ex.component.endpoint.includes(':') ? `:${ex.component.endpoint.split(':').pop()}` : undefined, true);
             } else {
               createLink(matchedRx, ex, 'orphan', 'inferred', 'metrics', undefined, true);
             }
@@ -990,12 +1014,13 @@ const graphData = computed(() => {
     hasInferredLinks,
     canvasWidth,
     canvasHeight,
-    colX,
+    colX: colX || { receiver: 220, processor: 770, exporter: 1320 },
   };
 });
 
 // Helper for component icons
-const getComponentIcon = (comp: OTelComponent) => {
+const getComponentIcon = (comp?: OTelComponent) => {
+  if (!comp) return Server;
   const t = (comp.type || '').toLowerCase();
   const name = (comp.name || '').toLowerCase();
 
@@ -1054,17 +1079,19 @@ const togglePipelineFilter = (pipeId: string) => {
 const isNodeInActivePipeline = (node: GraphNode): boolean => {
   if (selectedPipelineFilter.value === 'all') return true;
   const targetPipeName = selectedPipelineFilter.value;
-  if (node.component.pipelines && node.component.pipelines.includes(targetPipeName)) {
+  if (node.component?.pipelines && node.component.pipelines.includes(targetPipeName)) {
     return true;
   }
-  const p = parsedModel.value.pipelines.find((pipe) => pipe.name === targetPipeName || pipe.id === targetPipeName);
+  const pipelines = parsedModel.value?.pipelines || [];
+  const p = pipelines.find((pipe) => pipe && (pipe.name === targetPipeName || pipe.id === targetPipeName));
   if (!p) return true;
-  const nName = node.component.name.toLowerCase();
-  const nType = (node.component.type || '').toLowerCase();
+  const nName = (node.component?.name || '').toLowerCase();
+  const nType = (node.component?.type || '').toLowerCase();
 
-  const matches = (list: string[]) =>
-    list.some((item) => {
-      const clean = item.toLowerCase().trim();
+  const matches = (list?: string[]) =>
+    (list || []).some((item) => {
+      if (!item) return false;
+      const clean = String(item).toLowerCase().trim();
       return clean === nName || clean === nType || nName.endsWith('/' + clean) || clean.endsWith('/' + nName);
     });
 
@@ -1194,7 +1221,7 @@ const loadHostConfig = async (hostId: string) => {
   loadingConfig.value = true;
   try {
     const res = await axios.get(`/api/v1/otel/hosts/${hostId}/config`);
-    if (res.data?.success && res.data.data) {
+    if (res.data?.success && typeof res.data.data === 'string' && res.data.data.trim()) {
       yamlContent.value = res.data.data;
       initialLoadedContent.value = res.data.data;
       setFeedback('success', 'Host Config Loaded', `Successfully loaded remote config from ${selectedHost.value?.name || 'host'}.`);
@@ -1204,6 +1231,8 @@ const loadHostConfig = async (hostId: string) => {
       initialLoadedContent.value = DEFAULT_SAMPLE_CONFIG;
     }
   } catch (err: any) {
+    yamlContent.value = DEFAULT_SAMPLE_CONFIG;
+    initialLoadedContent.value = DEFAULT_SAMPLE_CONFIG;
     setFeedback('error', 'Failed to fetch remote config', err.response?.data?.error || err.message);
   } finally {
     loadingConfig.value = false;
@@ -1695,17 +1724,17 @@ onMounted(async () => {
           <div class="flex items-center gap-4 text-slate-500 dark:text-slate-400">
             <div class="flex items-center gap-1.5">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              <span class="font-semibold text-slate-700 dark:text-slate-300">Receivers ({{ graphData.nodes.filter(n => n.category === 'receiver').length }})</span>
+              <span class="font-semibold text-slate-700 dark:text-slate-300">Receivers ({{ (graphData.nodes || []).filter(n => n.category === 'receiver').length }})</span>
             </div>
             <ArrowRight class="w-3 h-3 text-slate-400" />
             <div class="flex items-center gap-1.5">
               <span class="w-2.5 h-2.5 rounded-full bg-blue-500" />
-              <span class="font-semibold text-slate-700 dark:text-slate-300">Processors ({{ graphData.nodes.filter(n => n.category === 'processor').length }})</span>
+              <span class="font-semibold text-slate-700 dark:text-slate-300">Processors ({{ (graphData.nodes || []).filter(n => n.category === 'processor').length }})</span>
             </div>
             <ArrowRight class="w-3 h-3 text-slate-400" />
             <div class="flex items-center gap-1.5">
               <span class="w-2.5 h-2.5 rounded-full bg-amber-500" />
-              <span class="font-semibold text-slate-700 dark:text-slate-300">Targets / Exporters ({{ graphData.nodes.filter(n => n.category === 'exporter').length }})</span>
+              <span class="font-semibold text-slate-700 dark:text-slate-300">Targets / Exporters ({{ (graphData.nodes || []).filter(n => n.category === 'exporter').length }})</span>
             </div>
           </div>
 
@@ -1731,7 +1760,7 @@ onMounted(async () => {
             >
               Auto-Routed
             </span>
-            <span>{{ graphData.links.length }} active links</span>
+            <span>{{ (graphData.links || []).length }} active links</span>
           </div>
         </div>
 
@@ -1757,7 +1786,7 @@ onMounted(async () => {
           <!-- Scalable & Pannable Graph Group -->
           <svg
             class="w-full h-full overflow-visible"
-            :viewBox="`0 0 ${graphData.canvasWidth} ${graphData.canvasHeight}`"
+            :viewBox="`0 0 ${graphData.canvasWidth || 1540} ${graphData.canvasHeight || 540}`"
             :style="{
               transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel})`,
               transformOrigin: '50% 50%',
@@ -1779,13 +1808,13 @@ onMounted(async () => {
 
             <!-- Column Header Labels inside Graph -->
             <g class="pointer-events-none select-none">
-              <text :x="graphData.colX.receiver" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX?.receiver || 220" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 1 • RECEIVERS
               </text>
-              <text :x="graphData.colX.processor" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX?.processor || 770" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 2 • PROCESSORS
               </text>
-              <text :x="graphData.colX.exporter" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX?.exporter || 1320" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 3 • TARGETS
               </text>
             </g>
@@ -1881,7 +1910,7 @@ onMounted(async () => {
                   class="transition-all duration-200"
                   :class="{
                     'scale-115 stroke-[3]': isNodeInActivePipeline(node) && selectedPipelineFilter !== 'all',
-                    'scale-110': (hoveredNodeId === node.id || inspectedNode?.name === node.component.name) && selectedPipelineFilter === 'all',
+                    'scale-110': (hoveredNodeId === node.id || inspectedNode?.name === node.component?.name) && selectedPipelineFilter === 'all',
                   }"
                   :fill="getNodeColor(node.category).haloFill"
                   :stroke="getNodeColor(node.category).haloStroke"
@@ -1916,43 +1945,43 @@ onMounted(async () => {
                   text-anchor="middle"
                   class="text-[12px] font-bold fill-slate-900 dark:fill-white tracking-tight"
                 >
-                  <title>{{ node.component.name }}</title>
-                  <template v-if="node.component.name.length > 32 && node.component.name.includes('/')">
-                    <tspan x="0" dy="0">{{ node.component.name.slice(0, node.component.name.indexOf('/') + 1) }}</tspan>
-                    <tspan x="0" dy="13">{{ node.component.name.slice(node.component.name.indexOf('/') + 1) }}</tspan>
+                  <title>{{ node.component?.name || '' }}</title>
+                  <template v-if="(node.component?.name || '').length > 32 && (node.component?.name || '').includes('/')">
+                    <tspan x="0" dy="0">{{ (node.component?.name || '').slice(0, (node.component?.name || '').indexOf('/') + 1) }}</tspan>
+                    <tspan x="0" dy="13">{{ (node.component?.name || '').slice((node.component?.name || '').indexOf('/') + 1) }}</tspan>
                   </template>
                   <template v-else>
-                    {{ node.component.name }}
+                    {{ node.component?.name || '' }}
                   </template>
                 </text>
 
                 <!-- Label 2: Key Sub-metadata (Endpoint, IP or Scrapers) -->
                 <text
                   x="0"
-                  :y="node.component.name.length > 32 && node.component.name.includes('/') ? 66 : 52"
+                  :y="(node.component?.name || '').length > 32 && (node.component?.name || '').includes('/') ? 66 : 52"
                   text-anchor="middle"
                   class="text-[10px] font-medium fill-slate-500 dark:fill-slate-400 font-mono"
                 >
-                  <title v-if="node.component.endpoint">{{ node.component.endpoint }}</title>
-                  <tspan v-if="node.component.endpoint">
-                    {{ node.component.endpoint.length > 38 ? node.component.endpoint.slice(0, 36) + '…' : node.component.endpoint }}
+                  <title v-if="node.component?.endpoint">{{ node.component.endpoint }}</title>
+                  <tspan v-if="node.component?.endpoint">
+                    {{ (node.component.endpoint || '').length > 38 ? (node.component.endpoint || '').slice(0, 36) + '…' : node.component.endpoint }}
                   </tspan>
-                  <tspan v-else-if="node.component.interval">
+                  <tspan v-else-if="node.component?.interval">
                     {{ node.component.interval }} interval
                   </tspan>
-                  <tspan v-else-if="node.component.timeout">
+                  <tspan v-else-if="node.component?.timeout">
                     {{ node.component.timeout }} timeout
                   </tspan>
-                  <tspan v-else-if="node.component.scrapers && node.component.scrapers.length > 0">
+                  <tspan v-else-if="node.component?.scrapers && node.component.scrapers.length > 0">
                     {{ node.component.scrapers.length }} scrapers
                   </tspan>
-                  <tspan v-else-if="node.component.paths && node.component.paths.length > 0">
+                  <tspan v-else-if="node.component?.paths && node.component.paths.length > 0">
                     {{ node.component.paths.length }} files
                   </tspan>
-                  <tspan v-else-if="node.component.actions && node.component.actions.length > 0">
+                  <tspan v-else-if="node.component?.actions && node.component.actions.length > 0">
                     {{ node.component.actions.length }} action{{ node.component.actions.length > 1 ? 's' : '' }}
                   </tspan>
-                  <tspan v-else-if="node.component.type && node.component.type !== node.component.name">
+                  <tspan v-else-if="node.component?.type && node.component.type !== node.component.name">
                     {{ node.component.type }}
                   </tspan>
                 </text>
@@ -2048,7 +2077,7 @@ onMounted(async () => {
 
           <div class="flex items-center gap-2">
             <span class="text-[11px] font-mono text-slate-400">
-              {{ yamlContent.split('\n').length }} lines
+              {{ (yamlContent || '').split('\n').length }} lines
             </span>
           </div>
         </div>
