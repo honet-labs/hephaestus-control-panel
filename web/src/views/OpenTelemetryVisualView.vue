@@ -365,6 +365,7 @@ const inspectedNode = ref<OTelComponent | null>(null);
 const hoveredNodeId = ref<string | null>(null);
 const hoveredLinkId = ref<string | null>(null);
 const copiedYaml = ref(false);
+const showNodeRawYaml = ref(true);
 
 // Templates & Confirmation Modals
 const showTemplateModal = ref(false);
@@ -1271,16 +1272,45 @@ const endPan = () => {
 // Node inspector & highlights
 const inspectNode = (comp: OTelComponent) => {
   inspectedNode.value = comp;
+  showNodeRawYaml.value = true;
 };
 
 const closeInspector = () => {
   inspectedNode.value = null;
 };
 
+const formattedInspectedSnippet = computed(() => {
+  if (!inspectedNode.value) return '';
+  const snippet = inspectedNode.value.rawSnippet;
+  if (!snippet || !snippet.trim()) {
+    const lines = [`${inspectedNode.value.name}:`];
+    if (inspectedNode.value.endpoint) lines.push(`  endpoint: "${inspectedNode.value.endpoint}"`);
+    if (inspectedNode.value.interval) lines.push(`  collection_interval: ${inspectedNode.value.interval}`);
+    if (inspectedNode.value.timeout) lines.push(`  timeout: ${inspectedNode.value.timeout}`);
+    return lines.join('\n');
+  }
+
+  // Normalize line endings and trim outer indentation so component key starts flush at col 0
+  const lines = snippet.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  let minIndent = Infinity;
+  for (const l of lines) {
+    if (l.trim().length > 0) {
+      const match = l.match(/^\s*/);
+      const indent = match ? match[0].length : 0;
+      if (indent < minIndent) minIndent = indent;
+    }
+  }
+  if (minIndent > 0 && minIndent !== Infinity) {
+    return lines.map((l) => (l.length >= minIndent ? l.slice(minIndent) : l.trim())).join('\n');
+  }
+  return snippet;
+});
+
 const copyComponentSnippet = async () => {
   if (!inspectedNode.value) return;
   try {
-    await navigator.clipboard.writeText(inspectedNode.value.rawSnippet);
+    const textToCopy = formattedInspectedSnippet.value || inspectedNode.value.rawSnippet || '';
+    await navigator.clipboard.writeText(textToCopy);
     copiedYaml.value = true;
     setTimeout(() => {
       copiedYaml.value = false;
@@ -2206,62 +2236,96 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- NODE INSPECTOR SLIDE-OVER DRAWER (Bottom or Right) -->
+        <!-- NODE INSPECTOR SLIDE-OVER DRAWER (Bottom) -->
         <div
           v-if="inspectedNode"
-          class="p-4 bg-white dark:bg-[#0f1422] border-t border-slate-200 dark:border-[#1b2234] z-20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in slide-in-from-bottom-2"
+          class="p-4 bg-white dark:bg-[#0f1422] border-t border-slate-200 dark:border-[#1b2234] z-20 flex flex-col gap-3 animate-in slide-in-from-bottom-2 shadow-lg"
         >
-          <div class="space-y-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span
-                class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded font-mono"
-                :class="{
-                  'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400': inspectedNode.category === 'receiver',
-                  'bg-blue-500/10 text-blue-600 dark:text-blue-400': inspectedNode.category === 'processor',
-                  'bg-amber-500/10 text-amber-600 dark:text-amber-400': inspectedNode.category === 'exporter',
-                }"
-              >
-                {{ inspectedNode.category.toUpperCase() }}
-              </span>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate">
-                {{ inspectedNode.name }}
-              </h3>
-              <span class="text-xs text-slate-400 font-mono">({{ inspectedNode.type }})</span>
+          <!-- Top Row: Component Metadata & Controls -->
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="space-y-1.5 min-w-0">
+              <div class="flex items-center gap-2">
+                <span
+                  class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded font-mono"
+                  :class="{
+                    'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400': inspectedNode.category === 'receiver',
+                    'bg-blue-500/10 text-blue-600 dark:text-blue-400': inspectedNode.category === 'processor',
+                    'bg-amber-500/10 text-amber-600 dark:text-amber-400': inspectedNode.category === 'exporter',
+                  }"
+                >
+                  {{ inspectedNode.category === 'exporter' ? 'TARGET' : inspectedNode.category.toUpperCase() }}
+                </span>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate">
+                  {{ inspectedNode.name }}
+                </h3>
+                <span class="text-xs text-slate-400 font-mono">({{ inspectedNode.type }})</span>
+              </div>
+
+              <!-- Parameters preview -->
+              <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+                <span v-if="inspectedNode.endpoint" class="flex items-center gap-1 font-mono">
+                  <strong class="text-slate-400">Endpoint:</strong> {{ inspectedNode.endpoint }}
+                </span>
+                <span v-if="inspectedNode.interval" class="flex items-center gap-1 font-mono">
+                  <strong class="text-slate-400">Interval:</strong> {{ inspectedNode.interval }}
+                </span>
+                <span v-if="inspectedNode.scrapers && inspectedNode.scrapers.length" class="flex items-center gap-1">
+                  <strong class="text-slate-400">Scrapers:</strong> {{ inspectedNode.scrapers.join(', ') }}
+                </span>
+                <span v-if="inspectedNode.pipelines && inspectedNode.pipelines.length" class="flex items-center gap-1">
+                  <strong class="text-slate-400">Pipelines:</strong> {{ inspectedNode.pipelines.join(', ') }}
+                </span>
+              </div>
             </div>
 
-            <!-- Parameters preview -->
-            <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
-              <span v-if="inspectedNode.endpoint" class="flex items-center gap-1 font-mono">
-                <strong class="text-slate-400">Endpoint:</strong> {{ inspectedNode.endpoint }}
-              </span>
-              <span v-if="inspectedNode.interval" class="flex items-center gap-1 font-mono">
-                <strong class="text-slate-400">Interval:</strong> {{ inspectedNode.interval }}
-              </span>
-              <span v-if="inspectedNode.scrapers && inspectedNode.scrapers.length" class="flex items-center gap-1">
-                <strong class="text-slate-400">Scrapers:</strong> {{ inspectedNode.scrapers.join(', ') }}
-              </span>
-              <span v-if="inspectedNode.pipelines && inspectedNode.pipelines.length" class="flex items-center gap-1">
-                <strong class="text-slate-400">Pipelines:</strong> {{ inspectedNode.pipelines.join(', ') }}
-              </span>
+            <!-- Inspector Action Buttons -->
+            <div class="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                @click="showNodeRawYaml = !showNodeRawYaml"
+                class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+                :title="showNodeRawYaml ? 'Hide YAML code' : 'Show YAML code'"
+              >
+                <FileCode class="w-3.5 h-3.5 text-slate-400" />
+                <span>{{ showNodeRawYaml ? 'Hide YAML' : 'View YAML' }}</span>
+              </button>
+
+              <button
+                @click="copyComponentSnippet"
+                class="flex items-center gap-1 px-3 py-1.5 bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+              >
+                <Check v-if="copiedYaml" class="w-3.5 h-3.5 text-emerald-500" />
+                <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
+                <span>{{ copiedYaml ? 'Copied!' : 'Copy YAML' }}</span>
+              </button>
+
+              <button
+                @click="closeInspector"
+                class="p-1.5 hover:bg-slate-100 dark:hover:bg-[#1a2336] rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white transition cursor-pointer"
+                title="Close Inspector"
+              >
+                <X class="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <!-- Inspector Action Buttons -->
-          <div class="flex items-center gap-2 shrink-0">
-            <button
-              @click="copyComponentSnippet"
-              class="flex items-center gap-1 px-3 py-1.5 bg-slate-100 dark:bg-[#1a2336] hover:bg-slate-200 dark:hover:bg-[#25324d] rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
-            >
-              <Check v-if="copiedYaml" class="w-3.5 h-3.5 text-emerald-500" />
-              <Copy v-else class="w-3.5 h-3.5 text-slate-400" />
-              <span>{{ copiedYaml ? 'Copied!' : 'Copy YAML' }}</span>
-            </button>
-            <button
-              @click="closeInspector"
-              class="p-1.5 hover:bg-slate-100 dark:hover:bg-[#1a2336] rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white transition cursor-pointer"
-            >
-              <X class="w-4 h-4" />
-            </button>
+          <!-- Bottom: Full YAML Configuration Snippet View -->
+          <div
+            v-if="showNodeRawYaml"
+            class="relative rounded-xl border border-slate-200 dark:border-[#1e273a] bg-slate-900 dark:bg-[#070b14] overflow-hidden shadow-xs"
+          >
+            <div class="flex items-center justify-between px-3 py-1.5 bg-slate-800/80 dark:bg-[#0c1220] border-b border-slate-700/60 dark:border-[#192236] text-[11px] text-slate-400">
+              <div class="flex items-center gap-1.5 font-mono">
+                <FileCode class="w-3 h-3 text-slate-400" />
+                <span>{{ inspectedNode.category }}s / {{ inspectedNode.name }}</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">
+                {{ (formattedInspectedSnippet || '').split('\n').length }} lines
+              </span>
+            </div>
+
+            <div class="p-3 overflow-x-auto max-h-52 font-mono text-xs leading-relaxed text-emerald-400 dark:text-emerald-300 selection:bg-blue-500/30">
+              <pre class="whitespace-pre font-mono"><code>{{ formattedInspectedSnippet }}</code></pre>
+            </div>
           </div>
         </div>
       </div>
