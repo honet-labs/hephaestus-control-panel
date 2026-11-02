@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,6 +22,10 @@ func RequestLoggerMiddleware() gin.HandlerFunc {
 
 		c.Header("X-Request-ID", reqID)
 		c.Set("requestId", reqID)
+
+		clientIP := c.ClientIP()
+		ctx := context.WithValue(c.Request.Context(), "client_ip", clientIP)
+		c.Request = c.Request.WithContext(ctx)
 
 		start := time.Now()
 		path := c.Request.URL.Path

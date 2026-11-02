@@ -113,7 +113,7 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 	currentUserID := c.GetInt("userId")
 	adminUsername := c.GetString("username")
 	details := fmt.Sprintf("Admin '%s' created user '%s' (role: %s)", adminUsername, user.Username, user.Role)
-	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Create", details, "success", &currentUserID)
+	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Create", details, "success", &currentUserID, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "User created successfully.", "data": user})
 }
@@ -184,7 +184,7 @@ func (h *SettingsHandler) UpdateUser(c *gin.Context) {
 
 	adminUsername := c.GetString("username")
 	details := fmt.Sprintf("Admin '%s' updated user ID %d ('%s')", adminUsername, id, existing.Username)
-	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Update", details, "success", &currentUserID)
+	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Update", details, "success", &currentUserID, c.ClientIP())
 
 	updatedUser, _ := h.userRepo.GetByID(c.Request.Context(), id)
 	c.JSON(http.StatusOK, gin.H{
@@ -215,7 +215,7 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 
 	adminUsername := c.GetString("username")
 	details := fmt.Sprintf("Admin '%s' deleted user '%s'", adminUsername, targetName)
-	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Delete", details, "success", &currentUserID)
+	_ = h.userRepo.LogActivity(c.Request.Context(), "Users", "Delete", details, "success", &currentUserID, c.ClientIP())
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "User deleted."})
 }

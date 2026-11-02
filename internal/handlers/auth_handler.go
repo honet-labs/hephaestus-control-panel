@@ -46,7 +46,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	neverExpire := req.NeverExpire || req.RememberMe
-	user, token, err := h.authService.Login(c.Request.Context(), strings.TrimSpace(req.Username), req.Password, neverExpire)
+	user, token, err := h.authService.Login(c.Request.Context(), strings.TrimSpace(req.Username), req.Password, neverExpire, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
@@ -88,7 +88,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 
 	if token != "" {
-		_ = h.authService.Logout(c.Request.Context(), token)
+		_ = h.authService.Logout(c.Request.Context(), token, c.ClientIP())
 	}
 
 	h.setSessionCookie(c, "", -1)
@@ -115,7 +115,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	userID := c.GetInt("userId")
-	if err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword); err != nil {
+	if err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword, c.ClientIP()); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -152,7 +152,7 @@ func (h *SetupHandler) CompleteSetup(c *gin.Context) {
 		return
 	}
 
-	user, token, err := h.authService.CompleteSetup(c.Request.Context(), req.Username, req.Password)
+	user, token, err := h.authService.CompleteSetup(c.Request.Context(), req.Username, req.Password, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return

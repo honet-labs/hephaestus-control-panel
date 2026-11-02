@@ -181,6 +181,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			END IF; 
 			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'activity_logs') THEN 
 				ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+				ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
 			END IF; 
 			IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'topology_pending') THEN 
 				ALTER TABLE topology_pending ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
@@ -220,6 +221,8 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 		-- Ensure master admin accounts have full ADMIN role
 		UPDATE users SET role = 'ADMIN' WHERE LOWER(username) IN ('admin', 'administrator', 'root') AND role != 'ADMIN';
+
+		ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
 
 		CREATE TABLE IF NOT EXISTS remote_host_firewall_rules (
 			id VARCHAR(50) PRIMARY KEY,

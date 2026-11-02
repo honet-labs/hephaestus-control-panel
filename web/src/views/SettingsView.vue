@@ -1879,9 +1879,9 @@ onUnmounted(() => {
 
         <button
           @click="refreshCurrentLogs"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition shadow-sm self-start sm:self-auto"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition shadow-sm self-start sm:self-auto cursor-pointer"
         >
-          <RotateCw class="w-3.5 h-3.5 text-[#4274D9]" :class="{ 'animate-spin': loadingLogs }" />
+          <RotateCw class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" :class="{ 'animate-spin': loadingLogs }" />
           <span>Refresh</span>
         </button>
       </div>
@@ -1891,8 +1891,9 @@ onUnmounted(() => {
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50 dark:bg-[#1a202c] text-slate-700 dark:text-slate-300 text-[10px] uppercase font-bold tracking-wider border-b border-slate-200 dark:border-slate-800">
             <tr>
-              <th class="p-3 w-48">Timestamp</th>
+              <th class="p-3 w-44">Timestamp</th>
               <th class="p-3 w-32">Actor / User</th>
+              <th class="p-3 w-32">Src IP</th>
               <th class="p-3 w-24">Module</th>
               <th class="p-3 w-36">Action</th>
               <th class="p-3">Details</th>
@@ -1911,6 +1912,12 @@ onUnmounted(() => {
                 <span v-else class="text-slate-400 dark:text-slate-500 italic text-[11px]">
                   Anonymous
                 </span>
+              </td>
+              <td class="p-3 font-mono text-slate-600 dark:text-slate-300 text-[11px] whitespace-nowrap">
+                <span v-if="log.ipAddress" class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px]">
+                  {{ log.ipAddress }}
+                </span>
+                <span v-else class="text-slate-400 dark:text-slate-500 italic text-[11px]">-</span>
               </td>
               <td class="p-3">
                 <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
@@ -1933,7 +1940,7 @@ onUnmounted(() => {
               </td>
             </tr>
             <tr v-if="auditLogs.length === 0">
-              <td colspan="6" class="p-8 text-center text-slate-400 dark:text-slate-500">
+              <td colspan="7" class="p-8 text-center text-slate-400 dark:text-slate-500">
                 No security or user activity logs recorded yet.
               </td>
             </tr>

@@ -272,8 +272,8 @@ const searchQuery = ref('');
 const showHostDropdown = ref(false);
 
 // ==================== CONFIGURATION STATE ====================
-const yamlContent = ref(DEFAULT_SAMPLE_CONFIG);
-const initialLoadedContent = ref(DEFAULT_SAMPLE_CONFIG);
+const yamlContent = ref('');
+const initialLoadedContent = ref('');
 const configSummary = ref('');
 const saving = ref(false);
 const loadingConfig = ref(false);
@@ -1270,6 +1270,10 @@ const fetchHosts = async (autoSelect = false) => {
             selectHost(hosts.value[0].id);
           }
         }
+      } else {
+        selectedHostId.value = '';
+        yamlContent.value = '';
+        initialLoadedContent.value = '';
       }
     }
   } catch (err: any) {
@@ -1295,13 +1299,13 @@ const loadHostConfig = async (hostId: string) => {
       initialLoadedContent.value = res.data.data;
       setFeedback('success', 'Host Config Loaded', `Successfully loaded remote config from ${selectedHost.value?.name || 'host'}.`);
     } else {
-      // Fallback to sample template if host file is empty
-      yamlContent.value = DEFAULT_SAMPLE_CONFIG;
-      initialLoadedContent.value = DEFAULT_SAMPLE_CONFIG;
+      // Empty remote file
+      yamlContent.value = '';
+      initialLoadedContent.value = '';
     }
   } catch (err: any) {
-    yamlContent.value = DEFAULT_SAMPLE_CONFIG;
-    initialLoadedContent.value = DEFAULT_SAMPLE_CONFIG;
+    yamlContent.value = '';
+    initialLoadedContent.value = '';
     setFeedback('error', 'Failed to fetch remote config', err.response?.data?.error || err.message);
   } finally {
     loadingConfig.value = false;
@@ -1668,43 +1672,50 @@ onMounted(async () => {
           <span>Pipelines:</span>
         </span>
 
-        <!-- 'All' Tab -->
-        <button
-          @click="selectedPipelineFilter = 'all'"
-          class="px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
-          :class="
-            selectedPipelineFilter === 'all'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-xs'
-              : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
-          "
-        >
-          All ({{ availablePipelines.length }})
-        </button>
+        <!-- Empty state when no pipelines configured -->
+        <span v-if="availablePipelines.length === 0" class="text-xs text-slate-400 dark:text-slate-500 italic pl-1">
+          No pipelines detected
+        </span>
 
-        <!-- Pipeline Specific Tabs with Signal Badges -->
-        <button
-          v-for="p in availablePipelines"
-          :key="p.id"
-          @click="togglePipelineFilter(p.id)"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
-          :class="
-            selectedPipelineFilter === p.id
-              ? 'bg-blue-600 text-white font-bold shadow-xs ring-2 ring-blue-500/30'
-              : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
-          "
-        >
-          <span>{{ p.name }}</span>
-          <span
-            class="text-[9px] px-1 py-0.2 rounded font-mono uppercase tracking-wider"
+        <template v-else>
+          <!-- 'All' Tab -->
+          <button
+            @click="selectedPipelineFilter = 'all'"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
             :class="
-              selectedPipelineFilter === p.id
-                ? 'bg-white/20 text-white'
-                : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              selectedPipelineFilter === 'all'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold shadow-xs'
+                : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
             "
           >
-            {{ p.signal }}
-          </span>
-        </button>
+            All ({{ availablePipelines.length }})
+          </button>
+
+          <!-- Pipeline Specific Tabs with Signal Badges -->
+          <button
+            v-for="p in availablePipelines"
+            :key="p.id"
+            @click="togglePipelineFilter(p.id)"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer"
+            :class="
+              selectedPipelineFilter === p.id
+                ? 'bg-blue-600 text-white font-bold shadow-xs ring-2 ring-blue-500/30'
+                : 'bg-slate-100 dark:bg-[#161d2d] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1f283d]'
+            "
+          >
+            <span>{{ p.name }}</span>
+            <span
+              class="text-[9px] px-1 py-0.2 rounded font-mono uppercase tracking-wider"
+              :class="
+                selectedPipelineFilter === p.id
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              "
+            >
+              {{ p.signal }}
+            </span>
+          </button>
+        </template>
       </div>
 
       <!-- Right: View Mode Toggle & Canvas Controls -->
@@ -1852,6 +1863,89 @@ onMounted(async () => {
             <rect width="100%" height="100%" fill="url(#grid-dots)" />
           </svg>
 
+          <!-- Empty State Overlay when No Host Selected or No Config -->
+          <div
+            v-if="!selectedHost && (!yamlContent || !yamlContent.trim())"
+            class="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center pointer-events-auto bg-slate-50/70 dark:bg-[#080c14]/85 backdrop-blur-xs"
+          >
+            <div class="max-w-md p-6 bg-white dark:bg-[#111624] rounded-2xl border border-slate-200 dark:border-[#1f283d] shadow-xl space-y-4">
+              <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-[#161d2d] border border-slate-200 dark:border-[#1f283d] flex items-center justify-center mx-auto text-slate-500 dark:text-slate-400">
+                <Network class="w-6 h-6" />
+              </div>
+              <div class="space-y-1.5">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                  {{ hosts.length === 0 ? 'No Remote Hosts Registered' : 'No Host Selected' }}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {{ hosts.length === 0
+                    ? 'No remote OpenTelemetry Collector hosts are connected yet. Register a host via Remote Connections, or load a sample template to explore pipeline topology.'
+                    : 'Please select an OpenTelemetry host from the dropdown in the top header to view and manage its pipeline topology.' }}
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <router-link
+                  v-if="hosts.length === 0"
+                  to="/connections"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Add Remote Host</span>
+                </router-link>
+                <button
+                  v-else
+                  @click="selectHost(hosts[0].id)"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  <Server class="w-3.5 h-3.5" />
+                  <span>Select {{ hosts[0].name }}</span>
+                </button>
+                <button
+                  @click="promptApplyTemplate(DEFAULT_SAMPLE_CONFIG, 'Docker + Host + WordPress Pipeline')"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-[#161d2d] hover:bg-slate-200 dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium border border-slate-200 dark:border-[#1f283d] transition cursor-pointer"
+                >
+                  <Sparkles class="w-3.5 h-3.5 text-slate-400" />
+                  <span>Load Sample Demo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty State Overlay when Host is Selected but Config is Empty -->
+          <div
+            v-else-if="selectedHost && (!yamlContent || !yamlContent.trim())"
+            class="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center pointer-events-auto bg-slate-50/70 dark:bg-[#080c14]/85 backdrop-blur-xs"
+          >
+            <div class="max-w-md p-6 bg-white dark:bg-[#111624] rounded-2xl border border-slate-200 dark:border-[#1f283d] shadow-xl space-y-4">
+              <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-[#161d2d] border border-slate-200 dark:border-[#1f283d] flex items-center justify-center mx-auto text-slate-500 dark:text-slate-400">
+                <FileCode class="w-6 h-6" />
+              </div>
+              <div class="space-y-1.5">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                  No Pipeline Configuration Found
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Host <strong class="text-slate-700 dark:text-slate-300">{{ selectedHost.name }}</strong> does not have an active OpenTelemetry configuration yet.
+                </p>
+              </div>
+              <div class="flex items-center justify-center gap-2 pt-1">
+                <button
+                  @click="showTemplateModal = true"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  <Sparkles class="w-3.5 h-3.5" />
+                  <span>Choose Template</span>
+                </button>
+                <button
+                  @click="viewMode = 'code'"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-[#161d2d] hover:bg-slate-200 dark:hover:bg-[#1f283d] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium border border-slate-200 dark:border-[#1f283d] transition cursor-pointer"
+                >
+                  <FileCode class="w-3.5 h-3.5" />
+                  <span>Write YAML</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Scalable & Pannable Graph Group -->
           <svg
             class="w-full h-full overflow-visible"
@@ -1876,7 +1970,7 @@ onMounted(async () => {
             </defs>
 
             <!-- Column Header Labels inside Graph -->
-            <g class="pointer-events-none select-none">
+            <g v-if="(graphData.nodes || []).length > 0" class="pointer-events-none select-none">
               <text :x="graphData.colX?.receiver || 220" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 1 • RECEIVERS
               </text>
@@ -2059,7 +2153,7 @@ onMounted(async () => {
           </svg>
 
           <!-- Floating Helper Note at Bottom of Canvas -->
-          <div class="absolute bottom-3 left-3 pointer-events-none text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 bg-white/80 dark:bg-black/60 px-2.5 py-1 rounded-lg backdrop-blur-xs border border-slate-200/50 dark:border-slate-800/50">
+          <div v-if="(graphData.nodes || []).length > 0" class="absolute bottom-3 left-3 pointer-events-none text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 bg-white/80 dark:bg-black/60 px-2.5 py-1 rounded-lg backdrop-blur-xs border border-slate-200/50 dark:border-slate-800/50">
             <Info class="w-3.5 h-3.5 text-slate-400" />
             <span>Click any node to inspect configuration snippet and pipeline links.</span>
           </div>

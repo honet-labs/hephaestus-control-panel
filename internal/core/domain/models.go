@@ -61,6 +61,7 @@ type ActivityLog struct {
 	Status    string    `json:"status"`
 	UserID    *int      `json:"userId"`
 	Username  *string   `json:"username,omitempty"`
+	IPAddress string    `json:"ipAddress"`
 }
 
 // ==================== CONFIG & MONITORING DOMAIN ====================

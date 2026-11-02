@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     action VARCHAR(100) NOT NULL,
     details TEXT,
     status VARCHAR(50) DEFAULT 'SUCCESS',
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    ip_address VARCHAR(45) DEFAULT ''
 );
 
 -- 6. GrafanaConfigs - Stores Grafana server connection profiles
@@ -621,6 +622,7 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_timestamp ON activity_logs(timestamp DESC);
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_grafana_configs_is_active ON grafana_configs(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_prometheus_configs_is_active ON prometheus_configs(is_active) WHERE is_active = true;

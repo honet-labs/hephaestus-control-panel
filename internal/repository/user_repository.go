@@ -272,14 +272,21 @@ func (r *UserRepository) CleanExpiredSessions(ctx context.Context) (int64, error
 }
 
 // Activity Log methods
-func (r *UserRepository) LogActivity(ctx context.Context, module, action, details, status string, userID *int) error {
+func (r *UserRepository) LogActivity(ctx context.Context, module, action, details, status string, userID *int, ipAddress ...string) error {
 	pool, err := database.GetPool()
 	if err != nil {
 		return err
 	}
 
-	_, err = pool.Exec(ctx, `INSERT INTO activity_logs (module, action, details, status, user_id) VALUES ($1, $2, $3, $4, $5)`,
-		module, action, details, status, userID)
+	ip := ""
+	if len(ipAddress) > 0 && ipAddress[0] != "" {
+		ip = ipAddress[0]
+	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+		ip = ctxIp
+	}
+
+	_, err = pool.Exec(ctx, `INSERT INTO activity_logs (module, action, details, status, user_id, ip_address) VALUES ($1, $2, $3, $4, $5, $6)`,
+		module, action, details, status, userID, ip)
 	return err
 }
 
@@ -292,7 +299,7 @@ func (r *UserRepository) ListActivityLogs(ctx context.Context, limit, offset int
 	var count int
 	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM activity_logs`).Scan(&count)
 
-	query := `SELECT l.id, l.timestamp, l.module, l.action, l.details, l.status, l.user_id, u.username
+	query := `SELECT l.id, l.timestamp, l.module, l.action, l.details, l.status, l.user_id, u.username, COALESCE(l.ip_address, '')
               FROM activity_logs l
               LEFT JOIN users u ON l.user_id = u.id
               ORDER BY l.timestamp DESC LIMIT $1 OFFSET $2`
@@ -305,7 +312,7 @@ func (r *UserRepository) ListActivityLogs(ctx context.Context, limit, offset int
 	var logs []domain.ActivityLog
 	for rows.Next() {
 		var l domain.ActivityLog
-		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Module, &l.Action, &l.Details, &l.Status, &l.UserID, &l.Username); err != nil {
+		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Module, &l.Action, &l.Details, &l.Status, &l.UserID, &l.Username, &l.IPAddress); err != nil {
 			return nil, 0, err
 		}
 		logs = append(logs, l)

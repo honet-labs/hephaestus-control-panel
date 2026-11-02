@@ -29,17 +29,24 @@ func NewAuthService(userRepo *repository.UserRepository, configRepo *repository.
 	}
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string, neverExpire bool) (*domain.User, string, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string, neverExpire bool, ipAddress ...string) (*domain.User, string, error) {
+	ip := ""
+	if len(ipAddress) > 0 && ipAddress[0] != "" {
+		ip = ipAddress[0]
+	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+		ip = ctxIp
+	}
+
 	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
 		logger.Warn("Auth", fmt.Sprintf("Login failed: Username '%s' not found", username))
-		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Username '%s' not found", username), "FAILED", nil)
+		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Username '%s' not found", username), "FAILED", nil, ip)
 		return nil, "", errors.New("invalid username or password")
 	}
 
 	if !config.CheckPasswordHash(password, user.PasswordHash) {
 		logger.Warn("Auth", fmt.Sprintf("Login failed: Incorrect password for user '%s'", username))
-		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Incorrect password for '%s'", username), "FAILED", &user.ID)
+		_ = s.userRepo.LogActivity(ctx, "Auth", "Login Failed", fmt.Sprintf("Incorrect password for '%s'", username), "FAILED", &user.ID, ip)
 		return nil, "", errors.New("invalid username or password")
 	}
 
@@ -62,16 +69,23 @@ func (s *AuthService) Login(ctx context.Context, username, password string, neve
 	}
 
 	logger.Info("Auth", fmt.Sprintf("Login success: User '%s' authenticated (neverExpire=%t)", username, neverExpire))
-	_ = s.userRepo.LogActivity(ctx, "Auth", "Login Success", fmt.Sprintf("User '%s' logged in", username), "SUCCESS", &user.ID)
+	_ = s.userRepo.LogActivity(ctx, "Auth", "Login Success", fmt.Sprintf("User '%s' logged in", username), "SUCCESS", &user.ID, ip)
 	return user, rawToken, nil
 }
 
-func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
+func (s *AuthService) Logout(ctx context.Context, rawToken string, ipAddress ...string) error {
+	ip := ""
+	if len(ipAddress) > 0 && ipAddress[0] != "" {
+		ip = ipAddress[0]
+	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+		ip = ctxIp
+	}
+
 	tokenHash := config.HashToken(rawToken)
 	_, user, err := s.userRepo.GetSessionByToken(ctx, tokenHash)
 	if err == nil && user != nil {
 		logger.Info("Auth", fmt.Sprintf("User '%s' logged out", user.Username))
-		_ = s.userRepo.LogActivity(ctx, "Auth", "Logout", fmt.Sprintf("User '%s' logged out", user.Username), "SUCCESS", &user.ID)
+		_ = s.userRepo.LogActivity(ctx, "Auth", "Logout", fmt.Sprintf("User '%s' logged out", user.Username), "SUCCESS", &user.ID, ip)
 	}
 	return s.userRepo.DeleteSession(ctx, tokenHash)
 }
@@ -85,7 +99,14 @@ func (s *AuthService) ValidateSession(ctx context.Context, rawToken string) (*do
 	return user, nil
 }
 
-func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPassword, newPassword string) error {
+func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPassword, newPassword string, ipAddress ...string) error {
+	ip := ""
+	if len(ipAddress) > 0 && ipAddress[0] != "" {
+		ip = ipAddress[0]
+	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+		ip = ctxIp
+	}
+
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
@@ -108,7 +129,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPasswor
 	err = s.userRepo.UpdatePassword(ctx, userID, newHash, false)
 	if err == nil {
 		logger.Info("Auth", fmt.Sprintf("User '%s' changed password successfully", user.Username))
-		_ = s.userRepo.LogActivity(ctx, "User", "Change Password", "User changed password successfully", "SUCCESS", &userID)
+		_ = s.userRepo.LogActivity(ctx, "User", "Change Password", "User changed password successfully", "SUCCESS", &userID, ip)
 	}
 	return err
 }
@@ -121,7 +142,14 @@ func (s *AuthService) IsSetupCompleted(ctx context.Context) bool {
 	return val == "true"
 }
 
-func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPassword string) (*domain.User, string, error) {
+func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPassword string, ipAddress ...string) (*domain.User, string, error) {
+	ip := ""
+	if len(ipAddress) > 0 && ipAddress[0] != "" {
+		ip = ipAddress[0]
+	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+		ip = ctxIp
+	}
+
 	// Atomic lock to eliminate setup race conditions (HCP-SEC-011)
 	s.setupMu.Lock()
 	defer s.setupMu.Unlock()
@@ -152,7 +180,7 @@ func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPas
 
 	_ = s.configRepo.SetAppConfig(ctx, "setup_completed", "true")
 	logger.Info("Setup", fmt.Sprintf("Initial setup completed. Master admin '%s' initialized", adminUsername))
-	_ = s.userRepo.LogActivity(ctx, "Setup", "Initial Setup Completed", fmt.Sprintf("Admin user '%s' created", adminUsername), "SUCCESS", &user.ID)
+	_ = s.userRepo.LogActivity(ctx, "Setup", "Initial Setup Completed", fmt.Sprintf("Admin user '%s' created", adminUsername), "SUCCESS", &user.ID, ip)
 
 	// Auto-login newly created admin with standard 24h session
 	tokenBytes := make([]byte, 32)
