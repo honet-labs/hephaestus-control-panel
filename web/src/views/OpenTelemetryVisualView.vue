@@ -374,6 +374,12 @@ const parsedModel = computed(() => {
   let currentPipelineKey = '';
   let inListField: 'receivers' | 'processors' | 'exporters' | '' = '';
 
+  const toCategory = (sec: string): 'receiver' | 'processor' | 'exporter' => {
+    if (sec === 'processors' || sec === 'processor') return 'processor';
+    if (sec === 'exporters' || sec === 'exporter') return 'exporter';
+    return 'receiver';
+  };
+
   const finalizeComponent = () => {
     if (currentComponent && currentComponent.name && currentComponent.category) {
       const id = `${currentComponent.category}:${currentComponent.name}`;
@@ -403,14 +409,16 @@ const parsedModel = computed(() => {
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const trimmed = rawLine.trim();
+    const lineWithoutComment = rawLine.split('#')[0];
+    const trimmedNoComment = lineWithoutComment.trim();
 
     // Check top-level sections (0 indent)
-    if (!rawLine.startsWith(' ') && !rawLine.startsWith('\t') && trimmed.endsWith(':')) {
+    if (!rawLine.startsWith(' ') && !rawLine.startsWith('\t') && trimmedNoComment.endsWith(':')) {
       finalizeComponent();
       finalizePipeline();
       inPipelines = false;
 
-      const secName = trimmed.slice(0, -1);
+      const secName = trimmedNoComment.slice(0, -1).trim();
       if (secName === 'receivers' || secName === 'processors' || secName === 'exporters' || secName === 'service') {
         currentSection = secName;
       } else {
@@ -423,18 +431,20 @@ const parsedModel = computed(() => {
 
     // Inside receivers, processors, exporters
     if (currentSection === 'receivers' || currentSection === 'processors' || currentSection === 'exporters') {
+      const indent = rawLine.match(/^(\s*)/)?.[1].length || 0;
       // 2-space indent indicates new component name
-      const isComponentHeader = rawLine.startsWith('  ') && !rawLine.startsWith('   ') && trimmed.endsWith(':') && !trimmed.startsWith('#');
+      const isComponentHeader = indent === 2 && trimmedNoComment.endsWith(':');
       if (isComponentHeader) {
         finalizeComponent();
-        const rawCompName = trimmed.slice(0, -1).trim();
+        const rawCompName = trimmedNoComment.slice(0, -1).trim();
         const parts = rawCompName.split('/');
         const compType = parts[0];
-        const instanceName = parts.length > 1 ? parts[1] : undefined;
+        const instanceName = parts.length > 1 ? parts.slice(1).join('/') : undefined;
+        const cat = toCategory(currentSection);
 
         currentComponent = {
-          id: `${currentSection}:${rawCompName}`,
-          category: currentSection,
+          id: `${cat}:${rawCompName}`,
+          category: cat,
           name: rawCompName,
           type: compType,
           instanceName,
@@ -482,16 +492,17 @@ const parsedModel = computed(() => {
 
     // Inside service -> pipelines
     if (currentSection === 'service') {
-      if (rawLine.startsWith('  ') && trimmed === 'pipelines:') {
+      const indent = rawLine.match(/^(\s*)/)?.[1].length || 0;
+      if (indent === 2 && trimmedNoComment.startsWith('pipelines:')) {
         inPipelines = true;
         continue;
       }
 
       if (inPipelines) {
         // Pipeline header (4-space indent)
-        if (rawLine.startsWith('    ') && !rawLine.startsWith('     ') && trimmed.endsWith(':') && !trimmed.startsWith('#')) {
+        if (indent === 4 && trimmedNoComment.endsWith(':')) {
           finalizePipeline();
-          currentPipelineKey = trimmed.slice(0, -1).trim();
+          currentPipelineKey = trimmedNoComment.slice(0, -1).trim();
           let signal: 'metrics' | 'logs' | 'traces' = 'metrics';
           if (currentPipelineKey.startsWith('logs')) signal = 'logs';
           else if (currentPipelineKey.startsWith('traces')) signal = 'traces';
@@ -546,15 +557,15 @@ const parsedModel = computed(() => {
   // Link components with pipelines using them
   pipelinesList.forEach((pipe) => {
     pipe.receivers.forEach((rName) => {
-      const c = componentsMap.get(`receivers:${rName}`);
+      const c = componentsMap.get(`receiver:${rName}`);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
     pipe.processors.forEach((pName) => {
-      const c = componentsMap.get(`processors:${pName}`);
+      const c = componentsMap.get(`processor:${pName}`);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
     pipe.exporters.forEach((eName) => {
-      const c = componentsMap.get(`exporters:${eName}`);
+      const c = componentsMap.get(`exporter:${eName}`);
       if (c && !c.pipelines.includes(pipe.name)) c.pipelines.push(pipe.name);
     });
   });
@@ -582,9 +593,9 @@ const graphData = computed(() => {
   const { components } = parsedModel.value;
   const pipelines = activePipelines.value;
 
-  // Filter components relevant to active pipelines (or show all if no pipeline defined)
+  // Filter components relevant to active pipelines if specific pipeline is selected
   let activeComponents = components;
-  if (pipelines.length > 0) {
+  if (pipelines.length > 0 && selectedPipelineFilter.value !== 'all') {
     const relevantNames = new Set<string>();
     pipelines.forEach((p) => {
       p.receivers.forEach((r) => relevantNames.add(`receiver:${r}`));
@@ -1600,10 +1611,11 @@ onMounted(async () => {
                 />
 
                 <!-- Icon rendered inside circle -->
-                <foreignObject x="-11" y="-11" width="22" height="22" class="pointer-events-none">
+                <foreignObject x="-10" y="-10" width="20" height="20" class="pointer-events-none">
                   <component
                     :is="getComponentIcon(node.component)"
-                    class="w-5.5 h-5.5 text-white"
+                    :size="20"
+                    class="text-white"
                   />
                 </foreignObject>
 
