@@ -328,7 +328,6 @@ const panX = ref(0);
 const panY = ref(0);
 const isPanning = ref(false);
 const panStart = ref({ x: 0, y: 0 });
-const animatedFlow = ref(true);
 const autoConnectEnabled = ref(true);
 
 // Node inspection state
@@ -528,6 +527,9 @@ const parsedModel = computed(() => {
           currentComponent.interval = cleanVal(trimmed.slice('collection_interval:'.length));
         } else if (trimmed.startsWith('timeout:')) {
           currentComponent.timeout = cleanVal(trimmed.slice('timeout:'.length));
+        } else if (trimmed.startsWith('send_batch_size:') || trimmed.startsWith('send_batch_max_size:')) {
+          const bVal = cleanVal(trimmed.split(':')[1]);
+          if (bVal) currentComponent.interval = `${bVal} batch`;
         } else if (trimmed.startsWith('insecure:')) {
           currentComponent.tlsInsecure = trimmed.includes('true');
         } else if (trimmed.startsWith('include:')) {
@@ -696,13 +698,13 @@ const graphData = computed(() => {
   const maxRows = Math.max(receivers.length, processors.length, exporters.length, 1);
   const rowHeight = 140;
   const canvasHeight = Math.max(540, maxRows * rowHeight + 140);
-  const canvasWidth = 1420;
+  const canvasWidth = 1540;
 
   // X Coordinates for the 3 hop tiers: Receivers -> Processors -> Targets
   const colX = {
-    receiver: 180,
-    processor: 710,
-    exporter: 1240,
+    receiver: 220,
+    processor: 770,
+    exporter: 1320,
   };
 
   const nodes: GraphNode[] = [];
@@ -985,6 +987,7 @@ const graphData = computed(() => {
     hasInferredLinks,
     canvasWidth,
     canvasHeight,
+    colX,
   };
 });
 
@@ -1553,17 +1556,7 @@ onMounted(async () => {
           <span class="text-[11px]">Auto-Link</span>
         </button>
 
-        <!-- Live Particles Animated Toggle -->
-        <button
-          v-if="viewMode !== 'code'"
-          @click="animatedFlow = !animatedFlow"
-          :title="animatedFlow ? 'Disable Flow Animation' : 'Enable Flow Animation'"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-slate-200 dark:border-[#1b2234] transition cursor-pointer"
-          :class="animatedFlow ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20' : 'text-slate-500 hover:text-slate-700'"
-        >
-          <span class="w-1.5 h-1.5 rounded-full" :class="animatedFlow ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'" />
-          <span class="text-[11px]">Flow</span>
-        </button>
+
 
         <!-- Zoom Controls (for Visual Mode) -->
         <div v-if="viewMode !== 'code'" class="flex items-center border border-slate-200 dark:border-[#1b2234] rounded-lg overflow-hidden bg-slate-50 dark:bg-[#121826]">
@@ -1705,13 +1698,13 @@ onMounted(async () => {
 
             <!-- Column Header Labels inside Graph -->
             <g class="pointer-events-none select-none">
-              <text x="180" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX.receiver" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 1 • RECEIVERS
               </text>
-              <text x="710" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX.processor" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 2 • PROCESSORS
               </text>
-              <text x="1240" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
+              <text :x="graphData.colX.exporter" y="45" text-anchor="middle" class="text-[12px] font-bold fill-slate-400 dark:fill-slate-500 uppercase tracking-widest">
                 STAGE 3 • TARGETS
               </text>
             </g>
@@ -1746,18 +1739,7 @@ onMounted(async () => {
                   stroke-dasharray="7 5"
                 />
 
-                <!-- Animated flowing packet particles -->
-                <circle
-                  v-if="animatedFlow"
-                  r="3.5"
-                  class="fill-emerald-400 dark:fill-emerald-300"
-                >
-                  <animateMotion
-                    :path="link.pathD"
-                    dur="2.5s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
+
 
                 <!-- Pill badge on curve showing metadata/latency/interval (just like the screenshot's '0.974 ms') -->
                 <g
@@ -1766,9 +1748,9 @@ onMounted(async () => {
                   class="cursor-pointer"
                 >
                   <rect
-                    x="-34"
+                    :x="-Math.max(28, (link.badgeLabel.length * 3.8) + 10)"
                     y="-11"
-                    width="68"
+                    :width="Math.max(56, (link.badgeLabel.length * 7.6) + 20)"
                     height="22"
                     rx="11"
                     ry="11"
@@ -1781,7 +1763,7 @@ onMounted(async () => {
                     text-anchor="middle"
                     class="text-[10px] font-bold fill-slate-700 dark:fill-slate-300 font-mono tracking-tight pointer-events-none"
                   >
-                    {{ link.badgeLabel.length > 10 ? link.badgeLabel.slice(0, 9) + '..' : link.badgeLabel }}
+                    {{ link.badgeLabel }}
                   </text>
                 </g>
               </g>
@@ -1846,26 +1828,43 @@ onMounted(async () => {
                   text-anchor="middle"
                   class="text-[12px] font-bold fill-slate-900 dark:fill-white tracking-tight"
                 >
-                  {{ node.component.name.length > 20 ? node.component.name.slice(0, 18) + '...' : node.component.name }}
+                  <title>{{ node.component.name }}</title>
+                  <template v-if="node.component.name.length > 32 && node.component.name.includes('/')">
+                    <tspan x="0" dy="0">{{ node.component.name.slice(0, node.component.name.indexOf('/') + 1) }}</tspan>
+                    <tspan x="0" dy="13">{{ node.component.name.slice(node.component.name.indexOf('/') + 1) }}</tspan>
+                  </template>
+                  <template v-else>
+                    {{ node.component.name }}
+                  </template>
                 </text>
 
                 <!-- Label 2: Key Sub-metadata (Endpoint, IP or Scrapers) -->
                 <text
                   x="0"
-                  y="52"
+                  :y="node.component.name.length > 32 && node.component.name.includes('/') ? 66 : 52"
                   text-anchor="middle"
                   class="text-[10px] font-medium fill-slate-500 dark:fill-slate-400 font-mono"
                 >
+                  <title v-if="node.component.endpoint">{{ node.component.endpoint }}</title>
                   <tspan v-if="node.component.endpoint">
-                    {{ node.component.endpoint.length > 22 ? node.component.endpoint.slice(0, 20) + '..' : node.component.endpoint }}
+                    {{ node.component.endpoint.length > 38 ? node.component.endpoint.slice(0, 36) + '…' : node.component.endpoint }}
                   </tspan>
                   <tspan v-else-if="node.component.interval">
                     {{ node.component.interval }} interval
                   </tspan>
+                  <tspan v-else-if="node.component.timeout">
+                    {{ node.component.timeout }} timeout
+                  </tspan>
                   <tspan v-else-if="node.component.scrapers && node.component.scrapers.length > 0">
                     {{ node.component.scrapers.length }} scrapers
                   </tspan>
-                  <tspan v-else>
+                  <tspan v-else-if="node.component.paths && node.component.paths.length > 0">
+                    {{ node.component.paths.length }} files
+                  </tspan>
+                  <tspan v-else-if="node.component.actions && node.component.actions.length > 0">
+                    {{ node.component.actions.length }} action{{ node.component.actions.length > 1 ? 's' : '' }}
+                  </tspan>
+                  <tspan v-else-if="node.component.type && node.component.type !== node.component.name">
                     {{ node.component.type }}
                   </tspan>
                 </text>
