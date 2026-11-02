@@ -810,26 +810,46 @@ const graphData = computed(() => {
 
 // Helper for component icons
 const getComponentIcon = (comp: OTelComponent) => {
-  const t = comp.type.toLowerCase();
-  const name = comp.name.toLowerCase();
+  const t = (comp.type || '').toLowerCase();
+  const name = (comp.name || '').toLowerCase();
 
   if (comp.category === 'receiver') {
-    if (t.includes('docker')) return Box;
-    if (t.includes('host') || t.includes('metric')) return Server;
-    if (t.includes('file') || t.includes('log')) return FileText;
+    if (t.includes('docker') || name.includes('docker')) return Box;
+    if (t.includes('host') || t.includes('metric') || name.includes('host') || name.includes('metric')) return Server;
+    if (t.includes('syslog') || name.includes('syslog')) return Radio;
+    if (t.includes('file') || t.includes('log') || name.includes('log')) return FileText;
+    if (t.includes('snmp') || name.includes('snmp')) return Radio;
+    if (t.includes('otlp') || name.includes('otlp')) return Globe;
+    if (t.includes('prom') || name.includes('prom')) return Flame;
     return Radio;
   }
   if (comp.category === 'processor') {
     if (t.includes('batch')) return Layers;
     if (t.includes('attr')) return Sliders;
-    return Cpu;
+    if (t.includes('memory') || t.includes('limiter')) return Cpu;
+    return Sliders;
   }
   if (comp.category === 'exporter') {
     if (t.includes('prometheus') || name.includes('prometheus')) return Flame;
-    if (t.includes('otlp') || name.includes('opensearch')) return Globe;
+    if (t.includes('otlp') || name.includes('otlp') || name.includes('opensearch')) return Globe;
     return Database;
   }
   return Server;
+};
+
+// Node SVG color helpers to avoid object duplicate key collisions
+const getNodeFillClass = (category: string) => {
+  if (category === 'receiver') return 'fill-emerald-600 dark:fill-emerald-500';
+  if (category === 'processor') return 'fill-blue-600 dark:fill-blue-500';
+  if (category === 'exporter') return 'fill-emerald-600 dark:fill-emerald-500';
+  return 'fill-slate-600 dark:fill-slate-500';
+};
+
+const getNodeGlowClass = (category: string) => {
+  if (category === 'receiver') return 'fill-emerald-500/10 stroke-emerald-500/40';
+  if (category === 'processor') return 'fill-blue-500/10 stroke-blue-500/40';
+  if (category === 'exporter') return 'fill-emerald-500/10 stroke-emerald-500/40';
+  return 'fill-slate-500/10 stroke-slate-500/40';
 };
 
 // ==================== CANVAS INTERACTION HELPERS ====================
@@ -1578,7 +1598,7 @@ onMounted(async () => {
                 <!-- Category Tag Above Node (RECEIVER, PROCESSOR, TARGET) -->
                 <text
                   x="0"
-                  y="-42"
+                  y="-36"
                   text-anchor="middle"
                   class="text-[10px] font-extrabold uppercase tracking-wider fill-slate-400 dark:fill-slate-500 transition group-hover:fill-blue-500"
                 >
@@ -1589,40 +1609,36 @@ onMounted(async () => {
                 <circle
                   r="32"
                   class="transition-all duration-200"
-                  :class="{
-                    'fill-emerald-500/10 stroke-emerald-500/40': node.category === 'receiver',
-                    'fill-blue-500/10 stroke-blue-500/40': node.category === 'processor',
-                    'fill-emerald-500/10 stroke-emerald-500/40': node.category === 'exporter',
-                    'scale-110': hoveredNodeId === node.id || inspectedNode?.name === node.component.name,
-                  }"
+                  :class="[
+                    getNodeGlowClass(node.category),
+                    (hoveredNodeId === node.id || inspectedNode?.name === node.component.name) ? 'scale-110' : ''
+                  ]"
                   stroke-width="2"
                   :filter="node.category === 'processor' ? 'url(#glow-blue)' : 'url(#glow-emerald)'"
                 />
 
-                <!-- Core Circular Badge (Green/Emerald like in the reference image) -->
+                <!-- Core Circular Badge (Green for Receivers/Exporters, Blue for Processors) -->
                 <circle
                   r="24"
                   class="transition-all duration-200"
-                  :class="{
-                    'fill-emerald-600 dark:fill-emerald-500': node.category === 'receiver',
-                    'fill-blue-600 dark:fill-blue-500': node.category === 'processor',
-                    'fill-emerald-600 dark:fill-emerald-500': node.category === 'exporter',
-                  }"
+                  :class="getNodeFillClass(node.category)"
                 />
 
                 <!-- Icon rendered inside circle -->
-                <foreignObject x="-10" y="-10" width="20" height="20" class="pointer-events-none">
-                  <component
-                    :is="getComponentIcon(node.component)"
-                    :size="20"
-                    class="text-white"
-                  />
+                <foreignObject x="-12" y="-12" width="24" height="24" class="pointer-events-none overflow-visible">
+                  <div class="w-full h-full flex items-center justify-center text-white">
+                    <component
+                      :is="getComponentIcon(node.component)"
+                      :size="18"
+                      class="text-white shrink-0 stroke-[2.2]"
+                    />
+                  </div>
                 </foreignObject>
 
                 <!-- Label 1: Main Component Name Underneath -->
                 <text
                   x="0"
-                  y="48"
+                  y="38"
                   text-anchor="middle"
                   class="text-[12px] font-bold fill-slate-900 dark:fill-white tracking-tight"
                 >
@@ -1632,7 +1648,7 @@ onMounted(async () => {
                 <!-- Label 2: Key Sub-metadata (Endpoint, IP or Scrapers) -->
                 <text
                   x="0"
-                  y="64"
+                  y="52"
                   text-anchor="middle"
                   class="text-[10px] font-medium fill-slate-500 dark:fill-slate-400 font-mono"
                 >

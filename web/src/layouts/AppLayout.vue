@@ -25,6 +25,8 @@ import {
   Boxes,
   Server,
   FileText,
+  Radio,
+  Flame,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -51,6 +53,16 @@ const isRemoteConfigOpen = ref(
   route.path.startsWith('/prometheus-config') ||
   route.path.startsWith('/opentelemetry-config') ||
   route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteOtelOpen = ref(
+  route.path.startsWith('/opentelemetry-config') ||
+  route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteDataPrepperOpen = ref(
+  route.path.startsWith('/dataprepper-config')
+);
+const isRemotePrometheusOpen = ref(
+  route.path.startsWith('/prometheus-config')
 );
 const isToolsOpen = ref(
   route.path.startsWith('/snmp') ||
@@ -90,6 +102,16 @@ const isRemoteConfigActive = computed(() =>
   route.path.startsWith('/prometheus-config') ||
   route.path.startsWith('/opentelemetry-config') ||
   route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteOtelActive = computed(() =>
+  route.path.startsWith('/opentelemetry-config') ||
+  route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteDataPrepperActive = computed(() =>
+  route.path.startsWith('/dataprepper-config')
+);
+const isRemotePrometheusActive = computed(() =>
+  route.path.startsWith('/prometheus-config')
 );
 const isToolsActive = computed(() =>
   route.path.startsWith('/snmp') ||
@@ -165,8 +187,17 @@ watch(
     if (newPath.startsWith('/network-topology') || newPath.startsWith('/ipam')) {
       isNetworkingOpen.value = true;
     }
-    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config')) {
+    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config') || newPath.startsWith('/opentelemetry-visual')) {
       isRemoteConfigOpen.value = true;
+      if (newPath.startsWith('/opentelemetry-config') || newPath.startsWith('/opentelemetry-visual')) {
+        isRemoteOtelOpen.value = true;
+      }
+      if (newPath.startsWith('/dataprepper-config')) {
+        isRemoteDataPrepperOpen.value = true;
+      }
+      if (newPath.startsWith('/prometheus-config')) {
+        isRemotePrometheusOpen.value = true;
+      }
     }
     if (newPath.startsWith('/snmp') || newPath.startsWith('/grok-debugger') || newPath.startsWith('/backup')) {
       isToolsOpen.value = true;
@@ -474,59 +505,120 @@ onUnmounted(() => {
             </button>
 
             <!-- Remote Config Sub-Menu Items -->
-            <div v-show="isRemoteConfigOpen" class="pl-4 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <router-link
-                v-if="authStore.can('dataprepper_config', 'read')"
-                to="/dataprepper-config"
-                :class="[
-                  route.path === '/dataprepper-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>Data Prepper Pipelines</span>
-              </router-link>
+            <div v-show="isRemoteConfigOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <!-- 1. OpenTelemetry Sub-group -->
+              <div v-if="authStore.can('opentelemetry_config', 'read')">
+                <button
+                  @click="isRemoteOtelOpen = !isRemoteOtelOpen"
+                  :class="[
+                    isRemoteOtelActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Radio class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteOtelActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>OpenTelemetry</span>
+                  </div>
+                  <component :is="isRemoteOtelOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteOtelActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
 
-              <router-link
-                v-if="authStore.can('prometheus_config', 'read')"
-                to="/prometheus-config"
-                :class="[
-                  route.path === '/prometheus-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>Prometheus Config</span>
-              </router-link>
+                <!-- Sub-items under OpenTelemetry -->
+                <div v-show="isRemoteOtelOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <router-link
+                    to="/opentelemetry-config"
+                    :class="[
+                      route.path === '/opentelemetry-config'
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>OpenTelemetry Config</span>
+                  </router-link>
 
-              <router-link
-                v-if="authStore.can('opentelemetry_config', 'read')"
-                to="/opentelemetry-config"
-                :class="[
-                  route.path === '/opentelemetry-config'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>OpenTelemetry Config</span>
-              </router-link>
+                  <router-link
+                    to="/opentelemetry-visual"
+                    :class="[
+                      route.path.startsWith('/opentelemetry-visual')
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>Visual Config</span>
+                  </router-link>
+                </div>
+              </div>
 
-              <router-link
-                v-if="authStore.can('opentelemetry_config', 'read')"
-                to="/opentelemetry-visual"
-                :class="[
-                  route.path.startsWith('/opentelemetry-visual')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>Visual config OpenTelemetry</span>
-                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider">Beta</span>
-              </router-link>
+              <!-- 2. DataPrepper Sub-group -->
+              <div v-if="authStore.can('dataprepper_config', 'read')">
+                <button
+                  @click="isRemoteDataPrepperOpen = !isRemoteDataPrepperOpen"
+                  :class="[
+                    isRemoteDataPrepperActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Sliders class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteDataPrepperActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>DataPrepper</span>
+                  </div>
+                  <component :is="isRemoteDataPrepperOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteDataPrepperActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
+
+                <!-- Sub-items under DataPrepper -->
+                <div v-show="isRemoteDataPrepperOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <router-link
+                    to="/dataprepper-config"
+                    :class="[
+                      route.path === '/dataprepper-config'
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>DataPrepper Config</span>
+                  </router-link>
+                </div>
+              </div>
+
+              <!-- 3. Prometheus Sub-group -->
+              <div v-if="authStore.can('prometheus_config', 'read')">
+                <button
+                  @click="isRemotePrometheusOpen = !isRemotePrometheusOpen"
+                  :class="[
+                    isRemotePrometheusActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Flame class="w-3.5 h-3.5 shrink-0 transition" :class="isRemotePrometheusActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>Prometheus</span>
+                  </div>
+                  <component :is="isRemotePrometheusOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemotePrometheusActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
+
+                <!-- Sub-items under Prometheus -->
+                <div v-show="isRemotePrometheusOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <router-link
+                    to="/prometheus-config"
+                    :class="[
+                      route.path === '/prometheus-config'
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>Prometheus Config</span>
+                  </router-link>
+                </div>
+              </div>
             </div>
           </div>
 
