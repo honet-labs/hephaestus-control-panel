@@ -40,6 +40,7 @@ import {
   Eye,
   ExternalLink,
   ChevronDown,
+  Network,
 } from 'lucide-vue-next';
 
 // ==================== INTERFACES ====================
@@ -120,6 +121,7 @@ interface GraphLink {
   badgeLabel?: string;
   midX: number;
   midY: number;
+  isInferred?: boolean;
 }
 
 // ==================== DEFAULT TEMPLATES ====================
@@ -327,6 +329,7 @@ const panY = ref(0);
 const isPanning = ref(false);
 const panStart = ref({ x: 0, y: 0 });
 const animatedFlow = ref(true);
+const autoConnectEnabled = ref(true);
 
 // Node inspection state
 const inspectedNode = ref<OTelComponent | null>(null);
@@ -361,23 +364,47 @@ const lineNumbers = computed(() => {
 // ==================== ROBUST OPENTELEMETRY YAML PARSER ====================
 const parsedModel = computed(() => {
   const content = yamlContent.value || '';
-  const lines = content.split('\n');
+  // Normalize line endings to LF
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
 
   const componentsMap = new Map<string, OTelComponent>();
   const pipelinesList: OTelPipeline[] = [];
 
   let currentSection: 'receivers' | 'processors' | 'exporters' | 'service' | '' = '';
   let inPipelines = false;
+  let pipelinesBaseIndent = -1;
+  let componentBaseIndent = -1;
+
   let currentComponent: Partial<OTelComponent> | null = null;
   let componentLines: string[] = [];
   let currentPipeline: Partial<OTelPipeline> | null = null;
   let currentPipelineKey = '';
+  let pipelineIndent = -1;
   let inListField: 'receivers' | 'processors' | 'exporters' | '' = '';
 
   const toCategory = (sec: string): 'receiver' | 'processor' | 'exporter' => {
     if (sec === 'processors' || sec === 'processor') return 'processor';
     if (sec === 'exporters' || sec === 'exporter') return 'exporter';
     return 'receiver';
+  };
+
+  const stripComment = (str: string): string => {
+    let inQuote: '"' | "'" | null = null;
+    for (let idx = 0; idx < str.length; idx++) {
+      const ch = str[idx];
+      if ((ch === '"' || ch === "'") && (idx === 0 || str[idx - 1] !== '\\')) {
+        if (!inQuote) inQuote = ch;
+        else if (inQuote === ch) inQuote = null;
+      } else if (ch === '#' && !inQuote) {
+        return str.slice(0, idx).trim();
+      }
+    }
+    return str.trim();
+  };
+
+  const cleanVal = (val: string): string => {
+    return stripComment(val).trim().replace(/^['"]|['"]$/g, '');
   };
 
   const finalizeComponent = () => {
@@ -392,35 +419,66 @@ const parsedModel = computed(() => {
 
   const finalizePipeline = () => {
     if (currentPipeline && currentPipeline.name) {
-      pipelinesList.push({
+      const existingIdx = pipelinesList.findIndex((p) => p.name === currentPipeline!.name);
+      const pipeObj: OTelPipeline = {
         id: currentPipeline.name,
         name: currentPipeline.name,
         signal: currentPipeline.signal || 'metrics',
         receivers: currentPipeline.receivers || [],
         processors: currentPipeline.processors || [],
         exporters: currentPipeline.exporters || [],
-      });
+      };
+      if (existingIdx >= 0) {
+        pipelinesList[existingIdx] = pipeObj;
+      } else {
+        pipelinesList.push(pipeObj);
+      }
     }
     currentPipeline = null;
     currentPipelineKey = '';
+    pipelineIndent = -1;
     inListField = '';
+  };
+
+  const parseListOrInline = (restOfLine: string, targetArray: string[]) => {
+    const trimmed = restOfLine.trim();
+    if (!trimmed) return;
+    const bracketMatch = trimmed.match(/^\[(.*)\]/);
+    if (bracketMatch) {
+      const items = bracketMatch[1]
+        .split(',')
+        .map((s) => cleanVal(s))
+        .filter(Boolean);
+      items.forEach((item) => {
+        if (!targetArray.includes(item)) targetArray.push(item);
+      });
+      return;
+    }
+    const scalar = cleanVal(trimmed);
+    if (scalar && !scalar.startsWith('[') && !scalar.endsWith(']')) {
+      if (!targetArray.includes(scalar)) targetArray.push(scalar);
+    }
   };
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-    const lineWithoutComment = rawLine.split('#')[0];
-    const trimmedNoComment = lineWithoutComment.trim();
+    const lineWithoutComment = stripComment(rawLine);
+    if (!lineWithoutComment) continue;
 
-    // Check top-level sections (0 indent)
-    if (!rawLine.startsWith(' ') && !rawLine.startsWith('\t') && trimmedNoComment.endsWith(':')) {
+    const lineIndent = rawLine.search(/\S/);
+    const trimmedNoComment = lineWithoutComment;
+
+    // Root section headers: 0 indent and ends with colon
+    if (lineIndent === 0 && trimmedNoComment.endsWith(':')) {
       finalizeComponent();
       finalizePipeline();
       inPipelines = false;
+      pipelinesBaseIndent = -1;
+      componentBaseIndent = -1;
 
-      const secName = trimmedNoComment.slice(0, -1).trim();
+      const secName = cleanVal(trimmedNoComment.slice(0, -1)).toLowerCase();
       if (secName === 'receivers' || secName === 'processors' || secName === 'exporters' || secName === 'service') {
-        currentSection = secName;
+        currentSection = secName as any;
       } else {
         currentSection = '';
       }
@@ -431,12 +489,14 @@ const parsedModel = computed(() => {
 
     // Inside receivers, processors, exporters
     if (currentSection === 'receivers' || currentSection === 'processors' || currentSection === 'exporters') {
-      const indent = rawLine.match(/^(\s*)/)?.[1].length || 0;
-      // 2-space indent indicates new component name
-      const isComponentHeader = indent === 2 && trimmedNoComment.endsWith(':');
-      if (isComponentHeader) {
+      if (componentBaseIndent === -1 && lineIndent > 0) {
+        componentBaseIndent = lineIndent;
+      }
+
+      // If at componentBaseIndent and ends with colon, this is a new component definition
+      if (lineIndent === componentBaseIndent && trimmedNoComment.endsWith(':')) {
         finalizeComponent();
-        const rawCompName = trimmedNoComment.slice(0, -1).trim();
+        const rawCompName = cleanVal(trimmedNoComment.slice(0, -1));
         const parts = rawCompName.split('/');
         const compType = parts[0];
         const instanceName = parts.length > 1 ? parts.slice(1).join('/') : undefined;
@@ -460,52 +520,67 @@ const parsedModel = computed(() => {
 
       if (currentComponent) {
         componentLines.push(rawLine);
+        const trimmed = lineWithoutComment;
 
-        // Extract key metadata
         if (trimmed.startsWith('endpoint:')) {
-          currentComponent.endpoint = trimmed.replace('endpoint:', '').trim().replace(/['"]/g, '');
+          currentComponent.endpoint = cleanVal(trimmed.slice('endpoint:'.length));
         } else if (trimmed.startsWith('collection_interval:')) {
-          currentComponent.interval = trimmed.replace('collection_interval:', '').trim().replace(/['"]/g, '');
+          currentComponent.interval = cleanVal(trimmed.slice('collection_interval:'.length));
         } else if (trimmed.startsWith('timeout:')) {
-          currentComponent.timeout = trimmed.replace('timeout:', '').trim().replace(/['"]/g, '');
+          currentComponent.timeout = cleanVal(trimmed.slice('timeout:'.length));
         } else if (trimmed.startsWith('insecure:')) {
           currentComponent.tlsInsecure = trimmed.includes('true');
         } else if (trimmed.startsWith('include:')) {
           const m = trimmed.match(/\[(.*)\]/);
           if (m && m[1]) {
-            currentComponent.paths = m[1].split(',').map((s) => s.trim().replace(/['"]/g, ''));
+            currentComponent.paths = m[1].split(',').map((s) => cleanVal(s)).filter(Boolean);
           }
-        } else if (rawLine.startsWith('      ') && !rawLine.startsWith('        ') && trimmed.endsWith(':') && componentLines.some((l) => l.includes('scrapers:'))) {
-          // Scraper item like cpu:, disk:, memory:
-          const scraperName = trimmed.slice(0, -1);
-          if (scraperName && scraperName !== 'metrics' && !currentComponent.scrapers?.includes(scraperName)) {
+        } else if (trimmed.endsWith(':') && componentLines.some((l) => l.includes('scrapers:'))) {
+          const scraperName = cleanVal(trimmed.slice(0, -1));
+          if (scraperName && scraperName !== 'metrics' && scraperName !== 'scrapers' && !currentComponent.scrapers?.includes(scraperName)) {
             currentComponent.scrapers?.push(scraperName);
           }
         } else if (trimmed.startsWith('- key:') || trimmed.startsWith('value:')) {
           if (!currentComponent.actions) currentComponent.actions = [];
           if (trimmed.startsWith('- key:')) {
-            currentComponent.actions.push(trimmed.replace('- key:', '').trim());
+            currentComponent.actions.push(cleanVal(trimmed.slice('- key:'.length)));
           }
         }
       }
     }
 
-    // Inside service -> pipelines
+    // Inside service section
     if (currentSection === 'service') {
-      const indent = rawLine.match(/^(\s*)/)?.[1].length || 0;
-      if (indent === 2 && trimmedNoComment.startsWith('pipelines:')) {
+      // Check for pipelines block header
+      if (trimmedNoComment.startsWith('pipelines:') || trimmedNoComment === 'pipelines') {
+        finalizePipeline();
         inPipelines = true;
+        pipelinesBaseIndent = lineIndent;
+        pipelineIndent = -1;
         continue;
       }
 
+      // Exit pipelines if we encounter a sibling key under service: (indent <= pipelinesBaseIndent)
+      if (inPipelines && lineIndent <= pipelinesBaseIndent && trimmedNoComment.endsWith(':')) {
+        finalizePipeline();
+        inPipelines = false;
+        pipelinesBaseIndent = -1;
+      }
+
       if (inPipelines) {
-        // Pipeline header (4-space indent)
-        if (indent === 4 && trimmedNoComment.endsWith(':')) {
+        // First pipeline key under pipelines establishes pipelineIndent
+        if (pipelineIndent === -1 && lineIndent > pipelinesBaseIndent && trimmedNoComment.endsWith(':')) {
+          pipelineIndent = lineIndent;
+        }
+
+        // When at pipelineIndent and ends with colon, new pipeline
+        if (lineIndent === pipelineIndent && trimmedNoComment.endsWith(':')) {
           finalizePipeline();
-          currentPipelineKey = trimmedNoComment.slice(0, -1).trim();
+          currentPipelineKey = cleanVal(trimmedNoComment.slice(0, -1));
           let signal: 'metrics' | 'logs' | 'traces' = 'metrics';
-          if (currentPipelineKey.startsWith('logs')) signal = 'logs';
-          else if (currentPipelineKey.startsWith('traces')) signal = 'traces';
+          const lowerKey = currentPipelineKey.toLowerCase();
+          if (lowerKey.startsWith('logs')) signal = 'logs';
+          else if (lowerKey.startsWith('traces')) signal = 'traces';
 
           currentPipeline = {
             id: currentPipelineKey,
@@ -518,32 +593,23 @@ const parsedModel = computed(() => {
           continue;
         }
 
-        if (currentPipeline) {
-          // receivers:, processors:, exporters:
+        if (currentPipeline && lineIndent > pipelineIndent) {
+          const trimmed = lineWithoutComment;
           if (trimmed.startsWith('receivers:')) {
             inListField = 'receivers';
-            const inlineMatch = trimmed.match(/\[(.*)\]/);
-            if (inlineMatch && inlineMatch[1]) {
-              currentPipeline.receivers = inlineMatch[1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
-            }
+            parseListOrInline(trimmed.slice('receivers:'.length), currentPipeline.receivers!);
           } else if (trimmed.startsWith('processors:')) {
             inListField = 'processors';
-            const inlineMatch = trimmed.match(/\[(.*)\]/);
-            if (inlineMatch && inlineMatch[1]) {
-              currentPipeline.processors = inlineMatch[1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
-            }
+            parseListOrInline(trimmed.slice('processors:'.length), currentPipeline.processors!);
           } else if (trimmed.startsWith('exporters:')) {
             inListField = 'exporters';
-            const inlineMatch = trimmed.match(/\[(.*)\]/);
-            if (inlineMatch && inlineMatch[1]) {
-              currentPipeline.exporters = inlineMatch[1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
-            }
-          } else if (trimmed.startsWith('- ') && inListField) {
-            const val = trimmed.slice(2).trim().replace(/['"]/g, '');
+            parseListOrInline(trimmed.slice('exporters:'.length), currentPipeline.exporters!);
+          } else if (trimmed.startsWith('-') && inListField) {
+            const val = cleanVal(trimmed.replace(/^-\s*/, ''));
             if (val) {
-              if (inListField === 'receivers' && !currentPipeline.receivers?.includes(val)) currentPipeline.receivers?.push(val);
-              if (inListField === 'processors' && !currentPipeline.processors?.includes(val)) currentPipeline.processors?.push(val);
-              if (inListField === 'exporters' && !currentPipeline.exporters?.includes(val)) currentPipeline.exporters?.push(val);
+              if (inListField === 'receivers' && !currentPipeline.receivers!.includes(val)) currentPipeline.receivers!.push(val);
+              if (inListField === 'processors' && !currentPipeline.processors!.includes(val)) currentPipeline.processors!.push(val);
+              if (inListField === 'exporters' && !currentPipeline.exporters!.includes(val)) currentPipeline.exporters!.push(val);
             }
           }
         }
@@ -554,7 +620,7 @@ const parsedModel = computed(() => {
   finalizeComponent();
   finalizePipeline();
 
-  // Link components with pipelines using them
+  // Cross-reference pipelines into components
   pipelinesList.forEach((pipe) => {
     pipe.receivers.forEach((rName) => {
       const c = componentsMap.get(`receiver:${rName}`);
@@ -648,161 +714,256 @@ const graphData = computed(() => {
   placeColumn(processors, 'processor', 1);
   placeColumn(exporters, 'exporter', 2);
 
+  // Helper to resolve a node by name or fuzzy type
+  const resolveNode = (category: 'receiver' | 'processor' | 'exporter', name: string): GraphNode | undefined => {
+    if (!name) return undefined;
+    const clean = name.trim().replace(/^['"]|['"]$/g, '');
+
+    // 1. Exact match
+    const direct = nodeMap.get(`${category}:${clean}`);
+    if (direct) return direct;
+
+    // 2. Case-insensitive exact match
+    const lower = clean.toLowerCase();
+    for (const [id, node] of nodeMap.entries()) {
+      if (node.category === category && node.component.name.toLowerCase() === lower) {
+        return node;
+      }
+    }
+
+    // 3. Sub-instance or slash match
+    for (const [id, node] of nodeMap.entries()) {
+      if (node.category === category) {
+        if (node.component.name.endsWith('/' + clean) || clean.endsWith('/' + node.component.name)) {
+          return node;
+        }
+        if (node.component.type === clean) {
+          return node;
+        }
+      }
+    }
+
+    return undefined;
+  };
+
   // Generate curved Bézier links connecting Receiver -> Processor -> Exporter
   const links: GraphLink[] = [];
   let linkCounter = 0;
+  const nodeRadius = 30; // circular badge radius
 
+  const createLink = (
+    source: GraphNode,
+    target: GraphNode,
+    pipeId: string,
+    pipeName: string,
+    signal: 'metrics' | 'logs' | 'traces',
+    badgeLabel?: string,
+    isInferred = false
+  ) => {
+    const dup = links.find((l) => l.sourceNodeId === source.id && l.targetNodeId === target.id && l.pipelineName === pipeName);
+    if (dup) return;
+
+    const sx = source.x + nodeRadius;
+    const sy = source.y;
+    const tx = target.x - nodeRadius;
+    const ty = target.y;
+
+    const dx = tx - sx;
+    const cx1 = sx + dx * 0.5;
+    const cy1 = sy;
+    const cx2 = sx + dx * 0.5;
+    const cy2 = ty;
+    const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
+    const midX = (sx + tx) / 2;
+    const midY = (sy + ty) / 2;
+
+    links.push({
+      id: `link-${linkCounter++}`,
+      pipelineId: pipeId,
+      pipelineName: pipeName,
+      signal,
+      sourceNodeId: source.id,
+      targetNodeId: target.id,
+      sourceX: sx,
+      sourceY: sy,
+      targetX: tx,
+      targetY: ty,
+      pathD,
+      badgeLabel,
+      midX,
+      midY,
+      isInferred,
+    });
+  };
+
+  // 1. Process explicit pipelines from YAML
   pipelines.forEach((pipe) => {
-    const pipeReceivers = pipe.receivers.map((r) => nodeMap.get(`receiver:${r}`)).filter(Boolean) as GraphNode[];
-    const pipeProcessors = pipe.processors.map((p) => nodeMap.get(`processor:${p}`)).filter(Boolean) as GraphNode[];
-    const pipeExporters = pipe.exporters.map((e) => nodeMap.get(`exporter:${e}`)).filter(Boolean) as GraphNode[];
-
-    const nodeRadius = 30; // circular badge radius
+    const pipeReceivers = pipe.receivers.map((r) => resolveNode('receiver', r)).filter(Boolean) as GraphNode[];
+    const pipeProcessors = pipe.processors.map((p) => resolveNode('processor', p)).filter(Boolean) as GraphNode[];
+    const pipeExporters = pipe.exporters.map((e) => resolveNode('exporter', e)).filter(Boolean) as GraphNode[];
 
     if (pipeProcessors.length > 0) {
       // Receiver -> First Processor
       pipeReceivers.forEach((rx) => {
         const firstProc = pipeProcessors[0];
-        const sx = rx.x + nodeRadius;
-        const sy = rx.y;
-        const tx = firstProc.x - nodeRadius;
-        const ty = firstProc.y;
-        const cx1 = sx + (tx - sx) * 0.5;
-        const cy1 = sy;
-        const cx2 = sx + (tx - sx) * 0.5;
-        const cy2 = ty;
-        const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
-        const midX = (sx + tx) / 2;
-        const midY = (sy + ty) / 2;
-
-        links.push({
-          id: `link-${linkCounter++}`,
-          pipelineId: pipe.id,
-          pipelineName: pipe.name,
-          signal: pipe.signal,
-          sourceNodeId: rx.id,
-          targetNodeId: firstProc.id,
-          sourceX: sx,
-          sourceY: sy,
-          targetX: tx,
-          targetY: ty,
-          pathD,
-          badgeLabel: rx.component.interval || (pipe.signal === 'logs' ? 'filelog' : 'telemetry'),
-          midX,
-          midY,
-        });
+        createLink(
+          rx,
+          firstProc,
+          pipe.id,
+          pipe.name,
+          pipe.signal,
+          rx.component.interval || (pipe.signal === 'logs' ? 'filelog' : 'telemetry')
+        );
       });
 
       // Sequential Processors (if more than 1)
       for (let pIdx = 0; pIdx < pipeProcessors.length - 1; pIdx++) {
-        const p1 = pipeProcessors[pIdx];
-        const p2 = pipeProcessors[pIdx + 1];
-        const sx = p1.x + nodeRadius;
-        const sy = p1.y;
-        const tx = p2.x - nodeRadius;
-        const ty = p2.y;
-        const cx1 = sx + (tx - sx) * 0.5;
-        const cy1 = sy;
-        const cx2 = sx + (tx - sx) * 0.5;
-        const cy2 = ty;
-        const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
-
-        links.push({
-          id: `link-${linkCounter++}`,
-          pipelineId: pipe.id,
-          pipelineName: pipe.name,
-          signal: pipe.signal,
-          sourceNodeId: p1.id,
-          targetNodeId: p2.id,
-          sourceX: sx,
-          sourceY: sy,
-          targetX: tx,
-          targetY: ty,
-          pathD,
-          badgeLabel: 'chain',
-          midX: (sx + tx) / 2,
-          midY: (sy + ty) / 2,
-        });
+        createLink(
+          pipeProcessors[pIdx],
+          pipeProcessors[pIdx + 1],
+          pipe.id,
+          pipe.name,
+          pipe.signal,
+          'chain'
+        );
       }
 
       // Last Processor -> Exporters
       const lastProc = pipeProcessors[pipeProcessors.length - 1];
       pipeExporters.forEach((ex) => {
-        const sx = lastProc.x + nodeRadius;
-        const sy = lastProc.y;
-        const tx = ex.x - nodeRadius;
-        const ty = ex.y;
-        const cx1 = sx + (tx - sx) * 0.5;
-        const cy1 = sy;
-        const cx2 = sx + (tx - sx) * 0.5;
-        const cy2 = ty;
-        const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
-        const midX = (sx + tx) / 2;
-        const midY = (sy + ty) / 2;
-
         let badge = ex.component.endpoint || ex.component.type;
         if (badge && badge.includes(':')) {
           const spl = badge.split(':');
           badge = `:${spl[spl.length - 1]}`;
         }
-
-        links.push({
-          id: `link-${linkCounter++}`,
-          pipelineId: pipe.id,
-          pipelineName: pipe.name,
-          signal: pipe.signal,
-          sourceNodeId: lastProc.id,
-          targetNodeId: ex.id,
-          sourceX: sx,
-          sourceY: sy,
-          targetX: tx,
-          targetY: ty,
-          pathD,
-          badgeLabel: badge,
-          midX,
-          midY,
-        });
+        createLink(
+          lastProc,
+          ex,
+          pipe.id,
+          pipe.name,
+          pipe.signal,
+          badge
+        );
       });
     } else {
-      // Direct Receiver -> Exporters (no processors)
+      // Direct Receiver -> Exporters (no processors in pipeline)
       pipeReceivers.forEach((rx) => {
         pipeExporters.forEach((ex) => {
-          const sx = rx.x + nodeRadius;
-          const sy = rx.y;
-          const tx = ex.x - nodeRadius;
-          const ty = ex.y;
-          const cx1 = sx + (tx - sx) * 0.5;
-          const cy1 = sy;
-          const cx2 = sx + (tx - sx) * 0.5;
-          const cy2 = ty;
-          const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
-          const midX = (sx + tx) / 2;
-          const midY = (sy + ty) / 2;
-
-          links.push({
-            id: `link-${linkCounter++}`,
-            pipelineId: pipe.id,
-            pipelineName: pipe.name,
-            signal: pipe.signal,
-            sourceNodeId: rx.id,
-            targetNodeId: ex.id,
-            sourceX: sx,
-            sourceY: sy,
-            targetX: tx,
-            targetY: ty,
-            pathD,
-            badgeLabel: ex.component.endpoint || pipe.signal,
-            midX,
-            midY,
-          });
+          createLink(
+            rx,
+            ex,
+            pipe.id,
+            pipe.name,
+            pipe.signal,
+            ex.component.endpoint || pipe.signal
+          );
         });
       });
     }
   });
 
+  // 2. SMART AUTO-CONNECT / INFERRED TOPOLOGY
+  // If 0 links were created, or autoConnectEnabled is on, connect unlinked / orphan nodes
+  let hasInferredLinks = false;
+
+  if (autoConnectEnabled.value && (links.length === 0 || receivers.some((r) => !links.some((l) => l.sourceNodeId === r.id)) || exporters.some((e) => !links.some((l) => l.targetNodeId === e.id)))) {
+    const connectedSources = new Set(links.map((l) => l.sourceNodeId));
+    const connectedTargets = new Set(links.map((l) => l.targetNodeId));
+
+    const orphanReceivers = receivers.filter((r) => !connectedSources.has(r.id));
+    const orphanExporters = exporters.filter((e) => !connectedTargets.has(e.id));
+
+    // When no links at all exist, pair matching receivers & exporters
+    if (links.length === 0 && receivers.length > 0 && exporters.length > 0) {
+      hasInferredLinks = true;
+      const pairedRx = new Set<string>();
+      const pairedEx = new Set<string>();
+
+      // Pair by matching name (e.g. 'haproxy' with 'prometheus/haproxy')
+      receivers.forEach((rx) => {
+        const rxName = rx.component.name.toLowerCase();
+        const matchedEx = exporters.find((ex) => {
+          const exName = ex.component.name.toLowerCase();
+          return exName.includes(rxName) || rxName.includes(exName);
+        });
+
+        if (matchedEx) {
+          pairedRx.add(rx.id);
+          pairedEx.add(matchedEx.id);
+
+          if (processors.length > 0) {
+            createLink(rx, processors[0], 'auto', 'inferred', 'metrics', rx.component.interval || 'auto', true);
+            createLink(processors[processors.length - 1], matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint ? `:${matchedEx.component.endpoint.split(':').pop()}` : 'auto', true);
+          } else {
+            createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint || 'direct', true);
+          }
+        }
+      });
+
+      // Pair remaining receivers with remaining exporters
+      const remRx = receivers.filter((r) => !pairedRx.has(r.id));
+      const remEx = exporters.filter((e) => !pairedEx.has(e.id));
+
+      const rList = remRx.length > 0 ? remRx : receivers;
+      const eList = remEx.length > 0 ? remEx : exporters;
+
+      if (processors.length > 0) {
+        rList.forEach((rx) => {
+          createLink(rx, processors[0], 'auto', 'inferred', 'metrics', rx.component.interval || '30s', true);
+        });
+        for (let pIdx = 0; pIdx < processors.length - 1; pIdx++) {
+          createLink(processors[pIdx], processors[pIdx + 1], 'auto', 'inferred', 'metrics', 'chain', true);
+        }
+        const lastProc = processors[processors.length - 1];
+        eList.forEach((ex) => {
+          createLink(lastProc, ex, 'auto', 'inferred', 'metrics', ex.component.endpoint ? `:${ex.component.endpoint.split(':').pop()}` : 'auto', true);
+        });
+      } else {
+        rList.forEach((rx) => {
+          eList.forEach((ex) => {
+            createLink(rx, ex, 'auto', 'inferred', 'metrics', ex.component.endpoint || 'direct', true);
+          });
+        });
+      }
+    } else {
+      // Connect partial orphan receivers
+      orphanReceivers.forEach((rx) => {
+        hasInferredLinks = true;
+        const rxName = rx.component.name.toLowerCase();
+        const matchedEx = exporters.find((ex) => ex.component.name.toLowerCase().includes(rxName)) || exporters[0];
+        if (matchedEx) {
+          if (processors.length > 0) {
+            createLink(rx, processors[0], 'orphan-rx', 'inferred', 'metrics', rx.component.interval || 'auto', true);
+            createLink(processors[processors.length - 1], matchedEx, 'orphan-rx', 'inferred', 'metrics', 'target', true);
+          } else {
+            createLink(rx, matchedEx, 'orphan-rx', 'inferred', 'metrics', 'auto', true);
+          }
+        }
+      });
+
+      // Connect partial orphan exporters
+      orphanExporters.forEach((ex) => {
+        if (!links.some((l) => l.targetNodeId === ex.id)) {
+          hasInferredLinks = true;
+          const exName = ex.component.name.toLowerCase();
+          const matchedRx = receivers.find((rx) => exName.includes(rx.component.name.toLowerCase())) || receivers[0];
+          if (matchedRx) {
+            if (processors.length > 0) {
+              createLink(matchedRx, processors[0], 'orphan-ex', 'inferred', 'metrics', 'auto', true);
+              createLink(processors[processors.length - 1], ex, 'orphan-ex', 'inferred', 'metrics', 'target', true);
+            } else {
+              createLink(matchedRx, ex, 'orphan-ex', 'inferred', 'metrics', 'auto', true);
+            }
+          }
+        }
+      });
+    }
+  }
+
   return {
     nodes,
     links,
+    hasInferredLinks,
     canvasWidth,
     canvasHeight,
   };
@@ -1357,6 +1518,18 @@ onMounted(async () => {
 
       <!-- Right: View Mode Toggle & Canvas Controls -->
       <div class="flex items-center gap-2 self-end lg:self-auto shrink-0">
+        <!-- Auto-Link / Smart Routing Toggle -->
+        <button
+          v-if="viewMode !== 'code'"
+          @click="autoConnectEnabled = !autoConnectEnabled"
+          :title="autoConnectEnabled ? 'Smart Auto-Link is Active (Connects unlinked components)' : 'Smart Auto-Link is Disabled (Strict explicit pipelines only)'"
+          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-slate-200 dark:border-[#1b2234] transition cursor-pointer"
+          :class="autoConnectEnabled ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20' : 'text-slate-500 hover:text-slate-700'"
+        >
+          <Network class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+          <span class="text-[11px]">Auto-Link</span>
+        </button>
+
         <!-- Live Particles Animated Toggle -->
         <button
           v-if="viewMode !== 'code'"
@@ -1453,7 +1626,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div class="text-[11px] text-slate-400">
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <span
+              v-if="graphData.hasInferredLinks"
+              class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-semibold"
+              title="Dataflow routes intelligently inferred"
+            >
+              Auto-Routed
+            </span>
             <span>{{ graphData.links.length }} active links</span>
           </div>
         </div>
