@@ -671,9 +671,27 @@ const graphData = computed(() => {
     activeComponents = components.filter((c) => relevantNames.has(`${c.category}:${c.name}`));
   }
 
-  const receivers = activeComponents.filter((c) => c.category === 'receiver');
-  const processors = activeComponents.filter((c) => c.category === 'processor');
-  const exporters = activeComponents.filter((c) => c.category === 'exporter');
+  const rawReceivers = activeComponents.filter((c) => c.category === 'receiver');
+  const rawProcessors = activeComponents.filter((c) => c.category === 'processor');
+  const rawExporters = activeComponents.filter((c) => c.category === 'exporter');
+
+  // Pipeline vertical alignment: rank components by the earliest pipeline they appear in
+  // This lines up components belonging to the same pipeline horizontally, drastically eliminating crossing lines
+  const getComponentPipelineRank = (comp: OTelComponent): number => {
+    const cName = comp.name.toLowerCase();
+    for (let pIdx = 0; pIdx < pipelines.length; pIdx++) {
+      const p = pipelines[pIdx];
+      const matchRx = p.receivers.some((r) => r.toLowerCase().includes(cName) || cName.includes(r.toLowerCase()));
+      const matchPr = p.processors.some((pr) => pr.toLowerCase().includes(cName) || cName.includes(pr.toLowerCase()));
+      const matchEx = p.exporters.some((e) => e.toLowerCase().includes(cName) || cName.includes(e.toLowerCase()));
+      if (matchRx || matchPr || matchEx) return pIdx;
+    }
+    return 999;
+  };
+
+  const receivers = [...rawReceivers].sort((a, b) => getComponentPipelineRank(a) - getComponentPipelineRank(b));
+  const processors = [...rawProcessors].sort((a, b) => getComponentPipelineRank(a) - getComponentPipelineRank(b));
+  const exporters = [...rawExporters].sort((a, b) => getComponentPipelineRank(a) - getComponentPipelineRank(b));
 
   const maxRows = Math.max(receivers.length, processors.length, exporters.length, 1);
   const rowHeight = 140;
@@ -760,22 +778,47 @@ const graphData = computed(() => {
     badgeLabel?: string,
     isInferred = false
   ) => {
-    const dup = links.find((l) => l.sourceNodeId === source.id && l.targetNodeId === target.id && l.pipelineName === pipeName);
+    // Avoid duplicate links
+    const dup = links.find((l) => l.sourceNodeId === source.id && l.targetNodeId === target.id);
     if (dup) return;
 
-    const sx = source.x + nodeRadius;
-    const sy = source.y;
-    const tx = target.x - nodeRadius;
-    const ty = target.y;
+    const isVertical = Math.abs(source.x - target.x) < 25;
+    let pathD = '';
+    let sx = 0, sy = 0, tx = 0, ty = 0, midX = 0, midY = 0;
 
-    const dx = tx - sx;
-    const cx1 = sx + dx * 0.5;
-    const cy1 = sy;
-    const cx2 = sx + dx * 0.5;
-    const cy2 = ty;
-    const pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
-    const midX = (sx + tx) / 2;
-    const midY = (sy + ty) / 2;
+    if (isVertical) {
+      // Clean straight vertical connector between chained processors in the same column
+      const topNode = source.y < target.y ? source : target;
+      const bottomNode = source.y < target.y ? target : source;
+      sx = topNode.x;
+      sy = topNode.y + nodeRadius;
+      tx = bottomNode.x;
+      ty = bottomNode.y - nodeRadius;
+      pathD = `M ${sx} ${sy} L ${tx} ${ty}`;
+      midX = sx;
+      midY = (sy + ty) / 2;
+      badgeLabel = undefined; // No badge on vertical link to avoid overlapping node labels
+    } else {
+      // Horizontal Bézier curve between stages
+      sx = source.x + nodeRadius;
+      sy = source.y;
+      tx = target.x - nodeRadius;
+      ty = target.y;
+
+      const dx = tx - sx;
+      const cx1 = sx + dx * 0.45;
+      const cy1 = sy;
+      const cx2 = sx + dx * 0.55;
+      const cy2 = ty;
+      pathD = `M ${sx} ${sy} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${tx} ${ty}`;
+
+      // Stagger badge along the curve so parallel links NEVER collide
+      const staggerIndex = linkCounter % 3;
+      const t = 0.38 + staggerIndex * 0.12;
+      const u = 1 - t;
+      midX = u * u * u * sx + 3 * u * u * t * cx1 + 3 * u * t * t * cx2 + t * t * t * tx;
+      midY = u * u * u * sy + 3 * u * u * t * cy1 + 3 * u * t * t * cy2 + t * t * t * ty;
+    }
 
     links.push({
       id: `link-${linkCounter++}`,
@@ -812,7 +855,7 @@ const graphData = computed(() => {
           pipe.id,
           pipe.name,
           pipe.signal,
-          rx.component.interval || (pipe.signal === 'logs' ? 'filelog' : 'telemetry')
+          rx.component.interval || undefined
         );
       });
 
@@ -824,16 +867,16 @@ const graphData = computed(() => {
           pipe.id,
           pipe.name,
           pipe.signal,
-          'chain'
+          undefined // No badge on vertical processor chain
         );
       }
 
       // Last Processor -> Exporters
       const lastProc = pipeProcessors[pipeProcessors.length - 1];
       pipeExporters.forEach((ex) => {
-        let badge = ex.component.endpoint || ex.component.type;
-        if (badge && badge.includes(':')) {
-          const spl = badge.split(':');
+        let badge: string | undefined = undefined;
+        if (ex.component.endpoint && ex.component.endpoint.includes(':')) {
+          const spl = ex.component.endpoint.split(':');
           badge = `:${spl[spl.length - 1]}`;
         }
         createLink(
@@ -849,13 +892,17 @@ const graphData = computed(() => {
       // Direct Receiver -> Exporters (no processors in pipeline)
       pipeReceivers.forEach((rx) => {
         pipeExporters.forEach((ex) => {
+          let badge: string | undefined = rx.component.interval;
+          if (!badge && ex.component.endpoint && ex.component.endpoint.includes(':')) {
+            badge = `:${ex.component.endpoint.split(':').pop()}`;
+          }
           createLink(
             rx,
             ex,
             pipe.id,
             pipe.name,
             pipe.signal,
-            ex.component.endpoint || pipe.signal
+            badge
           );
         });
       });
@@ -863,7 +910,7 @@ const graphData = computed(() => {
   });
 
   // 2. SMART AUTO-CONNECT / INFERRED TOPOLOGY
-  // If 0 links were created, or autoConnectEnabled is on, connect unlinked / orphan nodes
+  // Clean 1-to-1 parallel telemetry pipelines instead of full-mesh crossing lines
   let hasInferredLinks = false;
 
   if (autoConnectEnabled.value && (links.length === 0 || receivers.some((r) => !links.some((l) => l.sourceNodeId === r.id)) || exporters.some((e) => !links.some((l) => l.targetNodeId === e.id)))) {
@@ -873,86 +920,58 @@ const graphData = computed(() => {
     const orphanReceivers = receivers.filter((r) => !connectedSources.has(r.id));
     const orphanExporters = exporters.filter((e) => !connectedTargets.has(e.id));
 
-    // When no links at all exist, pair matching receivers & exporters
+    // When 0 explicit links exist in entire graph:
     if (links.length === 0 && receivers.length > 0 && exporters.length > 0) {
       hasInferredLinks = true;
-      const pairedRx = new Set<string>();
-      const pairedEx = new Set<string>();
 
-      // Pair by matching name (e.g. 'haproxy' with 'prometheus/haproxy')
-      receivers.forEach((rx) => {
+      receivers.forEach((rx, idx) => {
         const rxName = rx.component.name.toLowerCase();
-        const matchedEx = exporters.find((ex) => {
+        let matchedEx = exporters.find((ex) => {
           const exName = ex.component.name.toLowerCase();
           return exName.includes(rxName) || rxName.includes(exName);
         });
+        if (!matchedEx) {
+          matchedEx = exporters[Math.min(idx, exporters.length - 1)];
+        }
 
-        if (matchedEx) {
-          pairedRx.add(rx.id);
-          pairedEx.add(matchedEx.id);
+        const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
 
-          if (processors.length > 0) {
-            createLink(rx, processors[0], 'auto', 'inferred', 'metrics', rx.component.interval || 'auto', true);
-            createLink(processors[processors.length - 1], matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint ? `:${matchedEx.component.endpoint.split(':').pop()}` : 'auto', true);
-          } else {
-            createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint || 'direct', true);
-          }
+        if (targetProc) {
+          createLink(rx, targetProc, 'auto', 'inferred', 'metrics', rx.component.interval || undefined, true);
+          createLink(targetProc, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component.endpoint && matchedEx.component.endpoint.includes(':') ? `:${matchedEx.component.endpoint.split(':').pop()}` : undefined, true);
+        } else {
+          createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', rx.component.interval || undefined, true);
         }
       });
-
-      // Pair remaining receivers with remaining exporters
-      const remRx = receivers.filter((r) => !pairedRx.has(r.id));
-      const remEx = exporters.filter((e) => !pairedEx.has(e.id));
-
-      const rList = remRx.length > 0 ? remRx : receivers;
-      const eList = remEx.length > 0 ? remEx : exporters;
-
-      if (processors.length > 0) {
-        rList.forEach((rx) => {
-          createLink(rx, processors[0], 'auto', 'inferred', 'metrics', rx.component.interval || '30s', true);
-        });
-        for (let pIdx = 0; pIdx < processors.length - 1; pIdx++) {
-          createLink(processors[pIdx], processors[pIdx + 1], 'auto', 'inferred', 'metrics', 'chain', true);
-        }
-        const lastProc = processors[processors.length - 1];
-        eList.forEach((ex) => {
-          createLink(lastProc, ex, 'auto', 'inferred', 'metrics', ex.component.endpoint ? `:${ex.component.endpoint.split(':').pop()}` : 'auto', true);
-        });
-      } else {
-        rList.forEach((rx) => {
-          eList.forEach((ex) => {
-            createLink(rx, ex, 'auto', 'inferred', 'metrics', ex.component.endpoint || 'direct', true);
-          });
-        });
-      }
     } else {
-      // Connect partial orphan receivers
-      orphanReceivers.forEach((rx) => {
+      // Cleanly connect orphan components
+      orphanReceivers.forEach((rx, idx) => {
         hasInferredLinks = true;
         const rxName = rx.component.name.toLowerCase();
-        const matchedEx = exporters.find((ex) => ex.component.name.toLowerCase().includes(rxName)) || exporters[0];
+        let matchedEx = orphanExporters.find((ex) => ex.component.name.toLowerCase().includes(rxName)) || orphanExporters[0] || exporters[Math.min(idx, exporters.length - 1)];
         if (matchedEx) {
-          if (processors.length > 0) {
-            createLink(rx, processors[0], 'orphan-rx', 'inferred', 'metrics', rx.component.interval || 'auto', true);
-            createLink(processors[processors.length - 1], matchedEx, 'orphan-rx', 'inferred', 'metrics', 'target', true);
+          const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
+          if (targetProc) {
+            createLink(rx, targetProc, 'orphan', 'inferred', 'metrics', rx.component.interval || undefined, true);
+            createLink(targetProc, matchedEx, 'orphan', 'inferred', 'metrics', undefined, true);
           } else {
-            createLink(rx, matchedEx, 'orphan-rx', 'inferred', 'metrics', 'auto', true);
+            createLink(rx, matchedEx, 'orphan', 'inferred', 'metrics', rx.component.interval || undefined, true);
           }
         }
       });
 
-      // Connect partial orphan exporters
-      orphanExporters.forEach((ex) => {
+      orphanExporters.forEach((ex, idx) => {
         if (!links.some((l) => l.targetNodeId === ex.id)) {
           hasInferredLinks = true;
           const exName = ex.component.name.toLowerCase();
-          const matchedRx = receivers.find((rx) => exName.includes(rx.component.name.toLowerCase())) || receivers[0];
+          const matchedRx = receivers.find((rx) => exName.includes(rx.component.name.toLowerCase())) || receivers[Math.min(idx, receivers.length - 1)];
           if (matchedRx) {
-            if (processors.length > 0) {
-              createLink(matchedRx, processors[0], 'orphan-ex', 'inferred', 'metrics', 'auto', true);
-              createLink(processors[processors.length - 1], ex, 'orphan-ex', 'inferred', 'metrics', 'target', true);
+            const targetProc = processors.length > 0 ? processors[Math.min(idx, processors.length - 1)] : null;
+            if (targetProc) {
+              createLink(matchedRx, targetProc, 'orphan', 'inferred', 'metrics', undefined, true);
+              createLink(targetProc, ex, 'orphan', 'inferred', 'metrics', ex.component.endpoint && ex.component.endpoint.includes(':') ? `:${ex.component.endpoint.split(':').pop()}` : undefined, true);
             } else {
-              createLink(matchedRx, ex, 'orphan-ex', 'inferred', 'metrics', 'auto', true);
+              createLink(matchedRx, ex, 'orphan', 'inferred', 'metrics', undefined, true);
             }
           }
         }
@@ -998,19 +1017,23 @@ const getComponentIcon = (comp: OTelComponent) => {
   return Server;
 };
 
-// Node SVG color helpers to avoid object duplicate key collisions
-const getNodeFillClass = (category: string) => {
-  if (category === 'receiver') return 'fill-emerald-600 dark:fill-emerald-500';
-  if (category === 'processor') return 'fill-blue-600 dark:fill-blue-500';
-  if (category === 'exporter') return 'fill-emerald-600 dark:fill-emerald-500';
-  return 'fill-slate-600 dark:fill-slate-500';
-};
-
-const getNodeGlowClass = (category: string) => {
-  if (category === 'receiver') return 'fill-emerald-500/10 stroke-emerald-500/40';
-  if (category === 'processor') return 'fill-blue-500/10 stroke-blue-500/40';
-  if (category === 'exporter') return 'fill-emerald-500/10 stroke-emerald-500/40';
-  return 'fill-slate-500/10 stroke-slate-500/40';
+// Node SVG color helpers with direct, vibrant hex and rgba definitions
+const getNodeColor = (category: string) => {
+  if (category === 'processor') {
+    return {
+      fill: '#2563eb', // Vibrant cobalt blue
+      stroke: '#1d4ed8',
+      haloFill: 'rgba(37, 99, 235, 0.14)',
+      haloStroke: 'rgba(37, 99, 235, 0.45)',
+    };
+  }
+  // Receiver and Target / Exporter are brilliant emerald green (#10b981)
+  return {
+    fill: '#10b981', // Vibrant emerald green
+    stroke: '#059669',
+    haloFill: 'rgba(16, 185, 129, 0.14)',
+    haloStroke: 'rgba(16, 185, 129, 0.45)',
+  };
 };
 
 // ==================== CANVAS INTERACTION HELPERS ====================
@@ -1787,12 +1810,11 @@ onMounted(async () => {
 
                 <!-- Outer Glowing Circle -->
                 <circle
-                  r="32"
+                  r="31"
                   class="transition-all duration-200"
-                  :class="[
-                    getNodeGlowClass(node.category),
-                    (hoveredNodeId === node.id || inspectedNode?.name === node.component.name) ? 'scale-110' : ''
-                  ]"
+                  :class="(hoveredNodeId === node.id || inspectedNode?.name === node.component.name) ? 'scale-110' : ''"
+                  :fill="getNodeColor(node.category).haloFill"
+                  :stroke="getNodeColor(node.category).haloStroke"
                   stroke-width="2"
                   :filter="node.category === 'processor' ? 'url(#glow-blue)' : 'url(#glow-emerald)'"
                 />
@@ -1800,8 +1822,10 @@ onMounted(async () => {
                 <!-- Core Circular Badge (Green for Receivers/Exporters, Blue for Processors) -->
                 <circle
                   r="24"
-                  class="transition-all duration-200"
-                  :class="getNodeFillClass(node.category)"
+                  class="transition-all duration-200 shadow-md"
+                  :fill="getNodeColor(node.category).fill"
+                  :stroke="getNodeColor(node.category).stroke"
+                  stroke-width="1.5"
                 />
 
                 <!-- Icon rendered inside circle -->
