@@ -123,6 +123,16 @@ const router = createRouter({
           meta: { requiresAuth: true, feature: 'opentelemetry_config' },
         },
         {
+          path: 'opentelemetry-visual',
+          name: 'opentelemetry-visual',
+          component: () => import('../views/OpenTelemetryVisualView.vue'),
+          meta: { requiresAuth: true, feature: 'opentelemetry_config' },
+        },
+        {
+          path: 'otel-visual',
+          redirect: '/opentelemetry-visual',
+        },
+        {
           path: 'otel-config',
           redirect: '/opentelemetry-config',
         },

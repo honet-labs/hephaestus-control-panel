@@ -49,7 +49,8 @@ const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
 const isRemoteConfigOpen = ref(
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
-  route.path.startsWith('/opentelemetry-config')
+  route.path.startsWith('/opentelemetry-config') ||
+  route.path.startsWith('/opentelemetry-visual')
 );
 const isToolsOpen = ref(
   route.path.startsWith('/snmp') ||
@@ -87,7 +88,8 @@ const isNetworkingActive = computed(() => route.path.startsWith('/network-topolo
 const isRemoteConfigActive = computed(() =>
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
-  route.path.startsWith('/opentelemetry-config')
+  route.path.startsWith('/opentelemetry-config') ||
+  route.path.startsWith('/opentelemetry-visual')
 );
 const isToolsActive = computed(() =>
   route.path.startsWith('/snmp') ||
@@ -129,6 +131,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/infrastructure')) return 'Management Containers';
   if (route.path.startsWith('/dataprepper-config')) return 'Data Prepper Pipelines';
   if (route.path.startsWith('/prometheus-config')) return 'Prometheus Config';
+  if (route.path.startsWith('/opentelemetry-visual')) return 'Visual Config OpenTelemetry (Beta)';
   if (route.path.startsWith('/opentelemetry-config')) return 'OpenTelemetry Config';
   if (route.path.startsWith('/snmp')) return 'SNMP Browser';
   if (route.path.startsWith('/grok-debugger')) return 'Grok Debugger';
@@ -509,6 +512,20 @@ onUnmounted(() => {
                 ]"
               >
                 <span>OpenTelemetry Config</span>
+              </router-link>
+
+              <router-link
+                v-if="authStore.can('opentelemetry_config', 'read')"
+                to="/opentelemetry-visual"
+                :class="[
+                  route.path.startsWith('/opentelemetry-visual')
+                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                  'flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                ]"
+              >
+                <span>Visual config OpenTelemetry</span>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider">Beta</span>
               </router-link>
             </div>
           </div>

@@ -38,6 +38,7 @@ const items = [
   { name: 'Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config', feature: 'dataprepper_config' },
   { name: 'Prometheus Config', icon: Sliders, route: '/prometheus-config', feature: 'prometheus_config' },
   { name: 'OpenTelemetry Config', icon: Radio, route: '/opentelemetry-config', feature: 'opentelemetry_config' },
+  { name: 'Visual config OpenTelemetry (Beta)', icon: Radio, route: '/opentelemetry-visual', feature: 'opentelemetry_config' },
   { name: 'SNMP Browser', icon: Radio, route: '/snmp', feature: 'snmp' },
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger', feature: 'grok_debugger' },
   { name: 'Backup Manager', icon: Database, route: '/backup', feature: 'backup' },
