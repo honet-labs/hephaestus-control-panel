@@ -930,7 +930,7 @@ function getConsoleRequestBlocks(fullText: string): RequestBlock[] {
     const match = trimmed.match(/^(GET|POST|PUT|DELETE|HEAD)\s+(.+)$/i);
     const isEndpointOnly = (trimmed.startsWith('/') || trimmed.startsWith('_')) && !trimmed.startsWith('//');
 
-    if (match || (isEndpointOnly && currentStart === -1)) {
+    if (match || isEndpointOnly) {
       if (currentStart !== -1) {
         const bText = currentBodyLines.join('\n').trim();
         let bVal: any = null;
@@ -938,7 +938,10 @@ function getConsoleRequestBlocks(fullText: string): RequestBlock[] {
           if (currentEndpoint.includes('_bulk')) {
             bVal = bText.endsWith('\n') ? bText : bText + '\n';
           } else {
-            try { bVal = JSON.parse(bText); } catch { bVal = bText; }
+            const sanitized = bText
+              .replace(/\/\/.*$/gm, '')
+              .replace(/,\s*([}\]])/g, '$1');
+            try { bVal = JSON.parse(sanitized); } catch { bVal = bText; }
           }
         }
         blocks.push({
@@ -972,7 +975,10 @@ function getConsoleRequestBlocks(fullText: string): RequestBlock[] {
       if (currentEndpoint.includes('_bulk')) {
         bVal = bText.endsWith('\n') ? bText : bText + '\n';
       } else {
-        try { bVal = JSON.parse(bText); } catch { bVal = bText; }
+        const sanitized = bText
+          .replace(/\/\/.*$/gm, '')
+          .replace(/,\s*([}\]])/g, '$1');
+        try { bVal = JSON.parse(sanitized); } catch { bVal = bText; }
       }
     }
     blocks.push({
@@ -1036,8 +1042,11 @@ function parseConsoleQuery(rawText: string) {
     if (endpoint.includes('_bulk')) {
       body = bodyText.endsWith('\n') ? bodyText : bodyText + '\n';
     } else {
+      const sanitized = bodyText
+        .replace(/\/\/.*$/gm, '')
+        .replace(/,\s*([}\]])/g, '$1');
       try {
-        body = JSON.parse(bodyText);
+        body = JSON.parse(sanitized);
       } catch (_) {
         body = bodyText;
       }
@@ -1067,6 +1076,14 @@ function getActiveQueryToExecute(): {
   const selEnd = textarea.selectionEnd;
   const text = textarea.value;
 
+  // Find enclosing block for current cursor / selection start
+  const textBeforeCursor = text.substring(0, selStart);
+  const cursorLine = textBeforeCursor.split('\n').length - 1; // 0-indexed
+  const blocks = getConsoleRequestBlocks(text);
+  const activeBlock = blocks.length > 0
+    ? (blocks.find(b => cursorLine >= b.startLine && cursorLine <= b.endLine) || blocks[0])
+    : null;
+
   // 1. IF TEXT IS SELECTED (BLOCKED): ONLY EXECUTE THE SELECTED TEXT
   if (selStart !== selEnd) {
     const selectedText = text.substring(selStart, selEnd).trim();
@@ -1074,6 +1091,25 @@ function getActiveQueryToExecute(): {
       const textBeforeSel = text.substring(0, selStart);
       const selStartLine = textBeforeSel.split('\n').length - 1;
       const parsed = parseConsoleQuery(selectedText);
+
+      // If selection is only the header line or has an incomplete body (unbalanced braces),
+      // but the activeBlock has a complete body, preserve the active block's body!
+      const openBraces = (selectedText.match(/\{/g) || []).length;
+      const closeBraces = (selectedText.match(/\}/g) || []).length;
+      const isIncomplete = openBraces !== closeBraces;
+
+      if ((!parsed.bodyText || isIncomplete) && activeBlock && activeBlock.bodyText) {
+        return {
+          method: parsed.method || activeBlock.method,
+          endpoint: parsed.endpoint || activeBlock.endpoint,
+          body: activeBlock.body,
+          bodyText: activeBlock.bodyText,
+          isSelected: true,
+          startLine: activeBlock.startLine,
+          rawText: activeBlock.raw,
+        };
+      }
+
       return {
         ...parsed,
         isSelected: true,
@@ -1084,12 +1120,7 @@ function getActiveQueryToExecute(): {
   }
 
   // 2. IF NO SELECTION: FIND THE QUERY BLOCK ENCLOSING THE CURRENT CURSOR
-  const textBeforeCursor = text.substring(0, selStart);
-  const cursorLine = textBeforeCursor.split('\n').length - 1; // 0-indexed
-
-  const blocks = getConsoleRequestBlocks(text);
-  if (blocks.length > 0) {
-    const activeBlock = blocks.find(b => cursorLine >= b.startLine && cursorLine <= b.endLine) || blocks[0];
+  if (activeBlock) {
     return {
       method: activeBlock.method,
       endpoint: activeBlock.endpoint,

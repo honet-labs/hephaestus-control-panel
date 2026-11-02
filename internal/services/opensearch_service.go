@@ -703,25 +703,28 @@ func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint s
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, cfg.Host, cfg.Port, endpoint)
 
 	var reqBody io.Reader
-	if len(body) > 0 && method != "GET" && method != "HEAD" {
-		reqBody = bytes.NewBuffer(body)
+	trimmedBody := bytes.TrimSpace(body)
+	if len(trimmedBody) > 0 && method != "HEAD" {
+		if strings.Contains(endpoint, "_bulk") {
+			if !bytes.HasSuffix(trimmedBody, []byte("\n")) {
+				trimmedBody = append(trimmedBody, '\n')
+			}
+		}
+		reqBody = bytes.NewBuffer(trimmedBody)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > 0 && method != "GET" && method != "HEAD" {
+	if len(trimmedBody) > 0 && method != "HEAD" {
 		if strings.Contains(endpoint, "_bulk") {
 			req.Header.Set("Content-Type", "application/x-ndjson")
-			if !bytes.HasSuffix(body, []byte("\n")) {
-				reqBody = bytes.NewBuffer(append(body, '\n'))
-				req.Body = io.NopCloser(reqBody)
-			}
 		} else {
 			req.Header.Set("Content-Type", "application/json")
 		}
 	}
+	req.Header.Set("Accept", "application/json")
 	if cfg.Username != "" {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
