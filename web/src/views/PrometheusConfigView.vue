@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
@@ -221,7 +221,8 @@ const rawEditorYaml = ref('');
 
 // Current Selected Job
 const currentJob = computed(() => {
-  return scrapeJobs.value.find(j => j.id === selectedJobId.value) || scrapeJobs.value[0] || null;
+  if (!selectedJobId.value) return null;
+  return scrapeJobs.value.find(j => j.id === selectedJobId.value) || null;
 });
 
 // Expandable Scrape Jobs rows
@@ -242,6 +243,28 @@ const expandAllJobs = () => {
     expandedJobIds.value.clear();
   } else {
     expandedJobIds.value = new Set(scrapeJobs.value.map(j => j.id));
+  }
+};
+
+const selectJob = (jobId: string, scroll: boolean = false) => {
+  selectedJobId.value = jobId;
+  if (scroll) {
+    nextTick(() => {
+      scrollToJobEditor();
+    });
+  }
+};
+
+const toggleSelectJob = (jobId: string, scroll: boolean = false) => {
+  if (selectedJobId.value === jobId && !scroll) {
+    selectedJobId.value = '';
+  } else {
+    selectedJobId.value = jobId;
+    if (scroll) {
+      nextTick(() => {
+        scrollToJobEditor();
+      });
+    }
   }
 };
 
@@ -266,10 +289,7 @@ const scrollToJobEditor = () => {
 
 // Set default selected job
 onMounted(() => {
-  if (scrapeJobs.value.length > 0 && !selectedJobId.value) {
-    selectedJobId.value = scrapeJobs.value[0].id;
-    expandedJobIds.value.add(selectedJobId.value);
-  }
+  // Scrape job tidak otomatis dipilih saat mounted agar editor tidak otomatis terbuka
 });
 
 // Filtered Scrape Jobs
@@ -590,8 +610,12 @@ const parseYamlIntoModel = (content: string) => {
 
     if (parsedJobs.length > 0) {
       scrapeJobs.value = parsedJobs;
-      selectedJobId.value = parsedJobs[0].id;
-      expandedJobIds.value.add(parsedJobs[0].id);
+      if (selectedJobId.value && !parsedJobs.some(j => j.id === selectedJobId.value)) {
+        selectedJobId.value = '';
+      }
+    } else {
+      scrapeJobs.value = [];
+      selectedJobId.value = '';
     }
   } catch (err) {
     console.error('Failed to parse YAML model', err);
@@ -1392,8 +1416,8 @@ const executeDeleteJob = () => {
   if (jobToDelete.value) {
     const name = jobToDelete.value.job_name;
     scrapeJobs.value = scrapeJobs.value.filter(j => j.id !== jobToDelete.value!.id);
-    if (selectedJobId.value === jobToDelete.value.id && scrapeJobs.value.length > 0) {
-      selectedJobId.value = scrapeJobs.value[0].id;
+    if (selectedJobId.value === jobToDelete.value.id) {
+      selectedJobId.value = '';
     }
     showNotification('success', `Job '${name}' deleted.`);
   }
@@ -2025,7 +2049,7 @@ onMounted(() => {
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]/60">
                 <template v-for="job in filteredScrapeJobs" :key="job.id">
                   <tr
-                    @click="toggleExpandJob(job.id); selectedJobId = job.id"
+                    @click="toggleSelectJob(job.id)"
                     :class="[
                       'transition cursor-pointer select-none',
                       selectedJobId === job.id
@@ -2051,10 +2075,10 @@ onMounted(() => {
                         <input
                           type="radio"
                           :checked="selectedJobId === job.id"
-                          @change="selectedJobId = job.id"
+                          @click.stop="toggleSelectJob(job.id)"
                           name="selected_job"
                           class="text-blue-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
-                          title="Select job to edit"
+                          title="Select job to edit (click again to deselect)"
                         />
                       </div>
                     </td>
@@ -2122,7 +2146,7 @@ onMounted(() => {
                     <td class="py-2.5 px-3 text-right whitespace-nowrap" @click.stop>
                       <div class="flex items-center justify-end gap-1">
                         <button
-                          @click="selectedJobId = job.id; scrollToJobEditor()"
+                          @click.stop="selectJob(job.id, true)"
                           class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                           title="Edit Job Details"
                         >
@@ -2163,7 +2187,7 @@ onMounted(() => {
                               <span>Add Target IP</span>
                             </button>
                             <button
-                              @click.stop="selectedJobId = job.id; scrollToJobEditor()"
+                              @click.stop="selectJob(job.id, true)"
                               class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 rounded text-[10px] font-semibold transition flex items-center gap-1 cursor-pointer"
                             >
                               <Sliders class="w-3 h-3 text-slate-400" />
@@ -2227,7 +2251,7 @@ onMounted(() => {
         </div>
 
         <!-- Section: Edit Scrape Job Details (Card per selected job) -->
-        <div v-if="currentJob" id="job-details-editor" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4">
+        <div v-if="currentJob" id="job-details-editor" class="p-5 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl shadow-sm space-y-4 animate-in fade-in duration-150">
           <!-- Job Details Header -->
           <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#1b2234] pb-3">
             <div class="flex items-center gap-2">
@@ -2257,6 +2281,13 @@ onMounted(() => {
               >
                 <Trash2 class="w-3 h-3" />
                 <span>Delete Job</span>
+              </button>
+              <button
+                @click="selectedJobId = ''"
+                class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition cursor-pointer ml-1"
+                title="Close Job Editor"
+              >
+                <X class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -2850,7 +2881,9 @@ onMounted(() => {
                 class="text-[10px] bg-slate-100 dark:bg-[#1a2233] border border-slate-200 dark:border-slate-800 rounded px-2 py-0.5 font-medium text-slate-700 dark:text-slate-300"
               >
                 <option value="full">View: Full Config</option>
-                <option value="job">View: This Job Only</option>
+                <option value="job" :disabled="!currentJob">
+                  {{ currentJob ? `View: '${currentJob.job_name}' Only` : 'View: Selected Job (None)' }}
+                </option>
               </select>
 
               <button

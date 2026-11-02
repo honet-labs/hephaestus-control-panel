@@ -10,6 +10,7 @@ import (
 	"net"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,7 +43,34 @@ func NewSSHService(remoteRepo *repository.RemoteHostRepository) *SSHService {
 	return s
 }
 
+// CleanHostString sanitizes host input by stripping whitespaces, URL prefixes, trailing slashes, and extracts port if provided
+func CleanHostString(h string) (string, int) {
+	h = strings.TrimSpace(h)
+	for _, prefix := range []string{"http://", "https://", "ssh://", "sftp://"} {
+		if strings.HasPrefix(strings.ToLower(h), prefix) {
+			h = strings.TrimSpace(h[len(prefix):])
+			break
+		}
+	}
+	h = strings.TrimRight(h, "/")
+	h = strings.TrimSpace(h)
+
+	port := 0
+	if hostPart, portStr, err := net.SplitHostPort(h); err == nil {
+		h = hostPart
+		if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+			port = p
+		}
+	}
+	return h, port
+}
+
 func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.ClientConfig, error) {
+	username := strings.TrimSpace(cfg.Username)
+	if username == "" {
+		return nil, errors.New("SSH username is required")
+	}
+
 	var authMethods []ssh.AuthMethod
 
 	if cfg.AuthType == "key" || (cfg.AuthType == "" && cfg.SSHKey != nil && strings.TrimSpace(*cfg.SSHKey) != "") {
@@ -71,7 +99,7 @@ func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.Clie
 	}
 
 	return &ssh.ClientConfig{
-		User:            cfg.Username,
+		User:            username,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Configurable for internal host access
 		Timeout:         15 * time.Second,
@@ -97,7 +125,16 @@ func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	cleanHost, extractedPort := CleanHostString(cfg.Host)
+	port := cfg.Port
+	if extractedPort > 0 && port <= 0 {
+		port = extractedPort
+	}
+	if port <= 0 {
+		port = 22
+	}
+
+	addr := net.JoinHostPort(cleanHost, strconv.Itoa(port))
 	netDialer := &net.Dialer{
 		Timeout:   15 * time.Second,
 		KeepAlive: 15 * time.Second,
@@ -239,7 +276,15 @@ func (s *SSHService) ExecuteElevatedCommand(cfg *domain.RemoteHostConfig, comman
 }
 
 func (s *SSHService) TestConnection(cfg *domain.RemoteHostConfig) (bool, string) {
-	client, err := s.Dial(cfg)
+	cleanCfg := *cfg
+	cleanHost, extractedPort := CleanHostString(cleanCfg.Host)
+	cleanCfg.Host = cleanHost
+	if extractedPort > 0 && (cleanCfg.Port <= 0 || cleanCfg.Port == 22) {
+		cleanCfg.Port = extractedPort
+	}
+	cleanCfg.Username = strings.TrimSpace(cleanCfg.Username)
+
+	client, err := s.Dial(&cleanCfg)
 	if err != nil {
 		return false, fmt.Sprintf("Connection failed: %v", err)
 	}
@@ -251,7 +296,7 @@ func (s *SSHService) TestConnection(cfg *domain.RemoteHostConfig) (bool, string)
 	}
 	defer session.Close()
 
-	return true, fmt.Sprintf("Successfully connected as %s@%s:%d", cfg.Username, cfg.Host, cfg.Port)
+	return true, fmt.Sprintf("Successfully connected as %s@%s:%d", cleanCfg.Username, cleanCfg.Host, cleanCfg.Port)
 }
 
 // SFTP Methods

@@ -363,7 +363,9 @@ const handleKeyFileUpload = (event: Event) => {
 };
 
 const handleTestConnection = async () => {
-  if (!hostForm.value.host || !hostForm.value.username) {
+  const cleanHost = (hostForm.value.host || '').trim();
+  const cleanUsername = (hostForm.value.username || '').trim();
+  if (!cleanHost || !cleanUsername) {
     testResult.value = { success: false, message: 'Host/IP and Username are required to test connection.' };
     return;
   }
@@ -372,10 +374,10 @@ const handleTestConnection = async () => {
   try {
     const payload = {
       id: hostForm.value.id || '',
-      name: hostForm.value.name || 'Test Host',
-      host: hostForm.value.host,
+      name: (hostForm.value.name || '').trim() || 'Test Host',
+      host: cleanHost,
       port: Number(hostForm.value.port) || (selectedProtocolPreset.value === 'rdp' ? 3389 : 22),
-      username: hostForm.value.username,
+      username: cleanUsername,
       authType: hostForm.value.authType || 'password',
       password: hostForm.value.password || '',
       sshKey: hostForm.value.sshKey || '',
@@ -2705,7 +2707,14 @@ const handleBackToPortal = () => {
 const handleSaveHost = async () => {
   try {
     const isNew = !hostForm.value.id;
-    const res = await axios.post('/api/v1/remote-host', hostForm.value);
+    const payload = {
+      ...hostForm.value,
+      name: (hostForm.value.name || '').trim(),
+      host: (hostForm.value.host || '').trim(),
+      username: (hostForm.value.username || '').trim(),
+      groupName: (hostForm.value.groupName || '').trim() || 'Default',
+    };
+    const res = await axios.post('/api/v1/remote-host', payload);
     if (res.data.success) {
       isHostModalOpen.value = false;
       const savedHost = res.data.data;
@@ -5318,7 +5327,7 @@ onUnmounted(() => {
           <div>
             <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Server Name / Identifier</label>
             <input
-              v-model="hostForm.name"
+              v-model.trim="hostForm.name"
               required
               class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               :placeholder="selectedProtocolPreset === 'rdp' ? 'e.g. Windows Server 2022 / Workstation' : 'e.g. Server - Bifrost'"
@@ -5329,7 +5338,7 @@ onUnmounted(() => {
             <div class="col-span-2">
               <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Server IP / Domain</label>
               <input
-                v-model="hostForm.host"
+                v-model.trim="hostForm.host"
                 required
                 class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
                 placeholder="10.20.3.1"
@@ -5350,7 +5359,7 @@ onUnmounted(() => {
             <div>
               <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Username</label>
               <input
-                v-model="hostForm.username"
+                v-model.trim="hostForm.username"
                 required
                 class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
                 :placeholder="selectedProtocolPreset === 'rdp' ? 'Administrator' : 'root'"
@@ -5359,7 +5368,7 @@ onUnmounted(() => {
             <div>
               <label class="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Group</label>
               <input
-                v-model="hostForm.groupName"
+                v-model.trim="hostForm.groupName"
                 list="group-options"
                 required
                 class="w-full bg-slate-50 dark:bg-[#14161b] border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"

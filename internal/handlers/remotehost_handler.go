@@ -179,6 +179,15 @@ func (h *RemoteHostHandler) Save(c *gin.Context) {
 
 	userID, userRole := getUserContext(c)
 
+	cleanHost, extractedPort := services.CleanHostString(req.Host)
+	req.Host = cleanHost
+	if extractedPort > 0 && req.Port <= 0 {
+		req.Port = extractedPort
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Name = strings.TrimSpace(req.Name)
+	req.GroupName = strings.TrimSpace(req.GroupName)
+
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("rhc-%s", uuid.New().String()[:8])
 	}
@@ -256,6 +265,15 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid input"})
 		return
 	}
+	cleanHost, extractedPort := services.CleanHostString(req.Host)
+	req.Host = cleanHost
+	if extractedPort > 0 && (req.Port <= 0 || req.Port == 22) {
+		req.Port = extractedPort
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Name = strings.TrimSpace(req.Name)
+	req.GroupName = strings.TrimSpace(req.GroupName)
+
 	if req.Port <= 0 {
 		req.Port = 22
 	}

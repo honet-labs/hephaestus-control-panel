@@ -74,6 +74,9 @@ func (r *RemoteHostRepository) List(ctx context.Context, userID int, userRole st
 		); err != nil {
 			return nil, err
 		}
+		c.Host = strings.TrimSpace(c.Host)
+		c.Username = strings.TrimSpace(c.Username)
+		c.Name = strings.TrimSpace(c.Name)
 		list = append(list, c)
 	}
 	return list, nil
@@ -134,6 +137,9 @@ func (r *RemoteHostRepository) GetByID(ctx context.Context, id string, userID in
 	if err != nil {
 		return nil, err
 	}
+	c.Host = strings.TrimSpace(c.Host)
+	c.Username = strings.TrimSpace(c.Username)
+	c.Name = strings.TrimSpace(c.Name)
 	return &c, nil
 }
 
@@ -150,6 +156,9 @@ func (r *RemoteHostRepository) GetRawByID(ctx context.Context, id string) (*doma
 	if err != nil {
 		return nil, err
 	}
+	c.Host = strings.TrimSpace(c.Host)
+	c.Username = strings.TrimSpace(c.Username)
+	c.Name = strings.TrimSpace(c.Name)
 
 	if c.Password != nil && *c.Password != "" {
 		if decrypted, err := config.DecryptText(*c.Password); err == nil {
@@ -203,6 +212,11 @@ func (r *RemoteHostRepository) CheckAccess(ctx context.Context, hostID string, u
 }
 
 func (r *RemoteHostRepository) Save(ctx context.Context, cfg domain.RemoteHostConfig, userID int, userRole string) error {
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.Username = strings.TrimSpace(cfg.Username)
+	cfg.Name = strings.TrimSpace(cfg.Name)
+	cfg.GroupName = strings.TrimSpace(cfg.GroupName)
+
 	pool, err := database.GetPool()
 	if err != nil {
 		return err
