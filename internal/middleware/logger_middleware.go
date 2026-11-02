@@ -35,7 +35,6 @@ func RequestLoggerMiddleware() gin.HandlerFunc {
 
 		latency := time.Since(start)
 		status := c.Writer.Status()
-		clientIP := c.ClientIP()
 		method := c.Request.Method
 		latencyMs := float64(latency.Microseconds()) / 1000.0
 
