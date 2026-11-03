@@ -439,6 +439,23 @@ const parsedModel = computed(() => {
 
   const finalizeComponent = () => {
     if (currentComponent && currentComponent.name && currentComponent.category) {
+      // Resolve endpoint / listen address / port if not explicitly defined
+      if (!currentComponent.endpoint) {
+        const listenAddr = (currentComponent as any)._listenAddress;
+        const host = (currentComponent as any)._host;
+        const port = (currentComponent as any)._port;
+
+        if (listenAddr) {
+          currentComponent.endpoint = listenAddr;
+        } else if (host && port) {
+          currentComponent.endpoint = `${host}:${port}`;
+        } else if (port) {
+          currentComponent.endpoint = `:${port}`;
+        } else if (host) {
+          currentComponent.endpoint = host;
+        }
+      }
+
       const id = `${currentComponent.category}:${currentComponent.name}`;
       currentComponent.rawSnippet = componentLines.join('\n');
       componentsMap.set(id, currentComponent as OTelComponent);
@@ -552,21 +569,58 @@ const parsedModel = computed(() => {
         componentLines.push(rawLine);
         const trimmed = lineWithoutComment;
 
+        // Parse endpoint / url / listen_address / port / host
         if (trimmed.startsWith('endpoint:')) {
-          currentComponent.endpoint = cleanVal(trimmed.slice('endpoint:'.length));
-        } else if (trimmed.startsWith('collection_interval:')) {
-          currentComponent.interval = cleanVal(trimmed.slice('collection_interval:'.length));
-        } else if (trimmed.startsWith('timeout:')) {
-          currentComponent.timeout = cleanVal(trimmed.slice('timeout:'.length));
+          const ep = cleanVal(trimmed.slice('endpoint:'.length));
+          if (ep) {
+            if (!currentComponent.endpoint) {
+              currentComponent.endpoint = ep;
+            } else if (!currentComponent.endpoint.includes(ep)) {
+              currentComponent.endpoint = `${currentComponent.endpoint}, ${ep}`;
+            }
+          }
+        } else if (trimmed.startsWith('url:')) {
+          const u = cleanVal(trimmed.slice('url:'.length));
+          if (u && !currentComponent.endpoint) currentComponent.endpoint = u;
+        } else if (trimmed.startsWith('listen_address:') || trimmed.startsWith('listening_address:')) {
+          const addr = cleanVal(trimmed.slice(trimmed.indexOf(':') + 1));
+          if (addr) (currentComponent as any)._listenAddress = addr;
+        } else if (trimmed.startsWith('address:') || trimmed.startsWith('addr:') || trimmed.startsWith('bind_address:')) {
+          const addr = cleanVal(trimmed.slice(trimmed.indexOf(':') + 1));
+          if (addr) (currentComponent as any)._listenAddress = addr;
+        } else if (trimmed.startsWith('hostname:') || trimmed.startsWith('host:')) {
+          const h = cleanVal(trimmed.slice(trimmed.indexOf(':') + 1));
+          if (h) (currentComponent as any)._host = h;
+        } else if (trimmed.startsWith('port:')) {
+          const p = cleanVal(trimmed.slice('port:'.length));
+          if (p) (currentComponent as any)._port = p;
+        } else if (trimmed.startsWith('collection_interval:') || trimmed.startsWith('interval:') || trimmed.startsWith('scrape_interval:')) {
+          currentComponent.interval = cleanVal(trimmed.slice(trimmed.indexOf(':') + 1));
+        } else if (trimmed.startsWith('timeout:') || trimmed.startsWith('check_interval:')) {
+          currentComponent.timeout = cleanVal(trimmed.slice(trimmed.indexOf(':') + 1));
         } else if (trimmed.startsWith('send_batch_size:') || trimmed.startsWith('send_batch_max_size:')) {
           const bVal = cleanVal(trimmed.split(':')[1]);
           if (bVal) currentComponent.interval = `${bVal} batch`;
+        } else if (trimmed.startsWith('limit_mib:')) {
+          const limVal = cleanVal(trimmed.slice('limit_mib:'.length));
+          if (limVal) currentComponent.interval = `${limVal} MiB limit`;
         } else if (trimmed.startsWith('insecure:')) {
           currentComponent.tlsInsecure = trimmed.includes('true');
         } else if (trimmed.startsWith('include:')) {
           const m = trimmed.match(/\[(.*)\]/);
           if (m && m[1]) {
             currentComponent.paths = m[1].split(',').map((s) => cleanVal(s)).filter(Boolean);
+          } else {
+            const singlePath = cleanVal(trimmed.slice('include:'.length));
+            if (singlePath) currentComponent.paths = [singlePath];
+          }
+        } else if (trimmed.startsWith('targets:') || trimmed.startsWith('brokers:')) {
+          const m = trimmed.match(/\[(.*)\]/);
+          if (m && m[1]) {
+            const targets = m[1].split(',').map((s) => cleanVal(s)).filter(Boolean);
+            if (targets.length > 0 && !currentComponent.endpoint) {
+              currentComponent.endpoint = targets.join(', ');
+            }
           }
         } else if (trimmed.endsWith(':') && componentLines.some((l) => l.includes('scrapers:'))) {
           const scraperName = cleanVal(trimmed.slice(0, -1));
@@ -965,6 +1019,25 @@ const graphData = computed(() => {
     });
   };
 
+  const getPortBadge = (endpoint?: string): string | undefined => {
+    if (!endpoint || !endpoint.includes(':')) return undefined;
+    const spl = endpoint.split(':');
+    const lastPart = spl[spl.length - 1]?.trim().replace(/\/.*$/, '');
+    if (lastPart && /^\d+$/.test(lastPart)) {
+      return `:${lastPart}`;
+    }
+    return undefined;
+  };
+
+  const getReceiverBadge = (rx: GraphNode): string | undefined => {
+    if (rx.component?.interval) return rx.component.interval;
+    return getPortBadge(rx.component?.endpoint);
+  };
+
+  const getExporterBadge = (ex: GraphNode): string | undefined => {
+    return getPortBadge(ex.component?.endpoint);
+  };
+
   // 1. Process explicit pipelines from YAML
   pipelines.forEach((pipe) => {
     if (!pipe) return;
@@ -982,7 +1055,7 @@ const graphData = computed(() => {
           pipe.id,
           pipe.name,
           pipe.signal,
-          rx.component?.interval || undefined
+          getReceiverBadge(rx)
         );
       });
 
@@ -1001,35 +1074,26 @@ const graphData = computed(() => {
       // Last Processor -> Exporters
       const lastProc = pipeProcessors[pipeProcessors.length - 1];
       pipeExporters.forEach((ex) => {
-        let badge: string | undefined = undefined;
-        if (ex.component?.endpoint && ex.component.endpoint.includes(':')) {
-          const spl = ex.component.endpoint.split(':');
-          badge = `:${spl[spl.length - 1]}`;
-        }
         createLink(
           lastProc,
           ex,
           pipe.id,
           pipe.name,
           pipe.signal,
-          badge
+          getExporterBadge(ex)
         );
       });
     } else {
       // Direct Receiver -> Exporters (no processors in pipeline)
       pipeReceivers.forEach((rx) => {
         pipeExporters.forEach((ex) => {
-          let badge: string | undefined = rx.component?.interval;
-          if (!badge && ex.component?.endpoint && ex.component.endpoint.includes(':')) {
-            badge = `:${ex.component.endpoint.split(':').pop()}`;
-          }
           createLink(
             rx,
             ex,
             pipe.id,
             pipe.name,
             pipe.signal,
-            badge
+            getReceiverBadge(rx) || getExporterBadge(ex)
           );
         });
       });
@@ -1064,10 +1128,10 @@ const graphData = computed(() => {
         const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
 
         if (targetProc && matchedEx) {
-          createLink(rx, targetProc, 'auto', 'inferred', 'metrics', rx.component?.interval || undefined, true);
-          createLink(targetProc, matchedEx, 'auto', 'inferred', 'metrics', matchedEx.component?.endpoint && matchedEx.component.endpoint.includes(':') ? `:${matchedEx.component.endpoint.split(':').pop()}` : undefined, true);
+          createLink(rx, targetProc, 'auto', 'inferred', 'metrics', getReceiverBadge(rx), true);
+          createLink(targetProc, matchedEx, 'auto', 'inferred', 'metrics', getExporterBadge(matchedEx), true);
         } else if (matchedEx) {
-          createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', rx.component?.interval || undefined, true);
+          createLink(rx, matchedEx, 'auto', 'inferred', 'metrics', getReceiverBadge(rx) || getExporterBadge(matchedEx), true);
         }
       });
     } else {
@@ -1080,10 +1144,10 @@ const graphData = computed(() => {
         if (matchedEx) {
           const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
           if (targetProc) {
-            createLink(rx, targetProc, 'orphan', 'inferred', 'metrics', rx.component?.interval || undefined, true);
-            createLink(targetProc, matchedEx, 'orphan', 'inferred', 'metrics', undefined, true);
+            createLink(rx, targetProc, 'orphan', 'inferred', 'metrics', getReceiverBadge(rx), true);
+            createLink(targetProc, matchedEx, 'orphan', 'inferred', 'metrics', getExporterBadge(matchedEx), true);
           } else {
-            createLink(rx, matchedEx, 'orphan', 'inferred', 'metrics', rx.component?.interval || undefined, true);
+            createLink(rx, matchedEx, 'orphan', 'inferred', 'metrics', getReceiverBadge(rx) || getExporterBadge(matchedEx), true);
           }
         }
       });
@@ -1097,10 +1161,10 @@ const graphData = computed(() => {
           if (matchedRx) {
             const targetProc = processorNodes.length > 0 ? processorNodes[Math.min(idx, processorNodes.length - 1)] : null;
             if (targetProc) {
-              createLink(matchedRx, targetProc, 'orphan', 'inferred', 'metrics', undefined, true);
-              createLink(targetProc, ex, 'orphan', 'inferred', 'metrics', ex.component?.endpoint && ex.component.endpoint.includes(':') ? `:${ex.component.endpoint.split(':').pop()}` : undefined, true);
+              createLink(matchedRx, targetProc, 'orphan', 'inferred', 'metrics', getReceiverBadge(matchedRx), true);
+              createLink(targetProc, ex, 'orphan', 'inferred', 'metrics', getExporterBadge(ex), true);
             } else {
-              createLink(matchedRx, ex, 'orphan', 'inferred', 'metrics', undefined, true);
+              createLink(matchedRx, ex, 'orphan', 'inferred', 'metrics', getReceiverBadge(matchedRx) || getExporterBadge(ex), true);
             }
           }
         }
@@ -2195,7 +2259,7 @@ onMounted(async () => {
                   </template>
                 </text>
 
-                <!-- Label 2: Key Sub-metadata (Endpoint, IP or Scrapers) -->
+                <!-- Label 2: Key Sub-metadata (Endpoint, IP, Port or Scrapers) -->
                 <text
                   x="0"
                   :y="(node.component?.name || '').length > 32 && (node.component?.name || '').includes('/') ? 66 : 52"
@@ -2207,7 +2271,7 @@ onMounted(async () => {
                     {{ (node.component.endpoint || '').length > 38 ? (node.component.endpoint || '').slice(0, 36) + '…' : node.component.endpoint }}
                   </tspan>
                   <tspan v-else-if="node.component?.interval">
-                    {{ node.component.interval }} interval
+                    {{ (node.component.interval || '').includes('interval') || (node.component.interval || '').includes('batch') || (node.component.interval || '').includes('limit') ? node.component.interval : node.component.interval + ' interval' }}
                   </tspan>
                   <tspan v-else-if="node.component?.timeout">
                     {{ node.component.timeout }} timeout
@@ -2216,13 +2280,13 @@ onMounted(async () => {
                     {{ node.component.scrapers.length }} scrapers
                   </tspan>
                   <tspan v-else-if="node.component?.paths && node.component.paths.length > 0">
-                    {{ node.component.paths.length }} files
+                    {{ node.component.paths.length }} file{{ node.component.paths.length > 1 ? 's' : '' }}
                   </tspan>
                   <tspan v-else-if="node.component?.actions && node.component.actions.length > 0">
                     {{ node.component.actions.length }} action{{ node.component.actions.length > 1 ? 's' : '' }}
                   </tspan>
-                  <tspan v-else-if="node.component?.type && node.component.type !== node.component.name">
-                    {{ node.component.type }}
+                  <tspan v-else>
+                    {{ node.component?.type || '' }}
                   </tspan>
                 </text>
               </g>
@@ -2264,13 +2328,22 @@ onMounted(async () => {
               <!-- Parameters preview -->
               <div class="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
                 <span v-if="inspectedNode.endpoint" class="flex items-center gap-1 font-mono">
-                  <strong class="text-slate-400">Endpoint:</strong> {{ inspectedNode.endpoint }}
+                  <strong class="text-slate-400">Endpoint / Port:</strong> {{ inspectedNode.endpoint }}
                 </span>
                 <span v-if="inspectedNode.interval" class="flex items-center gap-1 font-mono">
                   <strong class="text-slate-400">Interval:</strong> {{ inspectedNode.interval }}
                 </span>
+                <span v-if="inspectedNode.timeout" class="flex items-center gap-1 font-mono">
+                  <strong class="text-slate-400">Timeout:</strong> {{ inspectedNode.timeout }}
+                </span>
                 <span v-if="inspectedNode.scrapers && inspectedNode.scrapers.length" class="flex items-center gap-1">
                   <strong class="text-slate-400">Scrapers:</strong> {{ inspectedNode.scrapers.join(', ') }}
+                </span>
+                <span v-if="inspectedNode.paths && inspectedNode.paths.length" class="flex items-center gap-1 font-mono">
+                  <strong class="text-slate-400">Files:</strong> {{ inspectedNode.paths.join(', ') }}
+                </span>
+                <span v-if="inspectedNode.actions && inspectedNode.actions.length" class="flex items-center gap-1">
+                  <strong class="text-slate-400">Actions:</strong> {{ inspectedNode.actions.join(', ') }}
                 </span>
                 <span v-if="inspectedNode.pipelines && inspectedNode.pipelines.length" class="flex items-center gap-1">
                   <strong class="text-slate-400">Pipelines:</strong> {{ inspectedNode.pipelines.join(', ') }}
