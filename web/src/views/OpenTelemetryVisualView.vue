@@ -1302,15 +1302,22 @@ const isNodeDimmed = (node: GraphNode): boolean => {
 
 // ==================== CANVAS INTERACTION HELPERS ====================
 const handleZoomIn = () => {
-  zoomLevel.value = Math.min(zoomLevel.value + 0.15, 2.5);
+  zoomLevel.value = Math.min(Number((zoomLevel.value + 0.15).toFixed(2)), 3.0);
 };
 const handleZoomOut = () => {
-  zoomLevel.value = Math.max(zoomLevel.value - 0.15, 0.4);
+  zoomLevel.value = Math.max(Number((zoomLevel.value - 0.15).toFixed(2)), 0.3);
 };
 const handleResetZoom = () => {
   zoomLevel.value = 1;
   panX.value = 0;
   panY.value = 0;
+};
+
+// Smooth mouse wheel scroll zoom on topology canvas
+const onCanvasWheel = (e: WheelEvent) => {
+  const step = e.deltaY < 0 ? 0.1 : -0.1;
+  const newZoom = Math.min(Math.max(Number((zoomLevel.value + step).toFixed(2)), 0.3), 3.0);
+  zoomLevel.value = newZoom;
 };
 
 const startPan = (e: MouseEvent) => {
@@ -1868,13 +1875,13 @@ onMounted(async () => {
 
         <!-- Zoom Controls (for Visual Mode) -->
         <div v-if="viewMode !== 'code'" class="flex items-center border border-slate-200 dark:border-[#1b2234] rounded-lg overflow-hidden bg-slate-50 dark:bg-[#121826]">
-          <button @click="handleZoomOut" title="Zoom Out" class="p-1 hover:bg-slate-200 dark:hover:bg-[#1a2336] text-slate-500 cursor-pointer">
+          <button @click="handleZoomOut" title="Zoom Out (or Scroll Down on canvas)" class="p-1 hover:bg-slate-200 dark:hover:bg-[#1a2336] text-slate-500 cursor-pointer">
             <ZoomOut class="w-3.5 h-3.5" />
           </button>
-          <button @click="handleResetZoom" title="Reset View" class="px-1.5 text-[10px] font-mono text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1a2336] cursor-pointer">
+          <button @click="handleResetZoom" title="Reset View (100% or Double Click canvas)" class="px-1.5 text-[10px] font-mono text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#1a2336] cursor-pointer">
             {{ Math.round(zoomLevel * 100) }}%
           </button>
-          <button @click="handleZoomIn" title="Zoom In" class="p-1 hover:bg-slate-200 dark:hover:bg-[#1a2336] text-slate-500 cursor-pointer">
+          <button @click="handleZoomIn" title="Zoom In (or Scroll Up on canvas)" class="p-1 hover:bg-slate-200 dark:hover:bg-[#1a2336] text-slate-500 cursor-pointer">
             <ZoomIn class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1925,10 +1932,10 @@ onMounted(async () => {
       <!-- LEFT/TOP: Interactive Visual Graph Topology Canvas -->
       <div
         v-show="viewMode === 'visual' || viewMode === 'split'"
-        class="bg-white dark:bg-[#0a0e17] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm relative flex flex-col"
+        class="bg-white dark:bg-[#0a0e17] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm relative flex flex-col transition-all duration-150 h-[calc(100vh-215px)]"
         :class="{
-          'h-[680px]': viewMode === 'visual',
-          'h-[600px] lg:col-span-7': viewMode === 'split',
+          'w-full min-h-[680px]': viewMode === 'visual',
+          'lg:col-span-7 min-h-[660px]': viewMode === 'split',
         }"
       >
         <!-- Canvas Stage Legend & Metrics Header -->
@@ -1976,7 +1983,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- SVG Interactive Canvas Area -->
+        <!-- SVG Interactive Canvas Area (Supports drag pan, mouse wheel scroll zoom, and double click reset) -->
         <div
           id="canvas-bg"
           class="canvas-area flex-1 relative overflow-hidden select-none cursor-grab active:cursor-grabbing bg-slate-50/40 dark:bg-[#080c14]"
@@ -1984,6 +1991,8 @@ onMounted(async () => {
           @mousemove="doPan"
           @mouseup="endPan"
           @mouseleave="endPan"
+          @wheel.prevent="onCanvasWheel"
+          @dblclick="handleResetZoom"
         >
           <!-- Grid Background Pattern -->
           <svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
@@ -2296,7 +2305,7 @@ onMounted(async () => {
           <!-- Floating Helper Note at Bottom of Canvas -->
           <div v-if="(graphData.nodes || []).length > 0" class="absolute bottom-3 left-3 pointer-events-none text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 bg-white/80 dark:bg-black/60 px-2.5 py-1 rounded-lg backdrop-blur-xs border border-slate-200/50 dark:border-slate-800/50">
             <Info class="w-3.5 h-3.5 text-slate-400" />
-            <span>Click any node to inspect configuration snippet and pipeline links.</span>
+            <span>Scroll wheel to zoom, drag to pan, click any node to inspect configuration.</span>
           </div>
         </div>
 
@@ -2406,10 +2415,10 @@ onMounted(async () => {
       <!-- RIGHT/BOTTOM: Raw YAML Code Editor (for Split View & Code Editor Mode) -->
       <div
         v-show="viewMode === 'code' || viewMode === 'split'"
-        class="bg-white dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm flex flex-col"
+        class="bg-white dark:bg-[#0c101a] border border-slate-200 dark:border-[#1b2234] rounded-2xl overflow-hidden shadow-sm flex flex-col transition-all duration-150 h-[calc(100vh-215px)]"
         :class="{
-          'h-[640px]': viewMode === 'code',
-          'h-[580px] lg:col-span-5': viewMode === 'split',
+          'w-full min-h-[680px]': viewMode === 'code',
+          'lg:col-span-5 min-h-[660px]': viewMode === 'split',
         }"
       >
         <!-- Editor Header -->
