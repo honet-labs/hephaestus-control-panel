@@ -185,10 +185,10 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 		if pSess.client != nil && pSess.session != nil && pSess.stdinPipe != nil {
 			targetRows := initialRows
 			targetCols := initialCols
-			if targetRows <= 0 {
+			if targetRows < 4 {
 				targetRows = 24
 			}
-			if targetCols <= 0 {
+			if targetCols < 20 {
 				targetCols = 80
 			}
 			if err := pSess.session.WindowChange(targetRows, targetCols); err == nil {
@@ -222,7 +222,7 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			pSess.activeWs = ws
 			pSess.wsMu.Unlock()
 
-			if initialCols > 0 && initialRows > 0 && pSess.session != nil {
+			if initialCols >= 20 && initialRows >= 4 && pSess.session != nil {
 				_ = pSess.session.WindowChange(initialRows, initialCols)
 			}
 			pSess.mu.Unlock()
@@ -275,11 +275,11 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 	}
 
 	cols := initialCols
-	if cols <= 0 {
+	if cols < 20 {
 		cols = 80
 	}
 	rows := initialRows
-	if rows <= 0 {
+	if rows < 4 {
 		rows = 24
 	}
 
@@ -403,7 +403,7 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 					}
 				}
 			case "resize":
-				if msg.Cols > 0 && msg.Rows > 0 && p.session != nil {
+				if msg.Cols >= 20 && msg.Rows >= 4 && p.session != nil {
 					_ = p.session.WindowChange(msg.Rows, msg.Cols)
 				}
 			case "ping":
@@ -415,7 +415,7 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 				p.closeSession()
 				return
 			case "auth", "reconnect":
-				if msg.Cols > 0 && msg.Rows > 0 && p.session != nil {
+				if msg.Cols >= 20 && msg.Rows >= 4 && p.session != nil {
 					_ = p.session.WindowChange(msg.Rows, msg.Cols)
 				}
 				_ = p.writeWs(domain.WsTerminalMessage{Type: "connected", Message: "Terminal stream ready."})

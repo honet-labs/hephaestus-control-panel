@@ -707,6 +707,53 @@ const duplicateSession = async (session: OpenSession, event?: MouseEvent) => {
   await connectHost(session.host, true, session.groupId);
 };
 
+// Safe Terminal Fit helper: guarantees xterm is only fitted when container is visible with valid geometry
+const safeFitTerminal = (session: OpenSession) => {
+  if (!session || !session.term || !session.fitAddon) return;
+  // Terminal must belong to currently active host session and active view must be 'terminal'
+  if (activeSession.value?.id !== session.id || session.activeView !== 'terminal') return;
+  if (document.visibilityState !== 'visible') return;
+
+  const container = document.getElementById(`terminal-container-${session.id}`);
+  if (!container) return;
+
+  const rect = container.getBoundingClientRect();
+  // If container is hidden (display: none has 0x0) or too small, skip fitting to prevent cols collapsing
+  if (rect.width < 120 || rect.height < 60) return;
+
+  try {
+    session.fitAddon.fit();
+    const cols = session.term.cols;
+    const rows = session.term.rows;
+    // Strictly guard against corrupted / tiny dimensions (must be at least 20 cols x 4 rows)
+    if (cols >= 20 && rows >= 4) {
+      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    }
+    // Refresh visible viewport to ensure crisp rendering after tab switch
+    session.term.refresh(0, Math.max(0, rows - 1));
+  } catch (_) {}
+};
+
+// Multi-frame debounced fit scheduler to allow browser layout reflow to settle
+const scheduleFitTerminal = (session: OpenSession, delays: number[] = [0, 50, 180]) => {
+  if (!session) return;
+  delays.forEach((delay) => {
+    if (delay === 0) {
+      requestAnimationFrame(() => {
+        safeFitTerminal(session);
+        session.term?.focus();
+      });
+    } else {
+      setTimeout(() => {
+        safeFitTerminal(session);
+        session.term?.focus();
+      }, delay);
+    }
+  });
+};
+
 const ensureTerminalReady = async (session: OpenSession) => {
   await nextTick();
   let container = document.getElementById(`terminal-container-${session.id}`);
@@ -726,27 +773,7 @@ const ensureTerminalReady = async (session: OpenSession) => {
     if (session.term.options.fontSize !== terminalFontSize.value) {
       session.term.options.fontSize = terminalFontSize.value;
     }
-    setTimeout(() => {
-      try {
-        session.fitAddon?.fit();
-        session.term?.focus();
-        if (
-          session.ws &&
-          session.ws.readyState === WebSocket.OPEN &&
-          session.term &&
-          session.term.cols > 0 &&
-          session.term.rows > 0
-        ) {
-          session.ws.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: session.term.cols,
-              rows: session.term.rows,
-            })
-          );
-        }
-      } catch (e) {}
-    }, 60);
+    scheduleFitTerminal(session);
   }
 };
 
@@ -863,19 +890,8 @@ const setTerminalFontSize = (size: number) => {
   openSessions.value.forEach((sess) => {
     if (sess.term) {
       sess.term.options.fontSize = clamped;
-      if (sess.fitAddon && sess.activeView === 'terminal') {
-        try {
-          sess.fitAddon.fit();
-          if (sess.ws && sess.ws.readyState === WebSocket.OPEN && sess.term.cols > 0 && sess.term.rows > 0) {
-            sess.ws.send(
-              JSON.stringify({
-                type: 'resize',
-                cols: sess.term.cols,
-                rows: sess.term.rows,
-              })
-            );
-          }
-        } catch (e) {}
+      if (sess.id === activeSession.value?.id && sess.activeView === 'terminal') {
+        scheduleFitTerminal(sess);
       }
     }
   });
@@ -1002,8 +1018,8 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
   // Open WebSocket with token and detected terminal dimensions
   const token = authStore.token || sessionStorage.getItem('hcp_session') || '';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const initialCols = session.term && session.term.cols > 0 ? session.term.cols : 80;
-  const initialRows = session.term && session.term.rows > 0 ? session.term.rows : 24;
+  const initialCols = session.term && session.term.cols >= 20 ? session.term.cols : 80;
+  const initialRows = session.term && session.term.rows >= 4 ? session.term.rows : 24;
   const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}${forceNew ? '&forceNew=true' : ''}`;
   const ws = new WebSocket(wsUrl);
   session.ws = ws;
@@ -1024,38 +1040,31 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
       } else if (!session.term.buffer.active.cursorY) {
         session.term.write('\r\n\x1b[32m[Connected to ' + session.host.name + ' (' + session.host.host + ')]\x1b[0m\r\n\r\n');
       }
-      try {
-        session.fitAddon?.fit();
-        session.term.focus();
-      } catch (e) {}
-      setTimeout(() => {
-        try {
-          session.fitAddon?.fit();
-          session.term?.focus();
-        } catch (_) {}
-      }, 50);
+      safeFitTerminal(session);
     }
 
     // Send auth handshake with sessionId for persistent session re-attach
+    const activeCols = session.term && session.term.cols >= 20 ? session.term.cols : initialCols;
+    const activeRows = session.term && session.term.rows >= 4 ? session.term.rows : initialRows;
     ws.send(
       JSON.stringify({
         type: 'auth',
         token: token,
         hostConfigId: session.host.id,
         sessionId: session.id,
-        cols: session.term?.cols || initialCols,
-        rows: session.term?.rows || initialRows,
+        cols: activeCols,
+        rows: activeRows,
         forceNew: forceNew,
       })
     );
 
     // Send explicit resize message to ensure PTY adopts dimensions immediately
-    if (session.term && session.term.cols > 0 && session.term.rows > 0) {
+    if (activeCols >= 20 && activeRows >= 4) {
       ws.send(
         JSON.stringify({
           type: 'resize',
-          cols: session.term.cols,
-          rows: session.term.rows,
+          cols: activeCols,
+          rows: activeRows,
         })
       );
     }
@@ -1082,13 +1091,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
         session.reconnectPendingOnVisible = false;
         // On connected ack, ensure remote PTY matches client dimensions and focus terminal
         if (session.term) {
-          try {
-            session.fitAddon?.fit();
-            session.term.focus();
-            if (session.term.cols > 0 && session.term.rows > 0 && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'resize', cols: session.term.cols, rows: session.term.rows }));
-            }
-          } catch (e) {}
+          safeFitTerminal(session);
         }
       } else if (msg.type === 'error') {
         session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
@@ -1183,10 +1186,7 @@ const reconnectTerminal = (session: OpenSession, forceNew: boolean = false) => {
 const initXterm = (session: OpenSession) => {
   // If WebSocket is already open or connecting, do not re-create
   if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
-    try {
-      session.fitAddon?.fit();
-      session.term?.focus();
-    } catch (e) {}
+    safeFitTerminal(session);
     return;
   }
 
@@ -1255,14 +1255,17 @@ const initXterm = (session: OpenSession) => {
     { passive: false }
   );
 
-  // Initial fit attempt
-  try {
-    fitAddon.fit();
-    term.focus();
-  } catch (e) {}
-
   session.term = term;
   session.fitAddon = fitAddon;
+
+  // Safe initial fit attempt only if container is already visible
+  const initialRect = container.getBoundingClientRect();
+  if (initialRect.width >= 120 && initialRect.height >= 60) {
+    try {
+      fitAddon.fit();
+      term.focus();
+    } catch (_) {}
+  }
 
   // Set up listeners on terminal to send data and resize dynamically to active WebSocket
   term.onData((data) => {
@@ -1281,7 +1284,8 @@ const initXterm = (session: OpenSession) => {
   });
 
   term.onResize(({ cols, rows }) => {
-    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+    // Only forward resize if dimensions are sane and not collapsed
+    if (cols >= 20 && rows >= 4 && session.ws && session.ws.readyState === WebSocket.OPEN) {
       session.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
   });
@@ -1294,20 +1298,15 @@ const initXterm = (session: OpenSession) => {
     session.resizeObserver = undefined;
   }
 
-  const resizeObserver = new ResizeObserver(() => {
-    if (session.term && session.fitAddon && session.activeView === 'terminal') {
-      try {
-        session.fitAddon.fit();
-        if (session.ws && session.ws.readyState === WebSocket.OPEN && session.term.cols > 0 && session.term.rows > 0) {
-          session.ws.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: session.term.cols,
-              rows: session.term.rows,
-            })
-          );
-        }
-      } catch (e) {}
+  const resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      // If container is hidden (display: none width=0) or collapsing, ignore to protect terminal columns
+      if (entry.contentRect.width < 120 || entry.contentRect.height < 60) {
+        return;
+      }
+    }
+    if (activeSession.value?.id === session.id && session.activeView === 'terminal') {
+      safeFitTerminal(session);
     }
   });
   resizeObserver.observe(container);
@@ -1324,6 +1323,7 @@ watch(
     if (!activeSession.value) return;
     if (activeSession.value.activeView === 'terminal') {
       await ensureTerminalReady(activeSession.value);
+      scheduleFitTerminal(activeSession.value);
     }
     saveSessionsState();
   }
@@ -1352,12 +1352,10 @@ const handleVisibilityOrFocus = () => {
           sess.connected = true;
           sess.connecting = false;
           sess.reconnectPendingOnVisible = false;
-          try {
-            sess.fitAddon?.fit();
-            if (sess.term.cols > 0 && sess.term.rows > 0) {
-              sess.ws.send(JSON.stringify({ type: 'resize', cols: sess.term.cols, rows: sess.term.rows }));
-            }
-          } catch (_) {}
+          // CRITICAL: Only refit and resize the currently visible active session!
+          if (sess.id === activeSession.value?.id) {
+            scheduleFitTerminal(sess);
+          }
           return;
         }
 
@@ -1741,6 +1739,7 @@ const switchActiveView = async (session: OpenSession, viewName: 'terminal' | 'da
   session.activeView = viewName;
   if (viewName === 'terminal') {
     await ensureTerminalReady(session);
+    scheduleFitTerminal(session);
   } else {
     await fetchHostTelemetry(session);
   }
@@ -2958,27 +2957,8 @@ watch([() => openSessions.value.length, () => tabClusters.value], async () => {
 
 const handleWindowResize = () => {
   updateTabScrollState();
-  if (activeSession.value) {
-    if (activeSession.value.activeView === 'terminal') {
-      try {
-        activeSession.value.fitAddon?.fit();
-        if (
-          activeSession.value.ws &&
-          activeSession.value.ws.readyState === WebSocket.OPEN &&
-          activeSession.value.term &&
-          activeSession.value.term.cols > 0 &&
-          activeSession.value.term.rows > 0
-        ) {
-          activeSession.value.ws.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: activeSession.value.term.cols,
-              rows: activeSession.value.term.rows,
-            })
-          );
-        }
-      } catch (e) {}
-    }
+  if (activeSession.value && activeSession.value.activeView === 'terminal') {
+    safeFitTerminal(activeSession.value);
   }
 };
 
@@ -2987,7 +2967,7 @@ watch(activeSessionIndex, async (newIdx) => {
     const s = openSessions.value[newIdx];
     await nextTick();
     if (s.activeView === 'terminal') {
-      s.fitAddon?.fit();
+      scheduleFitTerminal(s);
     }
     if (tabBarRef.value) {
       const activeEl = tabBarRef.value.querySelector('.active-session-tab') as HTMLElement;
