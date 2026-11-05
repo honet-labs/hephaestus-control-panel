@@ -724,7 +724,26 @@ func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint s
 			req.Header.Set("Content-Type", "application/json")
 		}
 	}
-	req.Header.Set("Accept", "application/json")
+	// Content negotiation & Accept header:
+	// In Kibana / OpenSearch Dashboards Dev Tools:
+	// CAT APIs (/_cat/*) return human-readable aligned tabular plain text by default,
+	// unless format=json (or format=yaml) is explicitly requested in the query.
+	lowerEndpoint := strings.ToLower(endpoint)
+	isCatAPI := strings.HasPrefix(lowerEndpoint, "/_cat/") || lowerEndpoint == "/_cat" || strings.HasPrefix(lowerEndpoint, "/_cat?")
+	wantsJSON := strings.Contains(lowerEndpoint, "format=json")
+	wantsYAML := strings.Contains(lowerEndpoint, "format=yaml") || strings.Contains(lowerEndpoint, "format=yml")
+	wantsText := strings.Contains(lowerEndpoint, "format=text") || strings.Contains(lowerEndpoint, "format=txt") || strings.Contains(lowerEndpoint, "format=raw")
+
+	if isCatAPI && !wantsJSON && !wantsYAML {
+		req.Header.Set("Accept", "text/plain, */*")
+	} else if wantsYAML {
+		req.Header.Set("Accept", "application/yaml, text/plain, */*")
+	} else if wantsText {
+		req.Header.Set("Accept", "text/plain, */*")
+	} else {
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+	}
+
 	if cfg.Username != "" {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
@@ -757,11 +776,17 @@ func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint s
 		Raw:        string(bodyBytes),
 	}
 
-	// Try to decode JSON
-	var parsed interface{}
-	if jsonErr := json.Unmarshal(bodyBytes, &parsed); jsonErr == nil {
-		res.Data = parsed
+	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+	// Only unmarshal as structured JSON if the response is actually JSON
+	if strings.Contains(contentType, "application/json") || strings.Contains(contentType, "+json") {
+		var parsed interface{}
+		if jsonErr := json.Unmarshal(bodyBytes, &parsed); jsonErr == nil {
+			res.Data = parsed
+		} else {
+			res.Data = string(bodyBytes)
+		}
 	} else {
+		// Plain text (such as tabular _cat output), YAML, CSV, etc.
 		res.Data = string(bodyBytes)
 	}
 

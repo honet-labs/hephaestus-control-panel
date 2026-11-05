@@ -892,10 +892,33 @@ function syntaxHighlightJson(jsonObj: any): string {
   );
 }
 
+function highlightCatOrPlainText(raw: string): string {
+  const lines = raw.split('\n');
+  if (lines.length === 0) return '';
+
+  const processedLines = lines.map((line, idx) => {
+    let escaped = escapeHtml(line);
+    // Header row detection for _cat output (e.g. lines containing health, status, index, pri, rep, docs.count, etc.)
+    if (idx === 0 && /\b(health|status|index|node|pri|rep|docs\.count|ip|uuid|disk\.used|load_1m|master|heap\.percent)\b/i.test(line)) {
+      return `<span class="text-slate-900 dark:text-white font-bold opacity-90">${escaped}</span>`;
+    }
+    // Semantic health highlights per AGENTS.md guidelines (emerald for green, amber for yellow, rose for red)
+    escaped = escaped.replace(/\b(green)\b/g, '<span class="text-emerald-600 dark:text-emerald-400 font-semibold">$1</span>');
+    escaped = escaped.replace(/\b(yellow)\b/g, '<span class="text-amber-600 dark:text-amber-400 font-semibold">$1</span>');
+    escaped = escaped.replace(/\b(red)\b/g, '<span class="text-rose-600 dark:text-rose-400 font-semibold">$1</span>');
+    // Index status highlights
+    escaped = escaped.replace(/\b(open)\b/g, '<span class="text-teal-600 dark:text-teal-400">$1</span>');
+    escaped = escaped.replace(/\b(close)\b/g, '<span class="text-slate-400 italic">$1</span>');
+    return escaped;
+  });
+
+  return processedLines.join('\n');
+}
+
 const highlightedResponseHtml = computed(() => {
   if (!queryResult.value) return '';
   if (typeof queryResult.value.data === 'string') {
-    return escapeHtml(queryResult.value.data);
+    return highlightCatOrPlainText(queryResult.value.data);
   }
   return syntaxHighlightJson(queryResult.value.data);
 });
@@ -3869,7 +3892,7 @@ onUnmounted(() => {
                   <!-- Syntax Highlighted Response matching Kibana/OpenSearch Dev Tools (Unobstructed full width) -->
                   <pre
                     v-else-if="queryResult"
-                    class="whitespace-pre font-mono leading-[22px] focus:outline-none select-text pr-12 min-w-max"
+                    class="whitespace-pre font-mono leading-[22px] focus:outline-none select-text pr-12 min-w-max text-slate-800 dark:text-slate-200"
                     :style="{
                       paddingBottom: `${Math.max(12, (totalDevToolsRows - ((formattedResponseStr || '').split('\n').length)) * 22 + 12)}px`
                     }"
