@@ -584,6 +584,7 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 			ID       string `json:"ID"`
 			Names    string `json:"Names"`
 			Image    string `json:"Image"`
+			ImageID  string `json:"ImageID"`
 			Command  string `json:"Command"`
 			Created  string `json:"CreatedAt"`
 			State    string `json:"State"`
@@ -625,11 +626,17 @@ func (s *DockerService) listContainersSSH(ctx context.Context, conn *domain.Dock
 
 			createdUnix := parseDockerTime(item.Created)
 
+			imgID := item.ImageID
+			if imgID == "" && strings.HasPrefix(item.Image, "sha256:") {
+				imgID = item.Image
+			}
+
 			containers = append(containers, domain.DockerContainer{
 				ID:       item.ID,
 				Names:    []string{"/" + item.Names},
 				Name:     item.Names,
 				Image:    item.Image,
+				ImageID:  imgID,
 				Command:  item.Command,
 				Created:  createdUnix,
 				State:    state,

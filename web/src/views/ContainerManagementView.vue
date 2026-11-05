@@ -553,6 +553,200 @@ const filteredContainers = computed(() => {
   return list;
 });
 
+// Image & Network Search and Usage Filters
+const imageSearchKeyword = ref('');
+const imageUsageFilter = ref<'all' | 'in_use' | 'unused'>('all');
+const networkSearchKeyword = ref('');
+const networkUsageFilter = ref<'all' | 'in_use' | 'unused'>('all');
+
+// Helper: Get all containers using a specific image
+const getImageContainers = (img: DockerImage): DockerContainer[] => {
+  if (!img) return [];
+  const fullImgId = (img.id || '').replace('sha256:', '').toLowerCase();
+  const shortImgId = fullImgId.substring(0, 12);
+  const repoTags = (img.repoTags || []).map((t) => t.trim().toLowerCase());
+
+  return containers.value.filter((c) => {
+    // 1. Direct ImageID match
+    const cImgId = (c.imageId || '').replace('sha256:', '').toLowerCase();
+    if (fullImgId && cImgId) {
+      if (cImgId === fullImgId || cImgId.startsWith(shortImgId) || fullImgId.startsWith(cImgId)) {
+        return true;
+      }
+    }
+    // 2. Direct RepoTag / image name match
+    const cImg = (c.image || '').trim().toLowerCase();
+    if (cImg) {
+      if (repoTags.includes(cImg)) return true;
+      if (!cImg.includes(':') && repoTags.includes(`${cImg}:latest`)) return true;
+      if (cImg.endsWith(':latest') && repoTags.includes(cImg.replace(':latest', ''))) return true;
+      // Also match if cImg is hex hash
+      const cleanCImg = cImg.replace('sha256:', '');
+      if (cleanCImg.length >= 12 && (cleanCImg.startsWith(shortImgId) || shortImgId.startsWith(cleanCImg.substring(0, 12)))) {
+        return true;
+      }
+    }
+    return false;
+  });
+};
+
+const isImageInUse = (img: DockerImage): boolean => {
+  return getImageContainers(img).length > 0;
+};
+
+const inUseImagesCount = computed(() => {
+  return images.value.filter((img) => isImageInUse(img)).length;
+});
+
+const unusedImagesCount = computed(() => {
+  return images.value.filter((img) => !isImageInUse(img)).length;
+});
+
+// Filtered Images computed
+const filteredImages = computed(() => {
+  let list = images.value;
+
+  if (imageUsageFilter.value === 'in_use') {
+    list = list.filter((img) => isImageInUse(img));
+  } else if (imageUsageFilter.value === 'unused') {
+    list = list.filter((img) => !isImageInUse(img));
+  }
+
+  if (imageSearchKeyword.value.trim()) {
+    const q = imageSearchKeyword.value.toLowerCase().trim();
+    list = list.filter((img) => {
+      const tags = (img.repoTags || []).join(' ').toLowerCase();
+      const id = (img.id || '').toLowerCase();
+      return tags.includes(q) || id.includes(q);
+    });
+  }
+
+  return list;
+});
+
+// Helper: Get all containers connected to a specific network
+interface NetworkContainerAttachment {
+  name: string;
+  id: string;
+  ip?: string;
+  state?: string;
+}
+
+const getNetworkContainers = (net: DockerNetwork): NetworkContainerAttachment[] => {
+  if (!net) return [];
+  const result: NetworkContainerAttachment[] = [];
+  const seen = new Set<string>();
+
+  // 1. Check net.containers map (returned by Docker inspect if available)
+  if (net.containers && typeof net.containers === 'object') {
+    for (const [cNameOrId, ip] of Object.entries(net.containers)) {
+      result.push({
+        name: cNameOrId,
+        id: cNameOrId.substring(0, 12),
+        ip: ip || undefined,
+      });
+      seen.add(cNameOrId.toLowerCase());
+    }
+  }
+
+  // 2. Cross-reference with all containers in memory
+  containers.value.forEach((c) => {
+    const cName = getCleanContainerName(c);
+    const shortId = (c.id || '').substring(0, 12).toLowerCase();
+    const cleanId = (c.id || '').toLowerCase();
+
+    const isAttached = (c.networks || []).some(
+      (n) => n.toLowerCase() === net.name.toLowerCase() || n.toLowerCase() === net.id.toLowerCase() || (net.id && net.id.toLowerCase().startsWith(n.toLowerCase()))
+    );
+
+    if (isAttached) {
+      const existing = result.find(
+        (r) =>
+          r.name.toLowerCase() === cName.toLowerCase() ||
+          r.id.toLowerCase() === shortId ||
+          r.id.toLowerCase() === cleanId
+      );
+      if (existing) {
+        existing.name = cName;
+        existing.state = c.state;
+        if (!existing.ip && c.ipAddress) existing.ip = c.ipAddress;
+      } else if (!seen.has(cName.toLowerCase()) && !seen.has(shortId)) {
+        result.push({
+          name: cName,
+          id: shortId,
+          ip: c.ipAddress,
+          state: c.state,
+        });
+        seen.add(cName.toLowerCase());
+        seen.add(shortId);
+      }
+    }
+  });
+
+  return result;
+};
+
+const isNetworkInUse = (net: DockerNetwork): boolean => {
+  return getNetworkContainers(net).length > 0;
+};
+
+const inUseNetworksCount = computed(() => {
+  return networks.value.filter((net) => isNetworkInUse(net)).length;
+});
+
+const unusedNetworksCount = computed(() => {
+  return networks.value.filter((net) => !isNetworkInUse(net)).length;
+});
+
+// Filtered Networks computed
+const filteredNetworks = computed(() => {
+  let list = networks.value;
+
+  if (networkUsageFilter.value === 'in_use') {
+    list = list.filter((net) => isNetworkInUse(net));
+  } else if (networkUsageFilter.value === 'unused') {
+    list = list.filter((net) => !isNetworkInUse(net));
+  }
+
+  if (networkSearchKeyword.value.trim()) {
+    const q = networkSearchKeyword.value.toLowerCase().trim();
+    list = list.filter((net) => {
+      const name = (net.name || '').toLowerCase();
+      const driver = (net.driver || '').toLowerCase();
+      const id = (net.id || '').toLowerCase();
+      const subnet = (net.subnet || '').toLowerCase();
+      return name.includes(q) || driver.includes(q) || id.includes(q) || subnet.includes(q);
+    });
+  }
+
+  return list;
+});
+
+// Computed info for delete modal if target is in use
+const deleteTargetInUseInfo = computed(() => {
+  if (!deleteTarget.value) return null;
+  if (deleteTarget.value.type === 'image') {
+    const img = images.value.find((i) => i.id === deleteTarget.value?.id);
+    if (!img) return null;
+    const cts = getImageContainers(img);
+    if (cts.length === 0) return null;
+    return {
+      count: cts.length,
+      names: cts.map((c) => getCleanContainerName(c)),
+    };
+  } else if (deleteTarget.value.type === 'network') {
+    const net = networks.value.find((n) => n.id === deleteTarget.value?.id);
+    if (!net) return null;
+    const cts = getNetworkContainers(net);
+    if (cts.length === 0) return null;
+    return {
+      count: cts.length,
+      names: cts.map((c) => c.name),
+    };
+  }
+  return null;
+});
+
 // Load Connections List
 const fetchConnections = async () => {
   try {
@@ -1558,8 +1752,10 @@ watch(selectedConnectionId, () => {
           <div class="text-2xl font-bold text-slate-900 dark:text-white font-mono">
             {{ systemInfo?.images ?? images.length }}
           </div>
-          <div class="text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
-            Locally stored repository tags
+          <div class="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
+            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ inUseImagesCount }} in use</span>
+            <span>•</span>
+            <span class="text-slate-500 dark:text-slate-400 font-semibold">{{ unusedImagesCount }} unused</span>
           </div>
         </div>
 
@@ -2067,14 +2263,64 @@ watch(selectedConnectionId, () => {
       <!-- TAB 2: IMAGES VIEW -->
       <!-- ============================================================= -->
       <div v-if="activeTab === 'images'" class="space-y-4">
-        <div class="flex items-center justify-between">
-          <p class="text-xs text-slate-500 dark:text-slate-400">
-            Locally stored Docker images available on this environment.
-          </p>
+        <!-- Toolbar: Search, Usage Filters, and Pull Button -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <!-- Left: Search & Filter Tabs -->
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative min-w-[240px] max-w-xs">
+              <Search class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                v-model="imageSearchKeyword"
+                type="text"
+                placeholder="Search images by repository, tag, or ID..."
+                class="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-lg text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 font-sans"
+              />
+            </div>
+
+            <!-- Usage Filter Pills -->
+            <div class="inline-flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-xs">
+              <button
+                @click="imageUsageFilter = 'all'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px]',
+                  imageUsageFilter === 'all'
+                    ? 'bg-white dark:bg-[#1b2336] text-slate-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                All ({{ images.length }})
+              </button>
+              <button
+                @click="imageUsageFilter = 'in_use'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px] flex items-center gap-1.5',
+                  imageUsageFilter === 'in_use'
+                    ? 'bg-white dark:bg-[#1b2336] text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span>In Use ({{ inUseImagesCount }})</span>
+              </button>
+              <button
+                @click="imageUsageFilter = 'unused'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px] flex items-center gap-1.5',
+                  imageUsageFilter === 'unused'
+                    ? 'bg-white dark:bg-[#1b2336] text-slate-800 dark:text-slate-200 shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <span>Unused ({{ unusedImagesCount }})</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Pull Button -->
           <button
             v-if="canManageInfrastructure"
             @click="showPullModal = true"
-            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <DownloadCloud class="w-3.5 h-3.5" />
             <span>Pull New Image</span>
@@ -2088,21 +2334,22 @@ watch(selectedConnectionId, () => {
                 <tr>
                   <th class="py-3 px-4">Repository & Tag</th>
                   <th class="py-3 px-4">Image ID</th>
+                  <th class="py-3 px-4">Status / Usage</th>
                   <th class="py-3 px-4">Virtual Size</th>
                   <th class="py-3 px-4">Created Date</th>
                   <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
-                <tr v-if="images.length === 0" class="text-center">
-                  <td colspan="5" class="py-12 text-slate-500">
+                <tr v-if="filteredImages.length === 0" class="text-center">
+                  <td colspan="6" class="py-12 text-slate-500">
                     <Layers class="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
-                    <span>No Docker images stored on this host.</span>
+                    <span>No Docker images found matching the filter.</span>
                   </td>
                 </tr>
 
                 <tr
-                  v-for="img in images"
+                  v-for="img in filteredImages"
                   :key="img.id"
                   class="hover:bg-slate-50/70 dark:hover:bg-[#141b2c]/50 transition"
                 >
@@ -2121,6 +2368,32 @@ watch(selectedConnectionId, () => {
                     {{ img.id.replace('sha256:', '').substring(0, 12) }}
                   </td>
 
+                  <!-- Usage Status (In Use / Unused) -->
+                  <td class="py-3 px-4">
+                    <div v-if="isImageInUse(img)" class="space-y-1">
+                      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span>In Use ({{ getImageContainers(img).length }})</span>
+                      </span>
+                      <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex flex-wrap gap-1 max-w-xs">
+                        <span
+                          v-for="c in getImageContainers(img).slice(0, 3)"
+                          :key="c.id"
+                          class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800"
+                          :title="getCleanContainerName(c) + ' (' + c.state + ')'"
+                        >
+                          {{ getCleanContainerName(c) }}
+                        </span>
+                        <span v-if="getImageContainers(img).length > 3" class="text-slate-400 self-center">
+                          +{{ getImageContainers(img).length - 3 }} more
+                        </span>
+                      </div>
+                    </div>
+                    <span v-else class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-[#182136] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">
+                      Unused
+                    </span>
+                  </td>
+
                   <!-- Size -->
                   <td class="py-3 px-4 font-mono text-[11px] text-slate-700 dark:text-slate-300">
                     {{ formatBytes(img.size || (img.sizeMb ? Math.round(img.sizeMb * 1024 * 1024) : 0)) }}
@@ -2137,7 +2410,7 @@ watch(selectedConnectionId, () => {
                       v-if="canManageInfrastructure"
                       @click="confirmDeleteImage(img)"
                       class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
-                      title="Delete Image"
+                      :title="isImageInUse(img) ? 'Delete Image (In use by ' + getImageContainers(img).length + ' container(s))' : 'Delete Image'"
                     >
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
@@ -2153,14 +2426,64 @@ watch(selectedConnectionId, () => {
       <!-- TAB: NETWORKS VIEW -->
       <!-- ============================================================= -->
       <div v-if="activeTab === 'networks'" class="space-y-4">
-        <div class="flex items-center justify-between">
-          <p class="text-xs text-slate-500 dark:text-slate-400">
-            Docker virtual network bridges, overlays, and host drivers configured on this environment.
-          </p>
+        <!-- Toolbar: Search, Usage Filters, and Create Button -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <!-- Left: Search & Filter Tabs -->
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative min-w-[240px] max-w-xs">
+              <Search class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                v-model="networkSearchKeyword"
+                type="text"
+                placeholder="Search networks by name or driver..."
+                class="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-lg text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 font-sans"
+              />
+            </div>
+
+            <!-- Usage Filter Pills -->
+            <div class="inline-flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] text-xs">
+              <button
+                @click="networkUsageFilter = 'all'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px]',
+                  networkUsageFilter === 'all'
+                    ? 'bg-white dark:bg-[#1b2336] text-slate-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                All ({{ networks.length }})
+              </button>
+              <button
+                @click="networkUsageFilter = 'in_use'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px] flex items-center gap-1.5',
+                  networkUsageFilter === 'in_use'
+                    ? 'bg-white dark:bg-[#1b2336] text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                ]"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span>In Use ({{ inUseNetworksCount }})</span>
+              </button>
+              <button
+                @click="networkUsageFilter = 'unused'"
+                :class="[
+                  'px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-[11px] flex items-center gap-1.5',
+                  networkUsageFilter === 'unused'
+                    ? 'bg-white dark:bg-[#1b2336] text-slate-800 dark:text-slate-200 shadow-xs font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ]"
+              >
+                <span>Unused ({{ unusedNetworksCount }})</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Create Button -->
           <button
             v-if="canManageInfrastructure"
             @click="showCreateNetModal = true"
-            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <Plus class="w-3.5 h-3.5" />
             <span>Create Network</span>
@@ -2177,20 +2500,20 @@ watch(selectedConnectionId, () => {
                   <th class="py-3 px-4">Driver</th>
                   <th class="py-3 px-4">Scope</th>
                   <th class="py-3 px-4">Subnet / Gateway</th>
-                  <th class="py-3 px-4">Connected</th>
+                  <th class="py-3 px-4">Status / Connected</th>
                   <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#1b2234]">
-                <tr v-if="networks.length === 0" class="text-center">
+                <tr v-if="filteredNetworks.length === 0" class="text-center">
                   <td colspan="7" class="py-12 text-slate-500">
                     <Network class="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
-                    <span>No Docker networks found on this host.</span>
+                    <span>No Docker networks found matching the filter.</span>
                   </td>
                 </tr>
 
                 <tr
-                  v-for="net in networks"
+                  v-for="net in filteredNetworks"
                   :key="net.id"
                   class="hover:bg-slate-50/70 dark:hover:bg-[#141b2c]/50 transition"
                 >
@@ -2251,13 +2574,30 @@ watch(selectedConnectionId, () => {
                     <span v-else class="text-slate-400">-</span>
                   </td>
 
-                  <!-- Connected Containers -->
-                  <td class="py-3 px-4 text-[11px] text-slate-600 dark:text-slate-400">
-                    <div v-if="net.containersCount > 0" class="flex items-center gap-1.5 font-mono">
-                      <span class="font-bold text-slate-900 dark:text-white">{{ net.containersCount }}</span>
-                      <span>connected</span>
+                  <!-- Usage / Connected Containers -->
+                  <td class="py-3 px-4 text-[11px]">
+                    <div v-if="isNetworkInUse(net)" class="space-y-1">
+                      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span>In Use ({{ getNetworkContainers(net).length }})</span>
+                      </span>
+                      <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex flex-wrap gap-1 max-w-xs">
+                        <span
+                          v-for="c in getNetworkContainers(net).slice(0, 3)"
+                          :key="c.id"
+                          class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1a2233] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800"
+                          :title="c.name + (c.ip ? ' (' + c.ip + ')' : '')"
+                        >
+                          {{ c.name }}
+                        </span>
+                        <span v-if="getNetworkContainers(net).length > 3" class="text-slate-400 self-center">
+                          +{{ getNetworkContainers(net).length - 3 }} more
+                        </span>
+                      </div>
                     </div>
-                    <span v-else class="text-slate-400">0 connected</span>
+                    <span v-else class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-[#182136] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">
+                      Unused (0 connected)
+                    </span>
                   </td>
 
                   <!-- Actions -->
@@ -2266,7 +2606,7 @@ watch(selectedConnectionId, () => {
                       v-if="canManageInfrastructure && net.name !== 'bridge' && net.name !== 'host' && net.name !== 'none'"
                       @click="confirmDeleteNetwork(net)"
                       class="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-slate-100 dark:hover:bg-[#182136] transition cursor-pointer"
-                      title="Delete Network"
+                      :title="isNetworkInUse(net) ? 'Delete Network (Currently in use by ' + getNetworkContainers(net).length + ' container(s))' : 'Delete Network'"
                     >
                       <Trash2 class="w-3.5 h-3.5" />
                     </button>
@@ -3754,6 +4094,20 @@ watch(selectedConnectionId, () => {
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Are you sure you want to remove <strong class="text-slate-800 dark:text-slate-200">{{ deleteTarget.name }}</strong>? This action cannot be undone.
+          </p>
+        </div>
+
+        <!-- In-use warning banner if target image/network is being used by containers -->
+        <div v-if="deleteTargetInUseInfo" class="text-left text-xs p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 space-y-1.5">
+          <div class="font-bold flex items-center gap-1.5 text-xs">
+            <AlertTriangle class="w-4 h-4 text-amber-500 shrink-0" />
+            <span>Currently in use by {{ deleteTargetInUseInfo.count }} container(s)</span>
+          </div>
+          <p class="text-[11px] text-slate-600 dark:text-slate-300 font-mono break-words">
+            Containers: {{ deleteTargetInUseInfo.names.join(', ') }}
+          </p>
+          <p class="text-[10px] text-amber-600/90 dark:text-amber-400/90">
+            Removing this resource while containers depend on it may cause errors or stop associated workloads.
           </p>
         </div>
 
