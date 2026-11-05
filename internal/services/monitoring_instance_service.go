@@ -2126,7 +2126,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		if matched == nil {
 			for _, h := range collector.hosts {
 				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower) || strings.Contains(hLower, instNameLower)) {
+				if hLower != "" && (hLower == instHostLower || strings.EqualFold(hLower, instNameLower) || (inst.Hostname != "" && strings.EqualFold(hLower, strings.ToLower(inst.Hostname)))) {
 					if instIP != "" && (h.ipAddress == instIP || strings.HasPrefix(h.instanceTarget, instIP+":")) {
 						matched = h
 						break
@@ -2135,11 +2135,30 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 
-		// Tier 4: Hostname match alone
+		// Tier 4: Exact Hostname match alone (ONLY if IPs do not contradict each other)
 		if matched == nil {
 			for _, h := range collector.hosts {
 				hLower := strings.ToLower(h.hostname)
-				if hLower != "" && (hLower == instHostLower || strings.Contains(instNameLower, hLower) || strings.Contains(hLower, instNameLower)) {
+				if hLower == "" {
+					continue
+				}
+				// CRITICAL: If instance has an explicit IP address, and the Prometheus host has a different non-empty IP address, they CANNOT be the same machine!
+				if instIP != "" && h.ipAddress != "" && !strings.EqualFold(instIP, h.ipAddress) {
+					continue
+				}
+				if instIP != "" && h.instanceTarget != "" {
+					hTargetHost := h.instanceTarget
+					if th, _, err := net.SplitHostPort(h.instanceTarget); err == nil {
+						hTargetHost = th
+					}
+					if net.ParseIP(hTargetHost) != nil && !strings.EqualFold(instIP, hTargetHost) {
+						continue
+					}
+				}
+
+				// Exact hostname match only! Loose substring matching (such as "whale-shark" matching "whale") is forbidden
+				isExact := strings.EqualFold(hLower, instHostLower) || (inst.Hostname != "" && strings.EqualFold(hLower, strings.ToLower(inst.Hostname))) || strings.EqualFold(hLower, instNameLower)
+				if isExact {
 					matched = h
 					break
 				}
@@ -2891,8 +2910,31 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 		return
 	}
 
+	var allRH []domain.RemoteHostConfig
+	if s.remoteHostRepo != nil {
+		allRH, _ = s.remoteHostRepo.ListAll(ctx)
+	}
+
 	var targets []*domain.MonitoringInstance
 	for _, inst := range instances {
+		// If unlinked to Remote Host, attempt auto-resolution from registered remote hosts by IP, host, or name
+		if (inst.RemoteHostID == nil || *inst.RemoteHostID == "") && len(allRH) > 0 {
+			instIP := strings.TrimSpace(inst.IPAddress)
+			if instIP == "" {
+				instIP = strings.TrimSpace(inst.Host)
+			}
+			for _, rh := range allRH {
+				if (instIP != "" && strings.EqualFold(rh.Host, instIP)) ||
+					(inst.Host != "" && strings.EqualFold(rh.Host, inst.Host)) ||
+					(inst.Name != "" && strings.EqualFold(rh.Name, inst.Name)) {
+					rhID := rh.ID
+					inst.RemoteHostID = &rhID
+					_ = s.instRepo.Update(ctx, inst, 0, "admin")
+					break
+				}
+			}
+		}
+
 		if inst.RemoteHostID == nil || *inst.RemoteHostID == "" {
 			continue
 		}
