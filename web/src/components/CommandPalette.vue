@@ -45,7 +45,7 @@ const items = [
   { name: 'Vaultwarden', icon: Shield, route: '/security/vaultwarden', newTab: true, feature: 'security' },
   { name: 'Status Pages', icon: Activity, route: '/status-pages', feature: 'status_pages' },
   { name: 'Monitoring Instance', icon: Server, route: '/monitoring-instance', feature: 'monitoring_instances' },
-  { name: 'OpenSearch Cluster', icon: Search, route: '/opensearch-cluster', newTab: true, feature: 'opensearch' },
+  { name: 'OpenSearch Monitoring', icon: Search, route: '/opensearch-cluster', newTab: true, feature: 'opensearch' },
   { name: 'Slide Show', icon: Activity, route: '/slideshow', feature: 'slideshow' },
   { name: 'Visual Reports', icon: FileText, route: '/reports', feature: 'reports' },
   { name: 'Raw Data Report', icon: FileText, route: '/reports/raw', feature: 'reports' },

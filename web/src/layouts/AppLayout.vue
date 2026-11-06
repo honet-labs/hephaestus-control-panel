@@ -38,7 +38,8 @@ const authStore = useAuthStore();
 const isInfrastructureOpen = ref(
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/infrastructure')
+  route.path.startsWith('/infrastructure') ||
+  route.path.startsWith('/opensearch-cluster')
 );
 const isServerSubOpen = ref(
   route.path.startsWith('/inventory-server') ||
@@ -46,6 +47,9 @@ const isServerSubOpen = ref(
 );
 const isDockerSubOpen = ref(
   route.path.startsWith('/infrastructure')
+);
+const isOpenSearchSubOpen = ref(
+  route.path.startsWith('/opensearch-cluster')
 );
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
 const isRemoteConfigOpen = ref(
@@ -79,7 +83,6 @@ const isMonitoringOpen = ref(
   route.path.startsWith('/monitoring-instance') ||
   route.path.startsWith('/monitoring/instances') ||
   route.path.startsWith('/status-pages') ||
-  route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
 );
 const isSecurityOpen = ref(route.path.startsWith('/security'));
@@ -92,7 +95,8 @@ const isReportsOpen = ref(
 const isInfrastructureActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/infrastructure')
+  route.path.startsWith('/infrastructure') ||
+  route.path.startsWith('/opensearch-cluster')
 );
 const isServerSubActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
@@ -100,6 +104,9 @@ const isServerSubActive = computed(() =>
 );
 const isDockerSubActive = computed(() =>
   route.path.startsWith('/infrastructure')
+);
+const isOpenSearchSubActive = computed(() =>
+  route.path.startsWith('/opensearch-cluster')
 );
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
 const isRemoteConfigActive = computed(() =>
@@ -134,7 +141,6 @@ const isMonitoringActive = computed(() =>
   route.path.startsWith('/monitoring-instance') ||
   route.path.startsWith('/monitoring/instances') ||
   route.path.startsWith('/status-pages') ||
-  route.path.startsWith('/opensearch-cluster') ||
   route.path.startsWith('/slideshow')
 );
 const isReportsActive = computed(() =>
@@ -172,7 +178,7 @@ const currentRouteName = computed(() => {
   if (route.path.startsWith('/security/vaultwarden')) return 'Vaultwarden';
   if (route.path.startsWith('/monitoring-instance') || route.path.startsWith('/monitoring/instances')) return 'Monitoring Instance';
   if (route.path.startsWith('/status-pages')) return 'Status Pages';
-  if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Cluster';
+  if (route.path.startsWith('/opensearch-cluster')) return 'OpenSearch Monitoring';
   if (route.path.startsWith('/slideshow')) return 'Slide Show';
   if (route.path === '/reports/raw') return 'Raw Data Report';
   if (route.path.startsWith('/reports') || route.path.startsWith('/report')) return 'Visual Reports';
@@ -193,6 +199,9 @@ watch(
     } else if (newPath.startsWith('/infrastructure')) {
       isInfrastructureOpen.value = true;
       isDockerSubOpen.value = true;
+    } else if (newPath.startsWith('/opensearch-cluster')) {
+      isInfrastructureOpen.value = true;
+      isOpenSearchSubOpen.value = true;
     }
     if (newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
       isRemoteConfigOpen.value = true;
@@ -219,7 +228,7 @@ watch(
     if (newPath.startsWith('/security')) {
       isSecurityOpen.value = true;
     }
-    if (newPath.startsWith('/monitoring-instance') || newPath.startsWith('/monitoring/instances') || newPath.startsWith('/status-pages') || newPath.startsWith('/opensearch-cluster') || newPath.startsWith('/slideshow')) {
+    if (newPath.startsWith('/monitoring-instance') || newPath.startsWith('/monitoring/instances') || newPath.startsWith('/status-pages') || newPath.startsWith('/slideshow')) {
       isMonitoringOpen.value = true;
     }
     if (newPath.startsWith('/reports') || newPath.startsWith('/report')) {
@@ -362,7 +371,7 @@ onUnmounted(() => {
           </router-link>
 
           <!-- 3. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read')">
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('opensearch', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
@@ -448,6 +457,42 @@ onUnmounted(() => {
                     ]"
                   >
                     <span>Management Container</span>
+                  </a>
+                </div>
+              </div>
+
+              <!-- Sub-group: OpenSearch (Collapsible Sub-menu) -->
+              <div v-if="authStore.can('opensearch', 'read')">
+                <button
+                  @click="isOpenSearchSubOpen = !isOpenSearchSubOpen"
+                  :class="[
+                    isOpenSearchSubActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Search class="w-3.5 h-3.5 shrink-0 transition" :class="isOpenSearchSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>OpenSearch</span>
+                  </div>
+                  <component :is="isOpenSearchSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isOpenSearchSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
+
+                <!-- Sub-items under OpenSearch -->
+                <div v-show="isOpenSearchSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <a
+                    href="/opensearch-cluster"
+                    target="_blank"
+                    @click="isMobileSidebarOpen = false"
+                    :class="[
+                      route.path === '/opensearch-cluster'
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                    ]"
+                  >
+                    <span>OpenSearch Monitoring</span>
                   </a>
                 </div>
               </div>
@@ -775,7 +820,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 8. Monitoring (Accordion) -->
-          <div v-if="authStore.can('monitoring_instances', 'read') || authStore.can('status_pages', 'read') || authStore.can('opensearch', 'read') || authStore.can('slideshow', 'read')">
+          <div v-if="authStore.can('monitoring_instances', 'read') || authStore.can('status_pages', 'read') || authStore.can('slideshow', 'read')">
             <button
               @click="isMonitoringOpen = !isMonitoringOpen"
               :class="[
@@ -819,21 +864,6 @@ onUnmounted(() => {
               >
                 <span>Status Pages</span>
               </router-link>
-
-              <a
-                v-if="authStore.can('opensearch', 'read')"
-                href="/opensearch-cluster"
-                target="_blank"
-                @click="isMobileSidebarOpen = false"
-                :class="[
-                  route.path === '/opensearch-cluster'
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                ]"
-              >
-                <span>OpenSearch Cluster</span>
-              </a>
 
               <router-link
                 v-if="authStore.can('slideshow', 'read')"
