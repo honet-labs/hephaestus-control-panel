@@ -23,6 +23,7 @@ import {
   PanelLeftOpen,
   Search,
   Boxes,
+  Box,
   Server,
   FileText,
   Radio,
@@ -37,22 +38,27 @@ const authStore = useAuthStore();
 const isInfrastructureOpen = ref(
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host') ||
   route.path.startsWith('/infrastructure')
 );
 const isServerSubOpen = ref(
   route.path.startsWith('/inventory-server') ||
-  route.path.startsWith('/inventory') ||
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
+  route.path.startsWith('/inventory')
 );
-const isNetworkingOpen = ref(route.path.startsWith('/network-topology'));
+const isDockerSubOpen = ref(
+  route.path.startsWith('/infrastructure')
+);
+const isNetworkingOpen = ref(route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
 const isRemoteConfigOpen = ref(
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host') ||
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
   route.path.startsWith('/opentelemetry-config') ||
   route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteServersOpen = ref(
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
 );
 const isRemoteOtelOpen = ref(
   route.path.startsWith('/opentelemetry-config') ||
@@ -86,22 +92,27 @@ const isReportsOpen = ref(
 const isInfrastructureActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host') ||
   route.path.startsWith('/infrastructure')
 );
 const isServerSubActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
-  route.path.startsWith('/inventory') ||
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
+  route.path.startsWith('/inventory')
+);
+const isDockerSubActive = computed(() =>
+  route.path.startsWith('/infrastructure')
 );
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
 const isRemoteConfigActive = computed(() =>
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host') ||
   route.path.startsWith('/dataprepper-config') ||
   route.path.startsWith('/prometheus-config') ||
   route.path.startsWith('/opentelemetry-config') ||
   route.path.startsWith('/opentelemetry-visual')
+);
+const isRemoteServersActive = computed(() =>
+  route.path.startsWith('/remote-server') ||
+  route.path.startsWith('/remote-host')
 );
 const isRemoteOtelActive = computed(() =>
   route.path.startsWith('/opentelemetry-config') ||
@@ -146,11 +157,11 @@ const triggerSearch = () => {
 const currentRouteName = computed(() => {
   if (route.path === '/') return 'System Overview';
   if (route.path.startsWith('/connections')) return 'Add Connections';
-  if (route.path.startsWith('/inventory-server') || route.path.startsWith('/inventory')) return 'Inventory Server';
+  if (route.path.startsWith('/inventory-server') || route.path.startsWith('/inventory')) return 'Inventory Server/VPS';
   if (route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host')) return 'Remote Server';
   if (route.path.startsWith('/network-topology')) return 'Network Topology';
   if (route.path.startsWith('/ipam')) return 'IP Address Management';
-  if (route.path.startsWith('/infrastructure')) return 'Management Containers';
+  if (route.path.startsWith('/infrastructure')) return 'Management Container';
   if (route.path.startsWith('/dataprepper-config')) return 'Data Prepper Pipelines';
   if (route.path.startsWith('/prometheus-config')) return 'Prometheus Config';
   if (route.path.startsWith('/opentelemetry-visual')) return 'Visual Config OpenTelemetry (Beta)';
@@ -175,14 +186,17 @@ watch(
     isMobileSidebarOpen.value = false;
     if (
       newPath.startsWith('/inventory-server') ||
-      newPath.startsWith('/inventory') ||
-      newPath.startsWith('/remote-server') ||
-      newPath.startsWith('/remote-host')
+      newPath.startsWith('/inventory')
     ) {
       isInfrastructureOpen.value = true;
       isServerSubOpen.value = true;
     } else if (newPath.startsWith('/infrastructure')) {
       isInfrastructureOpen.value = true;
+      isDockerSubOpen.value = true;
+    }
+    if (newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
+      isRemoteConfigOpen.value = true;
+      isRemoteServersOpen.value = true;
     }
     if (newPath.startsWith('/network-topology') || newPath.startsWith('/ipam')) {
       isNetworkingOpen.value = true;
@@ -348,7 +362,7 @@ onUnmounted(() => {
           </router-link>
 
           <!-- 3. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('remote_servers', 'read') || authStore.can('server_inventory', 'read')">
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
@@ -367,8 +381,8 @@ onUnmounted(() => {
 
             <!-- Infrastructure Sub-Menu Items -->
             <div v-show="isInfrastructureOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <!-- Sub-group: Server (Collapsible Sub-menu) -->
-              <div v-if="authStore.can('connections', 'read') || authStore.can('remote_servers', 'read') || authStore.can('server_inventory', 'read')">
+              <!-- Sub-group: Server/VPS (Collapsible Sub-menu) -->
+              <div v-if="authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('infrastructure', 'read')">
                 <button
                   @click="isServerSubOpen = !isServerSubOpen"
                   :class="[
@@ -380,12 +394,12 @@ onUnmounted(() => {
                 >
                   <div class="flex items-center gap-2">
                     <Server class="w-3.5 h-3.5 shrink-0 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>Server</span>
+                    <span>Server/VPS</span>
                   </div>
                   <component :is="isServerSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 </button>
 
-                <!-- Sub-sub-menu items under Server -->
+                <!-- Sub-sub-menu items under Server/VPS -->
                 <div v-show="isServerSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
                   <router-link
                     v-if="authStore.can('server_inventory', 'read') || authStore.can('connections', 'read') || authStore.can('infrastructure', 'read')"
@@ -397,41 +411,46 @@ onUnmounted(() => {
                       'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
                     ]"
                   >
-                    <span>Inventory Server</span>
+                    <span>Inventory Server/VPS</span>
                   </router-link>
-
-                  <a
-                    v-if="authStore.can('remote_servers', 'read')"
-                    href="/remote-server"
-                    target="_blank"
-                    @click="isMobileSidebarOpen = false"
-                    :class="[
-                      (route.path === '/remote-server' || route.path === '/remote-host')
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>Remote Server</span>
-                  </a>
                 </div>
               </div>
 
-              <!-- Management Containers -->
-              <a
-                v-if="authStore.can('infrastructure', 'read')"
-                href="/infrastructure/containers"
-                target="_blank"
-                @click="isMobileSidebarOpen = false"
-                :class="[
-                  route.path.startsWith('/infrastructure/containers')
-                    ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                  'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                ]"
-              >
-                <span>Management Containers</span>
-              </a>
+              <!-- Sub-group: Docker (Collapsible Sub-menu) -->
+              <div v-if="authStore.can('infrastructure', 'read')">
+                <button
+                  @click="isDockerSubOpen = !isDockerSubOpen"
+                  :class="[
+                    isDockerSubActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Box class="w-3.5 h-3.5 shrink-0 transition" :class="isDockerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>Docker</span>
+                  </div>
+                  <component :is="isDockerSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isDockerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
+
+                <!-- Sub-items under Docker -->
+                <div v-show="isDockerSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <a
+                    href="/infrastructure/containers"
+                    target="_blank"
+                    @click="isMobileSidebarOpen = false"
+                    :class="[
+                      route.path.startsWith('/infrastructure/containers')
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                    ]"
+                  >
+                    <span>Management Container</span>
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -486,8 +505,8 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 6. Remote Config (Accordion) -->
-          <div v-if="authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read') || authStore.can('opentelemetry_config', 'read')">
+          <!-- 6. Remote (Accordion) -->
+          <div v-if="authStore.can('remote_servers', 'read') || authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read') || authStore.can('opentelemetry_config', 'read')">
             <button
               @click="isRemoteConfigOpen = !isRemoteConfigOpen"
               :class="[
@@ -499,13 +518,48 @@ onUnmounted(() => {
             >
               <div class="flex items-center gap-3">
                 <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                <span>Remote Config</span>
+                <span>Remote</span>
               </div>
               <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
             </button>
 
-            <!-- Remote Config Sub-Menu Items -->
+            <!-- Remote Sub-Menu Items -->
             <div v-show="isRemoteConfigOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <!-- Sub-group: Servers (Collapsible Sub-menu) -->
+              <div v-if="authStore.can('remote_servers', 'read')">
+                <button
+                  @click="isRemoteServersOpen = !isRemoteServersOpen"
+                  :class="[
+                    isRemoteServersActive
+                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
+                  ]"
+                >
+                  <div class="flex items-center gap-2">
+                    <Server class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteServersActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                    <span>Servers</span>
+                  </div>
+                  <component :is="isRemoteServersOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteServersActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
+                </button>
+
+                <!-- Sub-items under Servers -->
+                <div v-show="isRemoteServersOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
+                  <a
+                    href="/remote-server"
+                    target="_blank"
+                    @click="isMobileSidebarOpen = false"
+                    :class="[
+                      (route.path === '/remote-server' || route.path === '/remote-host')
+                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
+                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
+                    ]"
+                  >
+                    <span>Remote Server</span>
+                  </a>
+                </div>
+              </div>
               <!-- 1. OpenTelemetry Sub-group -->
               <div v-if="authStore.can('opentelemetry_config', 'read')">
                 <button

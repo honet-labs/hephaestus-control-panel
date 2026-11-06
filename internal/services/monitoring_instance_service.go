@@ -1454,11 +1454,10 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 		{"mem_used_otel_2", `sum by (instance) (system_memory_usage_bytes{state="used"})`},
 		{"mem_free_otel_1", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state="free"})`},
 		{"mem_free_otel_2", `sum by (instance) (system_memory_usage_bytes{state="free"})`},
-		{"mem_total_otel_1", `host_system_memory_limit_bytes`},
-		{"mem_total_otel_2", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes)`},
-		{"mem_total_otel_3", `sum by (instance) (system_memory_usage_bytes)`},
-		{"mem_total_otel_4", `sum by (instance) (host_system_memory_usage_bytes)`},
-		{"mem_total_otel_5", `sum without (state) (host_system_memory_usage_bytes)`},
+		{"mem_total_otel_limit_1", `host_system_memory_limit_bytes`},
+		{"mem_total_otel_limit_2", `system_memory_limit_bytes`},
+		{"mem_total_otel_1", `sum by (ip_address, hostname, instance) (host_system_memory_usage_bytes{state!~"slab.*"})`},
+		{"mem_total_otel_2", `sum by (instance) (system_memory_usage_bytes{state!~"slab.*"})`},
 		{"mem_total_node", `node_memory_MemTotal_bytes`},
 		{"mem_avail_node", `node_memory_MemAvailable_bytes or (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)`},
 		{"mem_free_node", `node_memory_MemFree_bytes`},
@@ -1740,13 +1739,13 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 	}
-	for _, k := range []string{"mem_total_otel_1", "mem_total_otel_2", "mem_total_otel_3", "mem_total_otel_4", "mem_total_otel_5"} {
+	for _, k := range []string{"mem_total_otel_limit_1", "mem_total_otel_limit_2", "mem_total_otel_1", "mem_total_otel_2"} {
 		if res, ok := results[k]; ok {
 			for _, item := range res.Data.Result {
 				if len(item.Value) > 1 {
 					if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 						h := collector.getOrCreate(item.Metric)
-						if v > h.memTotal || h.memTotal == 0 {
+						if h.memTotal == 0 {
 							h.memTotal = v
 						}
 						h.hasOTel = true
@@ -1756,15 +1755,13 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			}
 		}
 	}
+	// Gold standard: node_memory_MemTotal_bytes is the true physical /proc/meminfo capacity
 	if res, ok := results["mem_total_node"]; ok {
 		for _, item := range res.Data.Result {
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					// node_memory_MemTotal_bytes is the true physical /proc/meminfo capacity
-					if v > h.memTotal || h.memTotal == 0 {
-						h.memTotal = v
-					}
+					h.memTotal = v
 					h.isOnline = true
 				}
 			}
@@ -1775,10 +1772,8 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			if len(item.Value) > 1 {
 				if v, ok := parseFloat(item.Value[1]); ok && v > 0 {
 					h := collector.getOrCreate(item.Metric)
-					if h.memFree == 0 {
-						h.memFree = v
-					}
-					if h.memTotal > 0 && h.memUsed == 0 {
+					h.memFree = v
+					if h.memTotal > 0 {
 						h.memUsed = math.Max(0, h.memTotal-v)
 					}
 					h.isOnline = true
@@ -1793,7 +1788,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 					if h.memFree == 0 {
 						h.memFree = v
 					}
-					if h.memTotal > 0 && h.memUsed == 0 {
+					if h.memTotal > 0 {
 						h.memUsed = math.Max(0, h.memTotal-v)
 					}
 					h.isOnline = true
@@ -1805,7 +1800,7 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 	// Calculate memory percentages or used/free bytes consistency
 	for _, h := range collector.hosts {
 		if h.memTotal > 0 {
-			if h.memPct == nil && h.memUsed > 0 {
+			if h.memUsed > 0 {
 				calc := math.Round((h.memUsed/h.memTotal)*1000) / 10
 				h.memPct = &calc
 			} else if h.memPct != nil && h.memUsed == 0 {
@@ -2543,15 +2538,15 @@ func (s *MonitoringInstanceService) GetInstanceHistory(
 			}
 		}
 		if len(pts) == 0 {
-			qFallback := fmt.Sprintf(`(sum(system_memory_usage_bytes{instance=~"%s",state="used"}) / sum(system_memory_usage_bytes{instance=~"%s"})) * 100`, targetPattern, targetPattern)
-			r, err := s.executeRangeQuery(ctx, qFallback, startTime, now, step)
+			qNode := fmt.Sprintf(`(1 - ((node_memory_MemAvailable_bytes{instance=~"%s"} or (node_memory_MemFree_bytes{instance=~"%s"} + node_memory_Buffers_bytes{instance=~"%s"} + node_memory_Cached_bytes{instance=~"%s"})) / node_memory_MemTotal_bytes{instance=~"%s"})) * 100`, targetPattern, targetPattern, targetPattern, targetPattern, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
 			if err == nil {
 				pts = parsePoints(r)
 			}
 		}
 		if len(pts) == 0 {
-			qNode := fmt.Sprintf(`(1 - ((node_memory_MemAvailable_bytes{instance=~"%s"} or (node_memory_MemFree_bytes{instance=~"%s"} + node_memory_Buffers_bytes{instance=~"%s"} + node_memory_Cached_bytes{instance=~"%s"})) / node_memory_MemTotal_bytes{instance=~"%s"})) * 100`, targetPattern, targetPattern, targetPattern, targetPattern, targetPattern)
-			r, err := s.executeRangeQuery(ctx, qNode, startTime, now, step)
+			qFallback := fmt.Sprintf(`(sum(system_memory_usage_bytes{instance=~"%s",state="used"}) / sum(system_memory_usage_bytes{instance=~"%s",state!~"slab.*"})) * 100`, targetPattern, targetPattern)
+			r, err := s.executeRangeQuery(ctx, qFallback, startTime, now, step)
 			if err == nil {
 				pts = parsePoints(r)
 			}
