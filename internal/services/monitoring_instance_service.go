@@ -2929,7 +2929,7 @@ func (s *MonitoringInstanceService) pollSSHInstances(ctx context.Context, instan
 					(inst.Name != "" && strings.EqualFold(rh.Name, inst.Name)) {
 					rhID := rh.ID
 					inst.RemoteHostID = &rhID
-					_ = s.instRepo.Update(ctx, inst, 0, "admin")
+					_ = s.instRepo.Update(ctx, inst)
 					break
 				}
 			}
