@@ -589,22 +589,7 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
   const cpu = typeof inst.liveMetrics.cpuPct === 'number' ? inst.liveMetrics.cpuPct : 0;
   const memory = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
   const overallDisk = getOverallDisk(inst);
-  let disk = typeof overallDisk.pct === 'number' ? overallDisk.pct : 0;
-  let criticalMount: string | null = null;
-
-  if (Array.isArray(inst.liveMetrics.disks) && inst.liveMetrics.disks.length > 0) {
-    for (const d of inst.liveMetrics.disks) {
-      if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
-      // Skip empty, invalid, or tiny partitions smaller than 5 GB (e.g. boot/efi/recovery/firmware)
-      if (!d.totalBytes || d.totalBytes < 5 * 1024 * 1024 * 1024) continue;
-      if (typeof d.usagePct !== 'number' || isNaN(d.usagePct) || d.usagePct <= 0) continue;
-
-      if (d.usagePct > disk) {
-        disk = d.usagePct;
-        criticalMount = d.mountpoint || null;
-      }
-    }
-  }
+  const disk = typeof overallDisk.pct === 'number' ? overallDisk.pct : (typeof inst.liveMetrics.diskPct === 'number' ? inst.liveMetrics.diskPct : 0);
 
   let maxUsage = cpu;
   let criticalResource: 'cpu' | 'memory' | 'disk' = 'cpu';
@@ -631,7 +616,7 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
   return {
     maxUsage,
     criticalResource: severity === 'normal' ? null : criticalResource,
-    criticalMount: severity === 'normal' ? null : criticalMount,
+    criticalMount: null,
     severity,
     cpu,
     memory,
@@ -698,18 +683,10 @@ const previewModalCounts = computed(() => {
 
   for (const inst of instances.value) {
     if (!inst.liveMetrics?.isOnline) continue;
-    const cpu = inst.liveMetrics.cpuPct ?? 0;
-    const mem = inst.liveMetrics.memPct ?? 0;
+    const cpu = typeof inst.liveMetrics.cpuPct === 'number' ? inst.liveMetrics.cpuPct : 0;
+    const mem = typeof inst.liveMetrics.memPct === 'number' ? inst.liveMetrics.memPct : 0;
     const overallDisk = getOverallDisk(inst);
-    let disk = overallDisk.pct ?? 0;
-    if (inst.liveMetrics.disks) {
-      for (const d of inst.liveMetrics.disks) {
-        if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
-        if (!d.totalBytes || d.totalBytes < 5 * 1024 * 1024 * 1024) continue;
-        if (typeof d.usagePct !== 'number' || isNaN(d.usagePct) || d.usagePct <= 0) continue;
-        if (d.usagePct > disk) disk = d.usagePct;
-      }
-    }
+    const disk = typeof overallDisk.pct === 'number' ? overallDisk.pct : (typeof inst.liveMetrics.diskPct === 'number' ? inst.liveMetrics.diskPct : 0);
     const maxVal = Math.max(cpu, mem, disk);
     if (maxVal >= c) serverCritical++;
     else if (maxVal >= w) serverWarning++;
