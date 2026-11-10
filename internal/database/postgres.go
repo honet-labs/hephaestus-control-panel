@@ -978,6 +978,11 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		UPDATE system_roles 
 		SET permissions = permissions || '{"events": "read"}'::jsonb 
 		WHERE name = 'VIEWER';
+
+		-- Sanitize any formatted pointer string in legacy event messages
+		UPDATE system_events 
+		SET message = 'Database/Container backup failed: operation encountered an error.' 
+		WHERE message LIKE '%!s(%';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))

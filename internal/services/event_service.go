@@ -300,9 +300,13 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 				case "failed", "error":
 					bkStats.Failed24h++
 					critCount++
+					errMsg := "operation failed"
+					if b.ErrorMessage != nil && strings.TrimSpace(*b.ErrorMessage) != "" {
+						errMsg = strings.TrimSpace(*b.ErrorMessage)
+					}
 					s.trackEvent(ctx, &activeList, "backup", b.ID, b.DBName, "backup_failed", "critical",
 						"Backup Job Failed",
-						fmt.Sprintf("Database/Container backup for '%s' failed: %s", b.DBName, b.ErrorMessage),
+						fmt.Sprintf("Database/Container backup for '%s' failed: %s", b.DBName, errMsg),
 						map[string]interface{}{"dbType": b.DBType, "destType": b.DestType, "startedAt": b.StartedAt},
 					)
 				case "success", "completed":
@@ -369,12 +373,17 @@ func (s *EventService) trackEvent(
 	}
 
 	// Already active: keep memory copy up to date
+	msgChanged := existing.Message != message || existing.Severity != severity
 	existing.Message = message
 	existing.Severity = severity
 	existing.Metadata = metadata
 	existing.UpdatedAt = time.Now().UTC()
 	item := *existing
 	s.cacheMu.Unlock()
+
+	if msgChanged {
+		_ = s.eventRepo.Create(ctx, &item)
+	}
 
 	*activeList = append(*activeList, item)
 }
