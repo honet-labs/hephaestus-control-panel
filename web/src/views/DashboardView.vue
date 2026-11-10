@@ -32,7 +32,22 @@ const serviceStats = ref<ServiceCount>({
 
 const backupHistory = ref<any[]>([]);
 const loading = ref(false);
-const eventSummary = ref<{ total_active: number; critical_count: number; warning_count: number } | null>(null);
+
+interface EventSummaryData {
+  totalActive?: number;
+  criticalCount?: number;
+  warningCount?: number;
+  infoCount?: number;
+}
+const eventSummary = ref<EventSummaryData | null>(null);
+
+const totalActiveCount = computed(() => {
+  if (!eventSummary.value) return 0;
+  if (typeof eventSummary.value.totalActive === 'number') {
+    return eventSummary.value.totalActive;
+  }
+  return (eventSummary.value.criticalCount || 0) + (eventSummary.value.warningCount || 0);
+});
 
 const fetchDashboardData = async () => {
   if (!authStore.can('backup', 'read')) {
@@ -149,9 +164,9 @@ onMounted(() => {
         to="/events"
         class="p-4 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] transition group space-y-2 block"
         :class="[
-          !eventSummary || eventSummary.total_active === 0
+          !eventSummary || totalActiveCount === 0
             ? 'hover:border-emerald-500/60'
-            : eventSummary.critical_count > 0
+            : (eventSummary.criticalCount || 0) > 0
               ? 'border-rose-400 dark:border-rose-600/50 hover:border-rose-600'
               : 'border-amber-400 dark:border-amber-600/50 hover:border-amber-600'
         ]"
@@ -159,11 +174,11 @@ onMounted(() => {
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-xs font-semibold text-slate-700 dark:text-[#D0E7E6]">Active Incidents</span>
           <CheckCircle2
-            v-if="!eventSummary || eventSummary.total_active === 0"
+            v-if="!eventSummary || totalActiveCount === 0"
             class="w-4 h-4 text-emerald-500"
           />
           <AlertTriangle
-            v-else-if="eventSummary.critical_count > 0"
+            v-else-if="(eventSummary.criticalCount || 0) > 0"
             class="w-4 h-4 text-rose-500"
           />
           <AlertTriangle
@@ -176,31 +191,31 @@ onMounted(() => {
           <span
             class="text-2xl font-bold font-mono tracking-tight"
             :class="[
-              !eventSummary || eventSummary.total_active === 0
+              !eventSummary || totalActiveCount === 0
                 ? 'text-emerald-500'
-                : eventSummary.critical_count > 0
+                : (eventSummary.criticalCount || 0) > 0
                   ? 'text-rose-500'
                   : 'text-amber-500'
             ]"
           >
-            {{ eventSummary?.total_active ?? 0 }}
+            {{ totalActiveCount }}
           </span>
           <span
             class="text-xs font-medium"
             :class="[
-              !eventSummary || eventSummary.total_active === 0
+              !eventSummary || totalActiveCount === 0
                 ? 'text-emerald-500'
-                : eventSummary.critical_count > 0
+                : (eventSummary.criticalCount || 0) > 0
                   ? 'text-rose-500'
                   : 'text-amber-500'
             ]"
           >
-            {{ !eventSummary || eventSummary.total_active === 0 ? 'All Systems Healthy' : `${eventSummary.critical_count} Critical, ${eventSummary.warning_count} Warning` }}
+            {{ !eventSummary || totalActiveCount === 0 ? 'All Systems Healthy' : `${eventSummary.criticalCount || 0} Critical, ${eventSummary.warningCount || 0} Warning` }}
           </span>
         </div>
 
         <p class="text-[11px] text-slate-500 dark:text-slate-400">
-          {{ !eventSummary || eventSummary.total_active === 0
+          {{ !eventSummary || totalActiveCount === 0
             ? 'No active issues across instances, docker, opensearch, or backup'
             : 'Click to review active alerts and operational events'
           }}

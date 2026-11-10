@@ -1597,6 +1597,7 @@ type SystemEvent struct {
 }
 
 type EventSummary struct {
+	TotalActive   int                  `json:"totalActive"`
 	CriticalCount int                  `json:"criticalCount"`
 	WarningCount  int                  `json:"warningCount"`
 	InfoCount     int                  `json:"infoCount"`

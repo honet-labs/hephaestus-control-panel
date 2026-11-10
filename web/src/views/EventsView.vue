@@ -268,7 +268,7 @@
                   {{ e.title }}
                 </div>
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 max-w-xl">
-                  {{ e.message }}
+                  {{ formatMessage(e.message) }}
                 </div>
               </td>
 
@@ -517,8 +517,14 @@ const sourceTabs = [
 const statusOptions = [
   { label: 'All', value: 'all' },
   { label: 'Active', value: 'active' },
+  { label: 'Acknowledged', value: 'acknowledged' },
   { label: 'Resolved', value: 'resolved' },
 ];
+
+const formatMessage = (msg: string) => {
+  if (!msg) return '';
+  return msg.replace(/%!s\(\*string=0x[0-9a-fA-F]+\)/g, 'operation encountered an error');
+};
 
 // Feedback Toast
 const toast = ref<{ show: boolean; message: string; type: 'success' | 'warning' | 'error' }>({

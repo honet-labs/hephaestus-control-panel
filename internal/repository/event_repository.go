@@ -68,7 +68,7 @@ func (r *EventRepository) ResolveActiveEvent(ctx context.Context, sourceType, so
 	return err
 }
 
-// GetActiveEvents returns all currently active system events (for cache warm-up on startup)
+// GetActiveEvents returns all currently active or acknowledged system events (for cache warm-up on startup)
 func (r *EventRepository) GetActiveEvents(ctx context.Context) ([]domain.SystemEvent, error) {
 	pool, err := database.GetPool()
 	if err != nil {
@@ -79,7 +79,7 @@ func (r *EventRepository) GetActiveEvents(ctx context.Context) ([]domain.SystemE
 		SELECT id, source_type, source_id, source_name, event_type,
 		       severity, title, message, metadata, status, started_at, resolved_at, created_at, updated_at
 		FROM system_events
-		WHERE status = 'active'
+		WHERE status IN ('active', 'acknowledged')
 		ORDER BY started_at DESC
 		LIMIT 200
 	`
@@ -106,6 +106,55 @@ func (r *EventRepository) GetActiveEvents(ctx context.Context) ([]domain.SystemE
 		events = append(events, e)
 	}
 	return events, nil
+}
+
+// IsEventResolved checks whether an event for given source and event_type has already been resolved
+func (r *EventRepository) IsEventResolved(ctx context.Context, sourceType, sourceID, eventType string) bool {
+	pool, err := database.GetPool()
+	if err != nil {
+		return false
+	}
+
+	var exists bool
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM system_events 
+			WHERE source_type = $1 AND source_id = $2 AND event_type = $3 AND status = 'resolved'
+		)
+	`
+	_ = pool.QueryRow(ctx, query, sourceType, sourceID, eventType).Scan(&exists)
+	return exists
+}
+
+// GetRecentResolvedKeys returns a map of keys for recently resolved events (within given duration)
+func (r *EventRepository) GetRecentResolvedKeys(ctx context.Context, d time.Duration) (map[string]bool, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().UTC().Add(-d)
+	query := `
+		SELECT source_type, source_id, event_type
+		FROM system_events
+		WHERE status = 'resolved' AND (resolved_at >= $1 OR updated_at >= $1)
+		LIMIT 1000
+	`
+	rows, err := pool.Query(ctx, query, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	res := make(map[string]bool)
+	for rows.Next() {
+		var st, sid, et string
+		if err := rows.Scan(&st, &sid, &et); err == nil {
+			key := fmt.Sprintf("%s:%s:%s", st, sid, et)
+			res[key] = true
+		}
+	}
+	return res, nil
 }
 
 // List retrieves paginated events with optional filters for status, severity, and source_type

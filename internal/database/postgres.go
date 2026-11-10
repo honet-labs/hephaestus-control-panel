@@ -982,7 +982,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		-- Sanitize any formatted pointer string in legacy event messages
 		UPDATE system_events 
 		SET message = 'Database/Container backup failed: operation encountered an error.' 
-		WHERE message LIKE '%!s(%';
+		WHERE message LIKE '%!s(%' OR message LIKE '%0x%';
 	`
 	if _, err := pool.Exec(ctx, upgradeSQL); err != nil {
 		logger.Warn("Database", fmt.Sprintf("Incremental upgrades execution notice: %v", err))

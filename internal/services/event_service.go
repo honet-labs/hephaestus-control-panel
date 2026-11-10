@@ -20,10 +20,11 @@ type EventService struct {
 	openSearchService *OpenSearchService
 	backupRepo        *repository.BackupRepository
 
-	cacheMu         sync.RWMutex
-	cachedSummary   domain.EventSummary
-	activeEventsMap map[string]*domain.SystemEvent // key: sourceType + ":" + sourceId + ":" + eventType
-	stopChan        chan struct{}
+	cacheMu           sync.RWMutex
+	cachedSummary     domain.EventSummary
+	activeEventsMap   map[string]*domain.SystemEvent // key: sourceType + ":" + sourceId + ":" + eventType
+	resolvedEventsMap map[string]time.Time           // key: sourceType + ":" + sourceId + ":" + eventType -> resolved timestamp
+	stopChan          chan struct{}
 }
 
 func NewEventService(
@@ -38,6 +39,7 @@ func NewEventService(
 		openSearchService: openSearchService,
 		backupRepo:        backupRepo,
 		activeEventsMap:   make(map[string]*domain.SystemEvent),
+		resolvedEventsMap: make(map[string]time.Time),
 		stopChan:          make(chan struct{}),
 	}
 }
@@ -77,12 +79,16 @@ func (s *EventService) Stop() {
 	close(s.stopChan)
 }
 
-// warmup loads active events from DB into memory cache
+// warmup loads active and acknowledged events from DB into memory cache
 func (s *EventService) warmup(ctx context.Context) {
 	events, err := s.eventRepo.GetActiveEvents(ctx)
 	if err != nil {
 		logger.Warn("EventEngine", fmt.Sprintf("Failed to warm-up active events: %v", err))
-		return
+	}
+
+	resolvedKeys, errRes := s.eventRepo.GetRecentResolvedKeys(ctx, 48*time.Hour)
+	if errRes != nil {
+		logger.Warn("EventEngine", fmt.Sprintf("Failed to warm-up resolved events: %v", errRes))
 	}
 
 	s.cacheMu.Lock()
@@ -91,7 +97,11 @@ func (s *EventService) warmup(ctx context.Context) {
 		key := fmt.Sprintf("%s:%s:%s", events[i].SourceType, events[i].SourceID, events[i].EventType)
 		s.activeEventsMap[key] = &events[i]
 	}
-	logger.Info("EventEngine", fmt.Sprintf("Warm-up complete: %d active events loaded into memory cache", len(events)))
+	now := time.Now().UTC()
+	for k := range resolvedKeys {
+		s.resolvedEventsMap[k] = now
+	}
+	logger.Info("EventEngine", fmt.Sprintf("Warm-up complete: %d active/ack events, %d resolved keys loaded into memory", len(events), len(resolvedKeys)))
 }
 
 // EvaluateAll runs an evaluation pass across all services using only already-cached data
@@ -299,6 +309,21 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 				switch strings.ToLower(b.Status) {
 				case "failed", "error":
 					bkStats.Failed24h++
+					key := fmt.Sprintf("backup:%s:backup_failed", b.ID)
+					// If this backup run was already resolved by the operator, do not recreate!
+					s.cacheMu.RLock()
+					_, isResolved := s.resolvedEventsMap[key]
+					s.cacheMu.RUnlock()
+					if isResolved {
+						continue
+					}
+					if s.eventRepo.IsEventResolved(ctx, "backup", b.ID, "backup_failed") {
+						s.cacheMu.Lock()
+						s.resolvedEventsMap[key] = time.Now().UTC()
+						s.cacheMu.Unlock()
+						continue
+					}
+
 					critCount++
 					errMsg := "operation failed"
 					if b.ErrorMessage != nil && strings.TrimSpace(*b.ErrorMessage) != "" {
@@ -321,6 +346,7 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 	// 5. Update In-Memory Summary Cache (Thread-Safe atomic update)
 	s.cacheMu.Lock()
 	s.cachedSummary = domain.EventSummary{
+		TotalActive:   critCount + warnCount,
 		CriticalCount: critCount,
 		WarningCount:  warnCount,
 		InfoCount:     infoCount,
@@ -399,6 +425,7 @@ func (s *EventService) resolveEvent(ctx context.Context, sourceType, sourceID, e
 		return
 	}
 	delete(s.activeEventsMap, key)
+	s.resolvedEventsMap[key] = time.Now().UTC()
 	s.cacheMu.Unlock()
 
 	_ = s.eventRepo.ResolveActiveEvent(ctx, sourceType, sourceID, eventType)
@@ -420,11 +447,58 @@ func (s *EventService) ListEvents(ctx context.Context, status, severity, sourceT
 
 // AcknowledgeEvent marks an event as acknowledged
 func (s *EventService) AcknowledgeEvent(ctx context.Context, id string) error {
+	s.cacheMu.Lock()
+	for _, ev := range s.activeEventsMap {
+		if ev.ID == id {
+			ev.Status = "acknowledged"
+			ev.UpdatedAt = time.Now().UTC()
+			break
+		}
+	}
+	for i := range s.cachedSummary.ActiveEvents {
+		if s.cachedSummary.ActiveEvents[i].ID == id {
+			s.cachedSummary.ActiveEvents[i].Status = "acknowledged"
+			s.cachedSummary.ActiveEvents[i].UpdatedAt = time.Now().UTC()
+			break
+		}
+	}
+	s.cacheMu.Unlock()
 	return s.eventRepo.Acknowledge(ctx, id)
 }
 
 // ResolveEvent manually marks an event as resolved
 func (s *EventService) ResolveEvent(ctx context.Context, id string) error {
+	s.cacheMu.Lock()
+	var keyToRemove string
+	var sevToRemove string
+	for key, ev := range s.activeEventsMap {
+		if ev.ID == id {
+			keyToRemove = key
+			sevToRemove = ev.Severity
+			break
+		}
+	}
+	if keyToRemove != "" {
+		delete(s.activeEventsMap, keyToRemove)
+		s.resolvedEventsMap[keyToRemove] = time.Now().UTC()
+	}
+
+	// Filter out from cachedSummary.ActiveEvents
+	filtered := make([]domain.SystemEvent, 0, len(s.cachedSummary.ActiveEvents))
+	for _, ev := range s.cachedSummary.ActiveEvents {
+		if ev.ID != id {
+			filtered = append(filtered, ev)
+		}
+	}
+	s.cachedSummary.ActiveEvents = filtered
+	if sevToRemove == "critical" && s.cachedSummary.CriticalCount > 0 {
+		s.cachedSummary.CriticalCount--
+	} else if sevToRemove == "warning" && s.cachedSummary.WarningCount > 0 {
+		s.cachedSummary.WarningCount--
+	}
+	s.cachedSummary.TotalActive = s.cachedSummary.CriticalCount + s.cachedSummary.WarningCount
+	s.cacheMu.Unlock()
+
 	return s.eventRepo.Resolve(ctx, id)
 }
 
