@@ -109,7 +109,7 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 
 	// 1. Evaluate Server Monitoring Instances (O(N) memory read from existing monService cache)
 	if s.monService != nil {
-		instances, err := s.monService.List(ctx, 0, "ADMIN", "", "")
+		instances, err := s.monService.ListInstances(ctx, 0, "ADMIN", "", "", true)
 		if err == nil {
 			instStats.Total = len(instances)
 			for _, inst := range instances {
@@ -181,15 +181,14 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 		if err == nil {
 			ctrStats.Total = len(containers)
 			for _, c := range containers {
-				st := strings.ToLower(c.State)
-				if st == "exited" || st == "dead" {
+				if !c.IsOnline {
 					ctrStats.Stopped++
 					ctrStats.Critical++
 					critCount++
 					s.trackEvent(ctx, &activeList, "container", c.ContainerID, c.ContainerName, "container_stopped", "critical",
 						"Container Exited / Stopped",
-						fmt.Sprintf("Docker container '%s' on %s is in '%s' state.", c.ContainerName, c.Hostname, c.State),
-						map[string]interface{}{"image": c.ImageName, "host": c.Hostname, "state": c.State},
+						fmt.Sprintf("Docker container '%s' on %s is stopped or offline.", c.ContainerName, c.Hostname),
+						map[string]interface{}{"image": c.ImageName, "host": c.Hostname, "isOnline": c.IsOnline},
 					)
 					continue
 				}
@@ -197,12 +196,17 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 				// Resolve stopped event if running
 				s.resolveEvent(ctx, "container", c.ContainerID, "container_stopped")
 
-				cpu := c.CPUPct
-				mem := c.MemPct
-				maxUsage := cpu
+				var cpuVal, memVal float64
+				if c.CPUPct != nil {
+					cpuVal = *c.CPUPct
+				}
+				if c.MemPct != nil {
+					memVal = *c.MemPct
+				}
+				maxUsage := cpuVal
 				critRes := "CPU"
-				if mem > maxUsage {
-					maxUsage = mem
+				if memVal > maxUsage {
+					maxUsage = memVal
 					critRes = "Memory"
 				}
 
@@ -419,3 +423,4 @@ func (s *EventService) ResolveEvent(ctx context.Context, id string) error {
 func (s *EventService) ClearResolved(ctx context.Context, olderThanDays int) (int64, error) {
 	return s.eventRepo.ClearResolved(ctx, olderThanDays)
 }
+
