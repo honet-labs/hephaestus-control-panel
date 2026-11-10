@@ -20,7 +20,6 @@
             : 'bg-emerald-50/95 dark:bg-emerald-950/90 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60'
         ]"
       >
-        <span class="w-2 h-2 rounded-full" :class="toast.type === 'error' ? 'bg-rose-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'"></span>
         <span>{{ toast.message }}</span>
       </div>
     </transition>
@@ -49,7 +48,6 @@
           ]"
           :title="autoRefresh ? 'Auto refresh enabled (every 15s)' : 'Auto refresh paused'"
         >
-          <span class="w-1.5 h-1.5 rounded-full" :class="autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'"></span>
           <span>Auto: {{ autoRefresh ? '15s' : 'Off' }}</span>
         </button>
 
@@ -81,7 +79,6 @@
       <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Active Critical</span>
-          <span class="w-2 h-2 rounded-full" :class="summary.criticalCount > 0 ? 'bg-rose-500 animate-ping' : 'bg-slate-300 dark:bg-slate-600'"></span>
         </div>
         <div class="text-2xl font-bold" :class="summary.criticalCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'">
           {{ summary.criticalCount }}
@@ -95,7 +92,6 @@
       <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Active Warnings</span>
-          <span class="w-2 h-2 rounded-full" :class="summary.warningCount > 0 ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'"></span>
         </div>
         <div class="text-2xl font-bold" :class="summary.warningCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'">
           {{ summary.warningCount }}
@@ -139,7 +135,6 @@
       <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Backups (24h)</span>
-          <span class="w-2 h-2 rounded-full" :class="(summary.backups?.failed24h || 0) > 0 ? 'bg-rose-500' : 'bg-emerald-500'"></span>
         </div>
         <div class="flex items-baseline gap-2">
           <div class="text-2xl font-bold text-slate-800 dark:text-slate-200">
@@ -302,7 +297,7 @@
               <!-- Status -->
               <td class="py-3 px-4 whitespace-nowrap">
                 <span
-                  class="px-2 py-0.5 rounded-full text-[10px] font-medium inline-flex items-center gap-1"
+                  class="px-2 py-0.5 rounded-full text-[10px] font-medium inline-flex items-center"
                   :class="[
                     e.status === 'active'
                       ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
@@ -311,16 +306,6 @@
                       : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                   ]"
                 >
-                  <span
-                    class="w-1.5 h-1.5 rounded-full"
-                    :class="[
-                      e.status === 'active'
-                        ? 'bg-rose-500 animate-pulse'
-                        : e.status === 'acknowledged'
-                        ? 'bg-amber-500'
-                        : 'bg-emerald-500'
-                    ]"
-                  ></span>
                   <span class="capitalize">{{ e.status }}</span>
                 </span>
               </td>
