@@ -2231,6 +2231,9 @@ func (s *MonitoringInstanceService) BatchGetLiveMetrics(ctx context.Context, ins
 			if isIgnoredMountPoint(d.Mountpoint, d.Device, d.FSType) {
 				continue
 			}
+			if d.TotalBytes <= 0 {
+				continue
+			}
 			diskList = append(diskList, *d)
 			sumUsed += d.UsedBytes
 			sumTotal += d.TotalBytes
@@ -2353,7 +2356,7 @@ func isIgnoredMountPoint(mount, device, fsType string) bool {
 	t := strings.ToLower(strings.TrimSpace(fsType))
 
 	// 1. Snaps & Loop Devices
-	if strings.HasPrefix(m, "/snap") || strings.HasPrefix(m, "/var/lib/snapd") {
+	if strings.HasPrefix(m, "/snap") || strings.HasPrefix(m, "/var/lib/snapd") || strings.Contains(m, "/snap/") {
 		return true
 	}
 	if strings.HasPrefix(d, "/dev/loop") || strings.HasPrefix(d, "loop") {
@@ -2369,17 +2372,25 @@ func isIgnoredMountPoint(mount, device, fsType string) bool {
 	}
 
 	// 3. Boot & EFI partitions (standard Linux kernel rotation leaves /boot at 80-90% without risking system capacity)
-	if m == "/boot" || strings.HasPrefix(m, "/boot/") {
+	if m == "/boot" || strings.HasPrefix(m, "/boot/") || m == "/efi" || strings.HasPrefix(m, "/efi/") {
 		return true
 	}
 
-	// 4. Virtual tree mounts
+	// 4. Virtual tree mounts & Config/Secret file binds (Docker / LXC / Kubelet)
 	if m == "/dev" || strings.HasPrefix(m, "/dev/") || m == "/run" || strings.HasPrefix(m, "/run/") || m == "/sys" || strings.HasPrefix(m, "/sys/") || m == "/proc" || strings.HasPrefix(m, "/proc/") {
 		return true
 	}
+	if m == "/etc" || strings.HasPrefix(m, "/etc/") {
+		return true
+	}
 
-	// 5. Docker internal storage layers and container volumes
-	if strings.Contains(m, "/docker/overlay2") || strings.Contains(m, "/docker/containers") || strings.Contains(m, "/var/lib/docker") {
+	// 5. Optical drives / CD-ROM / Media mounts
+	if strings.HasPrefix(d, "/dev/sr") || strings.HasPrefix(d, "/dev/cdrom") || strings.HasPrefix(m, "/media") || strings.HasPrefix(m, "/mnt/cdrom") {
+		return true
+	}
+
+	// 6. Docker internal storage layers and container volumes
+	if strings.Contains(m, "/docker/overlay2") || strings.Contains(m, "/docker/containers") || strings.Contains(m, "/var/lib/docker") || strings.Contains(m, "/containerd/") || strings.Contains(m, "/kubelet/") {
 		return true
 	}
 

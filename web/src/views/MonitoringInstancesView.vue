@@ -487,7 +487,7 @@ const isIgnoredMount = (mount?: string, device?: string, fsType?: string): boole
   const t = (fsType || '').toLowerCase().trim();
 
   // 1. Snaps & Loop Devices
-  if (m.startsWith('/snap') || m.startsWith('/var/lib/snapd')) return true;
+  if (m.startsWith('/snap') || m.startsWith('/var/lib/snapd') || m.includes('/snap/')) return true;
   if (d.startsWith('/dev/loop') || d.startsWith('loop')) return true;
 
   // 2. Read-only / Virtual / Ephemeral Filesystems
@@ -495,13 +495,17 @@ const isIgnoredMount = (mount?: string, device?: string, fsType?: string): boole
   if (d === 'tmpfs' || d === 'devtmpfs' || d === 'udev' || d === 'none' || d === 'shm' || d === 'overlay') return true;
 
   // 3. Boot & EFI partitions (standard Linux kernel rotation leaves /boot at 80-90% without risking system capacity)
-  if (m === '/boot' || m.startsWith('/boot/')) return true;
+  if (m === '/boot' || m.startsWith('/boot/') || m === '/efi' || m.startsWith('/efi/')) return true;
 
-  // 4. System / Virtual tree mounts
+  // 4. System / Virtual tree mounts & Config/Secret file binds (Docker / LXC / Kubelet)
   if (m === '/dev' || m.startsWith('/dev/') || m === '/run' || m.startsWith('/run/') || m === '/sys' || m.startsWith('/sys/') || m === '/proc' || m.startsWith('/proc/')) return true;
+  if (m === '/etc' || m.startsWith('/etc/')) return true;
 
-  // 5. Docker internal storage layers and container volumes
-  if (m.includes('/docker/overlay2') || m.includes('/docker/containers') || m.includes('/var/lib/docker')) return true;
+  // 5. Optical drives / CD-ROM / Media mounts
+  if (d.startsWith('/dev/sr') || d.startsWith('/dev/cdrom') || m.startsWith('/media') || m.startsWith('/mnt/cdrom')) return true;
+
+  // 6. Docker / Container internal storage layers and container volumes
+  if (m.includes('/docker/overlay2') || m.includes('/docker/containers') || m.includes('/var/lib/docker') || m.includes('/containerd/') || m.includes('/kubelet/')) return true;
 
   return false;
 };
@@ -513,8 +517,10 @@ const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
     let hasValidDisk = false;
     for (const d of inst.liveMetrics.disks) {
       if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
+      // Skip empty or invalid partitions
+      if (!d.totalBytes || d.totalBytes <= 0) continue;
       sumUsed += d.usedBytes || 0;
-      sumTotal += d.totalBytes || 0;
+      sumTotal += d.totalBytes;
       hasValidDisk = true;
     }
     if (hasValidDisk && sumTotal > 0) {
@@ -526,8 +532,8 @@ const getOverallDisk = (inst: MonitoringInstance): OverallDiskInfo => {
         freeBytes: Math.max(0, sumTotal - sumUsed),
       };
     }
-    // Fallback: if all disks were ignored, use root "/" or first available disk
-    const rootDisk = inst.liveMetrics.disks.find(d => d.mountpoint === '/') || inst.liveMetrics.disks[0];
+    // Fallback: if all disks were ignored, use root "/" or first available disk with positive capacity
+    const rootDisk = inst.liveMetrics.disks.find(d => d.mountpoint === '/' && (d.totalBytes || 0) > 0) || inst.liveMetrics.disks.find(d => (d.totalBytes || 0) > 0);
     if (rootDisk && (rootDisk.totalBytes || 0) > 0) {
       const pct = Math.round(((rootDisk.usedBytes || 0) / rootDisk.totalBytes) * 1000) / 10;
       return {
@@ -589,10 +595,11 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
   if (Array.isArray(inst.liveMetrics.disks) && inst.liveMetrics.disks.length > 0) {
     for (const d of inst.liveMetrics.disks) {
       if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
-      // Skip tiny partitions smaller than 1 GB (e.g. boot/efi/recovery)
-      if (d.totalBytes && d.totalBytes < 1024 * 1024 * 1024) continue;
+      // Skip empty, invalid, or tiny partitions smaller than 5 GB (e.g. boot/efi/recovery/firmware)
+      if (!d.totalBytes || d.totalBytes < 5 * 1024 * 1024 * 1024) continue;
+      if (typeof d.usagePct !== 'number' || isNaN(d.usagePct) || d.usagePct <= 0) continue;
 
-      if (typeof d.usagePct === 'number' && d.usagePct > disk) {
+      if (d.usagePct > disk) {
         disk = d.usagePct;
         criticalMount = d.mountpoint || null;
       }
@@ -611,10 +618,13 @@ const getInstanceStatus = (inst: MonitoringInstance): InstanceStatus => {
     criticalResource = 'disk';
   }
 
+  const wThreshold = Number(warningThreshold.value) || DEFAULT_WARNING_THRESHOLD;
+  const cThreshold = Number(criticalThreshold.value) || DEFAULT_CRITICAL_THRESHOLD;
+
   let severity: 'critical' | 'warning' | 'normal' = 'normal';
-  if (maxUsage >= criticalThreshold.value) {
+  if (maxUsage >= cThreshold) {
     severity = 'critical';
-  } else if (maxUsage >= warningThreshold.value) {
+  } else if (maxUsage >= wThreshold) {
     severity = 'warning';
   }
 
@@ -695,7 +705,8 @@ const previewModalCounts = computed(() => {
     if (inst.liveMetrics.disks) {
       for (const d of inst.liveMetrics.disks) {
         if (isIgnoredMount(d.mountpoint, d.device, d.fsType)) continue;
-        if (d.totalBytes && d.totalBytes < 1024 * 1024 * 1024) continue;
+        if (!d.totalBytes || d.totalBytes < 5 * 1024 * 1024 * 1024) continue;
+        if (typeof d.usagePct !== 'number' || isNaN(d.usagePct) || d.usagePct <= 0) continue;
         if (d.usagePct > disk) disk = d.usagePct;
       }
     }
