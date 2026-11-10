@@ -238,6 +238,12 @@ const router = createRouter({
           component: () => import('../views/IpamView.vue'),
           meta: { requiresAuth: true, feature: 'ipam' },
         },
+        {
+          path: 'events',
+          name: 'events',
+          component: () => import('../views/EventsView.vue'),
+          meta: { requiresAuth: true, feature: 'events' },
+        },
       ],
     },
     {
@@ -334,6 +340,7 @@ router.beforeEach(async (to, from, next) => {
           { path: '/connections', feature: 'connections' },
           { path: '/inventory-server', feature: 'server_inventory' },
           { path: '/monitoring-instance', feature: 'monitoring_instances' },
+          { path: '/events', feature: 'events' },
           { path: '/infrastructure/containers', feature: 'infrastructure' },
           { path: '/remote-server', feature: 'remote_servers' },
           { path: '/network-topology', feature: 'network_topology' },

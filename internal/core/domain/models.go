@@ -1577,6 +1577,67 @@ type BulkImportServerResult struct {
 	Errors         []string `json:"errors"`
 }
 
+// ==================== SYSTEM EVENTS & INCIDENT CENTER DOMAIN ====================
+
+type SystemEvent struct {
+	ID         string                 `json:"id"`
+	SourceType string                 `json:"sourceType"` // "instance", "container", "opensearch", "backup"
+	SourceID   string                 `json:"sourceId"`
+	SourceName string                 `json:"sourceName"`
+	EventType  string                 `json:"eventType"` // "cpu_threshold", "mem_threshold", "disk_threshold", "host_offline", "container_stopped", "cluster_health", "backup_failed"
+	Severity   string                 `json:"severity"`  // "critical", "warning", "info"
+	Title      string                 `json:"title"`
+	Message    string                 `json:"message"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Status     string                 `json:"status"` // "active", "resolved", "acknowledged"
+	StartedAt  time.Time              `json:"startedAt"`
+	ResolvedAt *time.Time             `json:"resolvedAt,omitempty"`
+	CreatedAt  time.Time              `json:"createdAt"`
+	UpdatedAt  time.Time              `json:"updatedAt"`
+}
+
+type EventSummary struct {
+	CriticalCount int                  `json:"criticalCount"`
+	WarningCount  int                  `json:"warningCount"`
+	InfoCount     int                  `json:"infoCount"`
+	Instances     InstanceEventStats   `json:"instances"`
+	Containers    ContainerEventStats  `json:"containers"`
+	OpenSearch    OpenSearchEventStats `json:"openSearch"`
+	Backups       BackupEventStats     `json:"backups"`
+	ActiveEvents  []SystemEvent        `json:"activeEvents"`
+	LastCheckedAt time.Time            `json:"lastCheckedAt"`
+}
+
+type InstanceEventStats struct {
+	Total    int `json:"total"`
+	Critical int `json:"critical"`
+	Warning  int `json:"warning"`
+	Healthy  int `json:"healthy"`
+	Offline  int `json:"offline"`
+}
+
+type ContainerEventStats struct {
+	Total    int `json:"total"`
+	Critical int `json:"critical"`
+	Warning  int `json:"warning"`
+	Healthy  int `json:"healthy"`
+	Stopped  int `json:"stopped"`
+}
+
+type OpenSearchEventStats struct {
+	Status           string `json:"status"` // "green", "yellow", "red", "offline", "unconfigured"
+	ClusterName      string `json:"clusterName"`
+	ActiveNodes      int    `json:"activeNodes"`
+	UnassignedShards int    `json:"unassignedShards"`
+}
+
+type BackupEventStats struct {
+	Total24h   int `json:"total24h"`
+	Failed24h  int `json:"failed24h"`
+	Success24h int `json:"success24h"`
+	Running    int `json:"running"`
+}
+
 
 
 

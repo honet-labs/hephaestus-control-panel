@@ -19,6 +19,7 @@ import {
   Link2,
   Boxes,
   Shield,
+  AlertTriangle,
 } from 'lucide-vue-next';
 
 const isOpen = ref(false);
@@ -42,6 +43,7 @@ const items = [
   { name: 'SNMP Browser', icon: Radio, route: '/snmp', feature: 'snmp' },
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger', feature: 'grok_debugger' },
   { name: 'Backup Manager', icon: Database, route: '/backup', feature: 'backup' },
+  { name: 'Events & Alerts', icon: AlertTriangle, route: '/events', feature: 'events' },
   { name: 'Vaultwarden', icon: Shield, route: '/security/vaultwarden', newTab: true, feature: 'security' },
   { name: 'Status Pages', icon: Activity, route: '/status-pages', feature: 'status_pages' },
   { name: 'Monitoring Instance', icon: Server, route: '/monitoring-instance', feature: 'monitoring_instances' },
@@ -62,6 +64,12 @@ const filteredItems = computed(() => {
         authStore.can('server_inventory', 'read') ||
         authStore.can('connections', 'read') ||
         authStore.can('infrastructure', 'read')
+      );
+    }
+    if (item.feature === 'events') {
+      return (
+        authStore.can('events', 'read') ||
+        authStore.can('monitoring_instances', 'read')
       );
     }
     return authStore.can(item.feature, 'read');

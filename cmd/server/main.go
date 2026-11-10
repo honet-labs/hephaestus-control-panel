@@ -78,6 +78,7 @@ func main() {
 	monitoringInstanceRepo := repository.NewMonitoringInstanceRepository()
 	ipamRepo := repository.NewIpamRepository()
 	serverInventoryRepo := repository.NewServerInventoryRepository()
+	eventRepo := repository.NewEventRepository()
 
 	// 5. Initialize Background Worker Pool & Scheduler
 	workerPool := queue.InitWorkerPool(10)
@@ -110,6 +111,8 @@ func main() {
 	ipamService := services.NewIpamService(ipamRepo, workerPool)
 	ipamService.StartBackgroundEngine()
 	serverInventoryService := services.NewServerInventoryService(serverInventoryRepo, remoteRepo, sshService)
+	eventService := services.NewEventService(eventRepo, monitoringInstanceService, openSearchService, backupRepo)
+	eventService.StartBackgroundEngine()
 
 	// 7. Initialize HTTP Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -133,6 +136,7 @@ func main() {
 	monitoringInstanceHandler := handlers.NewMonitoringInstanceHandler(monitoringInstanceService)
 	ipamHandler := handlers.NewIpamHandler(ipamService)
 	serverInventoryHandler := handlers.NewServerInventoryHandler(serverInventoryService)
+	eventHandler := handlers.NewEventHandler(eventService)
 
 	// 8. Gin Router Setup
 	if cfg.Env == "production" {
@@ -565,6 +569,13 @@ func main() {
 		api.DELETE("/status-pages/items/:itemId", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring_instances"}, "manage"), statusPageHandler.DeleteItem)
 		api.POST("/status-pages/:id/incidents", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring_instances"}, "manage"), statusPageHandler.SaveIncident)
 		api.DELETE("/status-pages/incidents/:incidentId", middleware.RequireAnyPermission([]string{"status_pages", "slideshow", "monitoring_instances"}, "manage"), statusPageHandler.DeleteIncident)
+
+		// Operational Events & Incidents (Feature: events, monitoring_instances, dashboard)
+		api.GET("/events/summary", middleware.RequireAnyPermission([]string{"events", "monitoring_instances", "dashboard"}, "read"), eventHandler.GetSummary)
+		api.GET("/events", middleware.RequireAnyPermission([]string{"events", "monitoring_instances", "dashboard"}, "read"), eventHandler.ListEvents)
+		api.POST("/events/:id/ack", middleware.RequireAnyPermission([]string{"events", "monitoring_instances"}, "manage"), eventHandler.AcknowledgeEvent)
+		api.POST("/events/:id/resolve", middleware.RequireAnyPermission([]string{"events", "monitoring_instances"}, "manage"), eventHandler.ResolveEvent)
+		api.DELETE("/events/resolved", middleware.RequireAnyPermission([]string{"events", "monitoring_instances"}, "manage"), eventHandler.ClearResolved)
 	}
 
 	// Serve Static Frontend files (if built in web/dist)
@@ -603,6 +614,7 @@ func main() {
 
 	cronSched.Stop()
 	workerPool.Stop()
+	eventService.Stop()
 
 	if err := srv.Shutdown(ctxShutdown); err != nil {
 		logger.Error("Server", "Server forced shutdown", err)

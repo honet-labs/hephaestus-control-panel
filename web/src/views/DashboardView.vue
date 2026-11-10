@@ -32,6 +32,7 @@ const serviceStats = ref<ServiceCount>({
 
 const backupHistory = ref<any[]>([]);
 const loading = ref(false);
+const eventSummary = ref<{ total_active: number; critical_count: number; warning_count: number } | null>(null);
 
 const fetchDashboardData = async () => {
   if (!authStore.can('backup', 'read')) {
@@ -65,9 +66,19 @@ const fetchServiceStats = async () => {
   } catch (_) {}
 };
 
+const fetchEventSummary = async () => {
+  try {
+    const res = await axios.get('/api/v1/events/summary').catch(() => null);
+    if (res && res.data && res.data.success) {
+      eventSummary.value = res.data.data;
+    }
+  } catch (_) {}
+};
+
 onMounted(() => {
   fetchDashboardData();
   fetchServiceStats();
+  fetchEventSummary();
 });
 </script>
 
@@ -128,6 +139,70 @@ onMounted(() => {
           {{ serviceStats.running === serviceStats.total
             ? 'Normal telemetry heartbeat verified'
             : `${serviceStats.total - serviceStats.running} service(s) stopped or degraded`
+          }}
+        </p>
+      </router-link>
+
+      <!-- Operational Events & Alerts Summary Card -->
+      <router-link
+        v-if="authStore.can('events', 'read') || authStore.can('monitoring_instances', 'read')"
+        to="/events"
+        class="p-4 rounded-xl bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] transition group space-y-2 block"
+        :class="[
+          !eventSummary || eventSummary.total_active === 0
+            ? 'hover:border-emerald-500/60'
+            : eventSummary.critical_count > 0
+              ? 'border-rose-400 dark:border-rose-600/50 hover:border-rose-600'
+              : 'border-amber-400 dark:border-amber-600/50 hover:border-amber-600'
+        ]"
+      >
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
+          <span class="text-xs font-semibold text-slate-700 dark:text-[#D0E7E6]">Active Incidents</span>
+          <CheckCircle2
+            v-if="!eventSummary || eventSummary.total_active === 0"
+            class="w-4 h-4 text-emerald-500"
+          />
+          <AlertTriangle
+            v-else-if="eventSummary.critical_count > 0"
+            class="w-4 h-4 text-rose-500"
+          />
+          <AlertTriangle
+            v-else
+            class="w-4 h-4 text-amber-500"
+          />
+        </div>
+
+        <div class="flex items-baseline gap-2">
+          <span
+            class="text-2xl font-bold font-mono tracking-tight"
+            :class="[
+              !eventSummary || eventSummary.total_active === 0
+                ? 'text-emerald-500'
+                : eventSummary.critical_count > 0
+                  ? 'text-rose-500'
+                  : 'text-amber-500'
+            ]"
+          >
+            {{ eventSummary?.total_active ?? 0 }}
+          </span>
+          <span
+            class="text-xs font-medium"
+            :class="[
+              !eventSummary || eventSummary.total_active === 0
+                ? 'text-emerald-500'
+                : eventSummary.critical_count > 0
+                  ? 'text-rose-500'
+                  : 'text-amber-500'
+            ]"
+          >
+            {{ !eventSummary || eventSummary.total_active === 0 ? 'All Systems Healthy' : `${eventSummary.critical_count} Critical, ${eventSummary.warning_count} Warning` }}
+          </span>
+        </div>
+
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">
+          {{ !eventSummary || eventSummary.total_active === 0
+            ? 'No active issues across instances, docker, opensearch, or backup'
+            : 'Click to review active alerts and operational events'
           }}
         </p>
       </router-link>

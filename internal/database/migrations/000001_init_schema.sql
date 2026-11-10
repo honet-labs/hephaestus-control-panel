@@ -685,3 +685,27 @@ INSERT INTO docker_connections (id, name, host_type, socket_path, is_active, is_
 SELECT 'docker-local-default', 'Local Docker Host', 'local', '/var/run/docker.sock', true, true
 WHERE NOT EXISTS (SELECT 1 FROM docker_connections WHERE id = 'docker-local-default' OR is_default = true);
 
+-- 34. SystemEvents - Operational events, threshold alerts, and incident tracking
+CREATE TABLE IF NOT EXISTS system_events (
+    id VARCHAR(50) PRIMARY KEY,
+    source_type VARCHAR(50) NOT NULL,
+    source_id VARCHAR(100) NOT NULL,
+    source_name VARCHAR(255) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_events_status ON system_events(status);
+CREATE INDEX IF NOT EXISTS idx_system_events_source ON system_events(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_system_events_started_at ON system_events(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_events_severity ON system_events(severity);
+
+
