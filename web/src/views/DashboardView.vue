@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import InfoButton from '../components/InfoButton.vue';
