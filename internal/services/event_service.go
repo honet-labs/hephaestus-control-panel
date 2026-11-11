@@ -343,13 +343,17 @@ func (s *EventService) EvaluateAll(ctx context.Context) {
 		}
 	}
 
-	// 5. Update In-Memory Summary Cache (Thread-Safe atomic update)
+	// 5. Query status & severity aggregations for tab counts
+	statusCounts, _ := s.eventRepo.GetStatusCounts(ctx)
+
+	// 6. Update In-Memory Summary Cache (Thread-Safe atomic update)
 	s.cacheMu.Lock()
 	s.cachedSummary = domain.EventSummary{
 		TotalActive:   critCount + warnCount,
 		CriticalCount: critCount,
 		WarningCount:  warnCount,
 		InfoCount:     infoCount,
+		StatusCounts:  statusCounts,
 		Instances:     instStats,
 		Containers:    ctrStats,
 		OpenSearch:    osStats,

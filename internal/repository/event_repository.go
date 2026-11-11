@@ -157,6 +157,54 @@ func (r *EventRepository) GetRecentResolvedKeys(ctx context.Context, d time.Dura
 	return res, nil
 }
 
+// GetStatusCounts aggregates event counts by status and severity from PostgreSQL
+func (r *EventRepository) GetStatusCounts(ctx context.Context) (domain.EventStatusCounts, error) {
+	pool, err := database.GetPool()
+	if err != nil {
+		return domain.EventStatusCounts{}, err
+	}
+
+	query := `SELECT status, severity, COUNT(*) FROM system_events GROUP BY status, severity`
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return domain.EventStatusCounts{}, err
+	}
+	defer rows.Close()
+
+	var counts domain.EventStatusCounts
+	for rows.Next() {
+		var status, severity string
+		var count int
+		if err := rows.Scan(&status, &severity, &count); err == nil {
+			counts.Total += count
+			switch status {
+			case "active":
+				counts.Active += count
+				if severity == "critical" {
+					counts.ActiveCritical += count
+				} else if severity == "warning" {
+					counts.ActiveWarning += count
+				}
+			case "acknowledged":
+				counts.Acknowledged += count
+				if severity == "critical" {
+					counts.AcknowledgedCritical += count
+				} else if severity == "warning" {
+					counts.AcknowledgedWarning += count
+				}
+			case "resolved":
+				counts.Resolved += count
+				if severity == "critical" {
+					counts.ResolvedCritical += count
+				} else if severity == "warning" {
+					counts.ResolvedWarning += count
+				}
+			}
+		}
+	}
+	return counts, nil
+}
+
 // List retrieves paginated events with optional filters for status, severity, and source_type
 func (r *EventRepository) List(ctx context.Context, status, severity, sourceType string, limit, offset int) ([]domain.SystemEvent, int, error) {
 	pool, err := database.GetPool()

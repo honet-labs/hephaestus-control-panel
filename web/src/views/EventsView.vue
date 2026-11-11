@@ -76,33 +76,69 @@
     <!-- 4 High-Level Summary KPI Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <!-- 1. Critical Issues -->
-      <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
+      <div
+        @click="filterBySeverity('critical')"
+        class="bg-white dark:bg-[#111726] border rounded-xl p-4 shadow-2xs space-y-1 transition cursor-pointer hover:border-slate-300 dark:hover:border-slate-600"
+        :class="[
+          selectedSeverity === 'critical'
+            ? 'border-rose-500/70 ring-1 ring-rose-500/30'
+            : 'border-slate-200 dark:border-[#1f293d]'
+        ]"
+      >
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Active Critical</span>
+          <span v-if="(summary.statusCounts?.acknowledgedCritical || 0) > 0 || (summary.statusCounts?.resolvedCritical || 0) > 0" class="text-[10px] text-slate-400 font-mono">
+            {{ (summary.statusCounts?.activeCritical || summary.criticalCount) + (summary.statusCounts?.acknowledgedCritical || 0) + (summary.statusCounts?.resolvedCritical || 0) }} total
+          </span>
         </div>
         <div class="text-2xl font-bold" :class="summary.criticalCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'">
           {{ summary.criticalCount }}
         </div>
         <div class="text-[11px] text-slate-400">
-          {{ summary.instances?.critical || 0 }} servers, {{ summary.containers?.critical || 0 }} containers
+          <span v-if="summary.statusCounts?.acknowledgedCritical" class="text-amber-600 dark:text-amber-400 font-medium">
+            {{ summary.statusCounts.acknowledgedCritical }} acknowledged, 
+          </span>
+          <span>{{ summary.instances?.critical || 0 }} servers, {{ summary.containers?.critical || 0 }} containers</span>
         </div>
       </div>
 
       <!-- 2. Warning Thresholds -->
-      <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
+      <div
+        @click="filterBySeverity('warning')"
+        class="bg-white dark:bg-[#111726] border rounded-xl p-4 shadow-2xs space-y-1 transition cursor-pointer hover:border-slate-300 dark:hover:border-slate-600"
+        :class="[
+          selectedSeverity === 'warning'
+            ? 'border-amber-500/70 ring-1 ring-amber-500/30'
+            : 'border-slate-200 dark:border-[#1f293d]'
+        ]"
+      >
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Active Warnings</span>
+          <span v-if="(summary.statusCounts?.acknowledgedWarning || 0) > 0" class="text-[10px] text-slate-400 font-mono">
+            {{ (summary.statusCounts?.activeWarning || summary.warningCount) + (summary.statusCounts?.acknowledgedWarning || 0) }} total
+          </span>
         </div>
         <div class="text-2xl font-bold" :class="summary.warningCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-200'">
           {{ summary.warningCount }}
         </div>
         <div class="text-[11px] text-slate-400">
-          {{ summary.instances?.warning || 0 }} servers, {{ summary.containers?.warning || 0 }} containers
+          <span v-if="summary.statusCounts?.acknowledgedWarning" class="text-amber-600 dark:text-amber-400 font-medium">
+            {{ summary.statusCounts.acknowledgedWarning }} acknowledged, 
+          </span>
+          <span>{{ summary.instances?.warning || 0 }} servers, {{ summary.containers?.warning || 0 }} containers</span>
         </div>
       </div>
 
       <!-- 3. OpenSearch Cluster Health -->
-      <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
+      <div
+        @click="filterBySource('opensearch')"
+        class="bg-white dark:bg-[#111726] border rounded-xl p-4 shadow-2xs space-y-1 transition cursor-pointer hover:border-slate-300 dark:hover:border-slate-600"
+        :class="[
+          selectedSource === 'opensearch'
+            ? 'border-blue-500/70 ring-1 ring-blue-500/30'
+            : 'border-slate-200 dark:border-[#1f293d]'
+        ]"
+      >
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>OpenSearch Cluster</span>
           <span class="text-[10px] font-mono text-slate-400">{{ summary.openSearch?.clusterName || 'Default' }}</span>
@@ -132,7 +168,15 @@
       </div>
 
       <!-- 4. Backups (Last 24 Hours) -->
-      <div class="bg-white dark:bg-[#111726] border border-slate-200 dark:border-[#1f293d] rounded-xl p-4 shadow-2xs space-y-1">
+      <div
+        @click="filterBySource('backup')"
+        class="bg-white dark:bg-[#111726] border rounded-xl p-4 shadow-2xs space-y-1 transition cursor-pointer hover:border-slate-300 dark:hover:border-slate-600"
+        :class="[
+          selectedSource === 'backup'
+            ? 'border-blue-500/70 ring-1 ring-blue-500/30'
+            : 'border-slate-200 dark:border-[#1f293d]'
+        ]"
+      >
         <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
           <span>Backups (24h)</span>
         </div>
@@ -158,7 +202,7 @@
         <button
           v-for="tab in sourceTabs"
           :key="tab.value"
-          @click="selectedSource = tab.value; page = 0; fetchEvents();"
+          @click="selectedSource = tab.value; page = 1; fetchEvents();"
           class="px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
           :class="[
             selectedSource === tab.value
@@ -173,27 +217,37 @@
       <!-- Row 2: Severity, Status, and Keyword Search -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-2">
-          <!-- Status Filter (Active / Resolved) -->
+          <!-- Status Filter (Active / Acknowledged / Resolved / All) -->
           <div class="flex items-center bg-slate-100 dark:bg-[#161c2d] p-0.5 rounded-lg border border-slate-200 dark:border-[#222c42]">
             <button
               v-for="st in statusOptions"
               :key="st.value"
-              @click="selectedStatus = st.value; page = 0; fetchEvents();"
-              class="px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer"
+              @click="selectedStatus = st.value; page = 1; fetchEvents();"
+              class="px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5"
               :class="[
                 selectedStatus === st.value
-                  ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white shadow-2xs'
+                  ? 'bg-white dark:bg-[#1f283d] text-slate-900 dark:text-white shadow-2xs font-semibold'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               ]"
             >
-              {{ st.label }}
+              <span>{{ st.label }}</span>
+              <span
+                class="px-1.5 py-0.2 rounded-full text-[9px] font-mono"
+                :class="[
+                  selectedStatus === st.value
+                    ? 'bg-slate-100 dark:bg-[#121826] text-slate-800 dark:text-slate-200 font-bold'
+                    : 'bg-slate-200/70 dark:bg-[#20293d] text-slate-600 dark:text-slate-400'
+                ]"
+              >
+                {{ getStatusCount(st.value) }}
+              </span>
             </button>
           </div>
 
           <!-- Severity Filter -->
           <select
             v-model="selectedSeverity"
-            @change="page = 0; fetchEvents();"
+            @change="page = 1; fetchEvents();"
             class="px-2.5 py-1 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded-lg text-xs text-slate-700 dark:text-slate-200 outline-hidden"
           >
             <option value="all">All Severities</option>
@@ -361,24 +415,65 @@
       </div>
 
       <!-- Pagination Footer -->
-      <div v-if="totalEvents > limit" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400">
-        <div>
-          Showing {{ page * limit + 1 }} to {{ Math.min((page + 1) * limit, totalEvents) }} of {{ totalEvents }} events
+      <div v-if="totalEvents > 0" class="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-[#1b2234] text-xs text-slate-500 dark:text-slate-400">
+        <!-- Left: Showing entries & Page Size selector -->
+        <div class="flex items-center gap-3">
+          <div>
+            Showing <strong class="text-slate-800 dark:text-slate-200">{{ (page - 1) * pageSize + 1 }}</strong> to
+            <strong class="text-slate-800 dark:text-slate-200">{{ Math.min(page * pageSize, totalEvents) }}</strong> of
+            <strong class="text-slate-800 dark:text-slate-200">{{ totalEvents }}</strong> events
+          </div>
+          <div class="flex items-center gap-1.5 pl-3 border-l border-slate-200 dark:border-[#1f283d]">
+            <span class="text-[11px] text-slate-400">Per page:</span>
+            <select
+              v-model="pageSize"
+              @change="page = 1; fetchEvents();"
+              class="px-2 py-0.5 bg-slate-50 dark:bg-[#161c2d] border border-slate-200 dark:border-[#222c42] rounded text-xs text-slate-700 dark:text-slate-300 outline-hidden cursor-pointer"
+            >
+              <option v-for="sz in pageSizeOptions" :key="sz" :value="sz">{{ sz }}</option>
+            </select>
+          </div>
         </div>
-        <div class="flex items-center gap-1">
+
+        <!-- Right: Prev, Numbered Pages, Next -->
+        <div class="flex items-center gap-1.5">
           <button
-            @click="page = Math.max(0, page - 1); fetchEvents();"
-            :disabled="page === 0"
-            class="px-2.5 py-1 border border-slate-200 dark:border-[#222c42] rounded hover:bg-slate-50 dark:hover:bg-[#182030] disabled:opacity-40 cursor-pointer"
+            type="button"
+            @click="goToPage(page - 1)"
+            :disabled="page <= 1"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
           >
-            Previous
+            <ChevronLeft class="w-3.5 h-3.5 text-slate-400" />
+            <span>Prev</span>
           </button>
+
+          <div class="flex items-center gap-1">
+            <template v-for="(p, idx) in getVisiblePages(page, totalPages)" :key="idx">
+              <span v-if="p < 0" class="px-1 text-slate-400 select-none">...</span>
+              <button
+                v-else
+                type="button"
+                @click="goToPage(p)"
+                :class="[
+                  page === p
+                    ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-xs'
+                    : 'bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1f283d] hover:bg-slate-50 dark:hover:bg-[#1f283d]',
+                  'min-w-7 h-7 px-2 rounded-lg text-xs flex items-center justify-center transition cursor-pointer font-medium'
+                ]"
+              >
+                {{ p }}
+              </button>
+            </template>
+          </div>
+
           <button
-            @click="page = page + 1; fetchEvents();"
-            :disabled="(page + 1) * limit >= totalEvents"
-            class="px-2.5 py-1 border border-slate-200 dark:border-[#222c42] rounded hover:bg-slate-50 dark:hover:bg-[#182030] disabled:opacity-40 cursor-pointer"
+            type="button"
+            @click="goToPage(page + 1)"
+            :disabled="page >= totalPages"
+            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1f283d] bg-white dark:bg-[#161c2d] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#1f283d] transition cursor-pointer flex items-center gap-1 text-xs font-medium"
           >
-            Next
+            <span>Next</span>
+            <ChevronRight class="w-3.5 h-3.5 text-slate-400" />
           </button>
         </div>
       </div>
@@ -431,7 +526,9 @@ import {
   RotateCw,
   Search,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-vue-next';
 
 interface SystemEvent {
@@ -449,10 +546,25 @@ interface SystemEvent {
   resolvedAt?: string;
 }
 
+interface EventStatusCounts {
+  total: number;
+  active: number;
+  acknowledged: number;
+  resolved: number;
+  activeCritical: number;
+  acknowledgedCritical: number;
+  resolvedCritical: number;
+  activeWarning: number;
+  acknowledgedWarning: number;
+  resolvedWarning: number;
+}
+
 interface EventSummary {
+  totalActive?: number;
   criticalCount: number;
   warningCount: number;
   infoCount: number;
+  statusCounts?: EventStatusCounts;
   instances: { total: number; critical: number; warning: number; healthy: number; offline: number };
   containers: { total: number; critical: number; warning: number; healthy: number; stopped: number };
   openSearch: { status: string; clusterName: string; activeNodes: number; unassignedShards: number };
@@ -482,12 +594,13 @@ const summary = ref<EventSummary>({
 
 const events = ref<SystemEvent[]>([]);
 const totalEvents = ref(0);
-const page = ref(0);
-const limit = 50;
+const page = ref(1);
+const pageSize = ref(10);
+const pageSizeOptions = [5, 10, 25, 50];
 
 // Filters
 const selectedSource = ref('all');
-const selectedStatus = ref('all');
+const selectedStatus = ref('active');
 const selectedSeverity = ref('all');
 const searchQuery = ref('');
 
@@ -500,11 +613,69 @@ const sourceTabs = [
 ];
 
 const statusOptions = [
-  { label: 'All', value: 'all' },
   { label: 'Active', value: 'active' },
   { label: 'Acknowledged', value: 'acknowledged' },
   { label: 'Resolved', value: 'resolved' },
+  { label: 'All', value: 'all' },
 ];
+
+const totalPages = computed(() => Math.max(1, Math.ceil(totalEvents.value / pageSize.value)));
+
+const getVisiblePages = (current: number, total: number): number[] => {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, -1, total];
+  }
+  if (current >= total - 3) {
+    return [1, -1, total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, -1, current - 1, current, current + 1, -1, total];
+};
+
+const goToPage = (p: number) => {
+  if (p < 1 || p > totalPages.value || p === page.value) return;
+  page.value = p;
+  fetchEvents();
+};
+
+const getStatusCount = (val: string): number => {
+  if (!summary.value.statusCounts) {
+    if (val === 'all') return totalEvents.value;
+    if (val === 'active') return summary.value.criticalCount + summary.value.warningCount;
+    return 0;
+  }
+  switch (val) {
+    case 'active':
+      return summary.value.statusCounts.active;
+    case 'acknowledged':
+      return summary.value.statusCounts.acknowledged;
+    case 'resolved':
+      return summary.value.statusCounts.resolved;
+    case 'all':
+      return summary.value.statusCounts.total;
+    default:
+      return 0;
+  }
+};
+
+const filterBySeverity = (sev: 'critical' | 'warning') => {
+  if (selectedSeverity.value === sev && selectedStatus.value === 'active') {
+    selectedSeverity.value = 'all';
+  } else {
+    selectedSeverity.value = sev;
+    selectedStatus.value = 'active';
+  }
+  page.value = 1;
+  fetchEvents();
+};
+
+const filterBySource = (src: string) => {
+  selectedSource.value = selectedSource.value === src ? 'all' : src;
+  page.value = 1;
+  fetchEvents();
+};
 
 const formatMessage = (msg: string) => {
   if (!msg) return '';
@@ -553,8 +724,8 @@ const fetchData = async () => {
           status: selectedStatus.value,
           severity: selectedSeverity.value,
           sourceType: selectedSource.value,
-          limit,
-          offset: page.value * limit,
+          limit: pageSize.value,
+          offset: (page.value - 1) * pageSize.value,
         },
       }),
     ]);
@@ -574,14 +745,15 @@ const fetchData = async () => {
 };
 
 const fetchEvents = async () => {
+  loading.value = true;
   try {
     const res = await axios.get('/api/v1/events', {
       params: {
         status: selectedStatus.value,
         severity: selectedSeverity.value,
         sourceType: selectedSource.value,
-        limit,
-        offset: page.value * limit,
+        limit: pageSize.value,
+        offset: (page.value - 1) * pageSize.value,
       },
     });
     if (res.data && res.data.success) {
@@ -590,6 +762,8 @@ const fetchEvents = async () => {
     }
   } catch (err: any) {
     showNotice('Failed to filter events', 'error');
+  } finally {
+    loading.value = false;
   }
 };
 

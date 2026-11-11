@@ -1601,12 +1601,26 @@ type EventSummary struct {
 	CriticalCount int                  `json:"criticalCount"`
 	WarningCount  int                  `json:"warningCount"`
 	InfoCount     int                  `json:"infoCount"`
+	StatusCounts  EventStatusCounts    `json:"statusCounts"`
 	Instances     InstanceEventStats   `json:"instances"`
 	Containers    ContainerEventStats  `json:"containers"`
 	OpenSearch    OpenSearchEventStats `json:"openSearch"`
 	Backups       BackupEventStats     `json:"backups"`
 	ActiveEvents  []SystemEvent        `json:"activeEvents"`
 	LastCheckedAt time.Time            `json:"lastCheckedAt"`
+}
+
+type EventStatusCounts struct {
+	Total                int `json:"total"`
+	Active               int `json:"active"`
+	Acknowledged         int `json:"acknowledged"`
+	Resolved             int `json:"resolved"`
+	ActiveCritical       int `json:"activeCritical"`
+	AcknowledgedCritical int `json:"acknowledgedCritical"`
+	ResolvedCritical     int `json:"resolvedCritical"`
+	ActiveWarning        int `json:"activeWarning"`
+	AcknowledgedWarning  int `json:"acknowledgedWarning"`
+	ResolvedWarning      int `json:"resolvedWarning"`
 }
 
 type InstanceEventStats struct {
