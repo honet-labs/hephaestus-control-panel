@@ -1889,7 +1889,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-[1600px] w-full mx-auto font-sans">
+  <div class="monitoring-workspace space-y-6 max-w-[1600px] min-w-0 w-full mx-auto font-sans">
     <!-- Notification Banner (Auto-dismiss 3s, Teleported to body to eliminate space-y layout shift) -->
     <Teleport to="body">
       <transition
@@ -1902,7 +1902,7 @@ onUnmounted(() => {
       >
         <div
           v-if="notification"
-          class="fixed top-5 right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold border pointer-events-auto"
+          class="fixed top-5 right-3.5 max-w-[calc(100vw-1.75rem)] sm:right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold border pointer-events-auto"
           :class="
             notification.type === 'success'
               ? 'bg-emerald-50 dark:bg-[#0a2318] border-emerald-500/40 text-emerald-800 dark:text-emerald-300 shadow-emerald-950/10'
@@ -1917,7 +1917,7 @@ onUnmounted(() => {
     </Teleport>
 
     <!-- Header (AGENTS.md compliant: No Icon on Title, Clean Pure Text) -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
       <div class="flex items-center gap-2">
         <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
           Monitoring Instances
@@ -1928,7 +1928,7 @@ onUnmounted(() => {
         />
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex flex-wrap items-center gap-2">
         <!-- Monitoring Settings (Global: Auto-refresh & Alert Thresholds) -->
         <button
           @click="openSettingsModal"
@@ -2020,7 +2020,7 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <div v-if="activeTab === 'servers'" class="space-y-6 mt-6 animate-in fade-in duration-150">
       <!-- Toolbar: Queue engine status, Instant Search, Filters & View Switcher -->
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
+      <div class="flex flex-col 2xl:flex-row items-stretch 2xl:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
       <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
         <div class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2036,7 +2036,7 @@ onUnmounted(() => {
 
       <div class="flex flex-wrap items-center gap-2">
         <!-- Search filter -->
-        <div class="relative min-w-[160px] sm:w-48">
+        <div class="relative min-w-0 w-full sm:w-48">
           <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
             v-model="searchQuery"
@@ -2484,7 +2484,7 @@ onUnmounted(() => {
 
     <!-- ===================================================================== -->
     <div v-else class="bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1f283d] rounded-xl shadow-sm">
-      <div class="overflow-x-auto min-h-[340px]">
+      <div class="overflow-x-auto min-h-[340px]" role="region" aria-label="Server metrics table, scroll horizontally for more metrics" tabindex="0">
         <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
           <thead class="bg-slate-50/80 dark:bg-[#0e1422] border-b border-slate-200 dark:border-[#1f283d] text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             <tr>
@@ -3192,7 +3192,7 @@ onUnmounted(() => {
     <!-- ===================================================================== -->
     <div v-if="activeTab === 'containers'" class="space-y-6 mt-6 animate-in fade-in duration-150">
       <!-- Container Toolbar: Queue engine status, Instant Search, Host Filter, Sort, View Switcher -->
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
+      <div class="flex flex-col 2xl:flex-row items-stretch 2xl:items-center justify-between gap-3 bg-slate-50/80 dark:bg-[#0d121f] p-3 rounded-xl border border-slate-200/80 dark:border-[#1b2234]">
         <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
           <div class="flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -3210,7 +3210,7 @@ onUnmounted(() => {
 
         <div class="flex flex-wrap items-center gap-2">
           <!-- Container Search -->
-          <div class="relative min-w-[180px] sm:w-56">
+          <div class="relative min-w-0 w-full sm:w-56">
             <Search class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               v-model="containerSearch"
@@ -3473,7 +3473,7 @@ onUnmounted(() => {
 
       <!-- Container Table View (Details) -->
       <div v-else class="space-y-4">
-        <div class="overflow-x-auto bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl shadow-sm">
+        <div class="overflow-x-auto bg-white dark:bg-[#111624] border border-slate-200 dark:border-[#1b2234] rounded-2xl shadow-sm" role="region" aria-label="Container metrics table, scroll horizontally for more metrics" tabindex="0">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50/80 dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] text-slate-500 dark:text-slate-400">
               <tr>

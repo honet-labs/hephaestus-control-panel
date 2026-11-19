@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -28,6 +28,7 @@ import {
   FileText,
   Radio,
   Flame,
+  Layers,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -38,8 +39,7 @@ const authStore = useAuthStore();
 const isInfrastructureOpen = ref(
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/infrastructure') ||
-  route.path.startsWith('/opensearch-cluster')
+  route.path.startsWith('/infrastructure')
 );
 const isServerSubOpen = ref(
   route.path.startsWith('/inventory-server') ||
@@ -48,7 +48,7 @@ const isServerSubOpen = ref(
 const isDockerSubOpen = ref(
   route.path.startsWith('/infrastructure')
 );
-const isOpenSearchSubOpen = ref(
+const isAppServicesOpen = ref(
   route.path.startsWith('/opensearch-cluster')
 );
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
@@ -96,8 +96,7 @@ const isReportsOpen = ref(
 const isInfrastructureActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
-  route.path.startsWith('/infrastructure') ||
-  route.path.startsWith('/opensearch-cluster')
+  route.path.startsWith('/infrastructure')
 );
 const isServerSubActive = computed(() =>
   route.path.startsWith('/inventory-server') ||
@@ -106,7 +105,7 @@ const isServerSubActive = computed(() =>
 const isDockerSubActive = computed(() =>
   route.path.startsWith('/infrastructure')
 );
-const isOpenSearchSubActive = computed(() =>
+const isAppServicesActive = computed(() =>
   route.path.startsWith('/opensearch-cluster')
 );
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
@@ -153,6 +152,23 @@ const isReportsActive = computed(() =>
 // Mobile & Desktop Sidebar Visibility State
 const isMobileSidebarOpen = ref(false);
 const isDesktopSidebarOpen = ref(true);
+const isDesktopViewport = ref(false);
+const sidebar = ref<HTMLElement | null>(null);
+const menuButton = ref<HTMLButtonElement | null>(null);
+const desktopMedia = window.matchMedia('(min-width: 1280px)');
+const syncViewport = () => {
+  isDesktopViewport.value = desktopMedia.matches;
+  isMobileSidebarOpen.value = false;
+};
+
+watch(isMobileSidebarOpen, async (open) => {
+  await nextTick();
+  if (open) {
+    sidebar.value?.querySelector<HTMLButtonElement>('button')?.focus();
+  } else if (!isDesktopViewport.value) {
+    menuButton.value?.focus();
+  }
+});
 
 const toggleDesktopSidebar = () => {
   isDesktopSidebarOpen.value = !isDesktopSidebarOpen.value;
@@ -203,8 +219,7 @@ watch(
       isInfrastructureOpen.value = true;
       isDockerSubOpen.value = true;
     } else if (newPath.startsWith('/opensearch-cluster')) {
-      isInfrastructureOpen.value = true;
-      isOpenSearchSubOpen.value = true;
+      isAppServicesOpen.value = true;
     }
     if (newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
       isRemoteConfigOpen.value = true;
@@ -258,6 +273,19 @@ const handleKeyDown = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && isMobileSidebarOpen.value) {
     isMobileSidebarOpen.value = false;
   }
+  if (e.key === 'Tab' && isMobileSidebarOpen.value && sidebar.value) {
+    const items = Array.from(sidebar.value.querySelectorAll<HTMLElement>('a[href], button, select, [tabindex="0"]'))
+      .filter((element) => element.getClientRects().length > 0);
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last?.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first?.focus();
+    }
+  }
 };
 
 // App Library Modal State
@@ -268,19 +296,22 @@ const openAppLibraryHandler = () => {
 };
 
 onMounted(() => {
+  syncViewport();
+  desktopMedia.addEventListener('change', syncViewport);
   authStore.fetchUser();
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('open-app-library', openAppLibraryHandler);
 });
 
 onUnmounted(() => {
+  desktopMedia.removeEventListener('change', syncViewport);
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('open-app-library', openAppLibraryHandler);
 });
 </script>
 
 <template>
-  <div class="flex h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans relative">
+  <div class="app-shell flex h-dvh bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 overflow-hidden font-sans relative">
     <!-- Command Palette (Ctrl+K) -->
     <CommandPalette />
 
@@ -299,17 +330,21 @@ onUnmounted(() => {
       <div
         v-if="isMobileSidebarOpen"
         @click="isMobileSidebarOpen = false"
-        class="fixed inset-0 z-40 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs md:hidden"
+        class="fixed inset-0 z-40 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm xl:hidden"
         aria-hidden="true"
       ></div>
     </Transition>
 
     <!-- Sidebar (Off-canvas drawer on mobile, static collapsible on desktop) -->
     <aside
+      id="app-navigation"
+      ref="sidebar"
+      :inert="isDesktopViewport ? !isDesktopSidebarOpen : !isMobileSidebarOpen"
+      aria-label="Main navigation"
       :class="[
-        'fixed inset-y-0 left-0 z-50 w-72 md:w-64 bg-white dark:bg-[#0c101a] border-r border-slate-200 dark:border-[#1b2234] flex flex-col justify-between shrink-0 shadow-2xl md:shadow-sm transition-all duration-300 ease-in-out md:static',
-        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-        !isDesktopSidebarOpen ? 'md:-ml-64' : ''
+        'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] xl:w-64 bg-white dark:bg-[#0c101a] border-r border-slate-200 dark:border-[#1b2234] flex flex-col justify-between shrink-0 shadow-2xl xl:shadow-sm transition-all duration-300 ease-in-out xl:static',
+        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full xl:translate-x-0',
+        !isDesktopSidebarOpen ? 'xl:-ml-64' : ''
       ]"
     >
       <div class="flex-1 flex flex-col min-h-0">
@@ -328,7 +363,7 @@ onUnmounted(() => {
           <!-- Mobile Close Button (X) -->
           <button
             @click="isMobileSidebarOpen = false"
-            class="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer"
+            class="xl:hidden p-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-[#1a2336] transition cursor-pointer"
             aria-label="Close Sidebar"
           >
             <X class="w-5 h-5" />
@@ -374,7 +409,7 @@ onUnmounted(() => {
           </router-link>
 
           <!-- 3. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('opensearch', 'read')">
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
@@ -464,41 +499,26 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Sub-group: OpenSearch (Collapsible Sub-menu) -->
-              <div v-if="authStore.can('opensearch', 'read')">
-                <button
-                  @click="isOpenSearchSubOpen = !isOpenSearchSubOpen"
-                  :class="[
-                    isOpenSearchSubActive
-                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <Search class="w-3.5 h-3.5 shrink-0 transition" :class="isOpenSearchSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>OpenSearch</span>
-                  </div>
-                  <component :is="isOpenSearchSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isOpenSearchSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                </button>
+            </div>
+          </div>
 
-                <!-- Sub-items under OpenSearch -->
-                <div v-show="isOpenSearchSubOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
-                  <a
-                    href="/opensearch-cluster"
-                    target="_blank"
-                    @click="isMobileSidebarOpen = false"
-                    :class="[
-                      route.path === '/opensearch-cluster'
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                    ]"
-                  >
-                    <span>OpenSearch Monitoring</span>
-                  </a>
-                </div>
-              </div>
+          <!-- App Services keeps application monitoring separate from infrastructure. -->
+          <div v-if="authStore.can('opensearch', 'read')">
+            <button
+              @click="isAppServicesOpen = !isAppServicesOpen"
+              :aria-expanded="isAppServicesOpen"
+              aria-controls="app-services-menu"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border cursor-pointer text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]"
+              :class="isAppServicesActive ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-[#121826] font-semibold' : 'border-transparent'"
+            >
+              <span class="flex items-center gap-3"><Layers class="w-4 h-4 text-slate-400" />App Services</span>
+              <component :is="isAppServicesOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
+            </button>
+            <div v-show="isAppServicesOpen" id="app-services-menu" class="pl-3 pr-1 py-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
+              <a href="/opensearch-cluster" target="_blank" rel="noopener noreferrer" @click="isMobileSidebarOpen = false"
+                class="flex items-center gap-2 py-2 px-2 rounded-md text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]">
+                <Search class="w-3.5 h-3.5 text-slate-400" /><span>OpenSearch</span>
+              </a>
             </div>
           </div>
 
@@ -992,15 +1012,18 @@ onUnmounted(() => {
     </aside>
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-[#090d16]">
+    <div :inert="isMobileSidebarOpen && !isDesktopViewport" class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-[#090d16]">
       <!-- Sticky / Top Navigation Header -->
       <header class="h-14 bg-white dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] flex items-center justify-between px-3 sm:px-5 shrink-0 z-30 shadow-xs">
         <!-- Left: Mobile Menu Trigger / Desktop Sidebar Collapse & Page Indicator -->
         <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <!-- Mobile Hamburger Toggle -->
           <button
+            ref="menuButton"
             @click="isMobileSidebarOpen = true"
-            class="md:hidden p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
+            :aria-expanded="isMobileSidebarOpen"
+            aria-controls="app-navigation"
+            class="xl:hidden p-2.5 -ml-1 shrink-0 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
             aria-label="Open Navigation Menu"
           >
             <Menu class="w-5 h-5" />
@@ -1009,7 +1032,7 @@ onUnmounted(() => {
           <!-- Desktop Sidebar Collapse/Expand Toggle -->
           <button
             @click="toggleDesktopSidebar"
-            class="hidden md:flex items-center justify-center p-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
+            class="hidden xl:flex items-center justify-center p-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#151b2a] rounded-lg transition cursor-pointer"
             :title="isDesktopSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'"
           >
             <PanelLeftClose v-if="isDesktopSidebarOpen" class="w-4 h-4" />
@@ -1017,14 +1040,14 @@ onUnmounted(() => {
           </button>
 
           <!-- Mobile Active Section Title -->
-          <div class="flex md:hidden items-center gap-2 min-w-0">
+          <div class="flex xl:hidden items-center gap-2 min-w-0">
             <span class="font-bold text-xs text-slate-900 dark:text-white truncate">
               {{ currentRouteName }}
             </span>
           </div>
 
           <!-- Desktop Breadcrumb / Active Section Title -->
-          <div class="hidden md:flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          <div class="hidden xl:flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span>{{ currentRouteName }}</span>
           </div>
         </div>
@@ -1058,7 +1081,7 @@ onUnmounted(() => {
           <!-- Mobile Sign Out Button -->
           <button
             @click="handleLogout"
-            class="md:hidden p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
+            class="xl:hidden p-2.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
             title="Sign Out"
           >
             <LogOut class="w-4 h-4" />
@@ -1067,7 +1090,7 @@ onUnmounted(() => {
       </header>
 
       <!-- Main Content with responsive mobile padding -->
-      <main class="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 w-full max-w-full">
+      <main class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3.5 sm:p-5 md:p-6 w-full max-w-full">
         <router-view />
       </main>
     </div>

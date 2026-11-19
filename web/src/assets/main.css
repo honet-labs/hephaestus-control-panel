@@ -2,6 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep wide telemetry tables inside their scroll regions, not the viewport. */
+.app-shell main > *,
+.monitoring-workspace > *,
+.docker-workspace main > *,
+.opensearch-workspace > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 1279px) {
+  .app-shell nav a,
+  .app-shell nav button {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) {
+  :where(.app-shell, .docker-workspace, .opensearch-workspace) button,
+  :where(.app-shell, .docker-workspace, .opensearch-workspace) select {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 639px) {
+  /* Avoid iOS zooming the viewport when a small form field receives focus. */
+  :where(.app-shell, .docker-workspace, .opensearch-workspace) input,
+  :where(.app-shell, .docker-workspace, .opensearch-workspace) select,
+  :where(.app-shell, .docker-workspace, .opensearch-workspace) textarea {
+    font-size: 16px;
+    max-width: 100%;
+  }
+
+  .monitoring-workspace .fixed.inset-0 > div,
+  .docker-workspace .fixed.inset-0 > div {
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+}
+
 @layer base {
   :root {
     --color-navy: #293681;

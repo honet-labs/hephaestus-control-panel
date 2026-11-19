@@ -47,7 +47,7 @@ const items = [
   { name: 'Vaultwarden', icon: Shield, route: '/security/vaultwarden', newTab: true, feature: 'security' },
   { name: 'Status Pages', icon: Activity, route: '/status-pages', feature: 'status_pages' },
   { name: 'Monitoring Instance', icon: Server, route: '/monitoring-instance', feature: 'monitoring_instances' },
-  { name: 'OpenSearch Monitoring', icon: Search, route: '/opensearch-cluster', newTab: true, feature: 'opensearch' },
+  { name: 'App Services / OpenSearch', icon: Search, route: '/opensearch-cluster', newTab: true, feature: 'opensearch' },
   { name: 'Slide Show', icon: Activity, route: '/slideshow', feature: 'slideshow' },
   { name: 'Visual Reports', icon: FileText, route: '/reports', feature: 'reports' },
   { name: 'Raw Data Report', icon: FileText, route: '/reports/raw', feature: 'reports' },
@@ -115,8 +115,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm">
-    <div class="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+  <div v-if="isOpen" class="fixed inset-0 z-50 flex items-start justify-center px-3.5 pt-12 sm:pt-24 bg-black/60 backdrop-blur-sm">
+    <div class="w-full max-w-xl max-h-[80dvh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150">
       <!-- Search Input -->
       <div class="flex items-center px-4 py-3 border-b border-slate-800">
         <Search class="w-5 h-5 text-slate-400 mr-3" />

@@ -161,6 +161,14 @@ const connections = ref<DockerConnection[]>([]);
 const selectedConnectionId = ref<string>('');
 const systemInfo = ref<DockerSystemInfo | null>(null);
 const containers = ref<DockerContainer[]>([]);
+// Summaries must use the same authorized, unfiltered list as the container tab,
+// never host-wide Docker totals or the current search/filter results.
+const containerSummary = computed(() => ({
+  total: containers.value.length,
+  running: containers.value.filter((container) => container.state === 'running').length,
+  paused: containers.value.filter((container) => container.state === 'paused').length,
+  stopped: containers.value.filter((container) => !['running', 'paused'].includes(container.state)).length,
+}));
 const images = ref<DockerImage[]>([]);
 const networks = ref<DockerNetwork[]>([]);
 
@@ -764,7 +772,10 @@ const fetchConnections = async () => {
 };
 
 // Fetch System Info & Containers & Images & Networks
+let fetchSequence = 0;
 const fetchData = async () => {
+  const sequence = ++fetchSequence;
+  const connectionId = selectedConnectionId.value;
   if (!selectedConnectionId.value) {
     loading.value = false;
     refreshing.value = false;
@@ -779,9 +790,9 @@ const fetchData = async () => {
       axios.get('/api/v1/docker/networks', { params: { connectionId: selectedConnectionId.value } }).catch(() => ({ data: null })),
     ]);
 
-    if (infoRes.data?.success) {
-      systemInfo.value = infoRes.data.data;
-    }
+    if (sequence !== fetchSequence || connectionId !== selectedConnectionId.value) return;
+
+    systemInfo.value = infoRes.data?.success ? infoRes.data.data : null;
     if (contRes.data?.success && Array.isArray(contRes.data.data)) {
       containers.value = contRes.data.data;
     } else {
@@ -800,8 +811,10 @@ const fetchData = async () => {
   } catch (err: any) {
     showToast(err.response?.data?.error || 'Error refreshing Docker data', 'error');
   } finally {
-    loading.value = false;
-    refreshing.value = false;
+    if (sequence === fetchSequence) {
+      loading.value = false;
+      refreshing.value = false;
+    }
   }
 };
 
@@ -1588,18 +1601,23 @@ onUnmounted(() => {
 
 // Watch connection change
 watch(selectedConnectionId, () => {
+  containers.value = [];
+  images.value = [];
+  networks.value = [];
+  systemInfo.value = null;
   fetchData();
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 font-sans">
+  <div class="docker-workspace min-h-dvh min-w-0 max-w-full bg-slate-100 dark:bg-[#090d16] text-slate-800 dark:text-slate-100 font-sans">
     
     <!-- Top Bar Navigation Header -->
-    <header class="h-14 md:h-16 bg-white dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+    <header class="min-h-14 md:min-h-16 bg-white dark:bg-[#0c101a] border-b border-slate-200 dark:border-[#1b2234] px-3.5 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-30 shadow-xs">
       <div class="flex items-center gap-3">
         <a
           href="/"
+          aria-label="Back to Dashboard"
           class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#1b2234] hover:bg-slate-50 dark:hover:bg-[#121826] transition cursor-pointer"
         >
           <ArrowLeft class="w-3.5 h-3.5" />
@@ -1610,15 +1628,15 @@ watch(selectedConnectionId, () => {
 
         <div class="flex items-center gap-2">
           <span class="font-bold text-xs tracking-wider text-slate-900 dark:text-white uppercase">DOCKER ENGINE</span>
-          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold">INFRASTRUCTURE</span>
+          <span class="hidden lg:inline text-[10px] font-mono px-1.5 py-0.5 rounded text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#1b2234] font-semibold">INFRASTRUCTURE</span>
         </div>
       </div>
 
       <!-- Environment Selector & Global Actions -->
-      <div class="flex items-center gap-2.5">
+      <div class="flex min-w-0 max-w-full items-center gap-2.5">
         <!-- Environment Dropdown -->
-        <div class="relative flex items-center">
-          <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs">
+        <div class="relative flex min-w-0 items-center">
+          <div class="flex min-w-0 items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg text-xs">
             <span
               :class="[
                 'w-2 h-2 rounded-full shrink-0',
@@ -1627,7 +1645,8 @@ watch(selectedConnectionId, () => {
             ></span>
             <select
               v-model="selectedConnectionId"
-              class="bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer text-xs pr-2"
+              aria-label="Docker connection"
+              class="min-w-0 w-36 sm:w-auto sm:max-w-xs truncate bg-transparent text-slate-800 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer text-xs pr-2"
             >
               <option
                 v-for="c in connections"
@@ -1679,7 +1698,7 @@ watch(selectedConnectionId, () => {
     </Transition>
 
     <!-- Main Content Container (Full Width without excess margins) -->
-    <main class="w-full px-4 sm:px-6 py-6 space-y-6">
+    <main class="min-w-0 w-full px-3.5 sm:px-6 py-5 sm:py-6 space-y-6">
 
       <!-- Page Header (Strict AGENTS.md: pure clean text h1, no icons, no badges) -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#1b2234] pb-4">
@@ -1693,7 +1712,7 @@ watch(selectedConnectionId, () => {
           />
         </div>
 
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
           <button
             @click="showPullModal = true"
             class="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-[#121826] border border-slate-300 dark:border-[#1b2234] hover:bg-slate-50 dark:hover:bg-[#1a2336] rounded-lg transition flex items-center gap-1.5 cursor-pointer"
@@ -1712,7 +1731,7 @@ watch(selectedConnectionId, () => {
       </div>
 
       <!-- Quick Metrics Summary Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 min-[360px]:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         <!-- Containers Card -->
         <div class="p-4 bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl space-y-1 shadow-xs">
           <div class="flex items-center justify-between">
@@ -1720,12 +1739,12 @@ watch(selectedConnectionId, () => {
             <Boxes class="w-4 h-4 text-slate-400" />
           </div>
           <div class="text-2xl font-bold text-slate-900 dark:text-white font-mono">
-            {{ systemInfo?.containers ?? containers.length }}
+            {{ containerSummary.total }}
           </div>
           <div class="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
-            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ systemInfo?.containersRunning ?? 0 }} Running</span>
+            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ containerSummary.running }} Running</span>
             <span>•</span>
-            <span class="text-rose-600 dark:text-rose-400 font-semibold">{{ systemInfo?.containersStopped ?? 0 }} Stopped</span>
+            <span class="text-rose-600 dark:text-rose-400 font-semibold">{{ containerSummary.stopped }} Stopped</span>
           </div>
         </div>
 
@@ -1736,10 +1755,10 @@ watch(selectedConnectionId, () => {
             <Play class="w-4 h-4 text-slate-400" />
           </div>
           <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-            {{ systemInfo?.containersRunning ?? containers.filter(c => c.state === 'running').length }}
+            {{ containerSummary.running }}
           </div>
           <div class="text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
-            {{ systemInfo?.containersPaused ?? 0 }} paused containers
+            {{ containerSummary.paused }} paused containers
           </div>
         </div>
 
@@ -1775,7 +1794,7 @@ watch(selectedConnectionId, () => {
       </div>
 
       <!-- Tab Buttons Navigation -->
-      <div class="flex items-center gap-1 border-b border-slate-200 dark:border-[#1b2234]">
+      <div class="flex max-w-full overflow-x-auto items-center gap-1 whitespace-nowrap border-b border-slate-200 dark:border-[#1b2234] [&>button]:shrink-0" aria-label="Docker sections">
         <button
           @click="activeTab = 'containers'"
           :class="[
@@ -1848,9 +1867,9 @@ watch(selectedConnectionId, () => {
       <!-- ============================================================= -->
       <div v-if="activeTab === 'containers'" class="space-y-4">
         <!-- Filter Toolbar -->
-        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-[#0e121c] p-3 border border-slate-200 dark:border-[#1b2234] rounded-xl">
+        <div class="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-white dark:bg-[#0e121c] p-3 border border-slate-200 dark:border-[#1b2234] rounded-xl">
           <!-- Search -->
-          <div class="relative flex-1 max-w-md">
+          <div class="relative min-w-0 w-full xl:flex-1 xl:max-w-md">
             <Search class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               v-model="searchKeyword"
@@ -1860,9 +1879,9 @@ watch(selectedConnectionId, () => {
           </div>
 
           <!-- Filter Controls: Visibility & State -->
-          <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <!-- Visibility Filter Buttons -->
-            <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234]">
+            <div class="flex max-w-full overflow-x-auto whitespace-nowrap items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234] [&>button]:shrink-0">
               <button
                 @click="visibilityFilter = 'all'"
                 :class="[
@@ -1914,7 +1933,7 @@ watch(selectedConnectionId, () => {
             </div>
 
             <!-- State Filter Buttons -->
-            <div class="flex items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234]">
+            <div class="flex max-w-full overflow-x-auto whitespace-nowrap items-center gap-1 bg-slate-50 dark:bg-[#141824] p-1 rounded-lg border border-slate-200 dark:border-[#1b2234] [&>button]:shrink-0">
               <button
                 @click="statusFilter = 'all'"
                 :class="[
@@ -1965,7 +1984,7 @@ watch(selectedConnectionId, () => {
 
         <!-- Containers Table -->
         <div class="bg-white dark:bg-[#0e121c] border border-slate-200 dark:border-[#1b2234] rounded-xl overflow-hidden shadow-xs">
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto" role="region" aria-label="Containers table, scroll horizontally for more details" tabindex="0">
             <table class="w-full text-left text-xs">
               <thead class="bg-slate-50 dark:bg-[#121826] border-b border-slate-200 dark:border-[#1b2234] text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 <tr>

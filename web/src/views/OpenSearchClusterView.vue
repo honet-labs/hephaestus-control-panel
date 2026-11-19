@@ -2591,16 +2591,16 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30"
-    :class="activeTab === 'query' ? 'h-screen max-h-screen overflow-hidden' : 'min-h-screen'"
+    class="opensearch-workspace min-w-0 w-full bg-slate-50 dark:bg-[#14161b] text-slate-800 dark:text-slate-200 font-sans flex flex-col selection:bg-brand-500/30"
+    :class="activeTab === 'query' ? 'h-dvh max-h-dvh overflow-hidden' : 'min-h-dvh'"
   >
     <!-- Top Header Bar (Sticky at top) -->
     <header
       v-if="showHeader"
-      class="h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0 sticky top-0 z-20 backdrop-blur-md"
+      class="min-h-12 bg-white dark:bg-[#1b1e26] border-b border-slate-200 dark:border-slate-800 px-3.5 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 z-20 backdrop-blur-md"
     >
       <!-- Left: Title and Health Status -->
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <div>
           <h1 class="text-xs font-semibold text-slate-900 dark:text-white tracking-wide">
             OpenSearch Cluster Monitor
@@ -2620,7 +2620,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Right Actions: Refresh, Countdown, Gear, ThemeToggle, Share, Back to Portal -->
-      <div class="flex items-center gap-2.5">
+      <div class="flex flex-wrap items-center gap-2.5">
         <!-- Countdown indicator -->
         <div v-if="refreshIntervalSec > 0" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono">
           <Clock class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
@@ -2684,7 +2684,7 @@ onUnmounted(() => {
     <!-- Navigation Tabs Bar (Sticky below header, hidden in embed mode) -->
     <nav
       v-if="!isEmbedMode"
-      class="bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 flex items-center gap-6 sm:gap-8 text-xs shrink-0 sticky top-12 z-10 backdrop-blur-md overflow-x-auto overflow-y-hidden scrollbar-none whitespace-nowrap"
+      class="max-w-full bg-white/95 dark:bg-[#1b1e26]/95 border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 flex items-center gap-6 sm:gap-8 text-xs shrink-0 sticky top-0 z-10 backdrop-blur-md overflow-x-auto overflow-y-hidden whitespace-nowrap [&>button]:shrink-0"
     >
       <button
         v-for="tab in [
