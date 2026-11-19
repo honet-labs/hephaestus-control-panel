@@ -17,16 +17,23 @@ type User struct {
 	CreatedAt           time.Time         `json:"createdAt"`
 }
 
-// IsAdmin returns true if the user has an administrative role or is a master admin account
+// IsAdmin is role-based. A username must never confer privileges.
 func (u *User) IsAdmin() bool {
 	if u == nil {
 		return false
 	}
-	name := strings.ToLower(strings.TrimSpace(u.Username))
-	if name == "admin" || name == "administrator" || name == "root" {
+	return IsAdminRole(u.Role)
+}
+
+func (u *User) Can(feature, action string) bool {
+	if u == nil {
+		return false
+	}
+	if u.IsAdmin() || strings.EqualFold(u.Permissions["*"], "manage") {
 		return true
 	}
-	return IsAdminRole(u.Role)
+	permission := strings.ToLower(u.Permissions[feature])
+	return permission == "manage" || (action == "read" && permission == "read")
 }
 
 // IsAdminRole checks if a role string represents an administrator role
@@ -73,66 +80,66 @@ type AppConfig struct {
 }
 
 type GrafanaConfig struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Host          string    `json:"host"`
-	Token         string    `json:"token"`
-	DatasourceUID string    `json:"datasourceUid"`
-	IsActive      bool      `json:"isActive"`
-	UserID        *int      `json:"userId,omitempty"`
-	OwnerUsername string    `json:"ownerUsername,omitempty"`
-	Visibility    string    `json:"visibility"`
-	IsOwner       bool      `json:"isOwner"`
-	UserPermission string   `json:"userPermission,omitempty"`
-	SharesCount   int       `json:"sharesCount"`
-	CreatedAt     time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Host           string    `json:"host"`
+	Token          string    `json:"token"`
+	DatasourceUID  string    `json:"datasourceUid"`
+	IsActive       bool      `json:"isActive"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type PrometheusConfig struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Mode        string    `json:"mode"`
-	Path        string    `json:"path"`
-	ReloadURL   string    `json:"reloadUrl"`
-	SSHHost     *string   `json:"sshHost,omitempty"`
-	SSHPort     *int      `json:"sshPort,omitempty"`
-	SSHUser     *string   `json:"sshUser,omitempty"`
-	SSHAuth     *string   `json:"sshAuth,omitempty"`
-	SSHPassword *string   `json:"sshPassword,omitempty"`
-	SSHKey      *string   `json:"sshKey,omitempty"`
-	IsActive    bool      `json:"isActive"`
-	UserID      *int      `json:"userId,omitempty"`
-	OwnerUsername string  `json:"ownerUsername,omitempty"`
-	Visibility  string    `json:"visibility"`
-	IsOwner     bool      `json:"isOwner"`
-	UserPermission string `json:"userPermission,omitempty"`
-	SharesCount int       `json:"sharesCount"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Mode           string    `json:"mode"`
+	Path           string    `json:"path"`
+	ReloadURL      string    `json:"reloadUrl"`
+	SSHHost        *string   `json:"sshHost,omitempty"`
+	SSHPort        *int      `json:"sshPort,omitempty"`
+	SSHUser        *string   `json:"sshUser,omitempty"`
+	SSHAuth        *string   `json:"sshAuth,omitempty"`
+	SSHPassword    *string   `json:"sshPassword,omitempty"`
+	SSHKey         *string   `json:"sshKey,omitempty"`
+	IsActive       bool      `json:"isActive"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type OpenTelemetryConfig struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Tags        []string   `json:"tags"`
-	SSHHost     string     `json:"sshHost"`
-	SSHPort     int        `json:"sshPort"`
-	SSHUser     string     `json:"sshUser"`
-	SSHAuth     string     `json:"sshAuth"`
-	SSHPassword *string    `json:"sshPassword,omitempty"`
-	SSHKey      *string    `json:"sshKey,omitempty"`
-	ConfigPath  string     `json:"configPath"`
-	ServiceName string     `json:"serviceName"`
-	ReloadMode  string     `json:"reloadMode"`
-	LastStatus  string     `json:"lastStatus"`
-	IsActive    bool       `json:"isActive"`
-	UserID      *int       `json:"userId,omitempty"`
-	OwnerUsername string   `json:"ownerUsername,omitempty"`
-	Visibility  string     `json:"visibility"`
-	IsOwner     bool       `json:"isOwner"`
-	UserPermission string  `json:"userPermission,omitempty"`
-	SharesCount int        `json:"sharesCount"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Tags           []string  `json:"tags"`
+	SSHHost        string    `json:"sshHost"`
+	SSHPort        int       `json:"sshPort"`
+	SSHUser        string    `json:"sshUser"`
+	SSHAuth        string    `json:"sshAuth"`
+	SSHPassword    *string   `json:"sshPassword,omitempty"`
+	SSHKey         *string   `json:"sshKey,omitempty"`
+	ConfigPath     string    `json:"configPath"`
+	ServiceName    string    `json:"serviceName"`
+	ReloadMode     string    `json:"reloadMode"`
+	LastStatus     string    `json:"lastStatus"`
+	IsActive       bool      `json:"isActive"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type OpenTelemetryConfigHistory struct {
@@ -178,39 +185,39 @@ type UptimeKumaConfig struct {
 }
 
 type DataPrepperConfig struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Mode         string    `json:"mode"`
-	PipelinesDir string    `json:"pipelinesDir"`
-	ReloadURL    *string   `json:"reloadUrl,omitempty"`
-	SSHHost      *string   `json:"sshHost,omitempty"`
-	SSHPort      *int      `json:"sshPort,omitempty"`
-	SSHUser      *string   `json:"sshUser,omitempty"`
-	SSHAuth      *string   `json:"sshAuth,omitempty"`
-	SSHPassword  *string   `json:"sshPassword,omitempty"`
-	SSHKey       *string   `json:"sshKey,omitempty"`
-	IsActive     bool      `json:"isActive"`
-	UserID       *int      `json:"userId,omitempty"`
-	OwnerUsername string   `json:"ownerUsername,omitempty"`
-	Visibility   string    `json:"visibility"`
-	IsOwner      bool      `json:"isOwner"`
-	UserPermission string  `json:"userPermission,omitempty"`
-	SharesCount  int       `json:"sharesCount"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Mode           string    `json:"mode"`
+	PipelinesDir   string    `json:"pipelinesDir"`
+	ReloadURL      *string   `json:"reloadUrl,omitempty"`
+	SSHHost        *string   `json:"sshHost,omitempty"`
+	SSHPort        *int      `json:"sshPort,omitempty"`
+	SSHUser        *string   `json:"sshUser,omitempty"`
+	SSHAuth        *string   `json:"sshAuth,omitempty"`
+	SSHPassword    *string   `json:"sshPassword,omitempty"`
+	SSHKey         *string   `json:"sshKey,omitempty"`
+	IsActive       bool      `json:"isActive"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type OpenSearchConfig struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Username  string    `json:"username"`
-	Password  string    `json:"password"`
-	UseSSL    bool      `json:"useSsl"`
-	VerifySSL bool      `json:"verifySsl"`
-	IsActive  bool      `json:"isActive"`
-	UserID    *int      `json:"userId,omitempty"`
-	OwnerUsername string `json:"ownerUsername,omitempty"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Host           string    `json:"host"`
+	Port           int       `json:"port"`
+	Username       string    `json:"username"`
+	Password       string    `json:"password"`
+	UseSSL         bool      `json:"useSsl"`
+	VerifySSL      bool      `json:"verifySsl"`
+	IsActive       bool      `json:"isActive"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
 	Visibility     string    `json:"visibility"`
 	IsOwner        bool      `json:"isOwner"`
 	UserPermission string    `json:"userPermission,omitempty"`
@@ -219,12 +226,12 @@ type OpenSearchConfig struct {
 }
 
 type OpenSearchQueryResult struct {
-	StatusCode int                    `json:"statusCode"`
-	StatusText string                 `json:"statusText"`
-	LatencyMs  int64                  `json:"latencyMs"`
-	Headers    map[string]string      `json:"headers,omitempty"`
-	Data       interface{}            `json:"data"`
-	Raw        string                 `json:"raw"`
+	StatusCode int               `json:"statusCode"`
+	StatusText string            `json:"statusText"`
+	LatencyMs  int64             `json:"latencyMs"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Data       interface{}       `json:"data"`
+	Raw        string            `json:"raw"`
 }
 
 // ==================== SNMP DOMAIN ====================
@@ -749,41 +756,41 @@ type VaultSyncResponse struct {
 }
 
 type CreateVaultCipherRequest struct {
-	Type     int      `json:"type"` // 1 = Login, 2 = Secure Note
-	Name     string   `json:"name" binding:"required"`
-	Username string   `json:"username"`
-	Password string   `json:"password"`
-	URI      string   `json:"uri"`
-	Notes    string   `json:"notes"`
-	FolderID *string  `json:"folderId,omitempty"`
+	Type     int     `json:"type"` // 1 = Login, 2 = Secure Note
+	Name     string  `json:"name" binding:"required"`
+	Username string  `json:"username"`
+	Password string  `json:"password"`
+	URI      string  `json:"uri"`
+	Notes    string  `json:"notes"`
+	FolderID *string `json:"folderId,omitempty"`
 }
 
 // ==================== DOCKER & CONTAINER INFRASTRUCTURE DOMAIN ====================
 
 type DockerConnection struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	HostType    string    `json:"hostType"` // "local", "ssh", "tcp"
-	Driver      string    `json:"driver"`   // "socket", "ssh", "tcp"
-	SocketPath  string    `json:"socketPath"`
-	TcpURL      string    `json:"tcpUrl,omitempty"`
-	RemoteHostID *string  `json:"remoteHostId,omitempty"`
-	SSHHost     *string   `json:"sshHost,omitempty"`
-	SSHPort     *int      `json:"sshPort,omitempty"`
-	SSHUser     *string   `json:"sshUser,omitempty"`
-	SSHAuth     *string   `json:"sshAuth,omitempty"`
-	SSHPassword *string   `json:"sshPassword,omitempty"`
-	SSHKey      *string   `json:"sshKey,omitempty"`
-	IsActive     bool      `json:"isActive"`
-	IsDefault    bool      `json:"isDefault"`
-	UserID       *int      `json:"userId,omitempty"`
-	OwnerUsername string   `json:"ownerUsername,omitempty"`
-	Visibility   string    `json:"visibility"`
-	IsOwner      bool      `json:"isOwner"`
-	UserPermission string  `json:"userPermission,omitempty"`
-	SharesCount  int       `json:"sharesCount"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	HostType       string    `json:"hostType"` // "local", "ssh", "tcp"
+	Driver         string    `json:"driver"`   // "socket", "ssh", "tcp"
+	SocketPath     string    `json:"socketPath"`
+	TcpURL         string    `json:"tcpUrl,omitempty"`
+	RemoteHostID   *string   `json:"remoteHostId,omitempty"`
+	SSHHost        *string   `json:"sshHost,omitempty"`
+	SSHPort        *int      `json:"sshPort,omitempty"`
+	SSHUser        *string   `json:"sshUser,omitempty"`
+	SSHAuth        *string   `json:"sshAuth,omitempty"`
+	SSHPassword    *string   `json:"sshPassword,omitempty"`
+	SSHKey         *string   `json:"sshKey,omitempty"`
+	IsActive       bool      `json:"isActive"`
+	IsDefault      bool      `json:"isDefault"`
+	UserID         *int      `json:"userId,omitempty"`
+	OwnerUsername  string    `json:"ownerUsername,omitempty"`
+	Visibility     string    `json:"visibility"`
+	IsOwner        bool      `json:"isOwner"`
+	UserPermission string    `json:"userPermission,omitempty"`
+	SharesCount    int       `json:"sharesCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type DockerContainerPort struct {
@@ -794,21 +801,21 @@ type DockerContainerPort struct {
 }
 
 type DockerContainer struct {
-	ID            string                `json:"id"`
-	Names         []string              `json:"names"`
-	Name          string                `json:"name"`
-	Image         string                `json:"image"`
-	ImageID       string                `json:"imageId"`
-	Command       string                `json:"command"`
-	Created       int64                 `json:"created"`
-	State         string                `json:"state"` // running, exited, paused, restarting
-	Status        string                `json:"status"`
-	Ports         []DockerContainerPort `json:"ports"`
-	Networks      []string              `json:"networks,omitempty"`
-	IPAddress     string                `json:"ipAddress,omitempty"`
-	Labels        map[string]string     `json:"labels,omitempty"`
-	UserID        *int                  `json:"userId,omitempty"`
-	OwnerUsername string                `json:"ownerUsername,omitempty"`
+	ID             string                `json:"id"`
+	Names          []string              `json:"names"`
+	Name           string                `json:"name"`
+	Image          string                `json:"image"`
+	ImageID        string                `json:"imageId"`
+	Command        string                `json:"command"`
+	Created        int64                 `json:"created"`
+	State          string                `json:"state"` // running, exited, paused, restarting
+	Status         string                `json:"status"`
+	Ports          []DockerContainerPort `json:"ports"`
+	Networks       []string              `json:"networks,omitempty"`
+	IPAddress      string                `json:"ipAddress,omitempty"`
+	Labels         map[string]string     `json:"labels,omitempty"`
+	UserID         *int                  `json:"userId,omitempty"`
+	OwnerUsername  string                `json:"ownerUsername,omitempty"`
 	Visibility     string                `json:"visibility"` // "public" or "private"
 	IsOwner        bool                  `json:"isOwner"`
 	UserPermission string                `json:"userPermission,omitempty"` // "owner", "manage", "read", "public"
@@ -896,21 +903,21 @@ type CreateNetworkRequest struct {
 type DeployContainerRequest struct {
 	Name           string   `json:"name"`
 	Image          string   `json:"image"`
-	PortBindings   []string `json:"portBindings"`   // e.g. ["8080:80", "443:443"]
-	Ports          []string `json:"ports,omitempty"` // Frontend alias
-	VolumeBindings []string `json:"volumeBindings"` // e.g. ["/data:/app/data"]
-	Volumes        []string `json:"volumes,omitempty"` // Frontend alias
-	EnvVars        []string `json:"envVars"`        // e.g. ["FOO=BAR"]
+	PortBindings   []string `json:"portBindings"`          // e.g. ["8080:80", "443:443"]
+	Ports          []string `json:"ports,omitempty"`       // Frontend alias
+	VolumeBindings []string `json:"volumeBindings"`        // e.g. ["/data:/app/data"]
+	Volumes        []string `json:"volumes,omitempty"`     // Frontend alias
+	EnvVars        []string `json:"envVars"`               // e.g. ["FOO=BAR"]
 	Environment    []string `json:"environment,omitempty"` // Frontend alias
-	RestartPolicy  string   `json:"restartPolicy"`  // "always", "unless-stopped", "no"
+	RestartPolicy  string   `json:"restartPolicy"`         // "always", "unless-stopped", "no"
 	Command        string   `json:"command,omitempty"`
 	NetworkMode    string   `json:"networkMode,omitempty"`
-	CPULimit       float64  `json:"cpuLimit,omitempty"`       // Cores limit, 0 = unlimited
-	MemoryLimitMB  int64    `json:"memoryLimitMb,omitempty"`  // In MB, 0 = unlimited
-	MemoryLimit    int64    `json:"memoryLimit,omitempty"`    // In bytes fallback
+	CPULimit       float64  `json:"cpuLimit,omitempty"`      // Cores limit, 0 = unlimited
+	MemoryLimitMB  int64    `json:"memoryLimitMb,omitempty"` // In MB, 0 = unlimited
+	MemoryLimit    int64    `json:"memoryLimit,omitempty"`   // In bytes fallback
 	AutoRemove     bool     `json:"autoRemove,omitempty"`
-	StartAfter     *bool    `json:"startAfter,omitempty"`     // Auto start container (default true)
-	Visibility     string   `json:"visibility,omitempty"`     // "public" or "private"
+	StartAfter     *bool    `json:"startAfter,omitempty"` // Auto start container (default true)
+	Visibility     string   `json:"visibility,omitempty"` // "public" or "private"
 	UserID         *int     `json:"userId,omitempty"`
 	OwnerUsername  string   `json:"ownerUsername,omitempty"`
 }
@@ -1090,7 +1097,7 @@ type StatusPage struct {
 	Slug            string               `json:"slug"`
 	Description     string               `json:"description"`
 	FooterText      string               `json:"footerText"`
-	Theme           string               `json:"theme"` // "auto", "dark", "light"
+	Theme           string               `json:"theme"`           // "auto", "dark", "light"
 	RefreshInterval int                  `json:"refreshInterval"` // in seconds, default 60
 	IsPublic        bool                 `json:"isPublic"`
 	IsPublished     bool                 `json:"isPublished"`
@@ -1130,7 +1137,7 @@ type StatusPageIncident struct {
 	ID        string    `json:"id"`
 	PageID    string    `json:"pageId"`
 	Title     string    `json:"title"`
-	Status    string    `json:"status"` // "investigating", "identified", "monitoring", "resolved", "maintenance"
+	Status    string    `json:"status"`   // "investigating", "identified", "monitoring", "resolved", "maintenance"
 	Severity  string    `json:"severity"` // "info", "minor", "major", "critical"
 	Message   string    `json:"message"`
 	IsActive  bool      `json:"isActive"`
@@ -1652,7 +1659,3 @@ type BackupEventStats struct {
 	Success24h int `json:"success24h"`
 	Running    int `json:"running"`
 }
-
-
-
-

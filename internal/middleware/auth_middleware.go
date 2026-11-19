@@ -51,6 +51,7 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 		c.Set("user", user)
 		c.Set("userId", user.ID)
 		c.Set("userRole", user.Role)
+		c.Request = c.Request.WithContext(domain.ContextWithUser(c.Request.Context(), user))
 		c.Next()
 	}
 }

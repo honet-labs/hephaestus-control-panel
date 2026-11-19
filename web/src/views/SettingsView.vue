@@ -10,7 +10,6 @@ import {
   Users,
   Database,
   FileText,
-  Save,
   Plus,
   Trash2,
   Lock,
@@ -23,8 +22,6 @@ import {
   Terminal,
   X,
   Copy,
-  Pause,
-  Play,
   ShieldCheck,
   Shield,
   Eye,
@@ -39,7 +36,6 @@ import {
   Monitor,
   Check,
   UserPlus,
-  KeyRound,
   Radio,
   Boxes,
   Server,
@@ -47,7 +43,6 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
-  Filter,
 } from 'lucide-vue-next';
 
 const route = useRoute();

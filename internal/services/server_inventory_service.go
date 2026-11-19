@@ -363,6 +363,9 @@ func probeRdpHostInfo(host string, timeout time.Duration) (string, string, bool)
 
 	// 2. Try TLS handshake on 3389 to read certificate Subject CN
 	tlsConf := &tls.Config{
+		// Discovery only: inspect an untrusted certificate for a display label.
+		// No credentials are sent, and this probe does not establish host identity.
+		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true,
 	}
 	tlsDialer := &net.Dialer{

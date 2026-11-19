@@ -8,8 +8,6 @@ import {
   Search,
   Upload,
   Trash2,
-  Filter,
-  Info,
   AlertTriangle,
   X,
   Copy,
@@ -17,17 +15,10 @@ import {
   Download,
   RefreshCw,
   Play,
-  Layers,
   Activity,
-  Cpu,
-  HardDrive,
-  Zap,
-  Network,
   Globe,
   FileText,
-  Sliders,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   ChevronLeft,
   ChevronRight
@@ -251,7 +242,7 @@ const exportDiscovery = (format: 'json' | 'csv') => {
         `"${s.rawValue || ''}"`
       ];
     });
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n');
     dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
     filename += '.csv';
   }

@@ -5,9 +5,6 @@ import { useAuthStore } from '../stores/auth';
 import InfoButton from '../components/InfoButton.vue';
 import {
   Server,
-  Cpu,
-  HardDrive,
-  Layers,
   Search,
   Plus,
   RefreshCw,
@@ -20,12 +17,9 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  ExternalLink,
   Copy,
   Check,
   Radio,
-  FileText,
-  Network,
 } from 'lucide-vue-next';
 
 interface ServerInventoryItem {

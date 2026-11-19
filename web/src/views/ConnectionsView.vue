@@ -1,17 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import InfoButton from '../components/InfoButton.vue';
 import {
-  Link2,
   Plus,
   Trash2,
   Server,
-  Activity,
-  Shield,
-  Key,
   CheckCircle2,
   Pencil,
   Check,
@@ -21,12 +16,10 @@ import {
   Eye,
   EyeOff,
   Users,
-  Share2,
   ChevronLeft,
   ChevronRight
 } from 'lucide-vue-next';
 
-const router = useRouter();
 const authStore = useAuthStore();
 const canManage = computed(() => authStore.can('connections', 'manage'));
 

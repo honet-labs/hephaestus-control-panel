@@ -13,7 +13,6 @@ import {
   ListTree, 
   Settings, 
   FileText,
-  Clock,
   Sliders,
   ExternalLink,
   Link2,

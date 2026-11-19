@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -382,6 +383,36 @@ func (h *OpenSearchHandler) ExecuteQuery(c *gin.Context) {
 	if endpoint == "" {
 		endpoint = "/_search"
 	}
+	if !strings.HasPrefix(endpoint, "/") {
+		endpoint = "/" + endpoint
+	}
+	parsed, parseErr := url.ParseRequestURI(endpoint)
+	if parseErr != nil || parsed.IsAbs() || strings.HasPrefix(endpoint, "//") || strings.Contains(parsed.Path, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "A relative OpenSearch API path is required"})
+		return
+	}
+	if !readOnlyOpenSearchQuery(method, parsed.Path) {
+		value, _ := c.Get("user")
+		user, _ := value.(*domain.User)
+		if !user.Can("opensearch", "manage") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Manage permission is required for mutating OpenSearch queries"})
+			return
+		}
+		cfg, err := h.openSearchService.GetActiveConfig(h.getRequestContext(c))
+		id := c.Query("configId")
+		if id == "" {
+			id = c.GetHeader("X-OpenSearch-Config-Id")
+		}
+		if id != "" {
+			cfg, err = h.openSearchService.GetConfigByID(c.Request.Context(), id)
+		}
+		if err != nil || cfg == nil || !requireIntegration(c, "opensearch", cfg.ID, "manage") {
+			if !c.IsAborted() {
+				denyIntegration(c)
+			}
+			return
+		}
+	}
 
 	var bodyBytes []byte
 	if req.Body != nil {
@@ -406,6 +437,21 @@ func (h *OpenSearchHandler) ExecuteQuery(c *gin.Context) {
 		"success": true,
 		"data":    res,
 	})
+}
+
+func readOnlyOpenSearchQuery(method, path string) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	if method != http.MethodPost {
+		return false
+	}
+	for _, suffix := range []string{"/_search", "/_msearch", "/_count", "/_search/template", "/_search/scroll", "/_validate/query"} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 type PrometheusHandler struct {
@@ -522,4 +568,3 @@ func (h *PrometheusHandler) ValidateConfig(c *gin.Context) {
 		"issues":  issues,
 	})
 }
-

@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/repository"
@@ -36,7 +36,7 @@ func NewStatusPageService(
 	sshService *SSHService,
 ) *StatusPageService {
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: config.IntegrationTLSConfig(),
 		DialContext: (&net.Dialer{
 			Timeout: 3 * time.Second,
 		}).DialContext,

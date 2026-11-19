@@ -119,6 +119,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	h.setSessionCookie(c, "", -1)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Password changed successfully."})
 }
@@ -158,7 +159,7 @@ func (h *SetupHandler) CompleteSetup(c *gin.Context) {
 		return
 	}
 
-	setSessionCookie(c, token, 86400*7)
+	setSessionCookie(c, token, 86400)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Initial setup completed successfully.",

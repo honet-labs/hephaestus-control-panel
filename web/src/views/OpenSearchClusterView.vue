@@ -10,14 +10,8 @@ import {
   Search,
   CheckCircle2,
   AlertTriangle,
-  XCircle,
   Database,
   Server,
-  Layers,
-  Activity,
-  HardDrive,
-  Cpu,
-  Eye,
   Sliders,
   Terminal,
   ExternalLink,
@@ -34,8 +28,6 @@ import {
   ArrowDown,
   Download,
   Play,
-  Send,
-  Braces,
   Sparkles,
   Trash2,
   History,
@@ -43,11 +35,8 @@ import {
   HelpCircle,
   FileText,
   Upload,
-  ChevronDown,
   Plus,
   Edit3,
-  Globe,
-  Lock,
 } from 'lucide-vue-next';
 import ThemeToggle from '../components/ThemeToggle.vue';
 import { useAuthStore } from '../stores/auth';
@@ -654,11 +643,8 @@ const showHelpModal = ref(false);
 const showImportModal = ref(false);
 const showWrenchMenu = ref(false);
 const importInputText = ref('');
-const selectedPresetKey = ref('');
 
 // Settings
-const consoleFontSize = ref<'11' | '12' | '13' | '14'>('12');
-const wrapResponse = ref(true);
 
 // Resizing state
 const savedWidth = typeof window !== 'undefined' ? localStorage.getItem('hcp_opensearch_console_width') : null;
@@ -1362,6 +1348,8 @@ const dslKeywords = [
   { label: 'POST /<index>/_search', detail: 'Search endpoint', snippet: 'POST /<index>/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}' },
 ];
 
+const dslCategories = computed(() => ['All', ...new Set(dslSnippets.map(snippet => snippet.category))]);
+
 const filteredDslSnippets = computed(() => {
   let list = dslSnippets;
   if (dslActiveCategory.value !== 'All') {
@@ -1696,7 +1684,7 @@ const executeOpenSearchQuery = async () => {
   queryError.value = '';
 
   try {
-    const { method, endpoint, body, bodyText, isSelected, rawText } = getActiveQueryToExecute();
+    const { method, endpoint, body, bodyText, rawText } = getActiveQueryToExecute();
     queryMethod.value = (method || 'GET') as any;
     queryEndpoint.value = endpoint || '/_search';
     queryBody.value = bodyText || '';
@@ -1875,9 +1863,9 @@ const onEditorPaste = () => {
 // Copy as cURL command
 const copyAsCurl = async () => {
   const { method, endpoint, bodyText } = parseConsoleQuery(consoleInput.value);
-  const host = activeConfig.value?.host || 'localhost';
-  const port = activeConfig.value?.port || 9200;
-  const proto = activeConfig.value?.useSSL ? 'https' : 'http';
+  const host = currentConnection.value.host || 'localhost';
+  const port = currentConnection.value.port || 9200;
+  const proto = currentConnection.value.useSsl ? 'https' : 'http';
   let curl = `curl -X ${method} "${proto}://${host}:${port}${endpoint}" -H 'Content-Type: application/json'`;
   if (bodyText) {
     curl += ` -d '${bodyText.replace(/'/g, `'\\''`)}'`;
@@ -1938,13 +1926,9 @@ const loadPresetToConsole = (preset: QueryPreset) => {
 };
 
 // Clear Response
-const clearResponse = () => {
-  queryResult.value = null;
-  queryError.value = '';
-};
 
 // Resizer interaction
-const startResize = (e: MouseEvent) => {
+const startResize = () => {
   isResizing.value = true;
   document.body.style.userSelect = 'none';
   document.body.style.cursor = 'col-resize';

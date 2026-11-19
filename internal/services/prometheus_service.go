@@ -75,12 +75,18 @@ func (s *PrometheusService) GetActiveConfig(ctx context.Context) (*domain.Promet
 	if s.cachedActiveCfg != nil && time.Since(s.cachedActiveAt) < 30*time.Second {
 		cfg := s.cachedActiveCfg
 		s.promMu.RUnlock()
+		if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", cfg.ID, "read"); err != nil {
+			return nil, err
+		}
 		return cfg, nil
 	}
 	s.promMu.RUnlock()
 
 	cfg, err := s.configRepo.GetActivePrometheus(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", cfg.ID, "read"); err != nil {
 		return nil, err
 	}
 
@@ -367,7 +373,10 @@ func (s *PrometheusService) TestConnection(ctx context.Context, cfg domain.Prome
 			if isDataPrepper || strings.Contains(filePath, "pipeline") {
 				itemType = "pipelines directory"
 			}
-			return false, fmt.Sprintf("SSH authenticated to %s@%s:%d, but failed to access remote %s '%s': %v", user, *cfg.SSHHost, port, itemType, err), err
+			if err == nil {
+				err = fmt.Errorf("remote path does not exist")
+			}
+			return false, fmt.Sprintf("SSH authenticated to %s@%s:%d, but failed to access remote %s '%s': %v", user, *cfg.SSHHost, port, itemType, filePath, err), err
 		}
 
 		if isDir {

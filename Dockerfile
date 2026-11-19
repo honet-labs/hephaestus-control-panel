@@ -1,7 +1,7 @@
 # ==========================================
 # Stage 1: Build Vue 3 Frontend
 # ==========================================
-FROM node:20-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 WORKDIR /app/web
 
 COPY web/package*.json ./
@@ -13,7 +13,7 @@ RUN npm run build
 # ==========================================
 # Stage 2: Build Go Backend
 # ==========================================
-FROM golang:1.23-alpine AS backend-builder
+FROM golang:1.27.4-alpine AS backend-builder
 WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates
@@ -27,9 +27,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /hephaestus ./cmd/serv
 # ==========================================
 # Stage 3: Minimal Production Image
 # ==========================================
-FROM alpine:3.20
+FROM alpine:3.24.4
 
-RUN apk add --no-cache ca-certificates tzdata postgresql-client postgresql16-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash
+RUN apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash
 
 WORKDIR /app
 

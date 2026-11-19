@@ -3,7 +3,6 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
-import { ShieldCheck, Sparkles } from 'lucide-vue-next';
 
 const username = ref('admin');
 const password = ref('');

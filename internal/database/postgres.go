@@ -153,7 +153,7 @@ func ensureDatabaseExists(ctx context.Context, dbCfg config.DBConfig) error {
 	if !exists {
 		logger.Info("Database", fmt.Sprintf("Database '%s' does not exist. Creating automatically...", dbCfg.Database))
 		// Note: CREATE DATABASE cannot run inside a transaction or prepared statement with parameters
-		_, err = adminConn.Exec(ctx, fmt.Sprintf("CREATE DATABASE \"%s\"", dbCfg.Database))
+		_, err = adminConn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbCfg.Database}.Sanitize())
 		if err != nil {
 			return fmt.Errorf("failed to create database: %w", err)
 		}
@@ -218,9 +218,6 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		UPDATE system_roles 
 		SET permissions = permissions || '{"backup": "none", "security": "none"}'::jsonb 
 		WHERE name = 'VIEWER';
-
-		-- Ensure master admin accounts have full ADMIN role
-		UPDATE users SET role = 'ADMIN' WHERE LOWER(username) IN ('admin', 'administrator', 'root') AND role != 'ADMIN';
 
 		ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
 

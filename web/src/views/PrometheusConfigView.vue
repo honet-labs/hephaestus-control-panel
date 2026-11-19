@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
@@ -445,9 +445,9 @@ const parseYamlIntoModel = (content: string) => {
 
     const parsedRuleFiles: string[] = [];
 
-    lines.forEach(line => {
+    for (const line of lines) {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
+      if (!trimmed || trimmed.startsWith('#')) continue;
 
       if (line.startsWith('global:')) {
         currentSection = 'global';
@@ -589,7 +589,7 @@ const parseYamlIntoModel = (content: string) => {
           inLabels = false;
         }
       }
-    });
+    }
 
     if (activeParsedJob && activeParsedJob.job_name) {
       parsedJobs.push({
@@ -1971,7 +1971,7 @@ onMounted(() => {
             </button>
 
             <div v-if="openAccordion === 'rules'" class="p-4 border-t border-slate-100 dark:border-[#1b2234] bg-slate-50/40 dark:bg-[#0a0d14] space-y-2 text-xs">
-              <div v-for="(rf, idx) in ruleFiles" :key="idx" class="flex items-center gap-2">
+              <div v-for="(_, idx) in ruleFiles" :key="idx" class="flex items-center gap-2">
                 <input
                   v-model="ruleFiles[idx]"
                   class="flex-1 bg-white dark:bg-[#121826] border border-slate-200 dark:border-[#1b2234] rounded-lg px-2.5 py-1.5 font-mono text-xs text-slate-900 dark:text-white"
@@ -2577,7 +2577,7 @@ onMounted(() => {
             <!-- Existing Labels List -->
             <div v-if="currentJob.labels && Object.keys(currentJob.labels).length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div
-                v-for="(val, key) in currentJob.labels"
+                v-for="key in Object.keys(currentJob.labels)"
                 :key="key"
                 class="flex items-center gap-2 bg-slate-50 dark:bg-[#121826] p-2 rounded-lg border border-slate-200 dark:border-[#1b2234]"
               >

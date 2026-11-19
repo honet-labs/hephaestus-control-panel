@@ -43,6 +43,9 @@ func main() {
 	logger.InitLogger(cfg.LogsDir)
 	logger.Info("Server", fmt.Sprintf("Starting Hephaestus Control Panel (HCP) v2.0.0 on port %d...", cfg.Port))
 	if config.IsUsingDefaultSecretKey() {
+		if cfg.Env == "production" {
+			logger.Fatal("Security", "Production requires a unique APP_ENCRYPTION_KEY of at least 32 characters. Preserve the existing key when upgrading; do not rotate it without migrating encrypted credentials.", nil)
+		}
 		logger.Warn("Security", "CRITICAL WARNING: Running with default APP_ENCRYPTION_KEY! Please set a unique APP_ENCRYPTION_KEY in your .env file to ensure credential encryption security.")
 	}
 
@@ -144,6 +147,7 @@ func main() {
 	}
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.SecurityHeadersMiddleware())
 	r.Use(middleware.RequestLoggerMiddleware())
 	r.Use(middleware.GzipMiddleware())
 
@@ -217,6 +221,7 @@ func main() {
 	api := r.Group("/api/v1")
 	api.Use(middleware.GeneralRateLimitMiddleware())
 	api.Use(middleware.AuthMiddleware(authService))
+	api.Use(handlers.IntegrationAccessGuard(promService, dpService))
 	{
 		// User & Profile
 		api.GET("/auth/me", authHandler.GetCurrentUser)
@@ -475,9 +480,9 @@ func main() {
 		api.DELETE("/settings/prometheus/:id/shares/:userId", middleware.RequirePermission("connections", "manage"), settingsHandler.DeletePrometheusShare)
 		api.POST("/settings/prometheus/:id/visibility", middleware.RequirePermission("connections", "manage"), settingsHandler.UpdatePrometheusVisibility)
 
-		api.GET("/settings/database", middleware.RequirePermission("settings", "read"), settingsHandler.GetDatabaseConfig)
-		api.POST("/settings/database", middleware.RequirePermission("settings", "manage"), settingsHandler.UpdateDatabaseConfig)
-		api.POST("/settings/database/test", middleware.RequirePermission("settings", "read"), settingsHandler.TestDatabaseConnection)
+		api.GET("/settings/database", middleware.RequireRole("ADMIN"), settingsHandler.GetDatabaseConfig)
+		api.POST("/settings/database", middleware.RequireRole("ADMIN"), settingsHandler.UpdateDatabaseConfig)
+		api.POST("/settings/database/test", middleware.RequireRole("ADMIN"), settingsHandler.TestDatabaseConnection)
 		api.GET("/settings/threads", middleware.RequirePermission("settings", "read"), settingsHandler.GetServiceThreads)
 		api.POST("/settings/threads", middleware.RequirePermission("settings", "manage"), settingsHandler.UpdateServiceThreads)
 

@@ -13,16 +13,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Clock,
   RotateCw,
   X,
   Globe,
   Sliders,
   Monitor,
   Check,
-  Power,
-  Layers,
-  Search,
   AlertTriangle,
   HelpCircle,
   Copy,
@@ -73,7 +69,6 @@ const isPrivateIpOrHost = (urlStr: string): boolean => {
 };
 
 const isCurrentHostPublic = computed(() => {
-  const host = window.location.hostname;
   return !isPrivateIpOrHost(window.location.origin);
 });
 

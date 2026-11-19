@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
@@ -10,7 +10,6 @@ import {
   Scan,
   Server,
   Layers,
-  Radio,
   Wifi,
   HardDrive,
   ShieldCheck,
@@ -23,31 +22,21 @@ import {
   Trash2,
   Activity,
   Terminal,
-  Grid,
   Maximize2,
   Type,
-  Download,
-  Upload,
   ChevronLeft,
   ChevronRight,
-  Sliders,
-  ExternalLink,
-  Zap,
   Cable,
   Eye,
   Router,
   Database,
   Cloud,
   Boxes,
-  Box,
-  Flame,
   Monitor,
-  Laptop,
   Cpu,
   Globe,
   ArrowUpDown,
   Lock,
-  Unlock,
   Users,
   Share2,
 } from 'lucide-vue-next';
@@ -1232,6 +1221,13 @@ const renderedEdges = computed(() => {
         path: '',
         midX: 0,
         midY: 0,
+        srcX: 0,
+        srcY: 0,
+        tgtX: 0,
+        tgtY: 0,
+        srcLabelWidth: 0,
+        tgtLabelWidth: 0,
+        centerLabelWidth: 0,
         valid: false,
       };
     }
@@ -2870,7 +2866,7 @@ onUnmounted(() => {
                 >
                   <option value="" disabled>Choose user...</option>
                   <option
-                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && (!selectedSheetForShare.userId || u.id !== selectedSheetForShare.userId))"
+                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && (!selectedSheetForShare?.userId || u.id !== selectedSheetForShare?.userId))"
                     :key="u.id"
                     :value="u.id"
                   >

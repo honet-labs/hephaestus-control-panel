@@ -3,15 +3,10 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import InfoButton from '../components/InfoButton.vue';
 import {
-  FileText,
-  Layers,
   Sparkles,
   ArrowRight,
   Clock,
   CheckCircle2,
-  BarChart3,
-  Printer,
-  ShieldCheck,
 } from 'lucide-vue-next';
 
 const router = useRouter();

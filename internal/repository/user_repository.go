@@ -137,8 +137,18 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, id int, passwordHas
 		return err
 	}
 
-	_, err = pool.Exec(ctx, `UPDATE users SET password_hash = $1, force_password_change = $2 WHERE id = $3`, passwordHash, forceChange, id)
-	return err
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE users SET password_hash = $1, force_password_change = $2 WHERE id = $3`, passwordHash, forceChange, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) UpdateUser(ctx context.Context, id int, username string, passwordHash string, role string, forceChange *bool) error {
@@ -154,14 +164,24 @@ func (r *UserRepository) UpdateUser(ctx context.Context, id int, username string
 		force_password_change = COALESCE($4, force_password_change)
 		WHERE id = $5`
 
-	res, err := pool.Exec(ctx, query, strings.TrimSpace(username), strings.TrimSpace(role), passwordHash, forceChange, id)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	res, err := tx.Exec(ctx, query, strings.TrimSpace(username), strings.TrimSpace(role), passwordHash, forceChange, id)
 	if err != nil {
 		return err
 	}
 	if res.RowsAffected() == 0 {
 		return fmt.Errorf("user not found")
 	}
-	return nil
+	if passwordHash != "" {
+		if _, err := tx.Exec(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id int) error {
@@ -207,7 +227,8 @@ func (r *UserRepository) GetSessionByToken(ctx context.Context, tokenHash string
               FROM user_sessions s
               JOIN users u ON s.user_id = u.id
               LEFT JOIN system_roles sr ON LOWER(u.role) = LOWER(sr.name)
-              WHERE s.token = $1 AND s.expires_at > NOW()`
+              WHERE s.token = $1 AND s.expires_at > NOW()
+                AND s.created_at > NOW() - INTERVAL '30 days'`
 	row := pool.QueryRow(ctx, query, tokenHash)
 
 	var s domain.UserSession
@@ -226,17 +247,6 @@ func (r *UserRepository) GetSessionByToken(ctx context.Context, tokenHash string
 	if u.IsAdmin() || domain.IsAdminRole(u.Role) {
 		u.Permissions["*"] = "manage"
 	}
-
-	// Extend session sliding window:
-	// If session was configured with long expiration (> 30 days from creation), keep it long (10 years)
-	// Otherwise, keep default sliding window (max 7 days from creation)
-	_, _ = pool.Exec(ctx, `
-		UPDATE user_sessions 
-		SET expires_at = CASE 
-			WHEN expires_at > created_at + INTERVAL '30 days' THEN NOW() + INTERVAL '10 years'
-			ELSE LEAST(NOW() + INTERVAL '24 hours', created_at + INTERVAL '7 days')
-		END 
-		WHERE token = $1`, tokenHash)
 
 	return &s, &u, nil
 }

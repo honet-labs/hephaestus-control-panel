@@ -3,7 +3,6 @@ package services
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/logger"
@@ -40,7 +40,7 @@ func NewReportService(
 	promService *PrometheusService,
 ) *ReportService {
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: config.IntegrationTLSConfig(),
 	}
 	return &ReportService{
 		reportRepo:        reportRepo,
@@ -280,10 +280,10 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 				})
 			}
 			return &domain.ReportQueryDataResponse{
-				Title:       metricTitle,
-				SourceType:  "prometheus",
-				Points:      livePoints,
-				Summary:     liveSummary,
+				Title:      metricTitle,
+				SourceType: "prometheus",
+				Points:     livePoints,
+				Summary:    liveSummary,
 				Series: []domain.ReportSeries{
 					{
 						Name:    fmt.Sprintf("%s - %s", targetHost, metricTitle),
@@ -335,10 +335,10 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 	}
 
 	return &domain.ReportQueryDataResponse{
-		Title:       metricTitle,
-		SourceType:  "prometheus",
-		Points:      points,
-		Summary:     summary,
+		Title:      metricTitle,
+		SourceType: "prometheus",
+		Points:     points,
+		Summary:    summary,
 		Series: []domain.ReportSeries{
 			{
 				Name:    fmt.Sprintf("%s - %s", targetHost, metricTitle),
@@ -508,10 +508,10 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 				})
 			}
 			return &domain.ReportQueryDataResponse{
-				Title:       metricKey,
-				SourceType:  "grafana",
-				Points:      livePoints,
-				Summary:     liveSummary,
+				Title:      metricKey,
+				SourceType: "grafana",
+				Points:     livePoints,
+				Summary:    liveSummary,
 				Series: []domain.ReportSeries{
 					{
 						Name:    fmt.Sprintf("%s - %s", targetHost, metricKey),
@@ -558,10 +558,10 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 	message := "Simulated Demonstration Data (Grafana not configured)"
 
 	return &domain.ReportQueryDataResponse{
-		Title:       metricKey,
-		SourceType:  "grafana",
-		Points:      points,
-		Summary:     summary,
+		Title:      metricKey,
+		SourceType: "grafana",
+		Points:     points,
+		Summary:    summary,
 		Series: []domain.ReportSeries{
 			{
 				Name:    fmt.Sprintf("%s - %s", targetHost, metricKey),

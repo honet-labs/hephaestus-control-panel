@@ -126,6 +126,9 @@ func (r *OTelRepository) List(ctx context.Context, userOpt ...interface{}) ([]do
 
 // GetByID returns a single OpenTelemetry configuration with decrypted credentials
 func (r *OTelRepository) GetByID(ctx context.Context, id string) (*domain.OpenTelemetryConfig, error) {
+	if err := RequireConnectionAccess(ctx, "opentelemetry_configs", "opentelemetry_shares", "config_id", id, "read"); err != nil {
+		return nil, err
+	}
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ import {
   Server,
   Plus,
   RotateCw,
-  Play,
   Save,
   Trash2,
   Edit3,
@@ -88,7 +87,6 @@ const editorRef = ref<HTMLTextAreaElement | null>(null);
 const gutterRef = ref<HTMLDivElement | null>(null);
 
 // Status & diagnostics
-const restartingService = ref(false);
 const feedbackMsg = ref<{ type: 'success' | 'error' | 'info'; title: string; detail?: string } | null>(null);
 let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -543,7 +541,7 @@ const validateConfig = async () => {
         valid: false,
         message: 'Validation failed',
         error: errMsg,
-        line: errLine,
+        line: errLine ?? undefined,
       };
       if (errLine) {
         setTimeout(() => jumpToLine(errLine), 60);
@@ -556,7 +554,7 @@ const validateConfig = async () => {
       valid: false,
       message: 'Validation failed',
       error: errMsg,
-      line: errLine,
+      line: errLine ?? undefined,
     };
     if (errLine) {
       setTimeout(() => jumpToLine(errLine), 60);
@@ -580,38 +578,6 @@ const copyValidationError = async () => {
   }
 };
 
-const restartCurrentService = async (mode: 'restart' | 'reload' = 'restart') => {
-  if (!selectedHost.value) return;
-  restartingService.value = true;
-  feedbackMsg.value = null;
-
-  try {
-    const res = await axios.post(`/api/v1/otel/hosts/${selectedHost.value.id}/restart`, { mode });
-    if (res.data?.success) {
-      feedbackMsg.value = {
-        type: 'success',
-        title: `Service ${mode === 'reload' ? 'Reloaded' : 'Restarted'} Successfully`,
-        detail: `OpenTelemetry agent on ${selectedHost.value.name} is healthy and active.`,
-      };
-      updateHostStatusInList(selectedHost.value.id, 'active');
-    } else {
-      feedbackMsg.value = {
-        type: 'error',
-        title: `Service ${mode} Failed`,
-        detail: res.data.data?.error || res.data.data?.output || 'Failed to restart service on remote host.',
-      };
-      updateHostStatusInList(selectedHost.value.id, 'failed');
-    }
-  } catch (err: any) {
-    feedbackMsg.value = {
-      type: 'error',
-      title: 'Restart Error',
-      detail: err.response?.data?.error || err.message,
-    };
-  } finally {
-    restartingService.value = false;
-  }
-};
 
 const fetchPresets = async () => {
   try {

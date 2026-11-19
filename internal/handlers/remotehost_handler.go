@@ -50,11 +50,6 @@ var upgrader = websocket.Upgrader{
 				if strings.EqualFold(origin, trimmed) {
 					return true
 				}
-				if au, err := url.Parse(trimmed); err == nil && au.Host != "" {
-					if strings.EqualFold(u.Host, au.Host) {
-						return true
-					}
-				}
 			}
 			if cfg.Env != "production" {
 				if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" ||
@@ -315,10 +310,17 @@ func (h *RemoteHostHandler) TestConnection(c *gin.Context) {
 
 	// If testing an existing host and credentials were left blank/masked, fetch saved credentials
 	if req.ID != "" {
+		if !h.ensureAccess(c, req.ID, "manage") {
+			return
+		}
 		needKey := req.AuthType == "key" && (req.SSHKey == nil || *req.SSHKey == "" || *req.SSHKey == "********")
 		needPass := (req.AuthType == "password" || req.AuthType == "") && (req.Password == nil || *req.Password == "" || *req.Password == "********")
 		if needKey || needPass {
 			if existing, err := h.remoteRepo.GetRawByID(c.Request.Context(), req.ID); err == nil && existing != nil {
+				if req.Host != existing.Host || req.Username != existing.Username || (req.Port > 0 && req.Port != existing.Port) {
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Supply fresh credentials when testing a different SSH destination"})
+					return
+				}
 				if needKey && existing.SSHKey != nil {
 					req.SSHKey = existing.SSHKey
 				}
@@ -356,11 +358,13 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 	defer ws.Close()
+	ws.SetReadLimit(1 << 20)
 
 	var userID int
 	var userRole string
 	var hostID string = queryHostID
 	var isAuthenticated bool
+	var terminalUser *domain.User
 
 	// 1. Try authentication via query token
 	if queryToken != "" {
@@ -369,6 +373,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 			userID = user.ID
 			userRole = user.Role
 			isAuthenticated = true
+			terminalUser = user
 		} else {
 			_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Invalid or expired session token."})
 			_ = ws.Close()
@@ -397,6 +402,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 			userID = user.ID
 			userRole = user.Role
 			isAuthenticated = true
+			terminalUser = user
 		}
 
 		if authMsg.HostConfigID != "" {
@@ -432,15 +438,15 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	}
 
 	// Multi-tenant Access Check for Terminal Session
-	hasAccess, _, _, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
-	if err != nil || !hasAccess {
+	hasAccess, isOwner, permission, err := h.remoteRepo.CheckAccess(c.Request.Context(), hostID, userID, userRole)
+	if err != nil || !hasAccess || !terminalUser.Can("remote_servers", "manage") || (!isOwner && permission != "manage" && !terminalUser.IsAdmin()) {
 		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: "Access denied. You do not have permission to access this remote server."})
 		_ = ws.Close()
 		return
 	}
 
 	cfg, err := h.remoteRepo.GetRawByID(c.Request.Context(), hostID)
-	if err != nil {
+	if err != nil || cfg == nil {
 		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "error", Message: fmt.Sprintf("Remote host '%s' not found.", hostID)})
 		_ = ws.Close()
 		return

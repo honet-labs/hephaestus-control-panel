@@ -394,9 +394,13 @@ const openTableAddressDetail = (addr: IpamAddress) => {
   showDetailModal.value = true;
 };
 
-const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text);
-  showNotification('info', `Copied ${text} to clipboard.`);
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotification('success', `Copied ${text} to clipboard.`);
+  } catch {
+    showNotification('error', 'Clipboard access is unavailable. Copy the value manually.');
+  }
 };
 
 const testingIP = ref(false);
@@ -409,7 +413,7 @@ const testSingleIP = async (ip: string) => {
       const lat = res.data.latencyMs ? `${Math.round(res.data.latencyMs)}ms` : '<1ms';
       showNotification('success', `Host ${ip} is ONLINE (${lat})`);
       if (selectedSubnet.value) {
-        await fetchSubnetAddresses(selectedSubnet.value.id);
+        await selectSubnet(selectedSubnet.value);
         if (selectedDetailItem.value) {
           const updated = subnetAddresses.value.find((a) => a.ipAddress === ip);
           if (updated) {
@@ -455,7 +459,7 @@ const openEditAddressModal = (addr: IpamAddress) => {
     subnetId: addr.subnetId,
     ipAddress: addr.ipAddress,
     ipVersion: addr.ipVersion || (addr.ipAddress.includes(':') ? 'ipv6' : 'ipv4'),
-    status: addr.status === 'discovered' ? 'active' : addr.status,
+    status: addr.status === 'reserved' ? 'reserved' : 'active',
     hostname: addr.hostname || '',
     macAddress: addr.macAddress || '',
     macVendor: addr.macVendor || '',
@@ -728,13 +732,10 @@ const gridIPList = computed<GridIPItem[]>(() => {
     if (item.addr) {
       if (item.addr.hostname && item.addr.hostname.toLowerCase().includes(q)) return true;
       if (item.addr.macAddress && item.addr.macAddress.toLowerCase().includes(q)) return true;
-      if (item.addr.description && item.addr.description.toLowerCase().includes(q)) return true;
+      if (item.addr.notes && item.addr.notes.toLowerCase().includes(q)) return true;
       if (item.addr.deviceType && item.addr.deviceType.toLowerCase().includes(q)) return true;
-      if (item.addr.vendor && item.addr.vendor.toLowerCase().includes(q)) return true;
-      if (item.addr.dnsName && item.addr.dnsName.toLowerCase().includes(q)) return true;
-      if (item.addr.osDetected && item.addr.osDetected.toLowerCase().includes(q)) return true;
+      if (item.addr.macVendor && item.addr.macVendor.toLowerCase().includes(q)) return true;
       if (item.addr.osFamily && item.addr.osFamily.toLowerCase().includes(q)) return true;
-      if (item.addr.tags && item.addr.tags.some(t => t.toLowerCase().includes(q))) return true;
     }
 
     return false;
@@ -753,10 +754,9 @@ const filteredTableAddresses = computed(() => {
       a.hostname?.toLowerCase().includes(q) ||
       a.macAddress?.toLowerCase().includes(q) ||
       a.deviceType?.toLowerCase().includes(q) ||
-      a.description?.toLowerCase().includes(q) ||
-      a.vendor?.toLowerCase().includes(q) ||
-      a.osFamily?.toLowerCase().includes(q) ||
-      (a.tags && a.tags.some(t => t.toLowerCase().includes(q)));
+      a.notes?.toLowerCase().includes(q) ||
+      a.macVendor?.toLowerCase().includes(q) ||
+      a.osFamily?.toLowerCase().includes(q);
 
     const matchStatus = st === 'all' ||
       (st === 'online' && a.isOnline) ||
@@ -2119,7 +2119,7 @@ onMounted(() => {
                   {{ log.foundActive }} Active Host(s) Discovered
                 </span>
                 <span class="text-slate-400 font-mono text-[11px]">
-                  ({{ log.scannedIPs }} scanned in {{ log.durationMs }}ms)
+                  ({{ log.scannedIps }} scanned in {{ log.durationMs }}ms)
                 </span>
               </div>
               <div class="text-[11px] text-slate-400">

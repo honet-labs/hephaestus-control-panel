@@ -1,19 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
-import InfoButton from '../components/InfoButton.vue';
 import {
   Server,
   Plus,
-  RotateCw,
   Play,
   Save,
   CheckCircle2,
   AlertTriangle,
   FileCode,
   History,
-  Search,
   X,
   Copy,
   Check,
@@ -24,7 +21,6 @@ import {
   Radio,
   Sliders,
   Box,
-  Boxes,
   FileText,
   Flame,
   Globe,
@@ -32,13 +28,9 @@ import {
   Cpu,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   RefreshCw,
   Sparkles,
-  LayoutGrid,
   Columns,
-  Eye,
-  ExternalLink,
   ChevronDown,
   Network,
 } from 'lucide-vue-next';
@@ -296,7 +288,6 @@ const hosts = ref<OTelHost[]>([]);
 const selectedHostId = ref<string>('');
 const selectedHost = computed(() => hosts.value.find((h) => h.id === selectedHostId.value) || null);
 const loadingHosts = ref(false);
-const searchQuery = ref('');
 const showHostDropdown = ref(false);
 
 // ==================== CONFIGURATION STATE ====================
@@ -363,7 +354,6 @@ const autoConnectEnabled = ref(true);
 // Node inspection state
 const inspectedNode = ref<OTelComponent | null>(null);
 const hoveredNodeId = ref<string | null>(null);
-const hoveredLinkId = ref<string | null>(null);
 const copiedYaml = ref(false);
 const showNodeRawYaml = ref(true);
 
@@ -382,7 +372,6 @@ const previewHistoryItem = ref<OTelHistoryItem | null>(null);
 
 // Editor ref
 const editorRef = ref<HTMLTextAreaElement | null>(null);
-const gutterRef = ref<HTMLDivElement | null>(null);
 
 // Line numbers generator
 const lineNumbers = computed(() => {
@@ -410,7 +399,6 @@ const parsedModel = computed(() => {
   let componentLines: string[] = [];
   let currentPipeline: Partial<OTelPipeline> | null = null;
   let currentPipelineKey = '';
-  let pipelineIndent = -1;
   let inListField: 'receivers' | 'processors' | 'exporters' | '' = '';
 
   const toCategory = (sec: string): 'receiver' | 'processor' | 'exporter' => {
@@ -483,7 +471,6 @@ const parsedModel = computed(() => {
     }
     currentPipeline = null;
     currentPipelineKey = '';
-    pipelineIndent = -1;
     inListField = '';
   };
 
@@ -643,7 +630,6 @@ const parsedModel = computed(() => {
         finalizePipeline();
         inPipelines = true;
         pipelinesBaseIndent = lineIndent;
-        pipelineIndent = -1;
         continue;
       }
 
@@ -694,7 +680,6 @@ const parsedModel = computed(() => {
 
         if (trimmedNoComment.endsWith(':') && !isPipelineKeyword && (isValidSignal || lineIndent > pipelinesBaseIndent)) {
           finalizePipeline();
-          pipelineIndent = lineIndent;
           currentPipelineKey = potentialKey;
           let signal: 'metrics' | 'logs' | 'traces' = 'metrics';
           if (lowerPotKey.startsWith('logs')) signal = 'logs';
@@ -815,13 +800,6 @@ const parsedModel = computed(() => {
 const availablePipelines = computed(() => parsedModel.value?.pipelines || []);
 
 // Active pipelines based on selected filter
-const activePipelines = computed(() => {
-  const pipes = parsedModel.value?.pipelines || [];
-  if (selectedPipelineFilter.value === 'all') {
-    return pipes;
-  }
-  return pipes.filter((p) => p && p.name === selectedPipelineFilter.value);
-});
 
 // ==================== TOPOLOGY GRAPH COMPUTATION ====================
 // Generates nodes and curved links replicating the user's reference hop topology
@@ -904,14 +882,14 @@ const graphData = computed(() => {
 
     // 2. Case-insensitive exact match
     const lower = clean.toLowerCase();
-    for (const [id, node] of nodeMap.entries()) {
+    for (const node of nodeMap.values()) {
       if (node.category === category && node.component && node.component.name && node.component.name.toLowerCase() === lower) {
         return node;
       }
     }
 
     // 3. Sub-instance or slash match
-    for (const [id, node] of nodeMap.entries()) {
+    for (const node of nodeMap.values()) {
       if (node.category === category && node.component) {
         const cName = node.component.name || '';
         if (cName.endsWith('/' + clean) || clean.endsWith('/' + cName)) {
@@ -2469,7 +2447,6 @@ onMounted(async () => {
         <div class="flex-1 flex overflow-hidden font-mono text-xs relative bg-white dark:bg-[#0c101a]">
           <!-- Gutter / Line Numbers -->
           <div
-            ref="gutterRef"
             class="w-11 py-3 bg-slate-50 dark:bg-[#0a0d15] text-slate-400 select-none text-right pr-2 shrink-0 border-r border-slate-200 dark:border-[#1b2234] overflow-hidden"
           >
             <div

@@ -22,9 +22,6 @@ import {
   BarChart2,
   X,
   Clock,
-  Sliders,
-  ChevronDown,
-  ChevronRight,
   Eye,
 } from 'lucide-vue-next';
 

@@ -2,26 +2,29 @@ name: Hephaestus CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
     tags: [ "v*.*.*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
+
+permissions:
+  contents: read
 
 jobs:
   # =============================================================
   # Job 1: Test & Build Go Backend
   # =============================================================
   backend:
-    name: Backend Lint & Build (Go 1.22)
+    name: Backend Test, Security & Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Go 1.22
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
           cache: true
 
       - name: Download Go Dependencies
@@ -29,6 +32,14 @@ jobs:
 
       - name: Go Vet & Lint
         run: go vet ./...
+
+      - name: Test with race detection
+        run: go test -race ./...
+
+      - name: Scan reachable Go vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
       - name: Compile Backend Binary
         run: CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/hephaestus ./cmd/server
@@ -43,10 +54,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
@@ -57,6 +68,10 @@ jobs:
       - name: Compile Vue 3 SPA Bundle
         working-directory: ./web
         run: npm run build
+
+      - name: Audit frontend dependencies
+        working-directory: ./web
+        run: npm audit --audit-level=moderate
 
   # =============================================================
   # Job 3: Docker Multi-Arch Build (Backend & Frontend)

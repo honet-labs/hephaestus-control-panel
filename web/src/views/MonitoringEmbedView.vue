@@ -15,6 +15,8 @@ import {
 import { useThemeStore } from '../stores/theme';
 
 interface DiskMetric {
+  device?: string;
+  fsType?: string;
   mountpoint: string;
   usagePct: number;
   usedBytes: number;
@@ -582,7 +584,7 @@ onUnmounted(() => {
               <td class="py-3.5 px-3 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   <span class="w-10 font-bold font-mono text-slate-900 dark:text-white text-xs">
-                    {{ getOverallDisk(inst).pct != null ? `${getOverallDisk(inst).pct.toFixed(1)}%` : 'N/A' }}
+                    {{ getOverallDisk(inst).pct?.toFixed(1) != null ? `${getOverallDisk(inst).pct?.toFixed(1)}%` : 'N/A' }}
                   </span>
                   <div class="w-14 bg-slate-100 dark:bg-[#1a2133] h-1.5 rounded-full overflow-hidden">
                     <div

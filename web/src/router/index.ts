@@ -294,7 +294,7 @@ axios.interceptors.response.use(
   }
 );
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore();
 
   // Initialize session once on initial page load / refresh via HttpOnly cookie (H-02)
@@ -315,6 +315,9 @@ router.beforeEach(async (to, from, next) => {
     if (!authStore.user) {
       await authStore.fetchUser();
     }
+    const query = { ...to.query };
+    delete query.token;
+    return next({ path: to.path, query, hash: to.hash, replace: true });
   }
 
   if (to.meta.requiresAuth) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/repository"
 
@@ -98,12 +100,22 @@ func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.Clie
 		return nil, errors.New("no authentication credentials provided (password or private key required)")
 	}
 
-	return &ssh.ClientConfig{
+	knownHostsPath := os.Getenv("SSH_KNOWN_HOSTS")
+	if knownHostsPath == "" {
+		knownHostsPath = filepath.Join(config.GetConfig().DataDir, "known_hosts")
+	}
+	verifyHost, err := hostKeyCallback(knownHostsPath, strings.EqualFold(os.Getenv("SSH_HOST_KEY_POLICY"), "strict"))
+	if err != nil {
+		return nil, fmt.Errorf("load SSH known hosts: %w", err)
+	}
+	clientConfig := &ssh.ClientConfig{
 		User:            username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Configurable for internal host access
+		HostKeyCallback: verifyHost,
 		Timeout:         15 * time.Second,
-		Config: ssh.Config{
+	}
+	if strings.EqualFold(os.Getenv("SSH_ALLOW_LEGACY_ALGORITHMS"), "true") {
+		clientConfig.Config = ssh.Config{
 			Ciphers: []string{
 				"aes128-ctr", "aes192-ctr", "aes256-ctr",
 				"aes128-gcm@openssh.com", "chacha20-poly1305@openssh.com",
@@ -115,8 +127,9 @@ func (s *SSHService) GetSSHClientConfig(cfg *domain.RemoteHostConfig) (*ssh.Clie
 				"diffie-hellman-group14-sha256", "diffie-hellman-group14-sha1",
 				"diffie-hellman-group-exchange-sha256", "diffie-hellman-group1-sha1",
 			},
-		},
-	}, nil
+		}
+	}
+	return clientConfig, nil
 }
 
 func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
@@ -154,6 +167,7 @@ func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
 			continue
 		}
 
+		_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 		ncc, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
 		if err != nil {
 			_ = conn.Close()
@@ -168,6 +182,7 @@ func (s *SSHService) Dial(cfg *domain.RemoteHostConfig) (*ssh.Client, error) {
 			// If it's a transient drop (EOF, handshake failed, connection reset), retry
 			continue
 		}
+		_ = conn.SetDeadline(time.Time{})
 
 		return ssh.NewClient(ncc, chans, reqs), nil
 	}

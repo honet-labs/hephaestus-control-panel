@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import axios from 'axios';
-import { ListTree, Play, CheckCircle2, XCircle } from 'lucide-vue-next';
+import { ListTree, Play, XCircle } from 'lucide-vue-next';
 import InfoButton from '../components/InfoButton.vue';
 
 const pattern = ref('%{TIMESTAMP:timestamp} %{WORD:level} \\[%{WORD:module}\\] %{NOTSPACE:message}');

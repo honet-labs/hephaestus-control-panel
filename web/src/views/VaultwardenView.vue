@@ -19,7 +19,6 @@ import {
   Folder,
   FolderPlus,
   FileText,
-  Lock,
   ArrowLeft,
   X,
   Clock,
@@ -30,7 +29,6 @@ import {
   RotateCcw,
   Pencil,
   Users,
-  Share2
 } from 'lucide-vue-next';
 
 interface VaultFolder {
@@ -86,7 +84,6 @@ interface VaultwardenShare {
 
 // State
 const authStore = useAuthStore();
-const canManage = computed(() => authStore.can('security', 'manage'));
 const isOwnerOrManager = computed(() => {
   if (authStore.user?.role === 'ADMIN') return true;
   if (!config.value) return true;

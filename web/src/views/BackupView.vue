@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -20,7 +19,6 @@ import {
   HardDrive,
   Check,
   X,
-  FileText,
   Copy,
   RotateCcw,
   Terminal,
@@ -29,16 +27,13 @@ import {
   ChevronRight,
   ShieldAlert,
   Box,
-  Layers,
   Eye,
-  Sliders,
   Archive,
   ExternalLink,
   Info,
   Search,
 } from 'lucide-vue-next';
 
-const router = useRouter();
 const authStore = useAuthStore();
 const canRead = computed(() => authStore.can('backup', 'read'));
 const canManage = computed(() => authStore.can('backup', 'manage'));
@@ -175,7 +170,6 @@ const paginatedDatabaseBackups = computed(() => {
   const start = (dbBackupsPage.value - 1) * dbBackupsPageSize.value;
   return filteredDatabaseBackups.value.slice(start, start + dbBackupsPageSize.value);
 });
-const visibleDbBackupsPages = computed(() => getVisiblePages(dbBackupsPage.value, totalDbBackupsPages.value));
 watch(totalDbBackupsPages, (newTotal) => {
   if (dbBackupsPage.value > newTotal) {
     dbBackupsPage.value = Math.max(1, newTotal);
@@ -195,7 +189,6 @@ const paginatedContainerBackups = computed(() => {
   const start = (containerPage.value - 1) * containerPageSize.value;
   return filteredContainerBackups.value.slice(start, start + containerPageSize.value);
 });
-const visibleContainerPages = computed(() => getVisiblePages(containerPage.value, totalContainerPages.value));
 watch(totalContainerPages, (newTotal) => {
   if (containerPage.value > newTotal) {
     containerPage.value = Math.max(1, newTotal);
@@ -215,7 +208,6 @@ const paginatedSchedules = computed(() => {
   const start = (schedulesPage.value - 1) * schedulesPageSize.value;
   return schedules.value.slice(start, start + schedulesPageSize.value);
 });
-const visibleSchedulesPages = computed(() => getVisiblePages(schedulesPage.value, totalSchedulesPages.value));
 watch(totalSchedulesPages, (newTotal) => {
   if (schedulesPage.value > newTotal) {
     schedulesPage.value = Math.max(1, newTotal);
@@ -232,7 +224,6 @@ const paginatedDatabases = computed(() => {
   const start = (dbPage.value - 1) * dbPageSize.value;
   return databases.value.slice(start, start + dbPageSize.value);
 });
-const visibleDbPages = computed(() => getVisiblePages(dbPage.value, totalDbPages.value));
 watch(totalDbPages, (newTotal) => {
   if (dbPage.value > newTotal) {
     dbPage.value = Math.max(1, newTotal);

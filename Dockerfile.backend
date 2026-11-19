@@ -2,7 +2,7 @@
 # Backend Build Stage
 # ==========================================
 ARG REGISTRY_MIRROR=""
-FROM ${REGISTRY_MIRROR}golang:1.23-alpine AS builder
+FROM ${REGISTRY_MIRROR}golang:1.27.4-alpine AS builder
 
 WORKDIR /app
 
@@ -14,19 +14,19 @@ ENV GOPROXY=https://proxy.golang.org,https://goproxy.io,direct \
 COPY . ./
 
 # Resolve dependencies and compile static binary
-RUN go mod tidy && \
+RUN go mod download && go mod verify && \
     go build -ldflags="-w -s" -o /app/hephaestus ./cmd/server && \
     go build -ldflags="-w -s" -o /app/hcp-cli ./cmd/cli
 
 # ==========================================
 # Backend Production Runtime Stage
 # ==========================================
-FROM ${REGISTRY_MIRROR}alpine:3.20
+FROM ${REGISTRY_MIRROR}alpine:3.24.4
 
 RUN (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/repositories 2>/dev/null || true) && \
-    (apk add --no-cache ca-certificates tzdata postgresql-client postgresql16-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash || \
+    (apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash || \
      ((sed -i 's/mirrors.edge.kernel.org/dl-cdn.alpinelinux.org/g' /etc/apk/repositories 2>/dev/null || true) && \
-      apk add --no-cache ca-certificates tzdata postgresql-client postgresql16-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash))
+      apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash))
 
 WORKDIR /app
 

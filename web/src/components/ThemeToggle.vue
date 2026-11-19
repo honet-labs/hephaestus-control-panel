@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useThemeStore } from '../stores/theme';
 import { Sun, Moon } from 'lucide-vue-next';
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     variant?: 'button' | 'pill' | 'compact';
     showLabel?: boolean;

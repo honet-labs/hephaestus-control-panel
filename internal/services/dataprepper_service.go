@@ -15,6 +15,7 @@ import (
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
+	"go-hephaestus/internal/repository"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -50,6 +51,9 @@ func (s *DataPrepperService) GetActiveConfig(ctx context.Context, instanceID ...
 		var c domain.DataPrepperConfig
 		err = pool.QueryRow(ctx, query, targetID).Scan(&c.ID, &c.Name, &c.Mode, &c.PipelinesDir, &c.ReloadURL, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuth, &c.SSHPassword, &c.SSHKey, &c.IsActive, &c.CreatedAt)
 		if err == nil {
+			if err := repository.RequireConnectionAccess(ctx, "dataprepper_configs", "dataprepper_shares", "config_id", c.ID, "read"); err != nil {
+				return nil, err
+			}
 			if c.SSHPassword != nil && *c.SSHPassword != "" {
 				if dec, err := config.DecryptText(*c.SSHPassword); err == nil {
 					c.SSHPassword = &dec
@@ -69,8 +73,12 @@ func (s *DataPrepperService) GetActiveConfig(ctx context.Context, instanceID ...
 		           FROM prometheus_configs WHERE id = $1 LIMIT 1`
 		err = pool.QueryRow(ctx, pQuery, targetID).Scan(&p.ID, &p.Name, &p.Mode, &p.Path, &p.ReloadURL, &p.SSHHost, &p.SSHPort, &p.SSHUser, &p.SSHAuth, &p.SSHPassword, &p.SSHKey, &p.IsActive, &p.CreatedAt)
 		if err == nil {
+			if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", p.ID, "read"); err != nil {
+				return nil, err
+			}
 			return s.convertPrometheusToDP(&p), nil
 		}
+		return nil, fmt.Errorf("requested Data Prepper configuration not found")
 	}
 
 	// 2. Query active from dataprepper_configs
@@ -79,6 +87,9 @@ func (s *DataPrepperService) GetActiveConfig(ctx context.Context, instanceID ...
 	var c domain.DataPrepperConfig
 	err = pool.QueryRow(ctx, query).Scan(&c.ID, &c.Name, &c.Mode, &c.PipelinesDir, &c.ReloadURL, &c.SSHHost, &c.SSHPort, &c.SSHUser, &c.SSHAuth, &c.SSHPassword, &c.SSHKey, &c.IsActive, &c.CreatedAt)
 	if err == nil {
+		if err := repository.RequireConnectionAccess(ctx, "dataprepper_configs", "dataprepper_shares", "config_id", c.ID, "read"); err != nil {
+			return nil, err
+		}
 		if c.SSHPassword != nil && *c.SSHPassword != "" {
 			if dec, err := config.DecryptText(*c.SSHPassword); err == nil {
 				c.SSHPassword = &dec
@@ -100,6 +111,9 @@ func (s *DataPrepperService) GetActiveConfig(ctx context.Context, instanceID ...
 	           ORDER BY is_active DESC, created_at DESC LIMIT 1`
 	err = pool.QueryRow(ctx, pQuery).Scan(&p.ID, &p.Name, &p.Mode, &p.Path, &p.ReloadURL, &p.SSHHost, &p.SSHPort, &p.SSHUser, &p.SSHAuth, &p.SSHPassword, &p.SSHKey, &p.IsActive, &p.CreatedAt)
 	if err == nil {
+		if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", p.ID, "read"); err != nil {
+			return nil, err
+		}
 		return s.convertPrometheusToDP(&p), nil
 	}
 

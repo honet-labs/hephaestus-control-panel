@@ -2,12 +2,12 @@
 # Frontend Build Stage
 # ==========================================
 ARG REGISTRY_MIRROR=""
-FROM ${REGISTRY_MIRROR}node:20-alpine AS builder
+FROM ${REGISTRY_MIRROR}node:24-alpine AS builder
 
 WORKDIR /app
 
 COPY web/package*.json ./
-RUN npm ci || npm install --legacy-peer-deps
+RUN npm ci
 
 COPY web/ ./
 RUN npm run build
@@ -15,7 +15,7 @@ RUN npm run build
 # ==========================================
 # Frontend Production Nginx Runtime Stage
 # ==========================================
-FROM ${REGISTRY_MIRROR}nginx:1.27-alpine
+FROM ${REGISTRY_MIRROR}nginx:1.30.7-alpine
 
 RUN apk add --no-cache openssl tzdata
 

@@ -12,6 +12,10 @@ import (
 // Sharing an engine does not grant access to its private containers. Always
 // resolve even the default engine against the authenticated user's connections.
 func (h *DockerHandler) authorizeDockerConnection(c *gin.Context) (string, bool) {
+	return h.requireDockerConnection(c, c.Query("connectionId"), "read")
+}
+
+func (h *DockerHandler) requireDockerConnection(c *gin.Context, requestedID, action string) (string, bool) {
 	userValue, _ := c.Get("user")
 	user, ok := userValue.(*domain.User)
 	if !ok || user == nil {
@@ -23,8 +27,12 @@ func (h *DockerHandler) authorizeDockerConnection(c *gin.Context) (string, bool)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Unable to verify Docker connection access"})
 		return "", false
 	}
-	if connectionID, allowed := selectDockerConnection(connections, c.Query("connectionId")); allowed {
-		return connectionID, true
+	if connectionID, allowed := selectDockerConnection(connections, requestedID); allowed {
+		for _, connection := range connections {
+			if connection.ID == connectionID && (action == "read" || connection.IsOwner || connection.UserPermission == "manage" || user.IsAdmin()) {
+				return connectionID, true
+			}
+		}
 	}
 	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "error": "Docker connection access denied"})
 	return "", false

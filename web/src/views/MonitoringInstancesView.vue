@@ -23,7 +23,6 @@ import {
   Edit2,
   Share2,
   History,
-  ChevronDown,
   ChevronRight,
   ChevronLeft,
   ArrowDown,
@@ -31,8 +30,6 @@ import {
   X,
   Check,
   AlertCircle,
-  Users,
-  Sliders,
   Box,
   Settings,
   Eye,
@@ -163,6 +160,8 @@ interface RemoteHostItem {
   host: string;
   port: number;
   groupName?: string;
+  username?: string;
+  authType?: string;
 }
 
 interface UserOption {
@@ -295,7 +294,7 @@ const triggerPollNow = async () => {
 const getECharts = async () => {
   try {
     const mod = await import('echarts');
-    return mod.default || mod;
+    return mod;
   } catch (e) {
     if ((window as any).echarts) return (window as any).echarts;
     return null;
@@ -405,7 +404,6 @@ const savedThresholds = loadSavedThresholds();
 const warningThreshold = ref<number>(savedThresholds.warning);
 const criticalThreshold = ref<number>(savedThresholds.critical);
 const showSettingsModal = ref(false);
-const showThresholdModal = showSettingsModal; // alias for backwards compatibility
 
 const editWarningThreshold = ref<number>(warningThreshold.value);
 const editCriticalThreshold = ref<number>(criticalThreshold.value);
@@ -417,7 +415,6 @@ const openSettingsModal = () => {
   pendingAutoRefresh.value = autoRefreshInterval.value;
   showSettingsModal.value = true;
 };
-const openThresholdModal = openSettingsModal;
 
 const saveSettings = async () => {
   const w = Number(editWarningThreshold.value);
@@ -455,14 +452,12 @@ const saveSettings = async () => {
   showNotice(`Settings saved: Auto Refresh ${sec === 0 ? 'Paused' : sec < 60 ? `${sec}s` : `${sec / 60}m`}, Thresholds ${w}% / ${c}%`);
   showSettingsModal.value = false;
 };
-const saveThresholds = saveSettings;
 
 const resetSettingsToDefault = () => {
   editWarningThreshold.value = DEFAULT_WARNING_THRESHOLD;
   editCriticalThreshold.value = DEFAULT_CRITICAL_THRESHOLD;
   pendingAutoRefresh.value = 30;
 };
-const resetThresholdsToDefault = resetSettingsToDefault;
 
 const applyPreset = (w: number, c: number) => {
   editWarningThreshold.value = w;
@@ -795,7 +790,6 @@ interface HistoryTarget {
 
 const showHistoryModal = ref(false);
 const historyTarget = ref<HistoryTarget | null>(null);
-const historyInstance = computed(() => historyTarget.value?.rawServer || null);
 const historyTimeRange = ref<'1h' | '6h' | '24h' | '7d'>('24h');
 const historyActiveMetric = ref<'cpu' | 'memory' | 'disk' | 'network'>('cpu');
 const historyData = ref<InstanceHistory | null>(null);
@@ -1563,7 +1557,6 @@ const confirmDelete = (inst: MonitoringInstance) => {
   instanceToDelete.value = inst;
   showDeleteModal.value = true;
 };
-const confirmDeleteInstance = confirmDelete;
 
 const executeDelete = async () => {
   if (!instanceToDelete.value) return;
@@ -4690,7 +4683,7 @@ onUnmounted(() => {
               class="w-full px-3 py-2 bg-white dark:bg-[#161c2d] border border-slate-200 dark:border-[#1f283d] rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
             >
               <option value="all">All Groups</option>
-              <option v-for="g in groups" :key="g.name" :value="g.name">{{ g.name }} ({{ g.count }})</option>
+              <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
             </select>
           </div>
 

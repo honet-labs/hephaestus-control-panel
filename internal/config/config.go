@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,7 +13,7 @@ import (
 )
 
 type Config struct {
-	Port           int      `json:"port"`
+	Port           int                  `json:"port"`
 	Env            string               `json:"env"`
 	DataDir        string               `json:"dataDir"`
 	LogsDir        string               `json:"logsDir"`
@@ -73,17 +75,16 @@ func (c *DBConfig) ConnString() string {
 	if c.SSL {
 		sslMode = "require"
 	}
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.User, c.Password, c.Host, c.Port, c.Database, sslMode)
+	u := &url.URL{Scheme: "postgres", User: url.UserPassword(c.User, c.Password), Host: net.JoinHostPort(c.Host, strconv.Itoa(c.Port)), Path: "/" + c.Database}
+	q := url.Values{"sslmode": {sslMode}}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (c *DBConfig) AdminConnString() string {
-	sslMode := "disable"
-	if c.SSL {
-		sslMode = "require"
-	}
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/postgres?sslmode=%s",
-		c.User, c.Password, c.Host, c.Port, sslMode)
+	admin := *c
+	admin.Database = "postgres"
+	return admin.ConnString()
 }
 
 var (
@@ -99,6 +100,8 @@ func LoadConfig() *Config {
 
 		_ = os.MkdirAll(dataDir, 0755)
 		_ = os.MkdirAll(logsDir, 0755)
+		// Initialize before reading encrypted db_config.json, not afterwards.
+		SetSecretKey(getEnv("APP_ENCRYPTION_KEY", getEnv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")))
 
 		port, _ := strconv.Atoi(getEnv("PORT", "5000"))
 		if port <= 0 {
@@ -199,28 +202,51 @@ func LoadConfig() *Config {
 		}
 		// Validate sane values
 		defaults := DefaultServiceThreads()
-		if threadsCfg.ICMPPing <= 0 { threadsCfg.ICMPPing = defaults.ICMPPing }
-		if threadsCfg.OpenSearch <= 0 { threadsCfg.OpenSearch = defaults.OpenSearch }
-		if threadsCfg.Backup <= 0 { threadsCfg.Backup = defaults.Backup }
-		if threadsCfg.SNMP <= 0 { threadsCfg.SNMP = defaults.SNMP }
-		if threadsCfg.Discovery <= 0 { threadsCfg.Discovery = defaults.Discovery }
-		if threadsCfg.Cron <= 0 { threadsCfg.Cron = defaults.Cron }
-		if threadsCfg.Alert <= 0 { threadsCfg.Alert = defaults.Alert }
-		if threadsCfg.Prometheus <= 0 { threadsCfg.Prometheus = defaults.Prometheus }
-		if threadsCfg.SSHTelemetry <= 0 { threadsCfg.SSHTelemetry = defaults.SSHTelemetry }
-		if threadsCfg.WorkerPool <= 0 { threadsCfg.WorkerPool = defaults.WorkerPool }
-		if threadsCfg.Grok <= 0 { threadsCfg.Grok = defaults.Grok }
-		if threadsCfg.DataPrepper <= 0 { threadsCfg.DataPrepper = defaults.DataPrepper }
-		if threadsCfg.IPAM <= 0 { threadsCfg.IPAM = defaults.IPAM }
+		if threadsCfg.ICMPPing <= 0 {
+			threadsCfg.ICMPPing = defaults.ICMPPing
+		}
+		if threadsCfg.OpenSearch <= 0 {
+			threadsCfg.OpenSearch = defaults.OpenSearch
+		}
+		if threadsCfg.Backup <= 0 {
+			threadsCfg.Backup = defaults.Backup
+		}
+		if threadsCfg.SNMP <= 0 {
+			threadsCfg.SNMP = defaults.SNMP
+		}
+		if threadsCfg.Discovery <= 0 {
+			threadsCfg.Discovery = defaults.Discovery
+		}
+		if threadsCfg.Cron <= 0 {
+			threadsCfg.Cron = defaults.Cron
+		}
+		if threadsCfg.Alert <= 0 {
+			threadsCfg.Alert = defaults.Alert
+		}
+		if threadsCfg.Prometheus <= 0 {
+			threadsCfg.Prometheus = defaults.Prometheus
+		}
+		if threadsCfg.SSHTelemetry <= 0 {
+			threadsCfg.SSHTelemetry = defaults.SSHTelemetry
+		}
+		if threadsCfg.WorkerPool <= 0 {
+			threadsCfg.WorkerPool = defaults.WorkerPool
+		}
+		if threadsCfg.Grok <= 0 {
+			threadsCfg.Grok = defaults.Grok
+		}
+		if threadsCfg.DataPrepper <= 0 {
+			threadsCfg.DataPrepper = defaults.DataPrepper
+		}
+		if threadsCfg.IPAM <= 0 {
+			threadsCfg.IPAM = defaults.IPAM
+		}
 
 		originsStr := getEnv("ALLOWED_ORIGINS", "http://localhost:5000,http://localhost:5173,http://localhost:3000")
 		origins := strings.Split(originsStr, ",")
 		for i := range origins {
 			origins[i] = strings.TrimSpace(origins[i])
 		}
-
-		encKey := getEnv("APP_ENCRYPTION_KEY", getEnv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
-		SetSecretKey(encKey)
 
 		globalConfig = &Config{
 			Port:           port,
@@ -257,19 +283,45 @@ func (c *Config) UpdateServiceThreads(newThreads ServiceThreadsConfig) error {
 	defer c.mu.Unlock()
 
 	defaults := DefaultServiceThreads()
-	if newThreads.ICMPPing <= 0 { newThreads.ICMPPing = defaults.ICMPPing }
-	if newThreads.OpenSearch <= 0 { newThreads.OpenSearch = defaults.OpenSearch }
-	if newThreads.Backup <= 0 { newThreads.Backup = defaults.Backup }
-	if newThreads.SNMP <= 0 { newThreads.SNMP = defaults.SNMP }
-	if newThreads.Discovery <= 0 { newThreads.Discovery = defaults.Discovery }
-	if newThreads.Cron <= 0 { newThreads.Cron = defaults.Cron }
-	if newThreads.Alert <= 0 { newThreads.Alert = defaults.Alert }
-	if newThreads.Prometheus <= 0 { newThreads.Prometheus = defaults.Prometheus }
-	if newThreads.SSHTelemetry <= 0 { newThreads.SSHTelemetry = defaults.SSHTelemetry }
-	if newThreads.WorkerPool <= 0 { newThreads.WorkerPool = defaults.WorkerPool }
-	if newThreads.Grok <= 0 { newThreads.Grok = defaults.Grok }
-	if newThreads.DataPrepper <= 0 { newThreads.DataPrepper = defaults.DataPrepper }
-	if newThreads.IPAM <= 0 { newThreads.IPAM = defaults.IPAM }
+	if newThreads.ICMPPing <= 0 {
+		newThreads.ICMPPing = defaults.ICMPPing
+	}
+	if newThreads.OpenSearch <= 0 {
+		newThreads.OpenSearch = defaults.OpenSearch
+	}
+	if newThreads.Backup <= 0 {
+		newThreads.Backup = defaults.Backup
+	}
+	if newThreads.SNMP <= 0 {
+		newThreads.SNMP = defaults.SNMP
+	}
+	if newThreads.Discovery <= 0 {
+		newThreads.Discovery = defaults.Discovery
+	}
+	if newThreads.Cron <= 0 {
+		newThreads.Cron = defaults.Cron
+	}
+	if newThreads.Alert <= 0 {
+		newThreads.Alert = defaults.Alert
+	}
+	if newThreads.Prometheus <= 0 {
+		newThreads.Prometheus = defaults.Prometheus
+	}
+	if newThreads.SSHTelemetry <= 0 {
+		newThreads.SSHTelemetry = defaults.SSHTelemetry
+	}
+	if newThreads.WorkerPool <= 0 {
+		newThreads.WorkerPool = defaults.WorkerPool
+	}
+	if newThreads.Grok <= 0 {
+		newThreads.Grok = defaults.Grok
+	}
+	if newThreads.DataPrepper <= 0 {
+		newThreads.DataPrepper = defaults.DataPrepper
+	}
+	if newThreads.IPAM <= 0 {
+		newThreads.IPAM = defaults.IPAM
+	}
 
 	c.Threads = newThreads
 
@@ -287,11 +339,9 @@ func (c *Config) UpdateDBConfig(newDB DBConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.DB = newDB
-
 	encryptedPassword, err := EncryptText(newDB.Password)
 	if err != nil {
-		encryptedPassword = newDB.Password
+		return fmt.Errorf("encrypt database password: %w", err)
 	}
 
 	if newDB.MaxConns <= 0 {
@@ -327,7 +377,14 @@ func (c *Config) UpdateDBConfig(newDB DBConfig) error {
 	}
 
 	dbConfigFile := filepath.Join(c.DataDir, "db_config.json")
-	return os.WriteFile(dbConfigFile, raw, 0644)
+	if err := os.WriteFile(dbConfigFile, raw, 0600); err != nil {
+		return err
+	}
+	if err := os.Chmod(dbConfigFile, 0600); err != nil {
+		return err
+	}
+	c.DB = newDB
+	return nil
 }
 
 func getEnv(key, fallback string) string {

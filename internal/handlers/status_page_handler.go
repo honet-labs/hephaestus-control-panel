@@ -40,7 +40,7 @@ func (h *StatusPageHandler) GetPublicReport(c *gin.Context) {
 		return
 	}
 
-	report, err := h.statusPageService.GetLiveReport(c.Request.Context(), slug, true)
+	page, err := h.statusPageService.GetPageBySlug(c.Request.Context(), slug)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
@@ -51,7 +51,7 @@ func (h *StatusPageHandler) GetPublicReport(c *gin.Context) {
 	}
 
 	// If page is private, check authentication
-	if !report.IsPublic {
+	if !page.IsPublic {
 		token := ""
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
@@ -66,8 +66,8 @@ func (h *StatusPageHandler) GetPublicReport(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success":      false,
 				"requiresAuth": true,
-				"title":        report.Title,
-				"slug":         report.Slug,
+				"title":        page.Title,
+				"slug":         page.Slug,
 				"error":        "Authentication required",
 				"message":      "This status page is private. Please sign in to view status.",
 			})
@@ -79,8 +79,8 @@ func (h *StatusPageHandler) GetPublicReport(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success":      false,
 				"requiresAuth": true,
-				"title":        report.Title,
-				"slug":         report.Slug,
+				"title":        page.Title,
+				"slug":         page.Slug,
 				"error":        "Invalid or expired session",
 				"message":      "Please log in with a valid account to access this status page.",
 			})
@@ -88,6 +88,12 @@ func (h *StatusPageHandler) GetPublicReport(c *gin.Context) {
 		}
 	}
 
+	// Only contact live integrations after the page's access policy is satisfied.
+	report, err := h.statusPageService.GetLiveReport(c.Request.Context(), slug, true)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Status page not found"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    report,

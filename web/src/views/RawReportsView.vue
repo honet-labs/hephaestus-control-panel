@@ -16,14 +16,8 @@ import {
   Database,
   ChevronDown,
   ChevronUp,
-  LineChart,
-  PieChart,
   BarChart2,
-  Server,
-  HardDrive,
-  Cpu,
   ArrowLeft,
-  Calendar,
 } from 'lucide-vue-next';
 
 // -----------------------------------------------------------------------------
@@ -238,38 +232,6 @@ const hexToRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const generateClientDataPoints = (timeRange: string = '24h') => {
-  const points: Array<{ timestamp: string; label: string; value: number }> = [];
-  const now = Date.now();
-  let count = 24;
-  let intervalMs = 60 * 60 * 1000;
-
-  if (timeRange === '1h') {
-    count = 20;
-    intervalMs = 3 * 60 * 1000;
-  } else if (timeRange === '6h') {
-    count = 24;
-    intervalMs = 15 * 60 * 1000;
-  } else if (timeRange === '7d') {
-    count = 28;
-    intervalMs = 6 * 60 * 60 * 1000;
-  } else if (timeRange === '30d') {
-    count = 30;
-    intervalMs = 24 * 60 * 60 * 1000;
-  }
-
-  for (let i = count - 1; i >= 0; i--) {
-    const t = new Date(now - i * intervalMs);
-    const baseVal = 2.4 + Math.sin(i * 0.45) * 1.1;
-    points.push({
-      timestamp: t.toISOString(),
-      label: t.toISOString(),
-      value: Math.round(Math.max(0.5, baseVal) * 10) / 10,
-    });
-  }
-  return points;
-};
-
 const hostPalette = [
   '#10b981', // emerald
   '#3b82f6', // blue
@@ -289,16 +251,6 @@ const hostPalette = [
   '#059669', // emerald-600
 ];
 
-const getSeriesColor = (widget: ReportWidget, index: number = 0) => {
-  if (!widget.series || widget.series.length <= 1) {
-    const pal = widget.sourceConfig?.colorPalette || 'emerald';
-    if (pal === 'blue') return '#3b82f6';
-    if (pal === 'amber') return '#f59e0b';
-    if (pal === 'purple') return '#8b5cf6';
-    return '#10b981';
-  }
-  return hostPalette[index % hostPalette.length];
-};
 
 const getWidgetLegendItems = (widget: ReportWidget) => {
   if (widget.series && widget.series.length > 1) {
@@ -363,7 +315,7 @@ const setChartRef = (id: string, el: any) => {
 const getECharts = async () => {
   try {
     const mod = await import('echarts');
-    return mod.default || mod;
+    return mod;
   } catch (e) {
     if ((window as any).echarts) return (window as any).echarts;
     return null;
@@ -751,29 +703,8 @@ const refreshAllPanels = async () => {
 
       const res = await axios.post('/api/v1/reports/query-data', payload);
       if (res.data?.success && res.data.data) {
-        const isMulti = targetHosts.length > 1 && !targetHosts.includes('all');
-        if (isMulti && res.data.data.series && res.data.data.series.length > 1) {
+        if (Array.isArray(res.data.data.series) && res.data.data.series.length > 0) {
           widget.series = res.data.data.series;
-        } else if (isMulti) {
-          // If backend returned single series for multiple hosts, derive per-host variance
-          const rawBasePoints = (res.data?.data?.points && res.data.data.points.length > 0)
-            ? res.data.data.points
-            : (res.data?.data?.series?.[0]?.points || []);
-          const basePoints = rawBasePoints.length > 0 ? rawBasePoints : generateClientDataPoints(widget.timeRange);
-
-          widget.series = targetHosts.map((h, hIdx) => {
-            const variance = 0.85 + ((hIdx * 13) % 9) * 0.04;
-            return {
-              name: `${h} - ${widget.title}`,
-              host: h,
-              points: basePoints.map((p: any) => ({
-                timestamp: p.timestamp,
-                label: p.label,
-                value: Math.round(p.value * variance * 10) / 10,
-              })),
-              summary: { min: 0, max: 0, avg: 0, current: 0, unit: res.data?.data?.summary?.unit || '%' },
-            };
-          });
         } else {
           widget.series = [{
             name: `${widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : ''}${widget.title}`,
@@ -783,8 +714,8 @@ const refreshAllPanels = async () => {
           }];
         }
 
-        widget.points = res.data.data.points || widget.series[0]?.points || [];
-        widget.summary = res.data.data.summary || widget.series[0]?.summary || { min: 0, max: 0, avg: 0, current: 0, unit: '' };
+        widget.points = res.data.data.points || widget.series?.[0]?.points || [];
+        widget.summary = res.data.data.summary || widget.series?.[0]?.summary;
         widget.statusMessage = res.data.data.message || '';
         widget.isLive = Boolean(
           res.data.data.isConnected &&
@@ -795,34 +726,12 @@ const refreshAllPanels = async () => {
       }
     } catch (err) {
       console.warn(`Query failed for widget ${widget.id}:`, err);
-      // Client-side fallback to guarantee chart always renders
-      const isMulti = targetHosts.length > 1 && !targetHosts.includes('all');
-      if (isMulti) {
-        const basePoints = generateClientDataPoints(widget.timeRange);
-        widget.series = targetHosts.map((h, hIdx) => {
-          const variance = 0.85 + ((hIdx * 13) % 9) * 0.04;
-          return {
-            name: `${h} - ${widget.title}`,
-            host: h,
-            points: basePoints.map((p) => ({
-              timestamp: p.timestamp,
-              label: p.label,
-              value: Math.round(p.value * variance * 10) / 10,
-            })),
-            summary: { min: 0, max: 0, avg: 0, current: 0, unit: '%' },
-          };
-        });
-        widget.points = widget.series[0]?.points || [];
-      } else {
-        const basePoints = generateClientDataPoints(widget.timeRange);
-        widget.points = basePoints;
-        widget.series = [{
-          name: `${widget.sourceConfig?.targetHost && widget.sourceConfig.targetHost !== 'all' ? widget.sourceConfig.targetHost + ' - ' : ''}${widget.title}`,
-          host: widget.sourceConfig?.targetHost,
-          points: basePoints,
-          summary: { min: 0, max: 0, avg: 0, current: 0, unit: '%' },
-        }];
-      }
+      // Failed telemetry must never be replaced with fabricated host metrics.
+      widget.points = [];
+      widget.series = [];
+      widget.summary = undefined;
+      widget.isLive = false;
+      widget.statusMessage = 'Telemetry query failed. Check the datasource connection and query.';
     } finally {
       widget.loading = false;
     }
@@ -989,19 +898,6 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
   }
 
   if (referencePoints.length === 0) {
-    if (hasMultiSeries) {
-      referencePoints = generateClientDataPoints(widget.timeRange);
-      widget.series?.forEach((s, sIdx) => {
-        if (!s.points || s.points.length === 0) {
-          const variance = 0.85 + ((sIdx * 13) % 9) * 0.04;
-          s.points = referencePoints.map((p) => ({
-            timestamp: p.timestamp,
-            label: p.label,
-            value: Math.round(p.value * variance * 10) / 10,
-          }));
-        }
-      });
-    } else {
       const emptyOption = {
         title: {
           text: widget.statusMessage || 'No Telemetry Records Found',
@@ -1017,7 +913,6 @@ const renderEChart = (widget: ReportWidget, echartsLib: any) => {
       };
       chart.setOption(emptyOption, true);
       return;
-    }
   }
 
   const labels = referencePoints.map((p) => formatPointLocalLabel(p, widget.timeRange));

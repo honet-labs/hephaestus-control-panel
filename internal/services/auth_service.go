@@ -173,21 +173,24 @@ func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPas
 		return nil, "", err
 	}
 
-	user, err := s.userRepo.Create(ctx, adminUsername, hash, "ADMIN", false)
+	user, err := s.userRepo.CreateInitialAdmin(ctx, adminUsername, hash)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create admin user: %w", err)
 	}
 
-	_ = s.configRepo.SetAppConfig(ctx, "setup_completed", "true")
 	logger.Info("Setup", fmt.Sprintf("Initial setup completed. Master admin '%s' initialized", adminUsername))
 	_ = s.userRepo.LogActivity(ctx, "Setup", "Initial Setup Completed", fmt.Sprintf("Admin user '%s' created", adminUsername), "SUCCESS", &user.ID, ip)
 
 	// Auto-login newly created admin with standard 24h session
 	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, "", fmt.Errorf("setup completed, but auto-login failed; please sign in: %w", err)
+	}
 	rawToken := hex.EncodeToString(tokenBytes)
 	tokenHash := config.HashToken(rawToken)
-	_, _ = s.userRepo.CreateSession(ctx, user.ID, tokenHash, 24*time.Hour)
+	if _, err := s.userRepo.CreateSession(ctx, user.ID, tokenHash, 24*time.Hour); err != nil {
+		return nil, "", fmt.Errorf("setup completed, but auto-login failed; please sign in: %w", err)
+	}
 
 	return user, rawToken, nil
 }

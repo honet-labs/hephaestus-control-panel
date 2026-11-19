@@ -133,6 +133,13 @@ func (r *ConfigRepository) GetActiveGrafana(ctx context.Context) (*domain.Grafan
 	if err != nil {
 		return nil, err
 	}
+	if err := RequireConnectionAccess(ctx, "grafana_configs", "grafana_shares", "config_id", c.ID, "read"); err != nil {
+		return nil, err
+	}
+	c.Token, err = config.DecryptText(c.Token)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decrypt Grafana token: %w", err)
+	}
 	return &c, nil
 }
 
@@ -174,7 +181,14 @@ func (r *ConfigRepository) SaveGrafana(ctx context.Context, c domain.GrafanaConf
                 token = CASE WHEN EXCLUDED.token != '' THEN EXCLUDED.token ELSE grafana_configs.token END,
                 datasource_uid = EXCLUDED.datasource_uid, is_active = EXCLUDED.is_active,
                 visibility = COALESCE(NULLIF(EXCLUDED.visibility, ''), grafana_configs.visibility)`
-	_, err = pool.Exec(ctx, query, c.ID, c.Name, c.Host, c.Token, c.DatasourceUID, c.IsActive, assignedUserID, c.Visibility)
+	if c.Token == "********" || c.Token == "••••••••" {
+		c.Token = ""
+	}
+	encryptedToken, err := config.EncryptText(c.Token)
+	if err != nil {
+		return fmt.Errorf("cannot encrypt Grafana token: %w", err)
+	}
+	_, err = pool.Exec(ctx, query, c.ID, c.Name, c.Host, encryptedToken, c.DatasourceUID, c.IsActive, assignedUserID, c.Visibility)
 	return err
 }
 
@@ -214,6 +228,9 @@ func (r *ConfigRepository) DeleteGrafana(ctx context.Context, id string, userID 
 }
 
 func (r *ConfigRepository) GetGrafanaByID(ctx context.Context, id string) (*domain.GrafanaConfig, error) {
+	if err := RequireConnectionAccess(ctx, "grafana_configs", "grafana_shares", "config_id", id, "read"); err != nil {
+		return nil, err
+	}
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, err
@@ -223,6 +240,10 @@ func (r *ConfigRepository) GetGrafanaByID(ctx context.Context, id string) (*doma
 		Scan(&c.ID, &c.Name, &c.Host, &c.Token, &c.DatasourceUID, &c.IsActive, &c.CreatedAt, &c.UserID, &c.Visibility)
 	if err != nil {
 		return nil, err
+	}
+	c.Token, err = config.DecryptText(c.Token)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decrypt Grafana token: %w", err)
 	}
 	return &c, nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"go-hephaestus/internal/logger"
@@ -29,7 +31,7 @@ func RequestLoggerMiddleware() gin.HandlerFunc {
 
 		start := time.Now()
 		path := c.Request.URL.Path
-		rawQuery := c.Request.URL.RawQuery
+		rawQuery := redactQuery(c.Request.URL.RawQuery)
 
 		c.Next()
 
@@ -76,4 +78,18 @@ func RequestLoggerMiddleware() gin.HandlerFunc {
 			logger.Info("HTTP", msg, fields)
 		}
 	}
+}
+
+func redactQuery(raw string) string {
+	query, err := url.ParseQuery(raw)
+	if err != nil {
+		return "[invalid query]"
+	}
+	for key := range query {
+		lower := strings.ToLower(key)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "secret") || lower == "apikey" || lower == "api_key" {
+			query.Set(key, "[REDACTED]")
+		}
+	}
+	return query.Encode()
 }

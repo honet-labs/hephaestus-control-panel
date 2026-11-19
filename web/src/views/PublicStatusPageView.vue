@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import axios from 'axios';
 import {
   CheckCircle2,
@@ -11,18 +11,12 @@ import {
   Lock,
   Moon,
   Sun,
-  Shield,
   Layers,
   Activity,
-  Server,
-  Network,
-  Database,
-  BarChart2,
   ArrowRight,
 } from 'lucide-vue-next';
 
 const route = useRoute();
-const router = useRouter();
 
 interface StatusItemLiveResult {
   itemId: string;

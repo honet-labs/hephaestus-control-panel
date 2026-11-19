@@ -173,6 +173,13 @@ func (h *DockerHandler) SaveConnection(c *gin.Context) {
 	}
 
 	userID, userRole := getUserContext(c)
+	if conn.RemoteHostID != nil {
+		allowed, _, permission, accessErr := repository.NewRemoteHostRepository().CheckAccess(c.Request.Context(), *conn.RemoteHostID, userID, userRole)
+		if accessErr != nil || !allowed || permission != "manage" {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Manage access to the linked SSH host is required"})
+			return
+		}
+	}
 	saved, err := h.dockerRepo.SaveConnection(c.Request.Context(), conn, userID, userRole)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -184,6 +191,7 @@ func (h *DockerHandler) SaveConnection(c *gin.Context) {
 	}
 
 	saved.SSHPassword = nil
+	saved.SSHKey = nil
 	if saved.HostType == "local" {
 		saved.Driver = "socket"
 	} else {
@@ -213,6 +221,9 @@ func (h *DockerHandler) DeleteConnection(c *gin.Context) {
 
 func (h *DockerHandler) ListConnectionShares(c *gin.Context) {
 	configID := c.Param("id")
+	if _, allowed := h.requireDockerConnection(c, configID, "manage"); !allowed {
+		return
+	}
 	if configID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Connection ID is required"})
 		return
@@ -372,10 +383,21 @@ func (h *DockerHandler) TestConnection(c *gin.Context) {
 
 	// If testing existing connection without re-sending password
 	if conn.ID != "" && conn.SSHPassword == nil {
+		if _, allowed := h.requireDockerConnection(c, conn.ID, "manage"); !allowed {
+			return
+		}
 		existing, _ := h.dockerRepo.GetConnectionByID(c.Request.Context(), conn.ID)
 		if existing != nil {
-			conn.SSHPassword = existing.SSHPassword
-			conn.SSHKey = existing.SSHKey
+			// Do not send saved credentials to a caller-supplied destination.
+			conn = *existing
+		}
+	}
+	if conn.RemoteHostID != nil {
+		userID, userRole := getUserContext(c)
+		allowed, _, permission, accessErr := repository.NewRemoteHostRepository().CheckAccess(c.Request.Context(), *conn.RemoteHostID, userID, userRole)
+		if accessErr != nil || !allowed || permission != "manage" {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Manage access to the linked SSH host is required"})
+			return
 		}
 	}
 
@@ -694,7 +716,10 @@ func (h *DockerHandler) GetContainerStats(c *gin.Context) {
 }
 
 func (h *DockerHandler) DeployContainer(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 	var req domain.DeployContainerRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -724,7 +749,10 @@ func (h *DockerHandler) DeployContainer(c *gin.Context) {
 }
 
 func (h *DockerHandler) DeployContainerStream(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 	var req domain.DeployContainerRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -815,14 +843,23 @@ func (h *DockerHandler) EditContainer(c *gin.Context) {
 		return
 	}
 
-	// Preserve owner info if not specified
-	if userVal, exists := c.Get("user"); exists {
-		if u, ok := userVal.(*domain.User); ok {
-			if req.UserID == nil {
-				req.UserID = &u.ID
-				req.OwnerUsername = u.Username
-			}
+	// Recreating a shared container must not transfer or spoof its ownership.
+	containers, err := h.dockerService.ListContainers(c.Request.Context(), connectionID, true)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "Unable to verify container ownership"})
+		return
+	}
+	found := false
+	for _, container := range containers {
+		if container.ID == id || (len(id) >= 8 && strings.HasPrefix(container.ID, id)) {
+			req.UserID, req.OwnerUsername = container.UserID, container.OwnerUsername
+			found = true
+			break
 		}
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Container not found"})
+		return
 	}
 
 	newID, err := h.dockerService.EditContainer(c.Request.Context(), connectionID, id, req)
@@ -1027,7 +1064,10 @@ func (h *DockerHandler) ListUsers(c *gin.Context) {
 // -------------------------------------------------------------
 
 func (h *DockerHandler) ListImages(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.authorizeDockerConnection(c)
+	if !allowed {
+		return
+	}
 
 	images, err := h.dockerService.ListImages(c.Request.Context(), connectionID)
 	if err != nil {
@@ -1047,7 +1087,10 @@ func (h *DockerHandler) ListImages(c *gin.Context) {
 }
 
 func (h *DockerHandler) PullImage(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 	var input struct {
 		Image string `json:"image" binding:"required"`
 	}
@@ -1070,7 +1113,10 @@ func (h *DockerHandler) PullImage(c *gin.Context) {
 
 func (h *DockerHandler) RemoveImage(c *gin.Context) {
 	id := c.Param("id")
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 	force := c.Query("force") == "true"
 
 	if err := h.dockerService.RemoveImage(c.Request.Context(), connectionID, id, force); err != nil {
@@ -1117,7 +1163,10 @@ func (h *DockerHandler) GetSystemInfo(c *gin.Context) {
 // -------------------------------------------------------------
 
 func (h *DockerHandler) ListNetworks(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.authorizeDockerConnection(c)
+	if !allowed {
+		return
+	}
 
 	networks, err := h.dockerService.ListNetworks(c.Request.Context(), connectionID)
 	if err != nil {
@@ -1137,7 +1186,10 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 }
 
 func (h *DockerHandler) CreateNetwork(c *gin.Context) {
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 	var req domain.CreateNetworkRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1158,7 +1210,10 @@ func (h *DockerHandler) CreateNetwork(c *gin.Context) {
 
 func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
 	id := c.Param("id")
-	connectionID := c.Query("connectionId")
+	connectionID, allowed := h.requireDockerConnection(c, c.Query("connectionId"), "manage")
+	if !allowed {
+		return
+	}
 
 	if err := h.dockerService.RemoveNetwork(c.Request.Context(), connectionID, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})

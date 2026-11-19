@@ -20,18 +20,11 @@ import {
   RefreshCw,
   Copy,
   Check,
-  ExternalLink,
   ArrowLeft,
   X,
-  HardDrive,
-  Cpu,
   DownloadCloud,
   CheckCircle2,
   AlertCircle,
-  Clock,
-  Radio,
-  Sliders,
-  ChevronDown,
   Network,
   Pencil,
   AlertTriangle,
@@ -209,7 +202,6 @@ const searchKeyword = ref('');
 const statusFilter = ref<'all' | 'running' | 'stopped' | 'paused'>('all');
 const visibilityFilter = ref<'all' | 'public' | 'private' | 'shared'>('all');
 const updatingVisibility = ref<Record<string, boolean>>({});
-const selectedContainers = ref<string[]>([]);
 
 // Share Access State
 const isShareModalOpen = ref(false);
@@ -389,6 +381,11 @@ const renderedLogs = computed(() => {
 const liveStats = ref<DockerStats | null>(null);
 const statsLoading = ref(false);
 let statsInterval: any = null;
+const closeStatsModal = () => {
+  showStatsModal.value = false;
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = null;
+};
 
 // Delete Target
 const deleteTarget = ref<{
@@ -3126,7 +3123,7 @@ watch(selectedConnectionId, () => {
             </div>
           </div>
           <button
-            @click="showStatsModal = false; if (statsInterval) clearInterval(statsInterval);"
+            @click="closeStatsModal"
             class="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-[#1b2234] transition cursor-pointer"
           >
             <X class="w-4 h-4" />

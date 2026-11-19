@@ -283,6 +283,11 @@ func (h *SettingsHandler) ListGrafana(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	for i := range list {
+		if list[i].Token != "" {
+			list[i].Token = "********"
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
@@ -316,6 +321,7 @@ func (h *SettingsHandler) SaveGrafana(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	cfg.Token = ""
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Grafana configuration saved.", "data": cfg})
 }
 
@@ -442,11 +448,19 @@ func (h *SettingsHandler) TestGrafana(c *gin.Context) {
 
 	if req.ID != "" && (host == "" || token == "" || token == "••••••••" || token == "********") {
 		dbCfg, err := h.configRepo.GetGrafanaByID(c.Request.Context(), req.ID)
+		if err != nil || dbCfg == nil {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Grafana configuration unavailable"})
+			return
+		}
 		if err == nil && dbCfg != nil {
 			if host == "" {
 				host = strings.TrimRight(strings.TrimSpace(dbCfg.Host), "/")
 			}
 			if token == "" || token == "••••••••" || token == "********" {
+				if host != strings.TrimRight(strings.TrimSpace(dbCfg.Host), "/") {
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Supply a fresh token when testing a different Grafana destination"})
+					return
+				}
 				token = dbCfg.Token
 			}
 			if req.DatasourceUID == "" {
@@ -971,4 +985,3 @@ func (h *SettingsHandler) UpdateServiceThreads(c *gin.Context) {
 		"data":    appCfg.GetServiceThreads(),
 	})
 }
-

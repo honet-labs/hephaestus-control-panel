@@ -108,7 +108,7 @@ func (r *ConnectionShareRepository) CheckAccess(ctx context.Context, configTable
 		SELECT 
 			c.user_id,
 			COALESCE(c.visibility, 'private'),
-			(c.user_id = $2) AS is_owner,
+			COALESCE(c.user_id = $2, false) AS is_owner,
 			COALESCE(s.permission, '') AS share_perm
 		FROM %s c
 		LEFT JOIN %s s ON c.id = s.%s AND s.user_id = $2

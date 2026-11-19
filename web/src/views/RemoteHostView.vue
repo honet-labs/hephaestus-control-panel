@@ -19,23 +19,17 @@ import {
   RotateCw,
   Loader2,
   Trash2,
-  Radio,
   Maximize2,
   ArrowLeft,
   Search,
   CheckCircle2,
   Activity,
-  Sliders,
   Settings,
   LayoutGrid,
   SquareTerminal,
   Wifi,
-  HardDrive,
-  Cpu,
   Layers,
-  Play,
   Square,
-  AlertTriangle,
   PlayCircle,
   StopCircle,
   FolderPlus,
@@ -43,22 +37,15 @@ import {
   Copy,
   ChevronLeft,
   ChevronRight,
-  FileCode,
-  FileText,
-  FileArchive,
   File,
   CornerLeftUp,
-  Terminal as TerminalIcon,
   Shield,
-  ArrowUpRight,
   ArrowRight,
   Monitor,
-  Cloud,
   Check,
   RefreshCw,
   Minimize2,
   ChevronDown,
-  Palette,
   GripVertical,
   Share2,
   Users,
@@ -66,8 +53,6 @@ import {
   ZoomIn,
   ZoomOut,
   ChevronUp,
-  LogOut,
-  ArrowUpDown,
   Unlink,
   Key,
 } from 'lucide-vue-next';
@@ -231,7 +216,6 @@ const serviceSearch = ref('');
 const isTelemetryLoading = ref(false);
 const portProtoFilter = ref<'all' | 'tcp' | 'udp'>('all');
 const portSearch = ref('');
-const interfaceSearch = ref('');
 
 // Notification state
 const notification = ref<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -299,10 +283,6 @@ const isRdpHost = (h: RemoteHost) =>
   h.port === 3389 ||
   h.tags?.some((t: string) => t.toLowerCase() === 'rdp') ||
   (h as any).protocol === 'rdp';
-const getHostConnectionLabel = (h: RemoteHost) => {
-  if (isRdpHost(h)) return `rdp, ${h.username || 'Administrator'}, ${h.host}:${h.port || 3389}`;
-  return `ssh, ${h.username || 'root'}, ${h.host}:${h.port || 22}`;
-};
 
 // New Host Form
 const hostForm = ref<any>({
@@ -535,18 +515,6 @@ const udpPortsCount = computed(() => {
 });
 
 // Filtered Network Interfaces
-const filteredInterfaces = computed(() => {
-  if (!activeSession.value?.networkInfo?.interfaces) return [];
-  if (!interfaceSearch.value) return activeSession.value.networkInfo.interfaces;
-  const q = interfaceSearch.value.toLowerCase();
-  return activeSession.value.networkInfo.interfaces.filter(
-    (i: any) =>
-      (i.name && i.name.toLowerCase().includes(q)) ||
-      (i.ipv4 && i.ipv4.toLowerCase().includes(q)) ||
-      (i.ipv6 && i.ipv6.toLowerCase().includes(q)) ||
-      (i.mac && i.mac.toLowerCase().includes(q))
-  );
-});
 
 // Session State Persistence Helpers
 const saveSessionsState = () => {
@@ -1373,7 +1341,6 @@ const handleVisibilityOrFocus = () => {
 // =================================================================
 // CHROME-STYLE TAB GROUPS & DRAG-AND-DROP REORDERING
 // =================================================================
-const splitLayout = ref<'single' | 'vertical' | 'horizontal'>('single');
 
 // Drag and drop states
 const draggedGlobalIndex = ref<number | null>(null);
@@ -1541,7 +1508,7 @@ const handleGroupPillDrop = (e: DragEvent, group: TabGroup) => {
   resetDrag();
 };
 
-const handleTabBarDrop = (e: DragEvent) => {
+const handleTabBarDrop = () => {
   if (draggedGlobalIndex.value === null) return;
   const dragged = openSessions.value[draggedGlobalIndex.value];
   if (dragged && dragged.groupId) {
@@ -2034,12 +2001,10 @@ interface LocalStagedFile {
 }
 
 const isDragOverLocal = ref(false);
-const isDragOverRemote = ref(false);
 const sftpFileInput = ref<HTMLInputElement | null>(null);
 const localStagedFiles = ref<LocalStagedFile[]>([]);
 const sftpCommandLogs = ref<{ time: string; type: 'status' | 'command' | 'response' | 'error'; text: string }[]>([]);
 const sftpTransferQueue = ref<any[]>([]);
-const sftpQueueTab = ref<'queued' | 'success' | 'failed'>('queued');
 
 const sourceHostObj = computed(() => {
   if (sftpSourceHostId.value === 'local') return null;
@@ -2236,7 +2201,7 @@ const transferSourceFileToDest = async (fileName: string) => {
     const queueItem = {
       name: `${fileName} ([${srcHost.name}] ➔ [${dstHost.name}])`,
       size: 'Transferring...',
-      status: 'transferring' as const,
+      status: 'transferring' as 'transferring' | 'success' | 'failed',
       progress: 50,
       error: '',
     };
@@ -2283,7 +2248,7 @@ const transferDestFileToSource = async (fileName: string) => {
   const queueItem = {
     name: `${fileName} ([${srcHost.name}] ➔ [${dstHost.name}])`,
     size: 'Transferring...',
-    status: 'transferring' as const,
+    status: 'transferring' as 'transferring' | 'success' | 'failed',
     progress: 50,
     error: '',
   };
@@ -2346,7 +2311,7 @@ const uploadStagedFile = async (staged: LocalStagedFile) => {
   const queueItem = {
     name: `${staged.name} (Local ➔ [${dstHost.name}]:${targetPath})`,
     size: formatFileSize(staged.size),
-    status: 'transferring' as const,
+    status: 'transferring' as 'transferring' | 'success' | 'failed',
     progress: 0,
     error: '',
   };
@@ -6064,7 +6029,7 @@ onUnmounted(() => {
                 >
                   <option value="" disabled>Choose user...</option>
                   <option
-                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && (!selectedHostForShare.userId || u.id !== selectedHostForShare.userId))"
+                    v-for="u in availableUsers.filter(u => u.id !== authStore.user?.id && u.id !== selectedHostForShare?.userId)"
                     :key="u.id"
                     :value="u.id"
                   >

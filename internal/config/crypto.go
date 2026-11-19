@@ -22,10 +22,12 @@ var (
 // SetSecretKey sets the active AES encryption key
 func SetSecretKey(keyStr string) {
 	trimmed := strings.TrimSpace(keyStr)
+	isDefaultKey = true
 	if len(trimmed) > 0 {
 		hash := sha256.Sum256([]byte(trimmed))
 		defaultSecretKey = hash[:]
-		if trimmed != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" &&
+		if len(trimmed) >= 32 && !strings.HasPrefix(strings.ToLower(trimmed), "replace_") &&
+			trimmed != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" &&
 			trimmed != "hephaestus-super-secure-key-32b!" {
 			isDefaultKey = false
 		}
@@ -114,6 +116,9 @@ func DecryptText(encryptedStr string) (string, error) {
 	}
 
 	// Reconstruct sealed payload for GCM Open (ciphertext + authTag)
+	if len(nonce) != gcm.NonceSize() || len(authTag) != gcm.Overhead() {
+		return "", errors.New("invalid encrypted credential nonce or authentication tag length")
+	}
 	sealed := append(ciphertext, authTag...)
 	plaintext, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {

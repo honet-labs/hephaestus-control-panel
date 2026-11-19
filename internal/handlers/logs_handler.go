@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
@@ -100,6 +101,10 @@ func (h *LogsHandler) GetRecentLogs(c *gin.Context) {
 
 // WebSocket Live Log Stream Endpoint: /ws/logs
 func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
+	if h.authService == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Authentication service unavailable"})
+		return
+	}
 	token := c.Query("token")
 	if token == "" {
 		token = c.GetHeader("Sec-WebSocket-Protocol")
@@ -151,6 +156,7 @@ func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
 	// Send initial recent logs
 	recent := logger.GetRecentLogs()
 	for _, entry := range recent {
+		_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := ws.WriteJSON(entry); err != nil {
 			return
 		}
@@ -158,6 +164,7 @@ func (h *LogsHandler) StreamLogsWebSocket(c *gin.Context) {
 
 	// Stream live logs as they happen
 	for entry := range logChan {
+		_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := ws.WriteJSON(entry); err != nil {
 			return
 		}

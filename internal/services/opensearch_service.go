@@ -16,6 +16,7 @@ import (
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/queue"
+	"go-hephaestus/internal/repository"
 )
 
 type OpenSearchService struct {
@@ -24,7 +25,7 @@ type OpenSearchService struct {
 
 func NewOpenSearchService() *OpenSearchService {
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: config.IntegrationTLSConfig(),
 	}
 	return &OpenSearchService{
 		httpClient: &http.Client{
@@ -85,9 +86,7 @@ func ContextWithConfigID(ctx context.Context, id string) context.Context {
 func (s *OpenSearchService) getConfigFromContext(ctx context.Context) (*domain.OpenSearchConfig, error) {
 	if val, ok := ctx.Value(opensearchConfigContextKey{}).(string); ok && strings.TrimSpace(val) != "" {
 		cfg, err := s.GetConfigByID(ctx, strings.TrimSpace(val))
-		if err == nil && cfg != nil {
-			return cfg, nil
-		}
+		return cfg, err
 	}
 	return s.GetActiveConfig(ctx)
 }
@@ -121,6 +120,9 @@ func (s *OpenSearchService) GetActiveConfig(ctx context.Context) (*domain.OpenSe
 		}
 	}
 
+	if err := repository.RequireConnectionAccess(ctx, "opensearch_configs", "opensearch_shares", "config_id", cfg.ID, "read"); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -287,6 +289,9 @@ func (s *OpenSearchService) ListConfigs(ctx context.Context, userID int, userRol
 }
 
 func (s *OpenSearchService) GetConfigByID(ctx context.Context, id string) (*domain.OpenSearchConfig, error) {
+	if err := repository.RequireConnectionAccess(ctx, "opensearch_configs", "opensearch_shares", "config_id", id, "read"); err != nil {
+		return nil, err
+	}
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, fmt.Errorf("database connection unavailable: %w", err)

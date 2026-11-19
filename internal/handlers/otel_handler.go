@@ -248,8 +248,9 @@ func (h *OTelHandler) TestHost(c *gin.Context) {
 			return
 		}
 		cfg = *existing
-		if req.SSHHost != "" {
-			cfg.SSHHost = req.SSHHost
+		if req.SSHHost != "" && req.SSHHost != existing.SSHHost {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Supply fresh credentials when testing a different SSH destination"})
+			return
 		}
 		if req.ServiceName != "" {
 			cfg.ServiceName = req.ServiceName
