@@ -1,0 +1,81 @@
+name: Isolated Vendor Integration Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'internal/**'
+      - 'tests/vendor/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/vendor-integration.yml'
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  vendor:
+    name: Real ${{ matrix.vendor }} integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        vendor: [opensearch, prometheus, grafana, dataprepper, otel, vaultwarden, s3]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hcp_audit
+          POSTGRES_PASSWORD: isolated-ci-test-password
+        ports: [5432/tcp]
+        options: >-
+          --health-cmd "pg_isready -U hcp_audit"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      COMPOSE_PROJECT_NAME: hcp-vendor-audit
+      HCP_AUDIT_VENDOR: ${{ matrix.vendor }}
+      HCP_AUDIT_POSTGRES_USER: hcp_audit
+      HCP_AUDIT_POSTGRES_PASSWORD: isolated-ci-test-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure ephemeral OpenSearch kernel requirement
+        if: matrix.vendor == 'opensearch'
+        run: sudo sysctl -w vm.max_map_count=262144
+
+      - name: Start pinned vendor containers on loopback only
+        run: docker compose -f tests/vendor/compose.yml --profile "$HCP_AUDIT_VENDOR" up -d
+
+      - name: Test actual vendor integration with race detection
+        env:
+          HCP_AUDIT_POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          mkdir -p audit-results
+          set -o pipefail
+          go test -race ./internal/services -run '^TestVendorLive$' -count=1 -timeout=8m -v 2>&1 | tee audit-results/vendor-test.log
+
+      - name: Capture vendor diagnostics
+        if: always()
+        run: |
+          mkdir -p audit-results
+          docker compose -f tests/vendor/compose.yml --profile "$HCP_AUDIT_VENDOR" ps -a > audit-results/containers.txt
+          docker compose -f tests/vendor/compose.yml --profile "$HCP_AUDIT_VENDOR" logs --no-color > audit-results/vendor-containers.log
+
+      - name: Remove isolated containers and test data
+        if: always()
+        run: docker compose -f tests/vendor/compose.yml --profile "$HCP_AUDIT_VENDOR" down --volumes --remove-orphans
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-${{ matrix.vendor }}
+          path: audit-results/

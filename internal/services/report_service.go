@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -199,12 +200,8 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 					}
 				}
 				if len(hPoints) == 0 {
-					hPoints, hSummary = s.generateTimeSeriesData(mTitle, timeRange, "prometheus", host)
-					varianceFactor := 0.85 + float64((idx*13)%9)*0.04
-					for pIdx := range hPoints {
-						hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
-					}
-					hSummary = s.calculateSummary(hPoints, u)
+					// An unavailable/failed host must never become synthetic "live" data.
+					return
 				}
 				hSummary.Unit = u
 
@@ -258,8 +255,11 @@ func (s *ReportService) queryPrometheusData(ctx context.Context, req domain.Repo
 				Series:      seriesList,
 				TableRows:   allTableRows,
 				IsConnected: isConnected,
-				Message:     fmt.Sprintf("Live data across %d hosts from Prometheus", len(seriesList)),
+				Message:     fmt.Sprintf("Live data across %d of %d requested hosts from Prometheus", len(seriesList), len(targetHosts)),
 			}, nil
+		}
+		if isConnected {
+			return &domain.ReportQueryDataResponse{Title: metricTitle, SourceType: "prometheus", Points: []domain.ReportDataPoint{}, IsConnected: true, Message: "Prometheus: no live data returned for any requested host"}, nil
 		}
 	}
 
@@ -417,22 +417,10 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 					if gErr == nil && len(pts) > 0 {
 						hPoints = pts
 						hSummary = sum
-					} else {
-						// Fallback to Prometheus for this host
-						pResp, pErr := s.queryPrometheusData(ctx, reqCopy)
-						if pErr == nil && pResp != nil && len(pResp.Points) > 0 {
-							hPoints = pResp.Points
-							hSummary = pResp.Summary
-						}
 					}
 				}
 				if len(hPoints) == 0 {
-					hPoints, hSummary = s.generateTimeSeriesData(metricKey, timeRange, "grafana", host)
-					varianceFactor := 0.85 + float64((idx*13)%9)*0.04
-					for pIdx := range hPoints {
-						hPoints[pIdx].Value = math.Round(hPoints[pIdx].Value*varianceFactor*10) / 10
-					}
-					hSummary = s.calculateSummary(hPoints, "%")
+					return
 				}
 				hSummary.Unit = "%"
 
@@ -486,8 +474,11 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 				Series:      seriesList,
 				TableRows:   allTableRows,
 				IsConnected: isConnected,
-				Message:     fmt.Sprintf("Live data across %d hosts from Grafana", len(seriesList)),
+				Message:     fmt.Sprintf("Live data across %d of %d requested hosts from Grafana", len(seriesList), len(targetHosts)),
 			}, nil
+		}
+		if isConnected {
+			return &domain.ReportQueryDataResponse{Title: metricKey, SourceType: "grafana", Points: []domain.ReportDataPoint{}, IsConnected: true, Message: "Grafana: no live data returned for any requested host"}, nil
 		}
 	}
 
@@ -530,7 +521,7 @@ func (s *ReportService) queryGrafanaData(ctx context.Context, req domain.ReportQ
 
 		// Seamless fallback to direct Prometheus query if configured in HCP
 		promResp, promErr := s.queryPrometheusData(ctx, req)
-		if promErr == nil && promResp != nil && len(promResp.Points) > 0 {
+		if promErr == nil && promResp != nil && promResp.IsConnected && len(promResp.Points) > 0 {
 			logger.Info("ReportService", fmt.Sprintf("Grafana live query failed (%v), successfully fell back to direct Prometheus query", err))
 			promResp.SourceType = "grafana"
 			promResp.IsConnected = true
@@ -1331,7 +1322,17 @@ func (s *ReportService) fetchOpenSearchLive(ctx context.Context, cfg *domain.Ope
 		httpReq.SetBasicAuth(cfg.Username, cfg.Password)
 	}
 
-	resp, err := s.httpClient.Do(httpReq)
+	// Honor the selected profile's explicit TLS policy without weakening other
+	// reporting clients or relying on the global insecure-integration escape hatch.
+	client := *s.httpClient
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if existing, ok := s.httpClient.Transport.(*http.Transport); ok {
+		transport = existing.Clone()
+	}
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: !cfg.VerifySSL}
+	defer transport.CloseIdleConnections()
+	client.Transport = transport
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, domain.ReportWidgetSummary{}, nil, err
 	}

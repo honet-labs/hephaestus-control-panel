@@ -44,3 +44,17 @@ func TestS3CompatibleBackupUploads(t *testing.T) {
 		t.Fatalf("expected two uploads, got %d", uploads.Load())
 	}
 }
+
+func TestBackupS3RegionPolicy(t *testing.T) {
+	for _, tc := range []struct{ kind, endpoint, configured, want string }{
+		{"s3", "http://127.0.0.1:9000", "", "us-east-1"},
+		{"r2", "https://account.r2.cloudflarestorage.com", "", "auto"},
+		{"s3", "https://account.r2.cloudflarestorage.com", "", "auto"},
+		{"s3", "https://s3.eu-west-1.amazonaws.com", "eu-west-1", "eu-west-1"},
+	} {
+		dest := &domain.BackupDestination{DestType: tc.kind, Config: map[string]interface{}{"endpoint": tc.endpoint, "region": tc.configured}}
+		if got := backupS3Region(dest); got != tc.want {
+			t.Errorf("%s %s: got %s want %s", tc.kind, tc.endpoint, got, tc.want)
+		}
+	}
+}

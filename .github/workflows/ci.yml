@@ -57,7 +57,7 @@ jobs:
         run: go test -race ./...
         env:
           HCP_AUDIT_POSTGRES: '1'
-          HCP_AUDIT_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
+          HCP_AUDIT_POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
           HCP_AUDIT_POSTGRES_USER: hcp_audit
           HCP_AUDIT_POSTGRES_PASSWORD: isolated-ci-test-password
           HCP_AUDIT_REQUIRE_DUMP: '1'

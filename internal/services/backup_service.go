@@ -644,7 +644,7 @@ func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePa
 
 		cfg, err := awsConfig.LoadDefaultConfig(ctx,
 			awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-			awsConfig.WithRegion("auto"),
+			awsConfig.WithRegion(backupS3Region(dest)),
 		)
 		if err != nil {
 			return err
@@ -767,7 +767,7 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 
 		cfg, err := awsConfig.LoadDefaultConfig(ctx,
 			awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-			awsConfig.WithRegion("auto"),
+			awsConfig.WithRegion(backupS3Region(dest)),
 		)
 		if err != nil {
 			return err

@@ -1,10 +1,15 @@
 package services
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"sync/atomic"
 	"testing"
+
+	"go-hephaestus/internal/core/domain"
 )
 
 func TestIntegrationClientsDoNotFollowRedirects(t *testing.T) {
@@ -43,5 +48,26 @@ func TestReportTLSRejectsUntrustedCertificate(t *testing.T) {
 	if resp, err := client.Get(server.URL); err == nil {
 		resp.Body.Close()
 		t.Fatal("accepted untrusted TLS certificate")
+	}
+}
+
+func TestOpenSearchReportsHonorPerProfileTLS(t *testing.T) {
+	t.Setenv("ALLOW_INSECURE_INTEGRATION_TLS", "false")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"hits":{"total":{"value":0},"hits":[]},"aggregations":{"events_over_time":{"buckets":[{"key_as_string":"2026-11-20T12:00:00Z","doc_count":1}]}}}`))
+	}))
+	defer server.Close()
+	endpoint, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(endpoint.Port())
+	cfg := &domain.OpenSearchConfig{Host: endpoint.Hostname(), Port: port, UseSSL: true, VerifySSL: false}
+	report := NewReportService(nil, nil, nil, nil)
+	query := domain.ReportQueryDataRequest{TimeRange: "1h"}
+	if _, _, _, err := report.fetchOpenSearchLive(context.Background(), cfg, query); err != nil {
+		t.Fatalf("explicit per-profile untrusted TLS failed: %v", err)
+	}
+	cfg.VerifySSL = true
+	if _, _, _, err := report.fetchOpenSearchLive(context.Background(), cfg, query); err == nil {
+		t.Fatal("profile requiring certificate verification accepted an untrusted certificate")
 	}
 }

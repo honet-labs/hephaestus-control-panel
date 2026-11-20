@@ -1,5 +1,25 @@
 # Audit follow-up — 20 November 2026
 
+## Verified closure update
+
+The corrective commit **8b1d57b** passed its complete
+[CI run 44690530179](https://github.com/honet-labs/hephaestus-control-panel/actions/runs/44690530179):
+Linux race tests with PostgreSQL-16 backup/restore, staticcheck/vet, frontend build/
+audit, PostgreSQL-client image checks, Nginx configuration checks, and final image
+vulnerability gates on backend/frontend for both amd64 and arm64. This closes the
+earlier dump-client compatibility failure; it was not waived.
+
+A further isolated vendor suite is defined in `tests/vendor/README.md` and the
+`Isolated Vendor Integration Audit` workflow. It runs genuine vendor containers,
+not the earlier protocol fixtures, without customer infrastructure. Results must
+be confirmed for the introducing commit before considering those tests passed.
+Data Prepper/OTel customer SSH/systemd management, customer historical schemas and
+production deployment remain distinct checks requiring the corresponding access.
+
+The vendor work also adds explicit S3 region selection (provider-compatible default,
+R2 `auto`, or a configured region) and makes OpenSearch reports honor the selected
+profile's TLS verification policy without disabling verification globally.
+
 This supplements `SECURITY-AUDIT-2026-11.md`; it does not replace its deployment
 warnings. Production was not modified or penetration-tested.
 

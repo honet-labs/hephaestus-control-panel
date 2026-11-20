@@ -1,0 +1,79 @@
+# Ephemeral CI fixtures only. No production credentials or persistent volumes.
+# Images were resolved against their registries; digests make reruns reproducible.
+services:
+  opensearch:
+    profiles: [opensearch]
+    image: opensearchproject/opensearch:3.10.0@sha256:02d6d6e40c820ae08233b60540aa5d3d9364d64e2dc724e38d6c8c794879b2a0
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: Hcp-CI-Only-Audit-2026!
+      bootstrap.memory_lock: 'false'
+    ports: ['127.0.0.1:19200:9200']
+    mem_limit: 2g
+
+  prometheus:
+    profiles: [prometheus, grafana]
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    command: ['--config.file=/etc/prometheus/audit.yml', '--web.enable-lifecycle']
+    volumes: ['./prometheus.yml:/etc/prometheus/audit.yml:ro']
+    ports: ['127.0.0.1:19090:9090']
+    mem_limit: 512m
+
+  grafana:
+    profiles: [grafana]
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: Hcp-CI-Only-Audit-2026!
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    depends_on: [prometheus]
+    ports: ['127.0.0.1:13000:3000']
+    mem_limit: 768m
+
+  dataprepper:
+    profiles: [dataprepper]
+    image: opensearchproject/data-prepper:2.16.0@sha256:6e74ebeddfd66549f623e6f3b8131111b34e85695f54bd68aac7563e80d6b546
+    environment:
+      JAVA_OPTS: -Xms256m -Xmx512m
+    volumes:
+      - ./dataprepper-pipelines:/usr/share/data-prepper/pipelines:ro
+      - ./dataprepper-core.yml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+    ports: ['127.0.0.1:12021:2021']
+    mem_limit: 1536m
+
+  otel:
+    profiles: [otel]
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    command: ['--config=/etc/otelcol/audit.yml']
+    volumes: ['./otel.yml:/etc/otelcol/audit.yml:ro']
+    ports:
+      - '127.0.0.1:13133:13133'
+      - '127.0.0.1:14318:4318'
+      - '127.0.0.1:19464:9464'
+    mem_limit: 512m
+
+  vaultwarden:
+    profiles: [vaultwarden]
+    image: vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
+    environment:
+      DOMAIN: http://127.0.0.1:18280
+      SIGNUPS_ALLOWED: 'true'
+      SIGNUPS_VERIFY: 'false'
+      WEB_VAULT_ENABLED: 'false'
+      ROCKET_PORT: '80'
+    ports: ['127.0.0.1:18280:80']
+    mem_limit: 512m
+
+  s3:
+    profiles: [s3]
+    image: rustfs/rustfs:1.0.6@sha256:ee717072290bec9b11abfc0365f8310b00df1cd9b3639943edae47bdef05044a
+    environment:
+      RUSTFS_ACCESS_KEY: hcp-audit-access
+      RUSTFS_SECRET_KEY: Hcp-CI-Only-Audit-2026!
+      RUSTFS_VOLUMES: /data
+      RUSTFS_CONSOLE_ENABLE: 'false'
+    ports: ['127.0.0.1:19000:9000']
+    mem_limit: 1g
