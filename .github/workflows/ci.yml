@@ -91,6 +91,10 @@ jobs:
         working-directory: ./web
         run: npm ci
 
+      - name: Test frontend terminal clipboard shortcuts
+        working-directory: ./web
+        run: npm test
+
       - name: Compile Vue 3 SPA Bundle
         working-directory: ./web
         run: npm run build

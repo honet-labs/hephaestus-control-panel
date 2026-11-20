@@ -20,7 +20,33 @@
   detaches the socket and releases browser workers without reconnecting a disposed
   terminal behind the scenes.
 
-## Limits
+## Clipboard shortcuts
+
+While the SSH terminal has focus, **Ctrl+Shift+C** copies its selected text and
+**Ctrl+Shift+V** pastes clipboard text through xterm's paste API (including its
+bracketed-paste handling). These two cancelable keyboard events are consumed
+before awaiting clipboard access, rather than also invoking browser Inspect or
+native paste. **Ctrl+C** remains terminal interrupt; plain Ctrl+V and macOS
+Cmd+C/Cmd+V retain their existing behavior. No global DevTools block is installed,
+and browsers/extensions that reserve a shortcut before delivering it to the page
+cannot be overridden by the app.
+
+Clipboard APIs require a secure context (HTTPS/localhost) and browser permission.
+Missing/denied APIs produce a transient notice, never shell input or console logs
+containing clipboard text. Paste is cancelled if the session/socket/focus changes
+while permission is pending. Only selected text is copied; nothing is recorded in
+browser storage. Multi-line paste may execute commands according to the remote
+shell's bracketed-paste support; inspect clipboard content before pasting.
+
+`cd web && npm test` covers shortcut cancellation, one-shot paste, unchanged
+interrupt/default shortcuts, selection/connection guards and clipboard failures.
+A local headless Chrome smoke test with the real helper and xterm also passed:
+selected-text clipboard round-trip, default-event cancellation for both shortcuts,
+one bracketed paste, Ctrl+C producing the interrupt byte, and no interception in
+an input outside the terminal. This was a loopback browser harness, not a test of
+every browser/extension or the customer's deployed clipboard permissions.
+
+## Session persistence limits
 
 This is not tmux/screen or durable session recording. Backend restarts, SSH server
 disconnects, shell logout/TMOUT policies, **Reset Shell**, or expiry of the grace

@@ -8,6 +8,7 @@ import ThemeToggle from '../components/ThemeToggle.vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { handleTerminalClipboardShortcut } from '../lib/terminalClipboard';
 import '@xterm/xterm/css/xterm.css';
 import {
   Server,
@@ -1189,8 +1190,18 @@ const initXterm = (session: OpenSession) => {
   term.loadAddon(new WebLinksAddon());
   term.open(container);
 
-  // Attach key event handler for zoom shortcuts inside xterm.js
+  // Override copy/paste only while xterm owns keyboard focus. Ctrl+C remains SIGINT.
   term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+    const socketAtShortcut = session.ws;
+    if (handleTerminalClipboardShortcut(event, {
+      getSelection: () => term.getSelection(),
+      writeText: (text) => navigator.clipboard.writeText(text),
+      readText: () => navigator.clipboard.readText(),
+      canPaste: () => session.term === term && activeSession.value?.id === session.id && session.activeView === 'terminal' && term.textarea === document.activeElement && session.connected && session.ws === socketAtShortcut && socketAtShortcut?.readyState === WebSocket.OPEN,
+      // Use xterm's paste path: preserves bracketed-paste mode and newline handling.
+      paste: (text) => term.paste(text),
+      notify: showNotice,
+    })) return false;
     if (event.ctrlKey || event.metaKey) {
       if (event.key === '=' || event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd') {
         if (event.type === 'keydown') {
