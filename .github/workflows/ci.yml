@@ -16,7 +16,8 @@ jobs:
   # =============================================================
   backend:
     name: Backend Test, Security & Build
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04's native PostgreSQL client major matches the PG16 test service.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -133,6 +134,13 @@ jobs:
       - name: Validate Nginx configuration in final image
         if: matrix.image == 'frontend'
         run: docker run --rm --add-host engine:127.0.0.1 hephaestus-frontend:audit nginx -t
+
+      - name: Validate bundled PostgreSQL dump clients
+        if: matrix.image == 'backend'
+        run: >-
+          docker run --rm --entrypoint sh hephaestus-backend:audit -c
+          'pg_dump16 --version && /usr/libexec/postgresql17/pg_dump --version &&
+          /usr/libexec/postgresql18/pg_dump --version && pg_dump --version'
 
       - name: Scan final image OS and application dependencies
         run: |

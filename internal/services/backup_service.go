@@ -210,15 +210,13 @@ func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *doma
 	var cmd *exec.Cmd
 	switch dbCfg.DBType {
 	case "postgresql":
-		dumpBin := "pg_dump"
-		if p, err := exec.LookPath("pg_dump"); err == nil {
-			dumpBin = p
-		} else {
+		dumpBin, err := postgresDumpBinary(ctx, dbCfg)
+		if err != nil {
 			// Never report a data-only, schema-less approximation as a full backup.
 			_ = gw.Close()
 			_ = outFile.Close()
 			_ = os.Remove(targetFilePath)
-			return 0, fmt.Errorf("pg_dump is required for a restorable PostgreSQL backup: %w", err)
+			return 0, err
 		}
 		cmd = exec.CommandContext(ctx, dumpBin,
 			"-h", dbCfg.Host,

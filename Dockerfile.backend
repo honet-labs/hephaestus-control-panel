@@ -2,13 +2,16 @@
 # Backend Build Stage
 # ==========================================
 ARG REGISTRY_MIRROR=""
-FROM ${REGISTRY_MIRROR}golang:1.27.4-alpine AS builder
+FROM --platform=$BUILDPLATFORM ${REGISTRY_MIRROR}golang:1.27.4-alpine AS builder
+
+ARG TARGETARCH
 
 WORKDIR /app
 
 ENV GOPROXY=https://proxy.golang.org,https://goproxy.io,direct \
     CGO_ENABLED=0 \
-    GOOS=linux
+    GOOS=linux \
+    GOARCH=${TARGETARCH}
 
 # Copy all source files
 COPY . ./
@@ -21,19 +24,22 @@ RUN go mod download && go mod verify && \
 # ==========================================
 # Backend Production Runtime Stage
 # ==========================================
+FROM ${REGISTRY_MIRROR}postgres:16-alpine AS postgres16-client
+
 FROM ${REGISTRY_MIRROR}alpine:3.24.4
 
 RUN apk upgrade --no-cache
 
 RUN (sed -i 's/dl-cdn.alpinelinux.org/mirrors.edge.kernel.org/g' /etc/apk/repositories 2>/dev/null || true) && \
-    (apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash || \
+    (apk add --no-cache ca-certificates tzdata postgresql-client postgresql17-client postgresql18-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash || \
      ((sed -i 's/mirrors.edge.kernel.org/dl-cdn.alpinelinux.org/g' /etc/apk/repositories 2>/dev/null || true) && \
-      apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash))
+      apk add --no-cache ca-certificates tzdata postgresql-client postgresql17-client postgresql18-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash))
 
 WORKDIR /app
 
 COPY --from=builder /app/hephaestus /app/hephaestus
 COPY --from=builder /app/hcp-cli /app/hcp-cli
+COPY --from=postgres16-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump16
 RUN ln -sf /app/hcp-cli /usr/local/bin/hcp-cli && ln -sf /app/hephaestus /usr/local/bin/hephaestus
 COPY internal/database/migrations /app/internal/database/migrations
 

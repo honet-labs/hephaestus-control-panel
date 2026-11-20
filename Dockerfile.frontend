@@ -2,7 +2,7 @@
 # Frontend Build Stage
 # ==========================================
 ARG REGISTRY_MIRROR=""
-FROM ${REGISTRY_MIRROR}node:24-alpine AS builder
+FROM --platform=$BUILDPLATFORM ${REGISTRY_MIRROR}node:24-alpine AS builder
 
 WORKDIR /app
 

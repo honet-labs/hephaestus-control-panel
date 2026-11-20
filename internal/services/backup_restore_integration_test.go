@@ -71,6 +71,15 @@ func TestPostgresBackupRestoreRoundTrip(t *testing.T) {
 	}
 	file := filepath.Join(t.TempDir(), "roundtrip.sql.gz")
 	s := &BackupService{}
+	if incompatible := os.Getenv("HCP_AUDIT_INCOMPATIBLE_DUMP"); incompatible != "" {
+		original := os.Getenv("PG_DUMP_BIN")
+		t.Setenv("PG_DUMP_BIN", incompatible)
+		_, mismatchErr := postgresDumpBinary(ctx, &domain.BackupDbConfig{Host: db.Host, Port: db.Port, Username: db.User, Password: db.Password, DatabaseName: source})
+		t.Setenv("PG_DUMP_BIN", original)
+		if mismatchErr == nil {
+			t.Fatal("incompatible client major was accepted")
+		}
+	}
 	if _, err := s.executeDumpDirectToFile(ctx, &domain.BackupDbConfig{DBType: "postgresql", Host: db.Host, Port: db.Port, Username: db.User, Password: db.Password, DatabaseName: source}, file); err != nil {
 		t.Fatal(err)
 	}

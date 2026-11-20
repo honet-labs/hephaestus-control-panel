@@ -29,6 +29,7 @@ func TestBackupPathsCannotEscapeStorageRoot(t *testing.T) {
 }
 
 func TestPostgresBackupFailsWithoutDumpClient(t *testing.T) {
+	t.Setenv("PG_DUMP_BIN", "")
 	t.Setenv("PATH", t.TempDir())
 	file := filepath.Join(t.TempDir(), "backup.sql.gz")
 	s := &BackupService{}
