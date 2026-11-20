@@ -1139,7 +1139,36 @@ func (s *VaultwardenService) encryptCipherString(plaintext string, encKey, macKe
 	return fmt.Sprintf("2.%s|%s|%s", ivB64, cipherB64, macB64), nil
 }
 
-// CreateCipher encrypts and posts a new credential directly to the remote Vaultwarden instance
+// Resolve the encryption recipient from the authenticated server profile, never
+// from caller input. New Vaultwarden versions require encryptedFor on writes.
+func (s *VaultwardenService) cipherRecipient(ctx context.Context, auth *vwAuthContext) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, auth.ServerURL+"/api/accounts/profile", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("vault profile request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vault profile returned HTTP %d", resp.StatusCode)
+	}
+	var profile struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&profile); err != nil {
+		return "", fmt.Errorf("invalid vault profile: %w", err)
+	}
+	if strings.TrimSpace(profile.ID) == "" {
+		return "", fmt.Errorf("vault profile has no account ID")
+	}
+	return profile.ID, nil
+}
+
+// CreateCipher encrypts and posts a new credential directly to the remote Vaultwarden instance.
 func (s *VaultwardenService) CreateCipher(ctx context.Context, userID int, userRole string, req domain.CreateVaultCipherRequest, configID ...string) (*domain.VaultCredentialItem, error) {
 	cfg, err := s.repo.GetConfig(ctx, userID, userRole, configID...)
 	if err != nil {
@@ -1187,6 +1216,11 @@ func (s *VaultwardenService) CreateCipher(ctx context.Context, userID int, userR
 		"notes":          encNotes,
 		"favorite":       false,
 	}
+	recipient, err := s.cipherRecipient(ctx, authCtx)
+	if err != nil {
+		return nil, err
+	}
+	bodyMap["encryptedFor"] = recipient
 
 	if cipherType == 1 {
 		loginObj := make(map[string]interface{})
@@ -1368,6 +1402,11 @@ func (s *VaultwardenService) UpdateCipher(ctx context.Context, userID int, userR
 		"notes":          encNotes,
 		"favorite":       false,
 	}
+	recipient, err := s.cipherRecipient(ctx, authCtx)
+	if err != nil {
+		return nil, err
+	}
+	bodyMap["encryptedFor"] = recipient
 
 	if cipherType == 1 {
 		loginObj := make(map[string]interface{})

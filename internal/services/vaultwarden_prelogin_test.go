@@ -50,3 +50,34 @@ func TestVaultPreloginEndpointCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func TestVaultCipherRecipientRequiresAuthenticatedProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+		wantError  bool
+	}{
+		{"valid", `{"id":"server-account-id"}`, http.StatusOK, false},
+		{"missing-id", `{}`, http.StatusOK, true},
+		{"invalid-json", `{`, http.StatusOK, true},
+		{"unauthorized", `{}`, http.StatusUnauthorized, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/accounts/profile" || r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer test-token" {
+					t.Error("profile request did not bind authenticated account")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			id, err := NewVaultwardenService(nil).cipherRecipient(context.Background(), &vwAuthContext{ServerURL: server.URL, AccessToken: "test-token"})
+			if (err != nil) != tc.wantError {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !tc.wantError && id != "server-account-id" {
+				t.Fatal("incorrect encryption recipient")
+			}
+		})
+	}
+}
