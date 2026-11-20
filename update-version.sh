@@ -41,15 +41,9 @@ cd "$INSTALL_DIR"
 # Safe Self-Reload after git pull to ensure script executes new code from start
 if [ -z "$HCP_UPDATE_RELOADED" ]; then
     export HCP_UPDATE_RELOADED=1
-    echo -e "\n${BLUE}[1/4] Fetching latest release from GitHub...${NC}"
-    git stash || true
-    if git fetch origin main 2>/dev/null; then
-        git reset --hard origin/main || true
-        echo -e "${GREEN}[OK] Repository updated to latest release. Reloading update script...${NC}"
-    else
-        echo -e "${YELLOW}[!] Could not fetch from origin/main. Continuing with local version...${NC}"
-    fi
-    chmod +x "$SCRIPT_FILE" 2>/dev/null || true
+    echo -e "\n${BLUE}[1/4] Updating the selected source branch...${NC}"
+    bash "$INSTALL_DIR/scripts/update-source.sh"
+    echo -e "${GREEN}[OK] Source updated safely. Reloading update script...${NC}"
     exec bash "$SCRIPT_FILE" "$@"
 fi
 
@@ -113,7 +107,7 @@ EOF
     fi
 fi
 
-echo -e "\n${BLUE}[2/4] Rebuilding & Upgrading Container Stack...${NC}"
+echo -e "\n${BLUE}[2/4] Rebuilding branch $(git branch --show-current), commit $(git rev-parse --short HEAD)...${NC}"
 BUILD_SUCCESS=false
 
 # Attempt 1: Standard build (fast, leverages local layer cache)

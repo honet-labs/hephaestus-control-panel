@@ -35,6 +35,9 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Test non-destructive branch-aware updater
+        run: bash tests/scripts/update-source-test.sh
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
