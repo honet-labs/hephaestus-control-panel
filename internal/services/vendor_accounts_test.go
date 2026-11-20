@@ -138,11 +138,15 @@ func testVendorVaultwarden(t *testing.T, ctx context.Context, client *http.Clien
 	if err != nil {
 		t.Fatal(err)
 	}
-	registration := map[string]interface{}{"email": email, "masterPasswordHash": service.computePasswordHash(master, vendorTestPassword), "key": wrappedKey, "kdf": 0, "kdfIterations": 600000}
-	status, _, err := vendorCall(ctx, client, http.MethodPost, base+"/api/accounts/register", registration, nil)
-	if status == http.StatusNotFound {
-		status, _, err = vendorCall(ctx, client, http.MethodPost, base+"/api/accounts/register/finish", registration, nil)
+	// 1.37.5 registers through Identity and requires a verification token even
+	// when no email delivery/verification is configured in the isolated fixture.
+	verification := requireVendorCall(t, ctx, client, http.MethodPost, base+"/identity/accounts/register/send-verification-email", map[string]string{"email": email, "name": "HCP audit"}, func(req *http.Request) { req.Header.Set("Accept", "application/json") })
+	var verificationToken string
+	if err := json.Unmarshal(verification, &verificationToken); err != nil || verificationToken == "" {
+		t.Fatal("Vaultwarden fixture did not return a registration token")
 	}
+	registration := map[string]interface{}{"email": email, "emailVerificationToken": verificationToken, "masterPasswordHash": service.computePasswordHash(master, vendorTestPassword), "key": wrappedKey, "kdf": 0, "kdfIterations": 600000}
+	status, _, err := vendorCall(ctx, client, http.MethodPost, base+"/identity/accounts/register/finish", registration, nil)
 	if err != nil || status < 200 || status >= 300 {
 		t.Fatalf("Vaultwarden fixture registration: status=%d err=%v", status, err)
 	}
