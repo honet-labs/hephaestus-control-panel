@@ -64,6 +64,8 @@ services:
       SIGNUPS_VERIFY: 'false'
       WEB_VAULT_ENABLED: 'false'
       ROCKET_PORT: '80'
+      # Explicit opt-in for disposable CI data, never a production setting.
+      I_REALLY_WANT_VOLATILE_STORAGE: 'true'
     # Vaultwarden refuses unmounted storage. This anonymous test volume is
     # deleted by CI's `down --volumes`; it never contains customer vault data.
     volumes: ['/data']
