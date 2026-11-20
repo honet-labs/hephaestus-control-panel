@@ -779,6 +779,22 @@ func (s *VaultwardenService) doPrelogin(ctx context.Context, serverURL, email st
 	if err != nil {
 		return nil, fmt.Errorf("connection error: %w", err)
 	}
+	// Newer Vaultwarden versions moved prelogin to Identity. Preserve older
+	// servers and retry only a missing route, never authentication/rate-limit errors.
+	if resp.StatusCode == http.StatusNotFound {
+		_ = resp.Body.Close()
+		endpoint = fmt.Sprintf("%s/identity/accounts/prelogin", serverURL)
+		req, err = http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		resp, err = s.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("connection error: %w", err)
+		}
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
