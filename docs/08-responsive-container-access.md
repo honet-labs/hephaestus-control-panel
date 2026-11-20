@@ -26,9 +26,25 @@ requires authorized access and remains outside the executed checks.
   inside their own region rather than widening the whole page.
 - On Management Containers, check long connection names, summary cards, section
   tabs, visibility/state filters, and the container table on narrow screens.
-- OpenSearch is under **App Services**, not Infrastructure. Existing URLs and
-  the `opensearch` RBAC permission remain unchanged. Users without that permission
-  should not see the group. Quick Search uses the same grouping label.
+- **App Services** opens `/app-services`, a responsive card catalog for OpenSearch,
+  Data Prepper, Prometheus and OpenTelemetry. OpenTelemetry also retains its Visual
+  Config link. Existing feature URLs and permissions remain unchanged. Any one
+  service's read permission exposes the catalog; cards without permission are
+  hidden and direct feature routes remain guarded. Quick Search uses the same
+  grouping. No standalone Remote sidebar group remains.
+- **Infrastructure → Server** contains Inventory Server/VPS followed by Remote
+  Server / SSH. Remote-only readers can see the parent groups without gaining
+  inventory permissions. `/remote-server` and `/remote-host` still work, and the
+  SSH workspace opens separately as before. This is navigation regrouping, not
+  a change to SSH session behavior or service configuration storage.
+
+Catalog regrouping was checked locally with headless Chrome and mocked API data
+at 320, 375, 768, 1024 and 1440px in both themes: no horizontal overflow/runtime
+errors, correct card destinations, active navigation, SSH placement and individual
+service permissions. Separate restricted profiles verified direct-route denial
+and remote-only parent visibility without exposing Inventory. `web/tests/appServices.test.mjs`
+covers catalog definitions, permission predicates and route grouping. These checks
+do not claim production deployment or tests on physical devices.
 
 ## Docker isolation
 

@@ -285,7 +285,7 @@ sudo systemctl enable --now data-prepper
 sudo systemctl status data-prepper`,
       },
       hcpSteps: [
-        'Open the Data Prepper Pipelines menu in the Hephaestus Control Panel sidebar.',
+        'Open App Services in the sidebar, then select the Data Prepper card.',
         'Use the integrated YAML pipeline editor to configure ingestion sources (OTLP, HTTP, Logstash buffer) and target sinks to OpenSearch.',
         'Hephaestus automatically validates Data Prepper pipeline YAML syntax and schema formatting.',
         'Use the volume mount dataprepper-pipelines or the /etc/data-prepper/pipelines directory to synchronize pipeline configuration files with the Data Prepper daemon or container.',
@@ -360,7 +360,7 @@ sudo systemctl enable --now otelcol-contrib
 sudo systemctl status otelcol-contrib`,
       },
       hcpSteps: [
-        'Open the OpenTelemetry Config menu in the Hephaestus Control Panel sidebar.',
+        'Open App Services in the sidebar, then select the OpenTelemetry card.',
         'Customize required receivers, batch processors, memory limiters, and exporters.',
         'Configure your applications or server agents to send OTLP telemetry to http://<host-ip>:4317 (gRPC) or http://<host-ip>:4318 (HTTP).',
         'Telemetry metrics and traces collected by the collector can be forwarded to Prometheus or OpenSearch registered in Hephaestus.',
@@ -540,7 +540,7 @@ sudo systemctl enable --now prometheus
 sudo systemctl status prometheus`,
       },
       hcpSteps: [
-        'Open the Prometheus Config menu in the Hephaestus Control Panel sidebar.',
+        'Open App Services in the sidebar, then select the Prometheus card.',
         'Configure prometheus.yml to define scrape intervals and scrape targets (such as node_exporter on port 9100).',
         'Navigate to Monitoring Instances in Hephaestus to enable host telemetry monitoring powered by Prometheus metrics.',
         'Hephaestus can update and dynamically reload Prometheus configurations via HTTP without service restarts thanks to the --web.enable-lifecycle flag.',
@@ -639,7 +639,7 @@ sudo systemctl enable --now opensearch
 sudo systemctl status opensearch`,
       },
       hcpSteps: [
-        'Open the OpenSearch Cluster menu in the Hephaestus Control Panel sidebar.',
+        'Open App Services in the sidebar, then select the OpenSearch card.',
         'Monitor cluster health status (Green/Yellow/Red), indexed document counts, and shard memory allocation in real time.',
         'Connect Data Prepper pipelines to automatically parse, enrich, and index incoming log streams into OpenSearch indices.',
         'Utilize the Raw Data Reports module and log analytics visualizations to inspect security events and system anomalies.',

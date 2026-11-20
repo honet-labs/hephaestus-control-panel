@@ -5,11 +5,11 @@ import { useAuthStore } from '../stores/auth';
 import CommandPalette from '../components/CommandPalette.vue';
 import AppLibraryModal from '../components/AppLibraryModal.vue';
 import ThemeToggle from '../components/ThemeToggle.vue';
+import { canReadAppServices, isAppServicesPath } from '../lib/appServices';
 import {
   LayoutDashboard,
   Link2,
   Network,
-  Sliders,
   Wrench,
   Shield,
   Activity,
@@ -26,8 +26,6 @@ import {
   Box,
   Server,
   FileText,
-  Radio,
-  Flame,
   Layers,
 } from 'lucide-vue-next';
 
@@ -37,43 +35,21 @@ const authStore = useAuthStore();
 
 // Accordion states - collapsed by default, open only if current route belongs to submenu
 const isInfrastructureOpen = ref(
+  route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host') ||
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
   route.path.startsWith('/infrastructure')
 );
 const isServerSubOpen = ref(
+  route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host') ||
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory')
 );
 const isDockerSubOpen = ref(
   route.path.startsWith('/infrastructure')
 );
-const isAppServicesOpen = ref(
-  route.path.startsWith('/opensearch-cluster')
-);
+const hasAppServices = computed(() => canReadAppServices(feature => authStore.can(feature, 'read')));
 const isNetworkingOpen = ref(route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
-const isRemoteConfigOpen = ref(
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host') ||
-  route.path.startsWith('/dataprepper-config') ||
-  route.path.startsWith('/prometheus-config') ||
-  route.path.startsWith('/opentelemetry-config') ||
-  route.path.startsWith('/opentelemetry-visual')
-);
-const isRemoteServersOpen = ref(
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
-);
-const isRemoteOtelOpen = ref(
-  route.path.startsWith('/opentelemetry-config') ||
-  route.path.startsWith('/opentelemetry-visual')
-);
-const isRemoteDataPrepperOpen = ref(
-  route.path.startsWith('/dataprepper-config')
-);
-const isRemotePrometheusOpen = ref(
-  route.path.startsWith('/prometheus-config')
-);
 const isToolsOpen = ref(
   route.path.startsWith('/snmp') ||
   route.path.startsWith('/grok-debugger') ||
@@ -94,43 +70,21 @@ const isReportsOpen = ref(
 
 // Active indicators for parent accordion headers
 const isInfrastructureActive = computed(() =>
+  route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host') ||
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory') ||
   route.path.startsWith('/infrastructure')
 );
 const isServerSubActive = computed(() =>
+  route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host') ||
   route.path.startsWith('/inventory-server') ||
   route.path.startsWith('/inventory')
 );
 const isDockerSubActive = computed(() =>
   route.path.startsWith('/infrastructure')
 );
-const isAppServicesActive = computed(() =>
-  route.path.startsWith('/opensearch-cluster')
-);
+const isAppServicesActive = computed(() => isAppServicesPath(route.path));
 const isNetworkingActive = computed(() => route.path.startsWith('/network-topology') || route.path.startsWith('/ipam'));
-const isRemoteConfigActive = computed(() =>
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host') ||
-  route.path.startsWith('/dataprepper-config') ||
-  route.path.startsWith('/prometheus-config') ||
-  route.path.startsWith('/opentelemetry-config') ||
-  route.path.startsWith('/opentelemetry-visual')
-);
-const isRemoteServersActive = computed(() =>
-  route.path.startsWith('/remote-server') ||
-  route.path.startsWith('/remote-host')
-);
-const isRemoteOtelActive = computed(() =>
-  route.path.startsWith('/opentelemetry-config') ||
-  route.path.startsWith('/opentelemetry-visual')
-);
-const isRemoteDataPrepperActive = computed(() =>
-  route.path.startsWith('/dataprepper-config')
-);
-const isRemotePrometheusActive = computed(() =>
-  route.path.startsWith('/prometheus-config')
-);
 const isToolsActive = computed(() =>
   route.path.startsWith('/snmp') ||
   route.path.startsWith('/grok-debugger') ||
@@ -180,6 +134,7 @@ const triggerSearch = () => {
 
 const currentRouteName = computed(() => {
   if (route.path === '/') return 'System Overview';
+  if (route.path === '/app-services') return 'App Services';
   if (route.path.startsWith('/connections')) return 'Add Connections';
   if (route.path.startsWith('/inventory-server') || route.path.startsWith('/inventory')) return 'Inventory Server/VPS';
   if (route.path.startsWith('/remote-server') || route.path.startsWith('/remote-host')) return 'Remote Server';
@@ -211,34 +166,16 @@ watch(
     isMobileSidebarOpen.value = false;
     if (
       newPath.startsWith('/inventory-server') ||
-      newPath.startsWith('/inventory')
+      newPath.startsWith('/inventory') || newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')
     ) {
       isInfrastructureOpen.value = true;
       isServerSubOpen.value = true;
     } else if (newPath.startsWith('/infrastructure')) {
       isInfrastructureOpen.value = true;
       isDockerSubOpen.value = true;
-    } else if (newPath.startsWith('/opensearch-cluster')) {
-      isAppServicesOpen.value = true;
-    }
-    if (newPath.startsWith('/remote-server') || newPath.startsWith('/remote-host')) {
-      isRemoteConfigOpen.value = true;
-      isRemoteServersOpen.value = true;
     }
     if (newPath.startsWith('/network-topology') || newPath.startsWith('/ipam')) {
       isNetworkingOpen.value = true;
-    }
-    if (newPath.startsWith('/dataprepper-config') || newPath.startsWith('/prometheus-config') || newPath.startsWith('/opentelemetry-config') || newPath.startsWith('/opentelemetry-visual')) {
-      isRemoteConfigOpen.value = true;
-      if (newPath.startsWith('/opentelemetry-config') || newPath.startsWith('/opentelemetry-visual')) {
-        isRemoteOtelOpen.value = true;
-      }
-      if (newPath.startsWith('/dataprepper-config')) {
-        isRemoteDataPrepperOpen.value = true;
-      }
-      if (newPath.startsWith('/prometheus-config')) {
-        isRemotePrometheusOpen.value = true;
-      }
     }
     if (newPath.startsWith('/snmp') || newPath.startsWith('/grok-debugger') || newPath.startsWith('/backup')) {
       isToolsOpen.value = true;
@@ -409,7 +346,7 @@ onUnmounted(() => {
           </router-link>
 
           <!-- 3. Infrastructure (Accordion) -->
-          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read')">
+          <div v-if="authStore.can('infrastructure', 'read') || authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('remote_servers', 'read')">
             <button
               @click="isInfrastructureOpen = !isInfrastructureOpen"
               :class="[
@@ -429,7 +366,7 @@ onUnmounted(() => {
             <!-- Infrastructure Sub-Menu Items -->
             <div v-show="isInfrastructureOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
               <!-- Sub-group: Server/VPS (Collapsible Sub-menu) -->
-              <div v-if="authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('infrastructure', 'read')">
+              <div v-if="authStore.can('connections', 'read') || authStore.can('server_inventory', 'read') || authStore.can('infrastructure', 'read') || authStore.can('remote_servers', 'read')">
                 <button
                   @click="isServerSubOpen = !isServerSubOpen"
                   :class="[
@@ -441,7 +378,7 @@ onUnmounted(() => {
                 >
                   <div class="flex items-center gap-2">
                     <Server class="w-3.5 h-3.5 shrink-0 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>Server/VPS</span>
+                    <span>Server</span>
                   </div>
                   <component :is="isServerSubOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isServerSubActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
                 </button>
@@ -460,6 +397,10 @@ onUnmounted(() => {
                   >
                     <span>Inventory Server/VPS</span>
                   </router-link>
+                  <a v-if="authStore.can('remote_servers', 'read')" href="/remote-server" target="_blank" rel="noopener noreferrer" @click="isMobileSidebarOpen = false"
+                    class="flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70">
+                    <span>Remote Server / SSH</span>
+                  </a>
                 </div>
               </div>
 
@@ -502,24 +443,13 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- App Services keeps application monitoring separate from infrastructure. -->
-          <div v-if="authStore.can('opensearch', 'read')">
-            <button
-              @click="isAppServicesOpen = !isAppServicesOpen"
-              :aria-expanded="isAppServicesOpen"
-              aria-controls="app-services-menu"
-              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border cursor-pointer text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]"
-              :class="isAppServicesActive ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-[#121826] font-semibold' : 'border-transparent'"
-            >
-              <span class="flex items-center gap-3"><Layers class="w-4 h-4 text-slate-400" />App Services</span>
-              <component :is="isAppServicesOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
-            </button>
-            <div v-show="isAppServicesOpen" id="app-services-menu" class="pl-3 pr-1 py-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <a href="/opensearch-cluster" target="_blank" rel="noopener noreferrer" @click="isMobileSidebarOpen = false"
-                class="flex items-center gap-2 py-2 px-2 rounded-md text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]">
-                <Search class="w-3.5 h-3.5 text-slate-400" /><span>OpenSearch</span>
-              </a>
-            </div>
+          <!-- Application services open a dedicated, permission-filtered catalog. -->
+          <div v-if="hasAppServices">
+            <router-link to="/app-services" active-class="" exact-active-class=""
+              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]"
+              :class="isAppServicesActive ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-[#121826] font-semibold' : 'border-transparent'">
+              <Layers class="w-4 h-4 text-slate-400" /><span>App Services</span>
+            </router-link>
           </div>
 
           <!-- 4. Networking (Accordion) -->
@@ -570,177 +500,6 @@ onUnmounted(() => {
               >
                 <span>IP Address Management</span>
               </router-link>
-            </div>
-          </div>
-
-          <!-- 6. Remote (Accordion) -->
-          <div v-if="authStore.can('remote_servers', 'read') || authStore.can('dataprepper_config', 'read') || authStore.can('prometheus_config', 'read') || authStore.can('opentelemetry_config', 'read')">
-            <button
-              @click="isRemoteConfigOpen = !isRemoteConfigOpen"
-              :class="[
-                isRemoteConfigActive
-                  ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/70 dark:bg-[#293681]/30 border-blue-200 dark:border-[#4274D9]/40 shadow-xs'
-                  : 'bg-transparent text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826] hover:text-slate-900 dark:hover:text-slate-200 border-transparent font-medium',
-                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs tracking-wide transition border'
-              ]"
-            >
-              <div class="flex items-center gap-3">
-                <Sliders class="w-4 h-4 shrink-0 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                <span>Remote</span>
-              </div>
-              <component :is="isRemoteConfigOpen ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 transition" :class="isRemoteConfigActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-            </button>
-
-            <!-- Remote Sub-Menu Items -->
-            <div v-show="isRemoteConfigOpen" class="pl-3 pr-1 py-1 space-y-1 border-l border-slate-200 dark:border-[#1b2234] ml-5 my-0.5">
-              <!-- Sub-group: Servers (Collapsible Sub-menu) -->
-              <div v-if="authStore.can('remote_servers', 'read')">
-                <button
-                  @click="isRemoteServersOpen = !isRemoteServersOpen"
-                  :class="[
-                    isRemoteServersActive
-                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <Server class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteServersActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>Servers</span>
-                  </div>
-                  <component :is="isRemoteServersOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteServersActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                </button>
-
-                <!-- Sub-items under Servers -->
-                <div v-show="isRemoteServersOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
-                  <a
-                    href="/remote-server"
-                    target="_blank"
-                    @click="isMobileSidebarOpen = false"
-                    :class="[
-                      (route.path === '/remote-server' || route.path === '/remote-host')
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>Remote Server</span>
-                  </a>
-                </div>
-              </div>
-              <!-- 1. OpenTelemetry Sub-group -->
-              <div v-if="authStore.can('opentelemetry_config', 'read')">
-                <button
-                  @click="isRemoteOtelOpen = !isRemoteOtelOpen"
-                  :class="[
-                    isRemoteOtelActive
-                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <Radio class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteOtelActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>OpenTelemetry</span>
-                  </div>
-                  <component :is="isRemoteOtelOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteOtelActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                </button>
-
-                <!-- Sub-items under OpenTelemetry -->
-                <div v-show="isRemoteOtelOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
-                  <router-link
-                    to="/opentelemetry-config"
-                    :class="[
-                      route.path === '/opentelemetry-config'
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>OpenTelemetry Config</span>
-                  </router-link>
-
-                  <router-link
-                    to="/opentelemetry-visual"
-                    :class="[
-                      route.path.startsWith('/opentelemetry-visual')
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>Visual Config</span>
-                  </router-link>
-                </div>
-              </div>
-
-              <!-- 2. DataPrepper Sub-group -->
-              <div v-if="authStore.can('dataprepper_config', 'read')">
-                <button
-                  @click="isRemoteDataPrepperOpen = !isRemoteDataPrepperOpen"
-                  :class="[
-                    isRemoteDataPrepperActive
-                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <Sliders class="w-3.5 h-3.5 shrink-0 transition" :class="isRemoteDataPrepperActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>DataPrepper</span>
-                  </div>
-                  <component :is="isRemoteDataPrepperOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemoteDataPrepperActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                </button>
-
-                <!-- Sub-items under DataPrepper -->
-                <div v-show="isRemoteDataPrepperOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
-                  <router-link
-                    to="/dataprepper-config"
-                    :class="[
-                      route.path === '/dataprepper-config'
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>DataPrepper Config</span>
-                  </router-link>
-                </div>
-              </div>
-
-              <!-- 3. Prometheus Sub-group -->
-              <div v-if="authStore.can('prometheus_config', 'read')">
-                <button
-                  @click="isRemotePrometheusOpen = !isRemotePrometheusOpen"
-                  :class="[
-                    isRemotePrometheusActive
-                      ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50/50 dark:bg-[#293681]/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                    'w-full flex items-center justify-between py-1.5 px-2 rounded-md text-[11px] font-medium transition cursor-pointer'
-                  ]"
-                >
-                  <div class="flex items-center gap-2">
-                    <Flame class="w-3.5 h-3.5 shrink-0 transition" :class="isRemotePrometheusActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                    <span>Prometheus</span>
-                  </div>
-                  <component :is="isRemotePrometheusOpen ? ChevronDown : ChevronRight" class="w-3 h-3 transition" :class="isRemotePrometheusActive ? 'text-blue-600 dark:text-[#95CCDD]' : 'text-slate-400 dark:text-slate-500'" />
-                </button>
-
-                <!-- Sub-items under Prometheus -->
-                <div v-show="isRemotePrometheusOpen" class="pl-3 py-0.5 space-y-0.5 border-l border-slate-200 dark:border-[#1b2234] ml-3.5 my-0.5">
-                  <router-link
-                    to="/prometheus-config"
-                    :class="[
-                      route.path === '/prometheus-config'
-                        ? 'text-blue-700 dark:text-[#95CCDD] font-semibold bg-blue-50 dark:bg-[#293681]/30'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-[#121826]/70',
-                      'flex items-center py-1.5 px-2 rounded-md text-[11px] font-medium transition'
-                    ]"
-                  >
-                    <span>Prometheus Config</span>
-                  </router-link>
-                </div>
-              </div>
             </div>
           </div>
 

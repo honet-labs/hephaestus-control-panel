@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { canReadAppServices } from '../lib/appServices';
 import { 
   Terminal, 
   Network, 
@@ -19,6 +20,7 @@ import {
   Boxes,
   Shield,
   AlertTriangle,
+  Layers,
 } from 'lucide-vue-next';
 
 const isOpen = ref(false);
@@ -31,14 +33,15 @@ const items = [
   { name: 'App Library', icon: Boxes, action: 'open_app_library', feature: 'dashboard' },
   { name: 'Connections', icon: Link2, route: '/connections', feature: 'connections' },
   { name: 'Inventory Server/VPS', icon: Server, route: '/inventory-server', feature: 'server_inventory' },
-  { name: 'Remote Server', icon: Terminal, route: '/remote-server', newTab: true, feature: 'remote_servers' },
+  { name: 'Infrastructure / Server / Remote Server (SSH)', icon: Terminal, route: '/remote-server', newTab: true, feature: 'remote_servers' },
+  { name: 'App Services', icon: Layers, route: '/app-services', feature: 'app-services' },
   { name: 'Management Container', icon: Boxes, route: '/infrastructure/containers', newTab: true, feature: 'infrastructure' },
   { name: 'Network Topology', icon: Network, route: '/network-topology', newTab: true, feature: 'network_topology' },
   { name: 'IP Address Management', icon: Network, route: '/ipam', feature: 'ipam' },
-  { name: 'Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config', feature: 'dataprepper_config' },
-  { name: 'Prometheus Config', icon: Sliders, route: '/prometheus-config', feature: 'prometheus_config' },
-  { name: 'OpenTelemetry Config', icon: Radio, route: '/opentelemetry-config', feature: 'opentelemetry_config' },
-  { name: 'Visual config OpenTelemetry (Beta)', icon: Radio, route: '/opentelemetry-visual', feature: 'opentelemetry_config' },
+  { name: 'App Services / Data Prepper Pipelines', icon: Sliders, route: '/dataprepper-config', feature: 'dataprepper_config' },
+  { name: 'App Services / Prometheus Config', icon: Sliders, route: '/prometheus-config', feature: 'prometheus_config' },
+  { name: 'App Services / OpenTelemetry Config', icon: Radio, route: '/opentelemetry-config', feature: 'opentelemetry_config' },
+  { name: 'App Services / OpenTelemetry Visual Config', icon: Radio, route: '/opentelemetry-visual', feature: 'opentelemetry_config' },
   { name: 'SNMP Browser', icon: Radio, route: '/snmp', feature: 'snmp' },
   { name: 'Grok Debugger', icon: ListTree, route: '/grok-debugger', feature: 'grok_debugger' },
   { name: 'Backup Manager', icon: Database, route: '/backup', feature: 'backup' },
@@ -55,6 +58,7 @@ const items = [
 
 const filteredItems = computed(() => {
   const allowed = items.filter(item => {
+    if (item.feature === 'app-services') return canReadAppServices(feature => authStore.can(feature, 'read'));
     if (item.feature === 'settings') {
       return authStore.can('settings', 'read') || authStore.user?.role?.toUpperCase() === 'ADMIN';
     }

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import { canReadAppServices } from '../lib/appServices';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -82,6 +83,12 @@ const router = createRouter({
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
       children: [
+        {
+          path: 'app-services',
+          name: 'app-services',
+          component: () => import('../views/AppServicesView.vue'),
+          meta: { requiresAuth: true, appServices: true },
+        },
         {
           path: '',
           name: 'dashboard',
@@ -326,6 +333,9 @@ router.beforeEach(async (to, _from, next) => {
     }
 
     // RBAC Feature Permission Enforcement
+    if (to.meta.appServices && !canReadAppServices(feature => authStore.can(feature, 'read'))) {
+      return next({ name: 'not-found' });
+    }
     if (to.meta.feature && typeof to.meta.feature === 'string') {
       const action = (to.meta.action as 'read' | 'manage') || 'read';
       const isInventoryAllowed = to.name === 'inventory-server' && (
@@ -338,6 +348,9 @@ router.beforeEach(async (to, _from, next) => {
         // User lacks permission for this route: avoid blank screen and redirect safely
         if (to.meta.feature !== 'dashboard' && authStore.can('dashboard', 'read')) {
           return next({ path: '/' });
+        }
+        if (canReadAppServices(feature => authStore.can(feature, 'read'))) {
+          return next({ path: '/app-services' });
         }
         const accessibleRoutes = [
           { path: '/connections', feature: 'connections' },
