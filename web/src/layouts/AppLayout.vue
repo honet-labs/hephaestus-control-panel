@@ -313,7 +313,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Navigation Links (With Sub-Menu Accordions) -->
-        <nav class="px-3 space-y-1 overflow-y-auto flex-1 select-none pr-2">
+        <nav aria-label="Main navigation" class="px-3 space-y-1 overflow-y-auto flex-1 select-none pr-2">
           
           <!-- 1. Overview -->
           <router-link
@@ -446,7 +446,7 @@ onUnmounted(() => {
           <!-- Application services open a dedicated, permission-filtered catalog. -->
           <div v-if="hasAppServices">
             <router-link to="/app-services" active-class="" exact-active-class=""
-              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]"
+              class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs tracking-wide transition border no-underline text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#121826]"
               :class="isAppServicesActive ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-[#121826] font-semibold' : 'border-transparent'">
               <Layers class="w-4 h-4 text-slate-400" /><span>App Services</span>
             </router-link>

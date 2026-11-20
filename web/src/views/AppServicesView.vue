@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { ChevronRight, Flame, Radio, Search, Sliders } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Flame, Radio, Search, Sliders } from 'lucide-vue-next';
 import { useAuthStore } from '../stores/auth';
-import { appServices } from '../lib/appServices';
+import { appServices, getServicePage } from '../lib/appServices';
 
 const authStore = useAuthStore();
 const services = computed(() => appServices.filter(service => authStore.can(service.feature, 'read')));
+const page = ref(1);
+const pageSize = ref(6);
+const pageSizeOptions = [3, 6, 12, 24];
+const pagination = computed(() => getServicePage(services.value, page.value, pageSize.value));
+watch(pageSize, () => { page.value = 1; });
+watch(() => pagination.value.page, value => { page.value = value; });
 const icons = { opensearch: Search, dataprepper: Sliders, prometheus: Flame, opentelemetry: Radio };
 </script>
 
@@ -20,7 +26,7 @@ const icons = { opensearch: Search, dataprepper: Sliders, prometheus: Flame, ope
     </div>
 
     <div v-if="services.length" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-label="Application services">
-      <article v-for="service in services" :key="service.id" class="min-w-0 flex flex-col rounded-xl border border-slate-200 dark:border-[#293247] bg-white dark:bg-[#111624] shadow-sm transition hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-md">
+      <article v-for="service in pagination.items" :key="service.id" class="min-w-0 flex flex-col rounded-xl border border-slate-200 dark:border-[#293247] bg-white dark:bg-[#111624] shadow-sm transition hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-md">
         <component
           :is="service.newTab ? 'a' : RouterLink"
           v-bind="service.newTab ? { href: service.path, target: '_blank', rel: 'noopener noreferrer' } : { to: service.path }"
@@ -41,5 +47,22 @@ const icons = { opensearch: Search, dataprepper: Sliders, prometheus: Flame, ope
       </article>
     </div>
     <div v-else class="rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-sm text-slate-500 dark:text-slate-400">No application services are available with your current permissions.</div>
+
+    <div role="navigation" aria-label="App Services pagination" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200 dark:border-[#293247] pt-4 text-xs text-slate-500 dark:text-slate-400">
+      <p aria-live="polite">Showing {{ pagination.start }}–{{ pagination.end }} of {{ services.length }} services</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="flex items-center gap-2">
+          <span>Per page</span>
+          <select v-model.number="pageSize" aria-label="Services per page" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111624] text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-400">
+            <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
+          </select>
+        </label>
+        <div class="flex items-center gap-2">
+          <button :disabled="pagination.page === 1" aria-label="Previous services page" @click="page = pagination.page - 1" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-500"><ChevronLeft class="w-4 h-4" aria-hidden="true" /></button>
+          <span>Page {{ pagination.page }} of {{ pagination.totalPages }}</span>
+          <button :disabled="pagination.page === pagination.totalPages" aria-label="Next services page" @click="page = pagination.page + 1" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-500"><ChevronRight class="w-4 h-4" aria-hidden="true" /></button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

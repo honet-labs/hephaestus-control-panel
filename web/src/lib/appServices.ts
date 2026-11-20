@@ -12,3 +12,13 @@ export function canReadAppServices(canRead: (feature: string) => boolean): boole
 export function isAppServicesPath(path: string): boolean {
   return path === '/app-services' || appServices.some(service => path === service.path) || path === '/opentelemetry-visual';
 }
+
+// Filter permissions before calling this function so counts never include hidden services.
+export function getServicePage<T>(items: readonly T[], requestedPage: number, requestedSize: number) {
+  const size = Number.isFinite(requestedSize) && requestedSize > 0 ? Math.max(1, Math.floor(requestedSize)) : 6;
+  const totalPages = Math.max(1, Math.ceil(items.length / size));
+  const page = Number.isFinite(requestedPage) ? Math.min(totalPages, Math.max(1, Math.floor(requestedPage))) : 1;
+  const start = items.length ? (page - 1) * size + 1 : 0;
+  const end = Math.min(page * size, items.length);
+  return { page, totalPages, start, end, items: items.slice((page - 1) * size, page * size) };
+}

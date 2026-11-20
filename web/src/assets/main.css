@@ -762,7 +762,7 @@ html.light button.rounded-lg[role="tab"][aria-selected="false"]:hover * {
 /* 15c. HORIZONTAL NAVIGATION BAR & UNDERLINE TABS (OPENSEARCH & PORTAL TABS) */
 /* Navigation bar tabs must always have transparent background, no box borders, and blue text when active */
 html.light nav button:not(.btn):not([role="tab"]),
-html.light nav a:not(.btn),
+html.light nav:not([aria-label="Main navigation"]) a:not(.btn),
 html.light button[class*="border-b-2"]:not([role="tab"]):not([class*="rounded-xl"]):not([class*="rounded-lg"]) {
   background-color: transparent !important;
   border-top-color: transparent !important;

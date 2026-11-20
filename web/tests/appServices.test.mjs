@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = readFileSync(new URL('../src/lib/appServices.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { appServices, canReadAppServices, isAppServicesPath } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { appServices, canReadAppServices, isAppServicesPath, getServicePage } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 
 test('catalog keeps the four services and their existing routes and permissions', () => {
   assert.deepEqual(appServices.map(({ name, feature, path }) => [name, feature, path]), [
@@ -35,4 +35,24 @@ test('application routes belong to App Services, while SSH and inventory do not'
   for (const path of ['/remote-host', '/remote-server', '/inventory-server', '/infrastructure/containers', '/']) {
     assert.equal(isAppServicesPath(path), false, path);
   }
+});
+
+test('catalog pagination slices pages with accurate totals and clamps page boundaries', () => {
+  const first = getServicePage(appServices, 1, 3);
+  assert.deepEqual(first.items, appServices.slice(0, 3));
+  assert.deepEqual([first.page, first.totalPages, first.start, first.end], [1, 2, 1, 3]);
+  const last = getServicePage(appServices, 99, 3);
+  assert.deepEqual(last.items, [appServices[3]]);
+  assert.deepEqual([last.page, last.totalPages, last.start, last.end], [2, 2, 4, 4]);
+  assert.equal(getServicePage(appServices, -1, 3).page, 1);
+  assert.equal(getServicePage(appServices, 2, 6).page, 1);
+});
+
+test('empty and permission-filtered catalogs have no misleading counts or hidden entries', () => {
+  assert.deepEqual(getServicePage([], 5, 3), { page: 1, totalPages: 1, start: 0, end: 0, items: [] });
+  const visible = appServices.filter(service => service.feature === 'prometheus_config');
+  const result = getServicePage(visible, 2, 3);
+  assert.deepEqual(result.items, visible);
+  assert.deepEqual([result.page, result.totalPages, result.start, result.end], [1, 1, 1, 1]);
+  assert.equal(getServicePage(appServices, NaN, 0).items.length, 4);
 });

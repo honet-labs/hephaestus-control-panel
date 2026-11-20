@@ -32,6 +32,12 @@ requires authorized access and remains outside the executed checks.
   service's read permission exposes the catalog; cards without permission are
   hidden and direct feature routes remain guarded. Quick Search uses the same
   grouping. No standalone Remote sidebar group remains.
+- The catalog has permission-scoped pagination (3/6/12/24 cards per page,
+  previous/next, current page and visible range). Changing page size resets to
+  page one; permission changes clamp the page so it cannot become blank. The
+  default six-card page currently shows all four services. Choosing three allows
+  a second page. Sidebar links are excluded from the generic light-mode tab-link
+  border rule to prevent a bottom-only active underline.
 - **Infrastructure → Server** contains Inventory Server/VPS followed by Remote
   Server / SSH. Remote-only readers can see the parent groups without gaining
   inventory permissions. `/remote-server` and `/remote-host` still work, and the
