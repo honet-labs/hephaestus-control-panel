@@ -269,6 +269,9 @@ func (s *PrometheusService) ReloadConfig(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("no active Prometheus server found: %w", err)
 	}
+	if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", promCfg.ID, "manage"); err != nil {
+		return err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", promCfg.ReloadURL, nil)
 	if err != nil {
@@ -292,6 +295,9 @@ func (s *PrometheusService) TestConnection(ctx context.Context, cfg domain.Prome
 	// If ID is provided and password is not supplied (or masked), retrieve saved decrypted credentials
 	if cfg.ID != "" && (cfg.SSHPassword == nil || *cfg.SSHPassword == "" || *cfg.SSHPassword == "••••••" || *cfg.SSHPassword == "********") {
 		dbCfg, err := s.configRepo.GetPrometheusByID(ctx, cfg.ID)
+		if err != nil || dbCfg == nil {
+			return false, "Saved Prometheus configuration unavailable", fmt.Errorf("saved configuration unavailable")
+		}
 		if err == nil && dbCfg != nil {
 			if cfg.Mode == "" {
 				cfg.Mode = dbCfg.Mode
@@ -313,6 +319,9 @@ func (s *PrometheusService) TestConnection(ctx context.Context, cfg domain.Prome
 			}
 			if cfg.SSHAuth == nil || *cfg.SSHAuth == "" {
 				cfg.SSHAuth = dbCfg.SSHAuth
+			}
+			if !samePrometheusSSHIdentity(cfg, *dbCfg) {
+				return false, "Supply fresh credentials when testing a different SSH destination", fmt.Errorf("saved SSH credentials are bound to their configured destination")
 			}
 			if cfg.SSHPassword == nil || *cfg.SSHPassword == "" || *cfg.SSHPassword == "••••••" || *cfg.SSHPassword == "********" {
 				cfg.SSHPassword = dbCfg.SSHPassword
@@ -614,6 +623,9 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 	}
 	if err != nil {
 		return nil, fmt.Errorf("prometheus configuration not found: %w", err)
+	}
+	if err := repository.RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", promCfg.ID, "manage"); err != nil {
+		return nil, err
 	}
 	defer s.InvalidateCache()
 

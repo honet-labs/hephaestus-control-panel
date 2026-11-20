@@ -333,6 +333,9 @@ func (r *ConfigRepository) ListPrometheus(ctx context.Context, userID int, userR
 }
 
 func (r *ConfigRepository) GetPrometheusByID(ctx context.Context, id string) (*domain.PrometheusConfig, error) {
+	if err := RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", id, "read"); err != nil {
+		return nil, err
+	}
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, err
@@ -384,6 +387,9 @@ func (r *ConfigRepository) GetActivePrometheus(ctx context.Context) (*domain.Pro
 			return nil, err
 		}
 	}
+	if err := RequireConnectionAccess(ctx, "prometheus_configs", "prometheus_shares", "config_id", c.ID, "read"); err != nil {
+		return nil, err
+	}
 	if c.SSHPassword != nil && *c.SSHPassword != "" {
 		if dec, err := config.DecryptText(*c.SSHPassword); err == nil {
 			c.SSHPassword = &dec
@@ -404,6 +410,15 @@ func (r *ConfigRepository) SavePrometheus(ctx context.Context, c domain.Promethe
 	}
 
 	isAdmin := domain.IsAdminRole(userRole)
+	// Local profiles grant access to the engine's filesystem, not the caller's
+	// machine. Only administrators may introduce/retarget local file endpoints.
+	isLocal := !strings.EqualFold(c.Mode, "ssh") && (c.SSHHost == nil || strings.TrimSpace(*c.SSHHost) == "")
+	if !isAdmin && isLocal {
+		existing, err := r.GetPrometheusByID(ctx, c.ID)
+		if err != nil || existing == nil || existing.Path != c.Path || !strings.EqualFold(existing.Mode, c.Mode) || (existing.SSHHost != nil && *existing.SSHHost != "") {
+			return fmt.Errorf("only administrators may create or change local integration file endpoints")
+		}
+	}
 
 	// Check existing
 	if c.ID != "" {

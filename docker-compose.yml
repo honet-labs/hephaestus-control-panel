@@ -29,7 +29,7 @@ services:
       - hephaestus_net
 
   # -------------------------------------------------------------
-  # Hephaestus Engine (Go 1.22 REST/WebSocket API + Worker Pool + Scheduler)
+  # Hephaestus Engine (Go REST/WebSocket API + Worker Pool + Scheduler)
   # -------------------------------------------------------------
   engine:
     build:
@@ -49,7 +49,7 @@ services:
       - DB_HOST=database
       - DB_PORT=5432
       - DB_USER=${DB_USER:-hephaestus}
-      - DB_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in .env}
       - DB_NAME=${DB_NAME:-hephaestus}
       - DB_SSL=false
       - DB_MAX_CONNS=${DB_MAX_CONNS:-25}
@@ -59,6 +59,10 @@ services:
       - GOMEMLIMIT=${GOMEMLIMIT:-512MiB}
       - GOGC=${GOGC:-80}
       - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-}
+      - SSH_HOST_KEY_POLICY=${SSH_HOST_KEY_POLICY:-tofu}
+      - SSH_KNOWN_HOSTS=${SSH_KNOWN_HOSTS:-/app/data/known_hosts}
+      - SSH_ALLOW_LEGACY_ALGORITHMS=${SSH_ALLOW_LEGACY_ALGORITHMS:-false}
+      - ALLOW_INSECURE_INTEGRATION_TLS=${ALLOW_INSECURE_INTEGRATION_TLS:-false}
       - LOGS_DIR=/app/logs
       - DATA_DIR=/app/data
       - TZ=${TZ:-Asia/Jakarta}
@@ -102,7 +106,7 @@ services:
       - "wal_buffers=${POSTGRES_WAL_BUFFERS:-8MB}"
     environment:
       - POSTGRES_USER=${DB_USER:-hephaestus}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-hephaestus_secret}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD in .env}
       - POSTGRES_DB=${DB_NAME:-hephaestus}
       - TZ=${TZ:-Asia/Jakarta}
     ports:

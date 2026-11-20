@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"go-hephaestus/internal/database"
 	"go-hephaestus/internal/handlers"
 	"go-hephaestus/internal/repository"
+	"go-hephaestus/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -134,6 +136,56 @@ func TestPostgresSecurity(t *testing.T) {
 				check(outsiderCtx, "read", true)
 				check(outsiderCtx, "manage", false)
 			})
+		}
+	})
+
+	t.Run("Prometheus direct retrieval and selected write", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `UPDATE prometheus_configs SET visibility='private',is_active=true WHERE id='audit-prometheus'`); err != nil {
+			t.Fatal(err)
+		}
+		repo := repository.NewConfigRepository()
+		local, err := repo.GetPrometheusByID(ownerCtx, "audit-prometheus")
+		if err != nil {
+			t.Fatal(err)
+		}
+		local.Path = "/arbitrary/engine/file"
+		if err := repo.SavePrometheus(ownerCtx, *local, owner.ID, owner.Role); err == nil {
+			t.Fatal("non-admin retargeted a local file profile")
+		}
+		local.ID = "new-local-profile"
+		if err := repo.SavePrometheus(ownerCtx, *local, owner.ID, owner.Role); err == nil {
+			t.Fatal("non-admin created a local file profile")
+		}
+		if _, err := repo.GetActivePrometheus(outsiderCtx); err == nil {
+			t.Fatal("report-style active lookup leaked another user's profile")
+		}
+		if _, err := repo.GetPrometheusByID(outsiderCtx, "audit-prometheus"); err == nil {
+			t.Fatal("direct lookup bypassed profile authorization")
+		}
+		if err := repository.NewConnectionShareRepository().AddShare(ctx, "prometheus_shares", "config_id", "audit-prometheus", reader.ID, "read", owner.ID); err != nil {
+			t.Fatal(err)
+		}
+		gin.SetMode(gin.TestMode)
+		for _, tc := range []struct {
+			user   *domain.User
+			status int
+		}{{reader, http.StatusForbidden}, {owner, http.StatusOK}} {
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				c.Set("user", tc.user)
+				c.Request = c.Request.WithContext(domain.ContextWithUser(ctx, tc.user))
+			})
+			r.Use(handlers.IntegrationAccessGuard(nil, nil))
+			r.POST("/api/v1/prometheus/config", func(c *gin.Context) { c.Status(http.StatusOK) })
+			res := httptest.NewRecorder()
+			r.ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/api/v1/prometheus/config", bytes.NewBufferString(`{"instanceId":"audit-prometheus","yaml":"test"}`)))
+			if res.Code != tc.status {
+				t.Fatalf("selected profile write for user %d: %d", tc.user.ID, res.Code)
+			}
+		}
+		service := services.NewOpenSearchService()
+		if _, err := service.SetActiveConfig(readerCtx, "audit-opensearch", reader.ID, reader.Role); err == nil {
+			t.Fatal("public OpenSearch reader activated global profile")
 		}
 	})
 

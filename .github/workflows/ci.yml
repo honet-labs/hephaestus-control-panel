@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: hcp_audit
           POSTGRES_PASSWORD: isolated-ci-test-password
@@ -43,8 +43,14 @@ jobs:
       - name: Download Go Dependencies
         run: go mod download
 
+      - name: Install PostgreSQL backup and restore clients
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y postgresql-client
+
       - name: Go Vet & Lint
         run: go vet ./...
+
+      - name: Static correctness and unused private code checks
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
       - name: Test with race detection
         run: go test -race ./...
@@ -53,6 +59,7 @@ jobs:
           HCP_AUDIT_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
           HCP_AUDIT_POSTGRES_USER: hcp_audit
           HCP_AUDIT_POSTGRES_PASSWORD: isolated-ci-test-password
+          HCP_AUDIT_REQUIRE_DUMP: '1'
 
       - name: Scan reachable Go vulnerabilities
         run: |
@@ -122,6 +129,10 @@ jobs:
           push: false
           load: true
           tags: hephaestus-${{ matrix.image }}:audit
+
+      - name: Validate Nginx configuration in final image
+        if: matrix.image == 'frontend'
+        run: docker run --rm --add-host engine:127.0.0.1 hephaestus-frontend:audit nginx -t
 
       - name: Scan final image OS and application dependencies
         run: |

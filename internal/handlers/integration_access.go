@@ -58,7 +58,19 @@ func IntegrationAccessGuard(prom *services.PrometheusService, dp *services.DataP
 			return
 		}
 		if c.Request.Method != http.MethodGet && (path == "/api/v1/prometheus/config" || path == "/api/v1/prometheus/reload") {
-			cfg, err := prom.GetActiveConfig(c.Request.Context())
+			var selection struct {
+				InstanceID string `json:"instanceId"`
+			}
+			if path == "/api/v1/prometheus/config" && !readSelection(c, &selection) {
+				return
+			}
+			var cfg *domain.PrometheusConfig
+			var err error
+			if selection.InstanceID != "" {
+				cfg, err = repository.NewConfigRepository().GetPrometheusByID(c.Request.Context(), selection.InstanceID)
+			} else {
+				cfg, err = prom.GetActiveConfig(c.Request.Context())
+			}
 			if err != nil || cfg == nil {
 				denyIntegration(c)
 				return

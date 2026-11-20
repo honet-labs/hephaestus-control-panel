@@ -18,6 +18,12 @@ warnings. Production was not modified or penetration-tested.
    destinations/identities. OpenSearch invalid IDs no longer fall back to the
    active profile in the test handler. TLS policy cannot be weakened while reusing
    saved OpenSearch credentials. Global OpenSearch activation requires manage.
+   Direct/active Prometheus repository lookups also enforce profile access so
+   report queries cannot bypass the service guard; configuration writes authorize
+   the selected instance ID rather than an unrelated active profile.
+   Non-admin configuration editors cannot introduce/retarget local Prometheus/
+   Data Prepper file profiles to arbitrary engine filesystem paths; existing
+   authorized local endpoints may still be edited without changing their target.
 4. **Backup secret persistence:** masked destination saves preserve ciphertext
    verbatim instead of encrypting it twice. SFTP private keys are encrypted,
    decrypted for service use and masked in lists. Save responses omit secrets.
@@ -42,6 +48,10 @@ warnings. Production was not modified or penetration-tested.
    unused helpers/state. Replaced deprecated AWS endpoint-resolver usage with
    service-specific S3 BaseEndpoint. Removed SNMP community secrets from timeout
    messages and replaced string client-IP context keys with a typed key.
+10. **Deployment configuration:** Compose forwards the documented SSH/TLS options
+    and rejects an unset database password instead of using a shared built-in
+    default. Nginx access logs omit query strings/referrers and use no-referrer;
+    upstream error logs and browser query-token compatibility still need care.
 
 ## Executed validation
 
@@ -121,6 +131,9 @@ database credentials. Default `go test` skips this opt-in database test.
   archives/backups and Windows ACLs separately. POSIX modes do not enforce Windows ACLs.
 - Explicitly provision Docker group/sudo permissions; investigate and correct any
   pre-existing world-writable sockets created by older versions.
+- Set `DB_PASSWORD` explicitly before running Compose. Preserve the current
+  database password when upgrading; changing only the environment does not rotate
+  the password inside an existing PostgreSQL volume.
 - Vendor OpenSearch, Grafana, Prometheus, Data Prepper, OTel, Vaultwarden and S3
   staging endpoints, genuine database backup/restore, deployment migrations from
   actual historical customer schemas and production cross-user sessions still

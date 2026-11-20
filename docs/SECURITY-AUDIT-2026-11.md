@@ -1,5 +1,9 @@
 # HCP security and continuity audit — November 2026
 
+> Follow-up: see [20 November validation and additional fixes](SECURITY-AUDIT-FOLLOWUP-2026-11.md)
+> for live PostgreSQL/SSH/SFTP tests, verified CI race/multi-arch build results,
+> additional application issues, and actual base-image OS CVE findings.
+
 ## Scope and limitations
 
 Review of application authorization, credentials, SSH/HTTP integrations, frontend
