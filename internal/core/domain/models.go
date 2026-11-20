@@ -376,16 +376,18 @@ type SftpFileEntry struct {
 }
 
 type WsTerminalMessage struct {
-	Type         string `json:"type"`
-	Data         string `json:"data,omitempty"`
-	Cols         int    `json:"cols,omitempty"`
-	Rows         int    `json:"rows,omitempty"`
-	Token        string `json:"token,omitempty"`
-	HostID       string `json:"hostId,omitempty"`
-	HostConfigID string `json:"hostConfigId,omitempty"`
-	SessionID    string `json:"sessionId,omitempty"`
-	Message      string `json:"message,omitempty"`
-	ForceNew     bool   `json:"forceNew,omitempty"`
+	Type          string `json:"type"`
+	Data          string `json:"data,omitempty"`
+	Cols          int    `json:"cols,omitempty"`
+	Rows          int    `json:"rows,omitempty"`
+	Token         string `json:"token,omitempty"`
+	HostID        string `json:"hostId,omitempty"`
+	HostConfigID  string `json:"hostConfigId,omitempty"`
+	SessionID     string `json:"sessionId,omitempty"`
+	Message       string `json:"message,omitempty"`
+	ForceNew      bool   `json:"forceNew,omitempty"`
+	Sequence      uint64 `json:"sequence,omitempty"`
+	ResetSequence bool   `json:"resetSequence,omitempty"`
 }
 
 type RemoteHostFirewallRule struct {

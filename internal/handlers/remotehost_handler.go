@@ -345,6 +345,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 	queryHostID := c.Query("hostId")
 	queryToken := c.Query("token")
 	querySessionID := c.Query("sessionId")
+	afterSequence, _ := strconv.ParseUint(c.Query("afterSequence"), 10, 64)
 	forceNew := c.Query("forceNew") == "true" || c.Query("reconnect") == "force"
 	if queryToken == "" {
 		if cookie, err := c.Cookie("hephaestus_session"); err == nil && cookie != "" {
@@ -413,6 +414,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		if authMsg.SessionID != "" {
 			querySessionID = authMsg.SessionID
 		}
+		afterSequence = authMsg.Sequence
 		if authMsg.ForceNew {
 			forceNew = true
 		}
@@ -452,7 +454,7 @@ func (h *RemoteHostHandler) HandleWebSocketTerminal(c *gin.Context) {
 		return
 	}
 
-	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID, querySessionID, forceNew)
+	h.wsService.HandleWebSocketSession(ws, cfg, cols, rows, userID, querySessionID, forceNew, afterSequence)
 }
 
 // DownloadRdpFile generates and serves a native Microsoft Remote Desktop (.rdp) connection file

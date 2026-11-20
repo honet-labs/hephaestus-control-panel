@@ -15,26 +15,47 @@ import (
 )
 
 type persistentSSHSession struct {
-	key         string
-	client      *ssh.Client
-	session     *ssh.Session
-	stdinPipe   io.WriteCloser
-	stdoutPipe  io.Reader
-	stderrPipe  io.Reader
-	cols        int
-	rows        int
-	activeWs    *websocket.Conn
-	wsMu        sync.Mutex
-	detachTimer *time.Timer
-	closed      bool
-	done        chan struct{}
-	mu          sync.Mutex
-	service     *WsTerminalService
+	key          string
+	client       *ssh.Client
+	session      *ssh.Session
+	stdinPipe    io.WriteCloser
+	stdoutPipe   io.Reader
+	stderrPipe   io.Reader
+	cols         int
+	rows         int
+	activeWs     *websocket.Conn
+	wsMu         sync.Mutex
+	detachTimer  *time.Timer
+	closed       bool
+	done         chan struct{}
+	mu           sync.Mutex
+	service      *WsTerminalService
+	detachEpoch  uint64                     // protected by mu; prevents stale detach callbacks closing an attached shell
+	history      []domain.WsTerminalMessage // protected by wsMu, never persisted to disk
+	historyBytes int
+	sequence     uint64
 }
+
+const terminalHistoryLimit = 1 << 20 // bounded output per live shell (1 MiB)
 
 func (p *persistentSSHSession) writeWs(msg domain.WsTerminalMessage) error {
 	p.wsMu.Lock()
 	defer p.wsMu.Unlock()
+	if msg.Type == "data" {
+		p.sequence++
+		msg.Sequence = p.sequence
+		retained := msg
+		if len(retained.Data) > terminalHistoryLimit {
+			retained.Data = retained.Data[len(retained.Data)-terminalHistoryLimit:]
+		}
+		p.history = append(p.history, retained)
+		p.historyBytes += len(retained.Data)
+		for p.historyBytes > terminalHistoryLimit && len(p.history) > 1 {
+			p.historyBytes -= len(p.history[0].Data)
+			p.history[0] = domain.WsTerminalMessage{}
+			p.history = p.history[1:]
+		}
+	}
 	if p.activeWs == nil {
 		return nil
 	}
@@ -43,8 +64,12 @@ func (p *persistentSSHSession) writeWs(msg domain.WsTerminalMessage) error {
 }
 
 func (p *persistentSSHSession) closeSession() {
+	p.closeSessionAtDetach(0)
+}
+
+func (p *persistentSSHSession) closeSessionAtDetach(epoch uint64) {
 	p.mu.Lock()
-	if p.closed {
+	if p.closed || (epoch != 0 && epoch != p.detachEpoch) {
 		p.mu.Unlock()
 		return
 	}
@@ -70,7 +95,12 @@ func (p *persistentSSHSession) closeSession() {
 	p.mu.Unlock()
 
 	p.wsMu.Lock()
+	if p.activeWs != nil {
+		_ = p.activeWs.Close()
+	}
 	p.activeWs = nil
+	p.history = nil
+	p.historyBytes = 0
 	p.wsMu.Unlock()
 
 	p.service.removeSession(p.key, p)
@@ -116,6 +146,8 @@ func (p *persistentSSHSession) startOutputPipes() {
 }
 
 func (p *persistentSSHSession) startKeepAlive() {
+	// SSH writes can block on a broken network. They must never stop the
+	// independent WebSocket heartbeat used by proxies and background tabs.
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -124,18 +156,25 @@ func (p *persistentSSHSession) startKeepAlive() {
 			case <-p.done:
 				return
 			case <-ticker.C:
-				p.mu.Lock()
-				isClosed := p.closed
-				client := p.client
-				p.mu.Unlock()
-
-				if isClosed || client == nil {
+				if _, _, err := p.client.SendRequest("keepalive@openssh.com", false, nil); err != nil {
+					p.closeSession()
 					return
 				}
+			}
+		}
+	}()
+	p.startWebSocketHeartbeat(10 * time.Second)
+}
 
-				// 1. Send non-blocking OpenSSH keepalive to target VPS
-				_, _, _ = client.SendRequest("keepalive@openssh.com", false, nil)
-
+func (p *persistentSSHSession) startWebSocketHeartbeat(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-p.done:
+				return
+			case <-ticker.C:
 				// 2. Send native WebSocket Ping control frame (Opcode 0x9) for Cloudflare Tunnel / Edge keepalive
 				p.wsMu.Lock()
 				if p.activeWs != nil {
@@ -171,7 +210,11 @@ func (s *WsTerminalService) removeSession(key string, expected *persistentSSHSes
 	}
 }
 
-func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *domain.RemoteHostConfig, initialCols, initialRows int, userID int, sessionID string, forceNew bool) {
+func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *domain.RemoteHostConfig, initialCols, initialRows int, userID int, sessionID string, forceNew bool, cursor ...uint64) {
+	var afterSequence uint64
+	if len(cursor) > 0 {
+		afterSequence = cursor[0]
+	}
 	if sessionID == "" {
 		sessionID = cfg.ID
 	}
@@ -179,22 +222,10 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 
 	s.sessionsMu.Lock()
 	pSess, exists := s.sessions[sessionKey]
-	if exists && !pSess.closed {
-		// Verify if the session and SSH channel are genuinely responsive
-		var isHealthy bool
-		if pSess.client != nil && pSess.session != nil && pSess.stdinPipe != nil {
-			targetRows := initialRows
-			targetCols := initialCols
-			if targetRows < 4 {
-				targetRows = 24
-			}
-			if targetCols < 20 {
-				targetCols = 80
-			}
-			if err := pSess.session.WindowChange(targetRows, targetCols); err == nil {
-				isHealthy = true
-			}
-		}
+	if exists {
+		pSess.mu.Lock()
+		isHealthy := !pSess.closed
+		pSess.mu.Unlock()
 
 		if forceNew || !isHealthy {
 			if !isHealthy {
@@ -209,36 +240,13 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 			go pSess.closeSession()
 		} else {
 			// Re-attach to existing live session
-			pSess.mu.Lock()
-			if pSess.detachTimer != nil {
-				pSess.detachTimer.Stop()
-				pSess.detachTimer = nil
-			}
-			// Close previous stale ws if any
-			pSess.wsMu.Lock()
-			if pSess.activeWs != nil && pSess.activeWs != ws {
-				_ = pSess.activeWs.Close()
-			}
-			pSess.activeWs = ws
-			pSess.wsMu.Unlock()
-
-			if initialCols >= 20 && initialRows >= 4 && pSess.session != nil {
-				_ = pSess.session.WindowChange(initialRows, initialCols)
-			}
-			pSess.mu.Unlock()
 			s.sessionsMu.Unlock()
-
-			logger.Info("SSH", fmt.Sprintf("Re-attached client to persistent terminal session: %s", sessionKey))
-			_ = pSess.writeWs(domain.WsTerminalMessage{
-				Type:    "connected",
-				Message: fmt.Sprintf("Re-attached to active session: %s (%s)", cfg.Name, cfg.Host),
-			})
-
-			// Wake up the shell and redraw prompt so terminal does not sit on an empty dead line
-			if pSess.stdinPipe != nil {
-				_, _ = io.WriteString(pSess.stdinPipe, "\r")
+			if !pSess.attach(ws, afterSequence) {
+				pSess.detach(ws)
+				_ = ws.Close()
+				return
 			}
-
+			// Never inject Enter on reattach: it can execute a half-typed command.
 			s.runWsReadLoop(pSess, ws)
 			return
 		}
@@ -350,13 +358,13 @@ func (s *WsTerminalService) HandleWebSocketSession(ws *websocket.Conn, cfg *doma
 	s.sessions[sessionKey] = pSess
 	s.sessionsMu.Unlock()
 
+	_ = pSess.writeWs(domain.WsTerminalMessage{
+		Type:          "connected",
+		ResetSequence: true,
+		Message:       fmt.Sprintf("Connected to %s (%s@%s:%d)", cfg.Name, cfg.Username, cfg.Host, cfg.Port),
+	})
 	pSess.startOutputPipes()
 	pSess.startKeepAlive()
-
-	_ = pSess.writeWs(domain.WsTerminalMessage{
-		Type:    "connected",
-		Message: fmt.Sprintf("Connected to %s (%s@%s:%d)", cfg.Name, cfg.Username, cfg.Host, cfg.Port),
-	})
 
 	s.runWsReadLoop(pSess, ws)
 }
@@ -389,6 +397,12 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 			break
 		}
 		_ = ws.SetReadDeadline(time.Now().Add(generousIdle))
+		p.wsMu.Lock()
+		isCurrent := p.activeWs == ws
+		p.wsMu.Unlock()
+		if !isCurrent {
+			return
+		}
 
 		var msg domain.WsTerminalMessage
 		if err := json.Unmarshal(message, &msg); err == nil {
@@ -433,23 +447,57 @@ func (s *WsTerminalService) runWsReadLoop(p *persistentSSHSession, ws *websocket
 	}
 
 	// WebSocket disconnected (e.g. tab hidden, Cloudflare Tunnel timeout, or network blip)
-	p.mu.Lock()
-	if !p.closed {
-		p.wsMu.Lock()
-		if p.activeWs == ws {
-			p.activeWs = nil
-		}
-		p.wsMu.Unlock()
+	p.detach(ws)
+}
 
-		// Start a 15-minute grace period before terminating the remote SSH session
-		if p.detachTimer != nil {
-			p.detachTimer.Stop()
-		}
-		p.detachTimer = time.AfterFunc(15*time.Minute, func() {
-			logger.Info("SSH", fmt.Sprintf("Detached terminal session grace period expired (15m): %s", p.key))
-			p.closeSession()
-		})
-		logger.Info("SSH", fmt.Sprintf("Terminal session detached for %s (15m grace period started)", p.key))
+func (p *persistentSSHSession) attach(ws *websocket.Conn, after uint64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return false
 	}
-	p.mu.Unlock()
+	p.detachEpoch++
+	if p.detachTimer != nil {
+		p.detachTimer.Stop()
+		p.detachTimer = nil
+	}
+	p.wsMu.Lock()
+	defer p.wsMu.Unlock()
+	if p.activeWs != nil && p.activeWs != ws {
+		_ = p.activeWs.Close()
+	}
+	p.activeWs = ws
+	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := ws.WriteJSON(domain.WsTerminalMessage{Type: "connected", Message: "Resumed existing shell"}); err != nil {
+		return false
+	}
+	if len(p.history) > 0 && p.history[0].Sequence > after+1 {
+		_ = ws.WriteJSON(domain.WsTerminalMessage{Type: "historyGap", Message: "Older terminal output exceeded the 1 MiB replay limit."})
+	}
+	for _, msg := range p.history {
+		if msg.Sequence > after {
+			if err := ws.WriteJSON(msg); err != nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (p *persistentSSHSession) detach(ws *websocket.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.wsMu.Lock()
+	defer p.wsMu.Unlock()
+	// A stale read loop must not schedule expiry for a replacement connection.
+	if p.closed || p.activeWs != ws {
+		return
+	}
+	p.activeWs = nil
+	p.detachEpoch++
+	epoch := p.detachEpoch
+	if p.detachTimer != nil {
+		p.detachTimer.Stop()
+	}
+	p.detachTimer = time.AfterFunc(15*time.Minute, func() { p.closeSessionAtDetach(epoch) })
 }

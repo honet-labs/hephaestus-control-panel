@@ -170,6 +170,8 @@ interface OpenSession {
   lastActivity?: number;
   heartbeatTimer?: any;
   heartbeatWorker?: Worker;
+  lastReceivedAt?: number;
+  outputSequence?: number;
   reconnectAttempts?: number;
   reconnectPendingOnVisible?: boolean;
   metrics?: any;
@@ -760,10 +762,7 @@ const closeSession = (sessionOrIdx: OpenSession | number | string, event?: Mouse
 
   const s = openSessions.value[idx];
   if (s) {
-    if (s.heartbeatTimer) {
-      clearInterval(s.heartbeatTimer);
-      s.heartbeatTimer = undefined;
-    }
+    stopSessionHeartbeat(s);
     if (s.resizeObserver) {
       try {
         s.resizeObserver.disconnect();
@@ -898,11 +897,21 @@ const stopIdleDetection = () => {
   }
 };
 
-// Background-immune Heartbeat Management for Terminal Sessions
+// Heartbeat timers may be suspended by browsers; the server also sends pings.
 const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
   stopSessionHeartbeat(session);
 
-  // Use Web Worker for heartbeat: browser NEVER throttles Web Worker timers when minimized or tab is in background
+  const heartbeat = () => {
+    if (session.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+    // OPEN alone does not mean a socket survived sleep or a network change.
+    if (Date.now() - (session.lastReceivedAt || Date.now()) > 45000) {
+      ws.close(4000, 'Heartbeat timeout');
+      return;
+    }
+    try { ws.send(JSON.stringify({ type: 'ping' })); } catch (_) { ws.close(); }
+  };
+
+  // A worker reduces normal background throttling, but cannot prevent suspension.
   try {
     let worker: Worker | null = null;
     try {
@@ -929,11 +938,7 @@ const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
 
     if (worker) {
       worker.onmessage = (e) => {
-        if (e.data === 'ping' && session.ws === ws && ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.send(JSON.stringify({ type: 'ping' }));
-          } catch (_) {}
-        }
+        if (e.data === 'ping') heartbeat();
       };
       worker.postMessage('start');
       session.heartbeatWorker = worker;
@@ -942,13 +947,7 @@ const startSessionHeartbeat = (session: OpenSession, ws: WebSocket) => {
   } catch (_) {}
 
   // Fallback to standard setInterval if Web Worker is restricted
-  session.heartbeatTimer = setInterval(() => {
-    if (session.ws === ws && ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify({ type: 'ping' }));
-      } catch (_) {}
-    }
-  }, 5000);
+  session.heartbeatTimer = setInterval(heartbeat, 5000);
 };
 
 const stopSessionHeartbeat = (session: OpenSession) => {
@@ -988,7 +987,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const initialCols = session.term && session.term.cols >= 20 ? session.term.cols : 80;
   const initialRows = session.term && session.term.rows >= 4 ? session.term.rows : 24;
-  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${session.host.id}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}${forceNew ? '&forceNew=true' : ''}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/remote-host?token=${encodeURIComponent(token)}&hostId=${encodeURIComponent(session.host.id)}&sessionId=${encodeURIComponent(session.id)}&cols=${initialCols}&rows=${initialRows}&afterSequence=${session.outputSequence || 0}${forceNew ? '&forceNew=true' : ''}`;
   const ws = new WebSocket(wsUrl);
   session.ws = ws;
 
@@ -999,6 +998,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
     session.reconnectAttempts = 0;
     session.reconnectPendingOnVisible = false;
     session.lastActivity = Date.now();
+    session.lastReceivedAt = Date.now();
     session.isIdle = false;
 
     // Display connection banner
@@ -1023,6 +1023,7 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
         cols: activeCols,
         rows: activeRows,
         forceNew: forceNew,
+        sequence: session.outputSequence || 0,
       })
     );
 
@@ -1042,17 +1043,21 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
 
   ws.onmessage = (ev) => {
     if (session.ws !== ws) return;
-    session.lastActivity = Date.now();
-    session.isIdle = false;
+    session.lastReceivedAt = Date.now();
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'data' && msg.data) {
+        session.lastActivity = Date.now();
+        session.isIdle = false;
+        if (msg.sequence && msg.sequence <= (session.outputSequence || 0)) return;
+        if (msg.sequence) session.outputSequence = msg.sequence;
         if (!session.connected) {
           session.connecting = false;
           session.connected = true;
         }
         session.term?.write(msg.data);
       } else if (msg.type === 'connected') {
+        if (msg.resetSequence) session.outputSequence = 0;
         session.connecting = false;
         session.connected = true;
         session.reconnectAttempts = 0;
@@ -1061,6 +1066,8 @@ const connectWsTerminal = (session: OpenSession, isReconnect: boolean = false, f
         if (session.term) {
           safeFitTerminal(session);
         }
+      } else if (msg.type === 'historyGap') {
+        session.term?.write(`\r\n[${msg.message}]\r\n`);
       } else if (msg.type === 'error') {
         session.term?.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       } else if (msg.type === 'ping') {
@@ -1224,6 +1231,8 @@ const initXterm = (session: OpenSession) => {
   );
 
   session.term = term;
+  // A newly created display needs the retained transcript, not just new output.
+  session.outputSequence = 0;
   session.fitAddon = fitAddon;
 
   // Safe initial fit attempt only if container is already visible
@@ -1316,7 +1325,7 @@ const handleVisibilityOrFocus = () => {
     openSessions.value.forEach((sess) => {
       if (sess.activeView === 'terminal' && sess.term) {
         // If connection is already open and healthy, refit dimensions and do NOT reconnect!
-        if (sess.ws && sess.ws.readyState === WebSocket.OPEN) {
+        if (sess.ws && sess.ws.readyState === WebSocket.OPEN && Date.now() - (sess.lastReceivedAt || 0) <= 45000) {
           sess.connected = true;
           sess.connecting = false;
           sess.reconnectPendingOnVisible = false;
@@ -1328,7 +1337,7 @@ const handleVisibilityOrFocus = () => {
         }
 
         // If connection was disconnected while in background, seamlessly re-attach to backend persistent session
-        if (sess.reconnectPendingOnVisible || (!sess.connected && !sess.connecting)) {
+        if (sess.reconnectPendingOnVisible || (!sess.connected && !sess.connecting) || (sess.ws?.readyState === WebSocket.OPEN && Date.now() - (sess.lastReceivedAt || 0) > 45000)) {
           sess.reconnectPendingOnVisible = false;
           sess.reconnectAttempts = 0;
           reconnectTerminal(sess);
@@ -2970,8 +2979,15 @@ onUnmounted(() => {
         s.resizeObserver.disconnect();
       } catch (e) {}
     }
-    if (s.ws) s.ws.close();
-    if (s.term) s.term.dispose();
+    if (s.ws) {
+      s.ws.onopen = null;
+      s.ws.onmessage = null;
+      s.ws.onerror = null;
+      s.ws.onclose = null;
+      s.ws.close();
+      s.ws = undefined;
+    }
+    if (s.term) { s.term.dispose(); s.term = undefined; }
   });
 });
 </script>
@@ -3707,9 +3723,9 @@ onUnmounted(() => {
                   ]"
                 >
                   <button
-                    @click="reconnectTerminal(session, true)"
+                    @click="reconnectTerminal(session, false)"
                     :disabled="session.connecting"
-                    title="Reconnect terminal session (Restores responsive shell & preserves scrollback history)"
+                    title="Resume existing shell and recover buffered output"
                     :class="[
                       'flex items-center gap-1.5 px-2.5 py-0.5 rounded-l transition cursor-pointer disabled:opacity-50 text-[11px] font-mono leading-tight',
                       !session.connected && !session.connecting
