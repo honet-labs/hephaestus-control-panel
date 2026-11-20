@@ -1,5 +1,17 @@
 # Responsive UI and Docker sharing regression checks
 
+## Delivery status
+
+Implemented in `1271bc8` and present in `dev`: shared Docker connections do not
+expose private containers through lists or summary counts; navigation includes
+App Services → OpenSearch; mobile/tablet layout uses the responsive drawer and
+page/table refinements described below. Docker policy/count regression tests
+were rerun successfully on 20 November 2026. Final code commit `9f34c3a` also
+passed [main CI 44698593173](https://github.com/honet-labs/hephaestus-control-panel/actions/runs/44698593173).
+This is source/build/test delivery, not confirmation of production deployment or
+completed visual testing on physical mobile/tablet devices. Production deployment
+requires authorized access and remains outside the executed checks.
+
 ## Navigation and responsive layout
 
 - Below 1280px the sidebar is an off-canvas drawer, leaving the full viewport

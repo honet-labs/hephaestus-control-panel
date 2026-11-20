@@ -9,16 +9,30 @@ audit, PostgreSQL-client image checks, Nginx configuration checks, and final ima
 vulnerability gates on backend/frontend for both amd64 and arm64. This closes the
 earlier dump-client compatibility failure; it was not waived.
 
-A further isolated vendor suite is defined in `tests/vendor/README.md` and the
-`Isolated Vendor Integration Audit` workflow. It runs genuine vendor containers,
-not the earlier protocol fixtures, without customer infrastructure. Results must
-be confirmed for the introducing commit before considering those tests passed.
+The final code commit **9f34c3a** passed both
+[main CI 44698593173](https://github.com/honet-labs/hephaestus-control-panel/actions/runs/44698593173)
+and [vendor CI 44698593161](https://github.com/honet-labs/hephaestus-control-panel/actions/runs/44698593161).
+Main CI includes Linux race/database tests, frontend build/audit, and final image
+security gates for backend/frontend on amd64 and arm64. All seven real-vendor
+jobs passed with race detection: OpenSearch, Prometheus, Grafana, Data Prepper,
+OTel Collector, Vaultwarden, and RustFS S3. Fixture definitions and scope are in
+`tests/vendor/README.md`; these runs used isolated containers and synthetic data,
+not customer infrastructure. Earlier vendor failures were fixed, not waived:
+Vaultwarden requires an explicit volatile-storage opt-in for anonymous test
+volumes and Identity-based token/registration endpoints in this version.
 Data Prepper/OTel customer SSH/systemd management, customer historical schemas and
 production deployment remain distinct checks requiring the corresponding access.
 
 The vendor work also adds explicit S3 region selection (provider-compatible default,
 R2 `auto`, or a configured region) and makes OpenSearch reports honor the selected
 profile's TLS verification policy without disabling verification globally.
+Failed multi-host Prometheus/Grafana queries no longer fabricate live samples;
+partial results state successful/requested host counts. Grafana cannot relabel
+unconfigured Prometheus demonstration data as a live fallback. Vendor regression
+tests exercised these failure cases. Vaultwarden prelogin now retries the Identity
+endpoint only on a legacy-route 404, not 401/429. Cipher create/update obtains
+`encryptedFor` from the authenticated server profile; actual encrypted CRUD,
+sync/decryption and incorrect-password cache denial passed against Vaultwarden.
 
 This supplements `SECURITY-AUDIT-2026-11.md`; it does not replace its deployment
 warnings. Production was not modified or penetration-tested.
@@ -196,12 +210,12 @@ database credentials. Default `go test` skips this opt-in database test.
 - Set `DB_PASSWORD` explicitly before running Compose. Preserve the current
   database password when upgrading; changing only the environment does not rotate
   the password inside an existing PostgreSQL volume.
-- Vendor OpenSearch, Grafana, Prometheus, Data Prepper, OTel, Vaultwarden and S3
-  staging endpoints, restore drills using actual customer backups, deployment
-  migrations from historical customer schemas and production cross-user sessions still
-  need an authorized staging environment. Loopback fixtures do not replace these.
-  The user confirmed no staging environment is currently available; this remains
-  an explicit blocker rather than an unexecuted test being marked as passed.
+- Real vendor integration checks are now executed in isolated CI as recorded above.
+  Customer-specific routing/certificates, SSH/systemd deployments, restore drills
+  using actual customer backups, migrations from historical customer schemas and
+  production cross-user sessions still require authorized environment access.
+  The user confirmed no staging environment is available. Isolated vendor results
+  do not certify those customer environments, and production has not been deployed.
 - General control-plane risks (trusted manage roles, egress/SSRF policy, proxy
   token logging, intentionally public resources) remain as described in the first
   report. No claim of an exhaustive penetration test or zero application risk.
