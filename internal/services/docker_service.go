@@ -127,10 +127,10 @@ func (s *DockerService) runRemoteDockerCommand(ctx context.Context, conn *domain
 	// 1. Export PATH so docker CLI is found across all distributions (/usr/bin, /usr/local/bin, /snap/bin)
 	// 2. Set DOCKER_HOST to socketPath
 	// 3. Test if user has direct permission on docker socket
-	// 4. If permission denied, auto-add user to 'docker' group in background
-	// 5. Ensure socket permissions if accessible and execute with elevation fallback
+	// 4. Use the configured account's existing sudo rights when needed.
+	// Never mutate group membership or make the host socket world-writable.
 	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
-_SOCK="%s"
+_SOCK=%s
 export DOCKER_HOST="unix://$_SOCK"
 _P='%s'
 
@@ -147,24 +147,7 @@ _exec_docker() {
         return $?
     fi
 
-    # 3. User lacks docker permission.
-    # Auto-add user to docker group in background for permanent access
-    if [ -n "$_P" ]; then
-        echo "$_P" | sudo -S -p '' usermod -aG docker $(whoami) 2>/dev/null || true
-    elif sudo -n true 2>/dev/null; then
-        sudo -n usermod -aG docker $(whoami) 2>/dev/null || true
-    fi
-
-    # 4. Also ensure socket permissions if it is a unix socket
-    if [ -S "$_SOCK" ]; then
-        if [ -n "$_P" ]; then
-            echo "$_P" | sudo -S -p '' chmod 666 "$_SOCK" 2>/dev/null || true
-        elif sudo -n true 2>/dev/null; then
-            sudo -n chmod 666 "$_SOCK" 2>/dev/null || true
-        fi
-    fi
-
-    # 5. Execute with elevation so current command succeeds immediately
+    # 3. Execute using existing elevation rights without changing host policy
     if [ -n "$_P" ]; then
         echo "$_P" | sudo -S -p '' docker "$@"
     elif sudo -n true 2>/dev/null; then
@@ -175,7 +158,7 @@ _exec_docker() {
 }
 
 _exec_docker %s
-`, socketPath, escapedPass, dockerArgs)
+`, shellQuote(socketPath), escapedPass, dockerArgs)
 
 	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHost, script)
 	if err != nil {
@@ -235,7 +218,7 @@ func (s *DockerService) StreamRemoteDockerSave(ctx context.Context, conn *domain
 	}
 
 	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
-_SOCK="%s"
+_SOCK=%s
 export DOCKER_HOST="unix://$_SOCK"
 _P='%s'
 
@@ -260,7 +243,7 @@ else
         docker save %s
     fi
 fi
-`, socketPath, escapedPass,
+`, shellQuote(socketPath), escapedPass,
 		shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag),
 		shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag), shellQuote(imageTag),
 	)
@@ -352,7 +335,7 @@ func (s *DockerService) StreamRemoteDockerLoad(ctx context.Context, conn *domain
 	}
 
 	script := fmt.Sprintf(`export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/snap/bin
-_SOCK="%s"
+_SOCK=%s
 export DOCKER_HOST="unix://$_SOCK"
 _P='%s'
 
@@ -365,7 +348,7 @@ elif sudo -n true 2>/dev/null; then
 else
     docker load
 fi
-`, socketPath, escapedPass)
+`, shellQuote(socketPath), escapedPass)
 
 	session.Stdin = src
 	var stderrBuf bytes.Buffer
@@ -490,14 +473,14 @@ func (s *DockerService) listContainersLocal(ctx context.Context, conn *domain.Do
 	}
 
 	var raw []struct {
-		ID      string            `json:"Id"`
-		Names   []string          `json:"Names"`
-		Image   string            `json:"Image"`
-		ImageID string            `json:"ImageID"`
-		Command string            `json:"Command"`
-		Created int64             `json:"Created"`
-		State   string            `json:"State"`
-		Status  string            `json:"Status"`
+		ID      string   `json:"Id"`
+		Names   []string `json:"Names"`
+		Image   string   `json:"Image"`
+		ImageID string   `json:"ImageID"`
+		Command string   `json:"Command"`
+		Created int64    `json:"Created"`
+		State   string   `json:"State"`
+		Status  string   `json:"Status"`
 		Ports   []struct {
 			IP          string `json:"IP"`
 			PrivatePort int    `json:"PrivatePort"`
@@ -1611,8 +1594,10 @@ type dockerRawInspect struct {
 		Running bool   `json:"Running"`
 	} `json:"State"`
 	HostConfig struct {
-		Binds         []string                                                  `json:"Binds"`
-		PortBindings  map[string][]struct{ HostPort string `json:"HostPort"` } `json:"PortBindings"`
+		Binds        []string `json:"Binds"`
+		PortBindings map[string][]struct {
+			HostPort string `json:"HostPort"`
+		} `json:"PortBindings"`
 		RestartPolicy struct {
 			Name string `json:"Name"`
 		} `json:"RestartPolicy"`
@@ -1746,7 +1731,7 @@ func (s *DockerService) EditContainer(ctx context.Context, connectionID, contain
 
 	// 2. Strict check: Container must be stopped before editing!
 	if details.IsRunning || strings.EqualFold(details.State, "running") {
-		return "", errors.New("Container is currently running. You must stop the container before editing.")
+		return "", errors.New("container is currently running; stop the container before editing")
 	}
 
 	// Fallback to existing values if not provided
@@ -1850,17 +1835,17 @@ func (s *DockerService) TestConnection(ctx context.Context, conn *domain.DockerC
 	}
 
 	var rawInfo struct {
-		ServerVersion string  `json:"ServerVersion"`
-		Containers    int     `json:"Containers"`
-		ContainersRunning int `json:"ContainersRunning"`
-		ContainersPaused  int `json:"ContainersPaused"`
-		ContainersStopped int `json:"ContainersStopped"`
-		Images        int     `json:"Images"`
-		OperatingSystem string `json:"OperatingSystem"`
-		OSType        string  `json:"OSType"`
-		Architecture  string  `json:"Architecture"`
-		NCPU          int     `json:"NCPU"`
-		MemTotal      uint64  `json:"MemTotal"`
+		ServerVersion     string `json:"ServerVersion"`
+		Containers        int    `json:"Containers"`
+		ContainersRunning int    `json:"ContainersRunning"`
+		ContainersPaused  int    `json:"ContainersPaused"`
+		ContainersStopped int    `json:"ContainersStopped"`
+		Images            int    `json:"Images"`
+		OperatingSystem   string `json:"OperatingSystem"`
+		OSType            string `json:"OSType"`
+		Architecture      string `json:"Architecture"`
+		NCPU              int    `json:"NCPU"`
+		MemTotal          uint64 `json:"MemTotal"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&rawInfo)
 
@@ -2042,11 +2027,6 @@ func parsePortsString(portsStr string) []domain.DockerContainerPort {
 		}
 	}
 	return list
-}
-
-func parseSizeMB(sizeStr string) float64 {
-	_, mb := parseImageSize(sizeStr)
-	return mb
 }
 
 func parseImageSize(sizeStr string) (int64, float64) {

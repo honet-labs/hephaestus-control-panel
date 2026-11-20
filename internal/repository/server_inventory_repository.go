@@ -45,7 +45,6 @@ func (r *ServerInventoryRepository) List(ctx context.Context, userID int, userRo
 	if strings.TrimSpace(osType) != "" && osType != "all" {
 		conditions = append(conditions, fmt.Sprintf("LOWER(si.os_type) = $%d", argIdx))
 		args = append(args, strings.ToLower(strings.TrimSpace(osType)))
-		argIdx++
 	}
 
 	whereClause := ""

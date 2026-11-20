@@ -17,7 +17,7 @@ RUN npm run build
 # ==========================================
 FROM ${REGISTRY_MIRROR}nginx:1.30.7-alpine
 
-RUN apk add --no-cache openssl tzdata
+RUN apk upgrade --no-cache && apk add --no-cache openssl tzdata
 
 ENV TZ=Asia/Jakarta
 

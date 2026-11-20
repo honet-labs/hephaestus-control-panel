@@ -291,7 +291,7 @@ func (r *UserRepository) LogActivity(ctx context.Context, module, action, detail
 	ip := ""
 	if len(ipAddress) > 0 && ipAddress[0] != "" {
 		ip = ipAddress[0]
-	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+	} else if ctxIp, ok := ctx.Value(domain.ClientIPContextKey{}).(string); ok {
 		ip = ctxIp
 	}
 

@@ -29,8 +29,9 @@ func NewOpenSearchService() *OpenSearchService {
 	}
 	return &OpenSearchService{
 		httpClient: &http.Client{
-			Transport: tr,
-			Timeout:   10 * time.Second,
+			CheckRedirect: config.RejectIntegrationRedirect,
+			Transport:     tr,
+			Timeout:       10 * time.Second,
 		},
 	}
 }
@@ -363,6 +364,9 @@ func (s *OpenSearchService) DeleteConfig(ctx context.Context, id string, userID 
 }
 
 func (s *OpenSearchService) SetActiveConfig(ctx context.Context, configID string, userID int, userRole string) (*domain.OpenSearchConfig, error) {
+	if err := repository.RequireConnectionAccess(ctx, "opensearch_configs", "opensearch_shares", "config_id", configID, "manage"); err != nil {
+		return nil, err
+	}
 	pool, err := database.GetPool()
 	if err != nil {
 		return nil, fmt.Errorf("database connection unavailable: %w", err)
@@ -524,8 +528,9 @@ func (s *OpenSearchService) doRequest(ctx context.Context, method, endpoint stri
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifySSL},
 	}
 	client := &http.Client{
-		Transport: tr,
-		Timeout:   10 * time.Second,
+		Transport:     tr,
+		Timeout:       10 * time.Second,
+		CheckRedirect: config.RejectIntegrationRedirect,
 	}
 
 	resp, err := client.Do(req)
@@ -644,8 +649,9 @@ func (s *OpenSearchService) TestConnection(ctx context.Context, host string, por
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifySSL},
 	}
 	client := &http.Client{
-		Transport: tr,
-		Timeout:   10 * time.Second,
+		Transport:     tr,
+		Timeout:       10 * time.Second,
+		CheckRedirect: config.RejectIntegrationRedirect,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -757,8 +763,9 @@ func (s *OpenSearchService) ExecuteQuery(ctx context.Context, method, endpoint s
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifySSL},
 	}
 	client := &http.Client{
-		Transport: tr,
-		Timeout:   35 * time.Second,
+		Transport:     tr,
+		Timeout:       35 * time.Second,
+		CheckRedirect: config.RejectIntegrationRedirect,
 	}
 
 	startTime := time.Now()

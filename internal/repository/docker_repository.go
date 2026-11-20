@@ -502,7 +502,7 @@ func (r *DockerRepository) DeleteConnection(ctx context.Context, id string, user
 		var ownerID *int
 		errCheck := pool.QueryRow(ctx, "SELECT user_id FROM docker_connections WHERE id = $1", id).Scan(&ownerID)
 		if errCheck != nil {
-			return fmt.Errorf("Docker connection not found")
+			return fmt.Errorf("docker connection not found")
 		}
 		if ownerID == nil || *ownerID != userID {
 			var perm string
@@ -751,4 +751,3 @@ func (r *DockerRepository) ListAvailableUsers(ctx context.Context) ([]map[string
 	}
 	return users, nil
 }
-

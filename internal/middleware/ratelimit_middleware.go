@@ -234,7 +234,7 @@ func (rl *RateLimiter) isLockedOut(ip string) (bool, time.Duration) {
 	}
 
 	if time.Now().Before(b.lockoutEnd) {
-		return true, b.lockoutEnd.Sub(time.Now())
+		return true, time.Until(b.lockoutEnd)
 	}
 	return false, 0
 }

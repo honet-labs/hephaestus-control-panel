@@ -328,21 +328,29 @@ func (h *OpenSearchHandler) TestConnection(c *gin.Context) {
 	// Resolve saved credentials ONLY if editing or testing an existing connection by ID
 	if req.ID != "" && services.IsMaskedOrEmptyPassword(req.Password) {
 		var saved *domain.OpenSearchConfig
-		if req.ID != "opensearch-active" {
+		if req.ID == "opensearch-active" {
+			saved, _ = h.openSearchService.GetActiveConfig(c.Request.Context())
+		} else {
 			saved, _ = h.openSearchService.GetConfigByID(c.Request.Context(), req.ID)
 		}
 		if saved == nil {
-			saved, _ = h.openSearchService.GetActiveConfig(c.Request.Context())
+			denyIntegration(c)
+			return
 		}
 		if saved != nil {
 			if req.Host == "" {
 				req.Host = saved.Host
+				req.UseSSL, req.VerifySSL = saved.UseSSL, saved.VerifySSL
 			}
 			if req.Port <= 0 {
 				req.Port = saved.Port
 			}
 			if req.Username == "" {
 				req.Username = saved.Username
+			}
+			if req.Host != saved.Host || req.Port != saved.Port || req.Username != saved.Username || req.UseSSL != saved.UseSSL || req.VerifySSL != saved.VerifySSL {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Supply a fresh password when changing the OpenSearch destination, identity, or TLS policy"})
+				return
 			}
 			req.Password = saved.Password
 		}

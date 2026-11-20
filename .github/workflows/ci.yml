@@ -17,6 +17,19 @@ jobs:
   backend:
     name: Backend Test, Security & Build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hcp_audit
+          POSTGRES_PASSWORD: isolated-ci-test-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U hcp_audit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -35,6 +48,11 @@ jobs:
 
       - name: Test with race detection
         run: go test -race ./...
+        env:
+          HCP_AUDIT_POSTGRES: '1'
+          HCP_AUDIT_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
+          HCP_AUDIT_POSTGRES_USER: hcp_audit
+          HCP_AUDIT_POSTGRES_PASSWORD: isolated-ci-test-password
 
       - name: Scan reachable Go vulnerabilities
         run: |
@@ -77,9 +95,14 @@ jobs:
   # Job 3: Docker Multi-Arch Build (Backend & Frontend)
   # =============================================================
   docker:
-    name: Build Multi-Arch Docker Images
+    name: Build and Scan ${{ matrix.image }} (${{ matrix.arch }})
     needs: [backend, frontend]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend]
+        arch: [amd64, arm64]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
@@ -90,20 +113,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Backend Image (linux/amd64, linux/arm64)
+      - name: Build loadable architecture-specific image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.backend
-          platforms: linux/amd64,linux/arm64
+          file: Dockerfile.${{ matrix.image }}
+          platforms: linux/${{ matrix.arch }}
           push: false
-          tags: hephaestus-backend:latest
+          load: true
+          tags: hephaestus-${{ matrix.image }}:audit
 
-      - name: Build Docker Frontend Image (linux/amd64, linux/arm64)
-        uses: docker/build-push-action@v5
+      - name: Scan final image OS and application dependencies
+        run: |
+          mkdir -p audit-results
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/audit-results:/reports" \
+            aquasec/trivy:0.76.2 image --scanners vuln \
+            --severity MEDIUM,HIGH,CRITICAL --exit-code 1 \
+            --format json --output /reports/image.json \
+            hephaestus-${{ matrix.image }}:audit
+
+      - name: Upload image vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          context: .
-          file: Dockerfile.frontend
-          platforms: linux/amd64,linux/arm64
-          push: false
-          tags: hephaestus-frontend:latest
+          name: security-${{ matrix.image }}-${{ matrix.arch }}
+          path: audit-results/
+          if-no-files-found: warn

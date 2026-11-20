@@ -29,7 +29,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /hephaestus ./cmd/serv
 # ==========================================
 FROM alpine:3.24.4
 
-RUN apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates tzdata postgresql-client mariadb-client openssh-client iputils curl net-snmp-tools bind-tools tar gzip socat bash
 
 WORKDIR /app
 

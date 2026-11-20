@@ -114,6 +114,7 @@ func (h *OTelHandler) SaveHost(c *gin.Context) {
 		_, _ = h.otelService.GetHostStatus(context.Background(), hostID)
 	}(cfg.ID)
 
+	cfg.SSHPassword, cfg.SSHKey = nil, nil
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Host profile saved successfully", "data": cfg})
 }
 

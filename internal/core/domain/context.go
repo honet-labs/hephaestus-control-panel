@@ -3,6 +3,7 @@ package domain
 import "context"
 
 type actorContextKey struct{}
+type ClientIPContextKey struct{}
 
 func ContextWithUser(ctx context.Context, user *User) context.Context {
 	return context.WithValue(ctx, actorContextKey{}, user)

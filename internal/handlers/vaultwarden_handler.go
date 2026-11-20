@@ -160,11 +160,13 @@ func (h *VaultwardenHandler) TestConnection(c *gin.Context) {
 	}
 
 	pwd := input.MasterPassword
-	if pwd == "" && input.ConfigID != "" {
+	if missingSecret(pwd) && input.ConfigID != "" {
 		existing, err := h.vwRepo.GetConfig(c.Request.Context(), userID, userRole, input.ConfigID)
-		if err == nil && existing != nil {
-			pwd = existing.MasterPassword
+		if err != nil || existing == nil || !sameVaultIdentity(input.ServerURL, input.Email, existing) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Supply a fresh master password when testing a different vault destination or identity"})
+			return
 		}
+		pwd = existing.MasterPassword
 	}
 
 	if pwd == "" {
@@ -576,4 +578,3 @@ func (h *VaultwardenHandler) DeleteFolder(c *gin.Context) {
 		"message": "Folder deleted successfully",
 	})
 }
-

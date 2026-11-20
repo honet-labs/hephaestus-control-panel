@@ -77,6 +77,9 @@ func (h *BackupHandler) SaveDBConfig(c *gin.Context) {
 		return
 	}
 
+	cfg.Password = ""
+	cfg.SSHPassword = nil
+	cfg.SSHKey = nil
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Database config saved.", "data": cfg})
 }
 
@@ -101,16 +104,15 @@ func (h *BackupHandler) TestDBConfig(c *gin.Context) {
 	}
 
 	// If testing an existing configuration without re-entering passwords
-	if cfg.ID != "" && (cfg.Password == "" || cfg.Password == "********") {
+	if cfg.ID != "" {
 		existing, err := h.backupRepo.GetRawDBConfig(c.Request.Context(), cfg.ID)
-		if err == nil && existing != nil {
-			cfg.Password = existing.Password
-			if cfg.SSHPassword == nil || *cfg.SSHPassword == "" || *cfg.SSHPassword == "********" {
-				cfg.SSHPassword = existing.SSHPassword
-			}
-			if cfg.SSHKey == nil || *cfg.SSHKey == "" || *cfg.SSHKey == "********" {
-				cfg.SSHKey = existing.SSHKey
-			}
+		if err != nil || existing == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Saved database configuration unavailable"})
+			return
+		}
+		if err := reuseBackupDBCredentials(&cfg, existing); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+			return
 		}
 	}
 
@@ -158,6 +160,9 @@ func (h *BackupHandler) SaveDestination(c *gin.Context) {
 		return
 	}
 
+	for _, field := range []string{"secretAccessKey", "password", "sshKey"} {
+		delete(dest.Config, field)
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Destination saved.", "data": dest})
 }
 
@@ -172,18 +177,15 @@ func (h *BackupHandler) TestDestination(c *gin.Context) {
 		dest.Name = "Test Destination"
 	}
 
-	if dest.ID != "" && dest.Config != nil {
+	if dest.ID != "" {
 		existing, err := h.backupRepo.GetRawDestination(c.Request.Context(), dest.ID)
-		if err == nil && existing != nil && existing.Config != nil {
-			if sec, ok := dest.Config["secretAccessKey"].(string); ok && (sec == "" || sec == "********") {
-				dest.Config["secretAccessKey"] = existing.Config["secretAccessKey"]
-			}
-			if pwd, ok := dest.Config["password"].(string); ok && (pwd == "" || pwd == "********") {
-				dest.Config["password"] = existing.Config["password"]
-			}
-			if key, ok := dest.Config["sshKey"].(string); ok && (key == "" || key == "********") {
-				dest.Config["sshKey"] = existing.Config["sshKey"]
-			}
+		if err != nil || existing == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Saved destination unavailable"})
+			return
+		}
+		if err := reuseBackupDestinationCredentials(&dest, existing); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+			return
 		}
 	}
 

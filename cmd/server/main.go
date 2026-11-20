@@ -105,7 +105,8 @@ func main() {
 	dpService := services.NewDataPrepperService(sshService)
 	otelService := services.NewOTelService(otelRepo, sshService)
 	vaultwardenService := services.NewVaultwardenService(vaultwardenRepo)
-	vaultwardenService.StartBackgroundSync(nil)
+	backgroundStop := make(chan struct{})
+	vaultwardenService.StartBackgroundSync(backgroundStop)
 	systemService := services.NewSystemService()
 	reportService := services.NewReportService(reportRepo, configRepo, openSearchService, promService)
 	statusPageService := services.NewStatusPageService(statusPageRepo, topologyRepo, remoteRepo, configRepo, openSearchService, promService, sshService)
@@ -342,8 +343,8 @@ func main() {
 		api.GET("/opensearch/config", middleware.RequirePermission("opensearch", "read"), openSearchHandler.GetConfig)
 		api.GET("/opensearch/configs", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ListConfigs)
 		api.POST("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.SaveConfig)
-		api.POST("/opensearch/configs/:id/activate", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ActivateConfig)
-		api.POST("/opensearch/activate", middleware.RequirePermission("opensearch", "read"), openSearchHandler.ActivateConfig)
+		api.POST("/opensearch/configs/:id/activate", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.ActivateConfig)
+		api.POST("/opensearch/activate", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.ActivateConfig)
 		api.DELETE("/opensearch/config", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
 		api.DELETE("/opensearch/config/:id", middleware.RequirePermission("opensearch", "manage"), openSearchHandler.DeleteConfig)
 		api.POST("/opensearch/test", middleware.RequirePermission("opensearch", "read"), openSearchHandler.TestConnection)
@@ -618,8 +619,11 @@ func main() {
 	defer cancelShutdown()
 
 	cronSched.Stop()
-	workerPool.Stop()
+	close(backgroundStop)
+	monitoringInstanceService.Stop()
+	ipamService.StopBackgroundEngine()
 	eventService.Stop()
+	workerPool.Stop()
 
 	if err := srv.Shutdown(ctxShutdown); err != nil {
 		logger.Error("Server", "Server forced shutdown", err)

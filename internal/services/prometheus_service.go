@@ -417,7 +417,7 @@ func (s *PrometheusService) GetConfigFile(ctx context.Context, instanceID string
 		promCfg, err = s.GetActiveConfig(ctx)
 	}
 	if err != nil {
-		return "", nil, fmt.Errorf("Prometheus configuration not found: %w", err)
+		return "", nil, fmt.Errorf("prometheus configuration not found: %w", err)
 	}
 
 	nameLower := strings.ToLower(promCfg.Name)
@@ -613,7 +613,7 @@ func (s *PrometheusService) SaveConfigFile(ctx context.Context, instanceID strin
 		promCfg, err = s.GetActiveConfig(ctx)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("Prometheus configuration not found: %w", err)
+		return nil, fmt.Errorf("prometheus configuration not found: %w", err)
 	}
 	defer s.InvalidateCache()
 

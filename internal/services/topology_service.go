@@ -109,7 +109,7 @@ func (s *TopologyService) DiscoverFromPrometheus(ctx context.Context) ([]domain.
 			continue
 		}
 
-		name := t.Labels["job"]
+		var name string
 		if n, ok := t.Labels["nodename"]; ok {
 			name = n
 		} else if h, ok := t.Labels["hostname"]; ok {
@@ -326,4 +326,3 @@ func (s *TopologyService) SyncFromRemoteServers(ctx context.Context, sheetID *in
 	logger.Info("Topology", fmt.Sprintf("Synced %d remote server(s) into topology sheet", len(synced)))
 	return synced, nil
 }
-

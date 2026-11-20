@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 	"go-hephaestus/internal/repository"
@@ -32,11 +33,12 @@ import (
 )
 
 type vwCachedSession struct {
-	ServerURL   string
-	AccessToken string
-	UserEncKey  []byte
-	UserMacKey  []byte
-	ExpiresAt   time.Time
+	PasswordBinding [32]byte
+	ServerURL       string
+	AccessToken     string
+	UserEncKey      []byte
+	UserMacKey      []byte
+	ExpiresAt       time.Time
 }
 
 type VaultwardenService struct {
@@ -45,15 +47,16 @@ type VaultwardenService struct {
 	sessionMu   sync.RWMutex
 	sessions    map[string]*vwCachedSession // key: serverURL + "|" + email
 	lockoutMu   sync.RWMutex
-	lockoutTime map[string]time.Time        // key: serverURL + "|" + email -> lockout expiration
-	loginMu     sync.Mutex                  // serializes login attempts to prevent concurrent bursts
+	lockoutTime map[string]time.Time // key: serverURL + "|" + email -> lockout expiration
+	loginMu     sync.Mutex           // serializes login attempts to prevent concurrent bursts
 }
 
 func NewVaultwardenService(repo *repository.VaultwardenRepository) *VaultwardenService {
 	return &VaultwardenService{
 		repo: repo,
 		httpClient: &http.Client{
-			Timeout: 20 * time.Second,
+			Timeout:       20 * time.Second,
+			CheckRedirect: config.RejectIntegrationRedirect,
 		},
 		sessions:    make(map[string]*vwCachedSession),
 		lockoutTime: make(map[string]time.Time),
@@ -61,7 +64,20 @@ func NewVaultwardenService(repo *repository.VaultwardenRepository) *VaultwardenS
 }
 
 func (s *VaultwardenService) getCacheKey(serverURL, email string) string {
-	return strings.ToLower(strings.TrimRight(serverURL, "/")) + "|" + strings.ToLower(strings.TrimSpace(email))
+	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	if parsed, err := url.Parse(serverURL); err == nil {
+		parsed.Scheme, parsed.Host = strings.ToLower(parsed.Scheme), strings.ToLower(parsed.Host)
+		serverURL = parsed.String()
+	}
+	return serverURL + "|" + strings.ToLower(strings.TrimSpace(email))
+}
+
+func (s *vwCachedSession) matchesPassword(password string) bool {
+	if s == nil {
+		return false
+	}
+	binding := sha256.Sum256([]byte(password))
+	return subtle.ConstantTimeCompare(s.PasswordBinding[:], binding[:]) == 1
 }
 
 // InvalidateSession purges cached authentication tokens for the specified Vaultwarden instance
@@ -150,19 +166,19 @@ type bwSyncResponse struct {
 }
 
 type bwRawCipher struct {
-	ID           string           `json:"id"`
-	FolderID     *string          `json:"folderId"`
-	Type         int              `json:"type"`
-	Name         string           `json:"name"`
-	Notes        *string          `json:"notes"`
-	RevisionDate string           `json:"revisionDate"`
+	ID           string            `json:"id"`
+	FolderID     *string           `json:"folderId"`
+	Type         int               `json:"type"`
+	Name         string            `json:"name"`
+	Notes        *string           `json:"notes"`
+	RevisionDate string            `json:"revisionDate"`
 	Login        *bwRawCipherLogin `json:"login"`
 }
 
 type bwRawCipherLogin struct {
-	Username *string         `json:"username"`
-	Password *string         `json:"password"`
-	TOTP     *string         `json:"totp"`
+	Username *string          `json:"username"`
+	Password *string          `json:"password"`
+	TOTP     *string          `json:"totp"`
 	URIs     []bwRawCipherURI `json:"uris"`
 }
 
@@ -515,14 +531,14 @@ func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverU
 		if remaining <= 0 {
 			remaining = 1
 		}
-		return nil, fmt.Errorf("Vaultwarden rate limit active: server requested cooldown due to too many login requests (HTTP 429). Please wait %d seconds before retrying", remaining)
+		return nil, fmt.Errorf("vaultwarden rate limit active: server requested cooldown due to too many login requests (HTTP 429); wait %d seconds before retrying", remaining)
 	}
 
 	// Step 0B: Check if we have a valid non-expired cached session
 	s.sessionMu.RLock()
 	sess, hasSess := s.sessions[cacheKey]
 	s.sessionMu.RUnlock()
-	if hasSess && sess != nil && time.Now().Before(sess.ExpiresAt) {
+	if hasSess && sess.matchesPassword(password) && time.Now().Before(sess.ExpiresAt) {
 		logger.Debug("Vaultwarden", fmt.Sprintf("Using active cached access token for '%s' (expires in %v)", email, time.Until(sess.ExpiresAt).Round(time.Second)))
 		return &vwAuthContext{
 			ServerURL:   sess.ServerURL,
@@ -540,7 +556,7 @@ func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverU
 	s.sessionMu.RLock()
 	sess, hasSess = s.sessions[cacheKey]
 	s.sessionMu.RUnlock()
-	if hasSess && sess != nil && time.Now().Before(sess.ExpiresAt) {
+	if hasSess && sess.matchesPassword(password) && time.Now().Before(sess.ExpiresAt) {
 		return &vwAuthContext{
 			ServerURL:   sess.ServerURL,
 			AccessToken: sess.AccessToken,
@@ -597,11 +613,12 @@ func (s *VaultwardenService) authenticateAndGetKeys(ctx context.Context, serverU
 
 	s.sessionMu.Lock()
 	s.sessions[cacheKey] = &vwCachedSession{
-		ServerURL:   serverURL,
-		AccessToken: tokenResp.AccessToken,
-		UserEncKey:  userEncKey,
-		UserMacKey:  userMacKey,
-		ExpiresAt:   expiresAt,
+		PasswordBinding: sha256.Sum256([]byte(password)),
+		ServerURL:       serverURL,
+		AccessToken:     tokenResp.AccessToken,
+		UserEncKey:      userEncKey,
+		UserMacKey:      userMacKey,
+		ExpiresAt:       expiresAt,
 	}
 	s.sessionMu.Unlock()
 
@@ -774,14 +791,24 @@ func (s *VaultwardenService) doPrelogin(ctx context.Context, serverURL, email st
 		return nil, fmt.Errorf("invalid prelogin JSON response: %w", err)
 	}
 
-	if prelogin.KdfIterations <= 0 {
-		prelogin.KdfIterations = 600000 // Bitwarden standard default
+	if prelogin.KdfIterations == 0 {
+		if prelogin.Kdf == 1 {
+			prelogin.KdfIterations = 3
+		} else {
+			prelogin.KdfIterations = 600000
+		}
 	}
 
 	return &prelogin, nil
 }
 
 func (s *VaultwardenService) deriveMasterKey(email, password string, prelogin *bwPreloginResponse) ([]byte, error) {
+	if prelogin == nil {
+		return nil, errors.New("missing vault KDF parameters")
+	}
+	if prelogin.KdfIterations < 1 {
+		return nil, errors.New("invalid vault KDF iteration count")
+	}
 	if prelogin.Kdf == 1 {
 		// Argon2id
 		salt := sha256.Sum256([]byte(email))
@@ -793,11 +820,17 @@ func (s *VaultwardenService) deriveMasterKey(email, password string, prelogin *b
 		if prelogin.KdfParallelism != nil && *prelogin.KdfParallelism > 0 {
 			parallelism = *prelogin.KdfParallelism
 		}
+		if prelogin.KdfIterations > 10 || memory < 8 || memory > 256 || parallelism < 1 || parallelism > 16 || (prelogin.KdfMemory != nil && *prelogin.KdfMemory <= 0) || (prelogin.KdfParallelism != nil && *prelogin.KdfParallelism <= 0) {
+			return nil, errors.New("vault Argon2 parameters exceed safe limits (iterations 1-10, memory 8-256 MiB, parallelism 1-16)")
+		}
 		key := argon2.IDKey([]byte(password), salt[:], uint32(prelogin.KdfIterations), uint32(memory*1024), uint8(parallelism), 32)
 		return key, nil
 	}
 
-	// Default: PBKDF2 with SHA-256
+	if prelogin.Kdf != 0 || prelogin.KdfIterations > 2000000 {
+		return nil, errors.New("unsupported vault KDF or PBKDF2 iterations exceed safe limit of 2000000")
+	}
+	// PBKDF2 with SHA-256
 	salt := []byte(email)
 	key := pbkdf2.Key([]byte(password), salt, prelogin.KdfIterations, 32, sha256.New)
 	return key, nil
@@ -998,6 +1031,9 @@ func (s *VaultwardenService) decryptCipherBytes(cipherStr string, encKey, macKey
 }
 
 func (s *VaultwardenService) aesCbcDecrypt(ciphertext, key, iv []byte) ([]byte, error) {
+	if len(iv) != aes.BlockSize {
+		return nil, errors.New("invalid AES-CBC IV length")
+	}
 	if len(ciphertext) == 0 {
 		return []byte{}, nil
 	}
@@ -1372,7 +1408,6 @@ func (s *VaultwardenService) UpdateCipher(ctx context.Context, userID int, userR
 		return nil, fmt.Errorf("vaultwarden rejected cipher update (HTTP %d): %s", resp.StatusCode, string(raw))
 	}
 
-
 	uris := []string{}
 	if req.URI != "" {
 		uris = append(uris, req.URI)
@@ -1393,4 +1428,3 @@ func (s *VaultwardenService) UpdateCipher(ctx context.Context, userID int, userR
 		RevisionDate: time.Now(),
 	}, nil
 }
-

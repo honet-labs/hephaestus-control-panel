@@ -48,8 +48,9 @@ func NewReportService(
 		openSearchService: openSearchService,
 		promService:       promService,
 		httpClient: &http.Client{
-			Transport: tr,
-			Timeout:   12 * time.Second,
+			CheckRedirect: config.RejectIntegrationRedirect,
+			Transport:     tr,
+			Timeout:       12 * time.Second,
 		},
 	}
 }

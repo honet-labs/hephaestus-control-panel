@@ -100,7 +100,6 @@ func (r *MonitoringInstanceRepository) List(ctx context.Context, userID int, use
 	if tagFilter != "" && tagFilter != "all" {
 		query.WriteString(fmt.Sprintf(" AND $%d = ANY(m.tags)", argIdx))
 		args = append(args, tagFilter)
-		argIdx++
 	}
 
 	query.WriteString(" ORDER BY m.group_name ASC, m.name ASC")

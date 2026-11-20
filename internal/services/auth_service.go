@@ -33,7 +33,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string, neve
 	ip := ""
 	if len(ipAddress) > 0 && ipAddress[0] != "" {
 		ip = ipAddress[0]
-	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+	} else if ctxIp, ok := ctx.Value(domain.ClientIPContextKey{}).(string); ok {
 		ip = ctxIp
 	}
 
@@ -77,7 +77,7 @@ func (s *AuthService) Logout(ctx context.Context, rawToken string, ipAddress ...
 	ip := ""
 	if len(ipAddress) > 0 && ipAddress[0] != "" {
 		ip = ipAddress[0]
-	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+	} else if ctxIp, ok := ctx.Value(domain.ClientIPContextKey{}).(string); ok {
 		ip = ctxIp
 	}
 
@@ -103,7 +103,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int, oldPasswor
 	ip := ""
 	if len(ipAddress) > 0 && ipAddress[0] != "" {
 		ip = ipAddress[0]
-	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+	} else if ctxIp, ok := ctx.Value(domain.ClientIPContextKey{}).(string); ok {
 		ip = ctxIp
 	}
 
@@ -146,7 +146,7 @@ func (s *AuthService) CompleteSetup(ctx context.Context, adminUsername, adminPas
 	ip := ""
 	if len(ipAddress) > 0 && ipAddress[0] != "" {
 		ip = ipAddress[0]
-	} else if ctxIp, ok := ctx.Value("client_ip").(string); ok {
+	} else if ctxIp, ok := ctx.Value(domain.ClientIPContextKey{}).(string); ok {
 		ip = ctxIp
 	}
 

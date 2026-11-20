@@ -18,11 +18,9 @@ import (
 var schemaSQL string
 
 var (
-	activePool   *pgxpool.Pool
-	poolLock     sync.RWMutex
-	isConnected  bool
-	connErr      error
-	isConfigured bool
+	activePool  *pgxpool.Pool
+	poolLock    sync.RWMutex
+	isConnected bool
 )
 
 // InitDatabase initializes the PostgreSQL connection pool and runs database schema migrations
@@ -36,7 +34,6 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 	}
 
 	isConnected = false
-	connErr = nil
 
 	// Step 1: Ensure target database exists
 	if err := ensureDatabaseExists(ctx, cfg.DB); err != nil {
@@ -46,7 +43,6 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 	// Step 2: Connect to the target database
 	poolConfig, err := pgxpool.ParseConfig(cfg.DB.ConnString())
 	if err != nil {
-		connErr = err
 		logger.Error("Database", "Failed to parse database connection string", err)
 		return err
 	}
@@ -80,7 +76,6 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		connErr = err
 		logger.Error("Database", "Failed to initialize pgxpool", err)
 		return err
 	}
@@ -89,23 +84,21 @@ func InitDatabase(ctx context.Context, cfg *config.Config) error {
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := pool.Ping(pingCtx); err != nil {
-		connErr = err
 		pool.Close()
 		logger.Warn("Database", fmt.Sprintf("PostgreSQL connection failed: %v. Running in Setup Mode.", err))
 		return err
 	}
 
-	activePool = pool
-	isConnected = true
-	isConfigured = true
-
 	logger.Info("Database", fmt.Sprintf("Connected to PostgreSQL at %s:%d/%s", cfg.DB.Host, cfg.DB.Port, cfg.DB.Database))
 
 	// Step 4: Execute database schema migrations
 	if err := runMigrations(ctx, pool); err != nil {
+		pool.Close()
 		logger.Error("Database", "Schema migration failed", err)
 		return err
 	}
+	activePool = pool
+	isConnected = true
 
 	logger.Info("Database", "Database schema and tables synchronized successfully.")
 	return nil
@@ -193,14 +186,14 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		END $$;
 	`
 	if _, err := pool.Exec(ctx, preUpgradeSQL); err != nil {
-		logger.Warn("Database", fmt.Sprintf("Pre-migration upgrade warning: %v", err))
+		return fmt.Errorf("pre-migration upgrade failed: %w", err)
 	}
 
 	if schemaSQL == "" {
 		return fmt.Errorf("schema migration SQL is empty")
 	}
 	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
-		logger.Warn("Database", fmt.Sprintf("Schema initial migration notice (continuing with incremental upgrades): %v", err))
+		return fmt.Errorf("initial schema migration failed: %w", err)
 	}
 
 	// Dynamic incremental updates for existing databases

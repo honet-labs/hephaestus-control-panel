@@ -478,7 +478,8 @@ func (h *SettingsHandler) TestGrafana(c *gin.Context) {
 	}
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout:       5 * time.Second,
+		CheckRedirect: config.RejectIntegrationRedirect,
 	}
 
 	// 1. Test basic reachability via /api/health

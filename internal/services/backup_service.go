@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -147,7 +148,7 @@ func (s *BackupService) HandleBackupJob(ctx context.Context, job *domain.Job, up
 	}
 
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	filename := fmt.Sprintf("%s_%s.sql.gz", dbCfg.DatabaseName, timestamp)
+	filename := databaseArchiveFilename(dbCfg.DatabaseName, timestamp)
 	historyID := fmt.Sprintf("bh-%s", uuid.New().String()[:8])
 
 	_ = s.backupRepo.CreateHistory(ctx, domain.BackupHistoryEntry{
@@ -197,7 +198,7 @@ func (s *BackupService) executeDumpStreamingToFile(ctx context.Context, dbCfg *d
 }
 
 func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *domain.BackupDbConfig, targetFilePath string) (int64, error) {
-	outFile, err := os.OpenFile(targetFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	outFile, err := os.OpenFile(targetFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create temporary backup file: %w", err)
 	}
@@ -213,11 +214,11 @@ func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *doma
 		if p, err := exec.LookPath("pg_dump"); err == nil {
 			dumpBin = p
 		} else {
-			// pg_dump binary is not present in PATH, fallback to native PostgreSQL dump
+			// Never report a data-only, schema-less approximation as a full backup.
 			_ = gw.Close()
 			_ = outFile.Close()
 			_ = os.Remove(targetFilePath)
-			return s.dumpPostgreSQLNativeToFile(ctx, dbCfg, targetFilePath)
+			return 0, fmt.Errorf("pg_dump is required for a restorable PostgreSQL backup: %w", err)
 		}
 		cmd = exec.CommandContext(ctx, dumpBin,
 			"-h", dbCfg.Host,
@@ -255,114 +256,9 @@ func (s *BackupService) executeDumpDirectToFile(ctx context.Context, dbCfg *doma
 			errStr = err.Error()
 		}
 		if dbCfg.DBType == "postgresql" {
-			// If pg_dump failed with clear network/credential errors, report them directly without misleading fallback
-			if strings.Contains(errStr, "Connection refused") ||
-				strings.Contains(errStr, "connection refused") ||
-				strings.Contains(errStr, "authentication failed") ||
-				strings.Contains(errStr, "does not exist") ||
-				strings.Contains(errStr, "could not translate host name") {
-				return 0, fmt.Errorf("pg_dump failed: %s", errStr)
-			}
-			// Attempt native fallback in case of syntax or version mismatch
-			_ = gw.Close()
-			_ = outFile.Close()
-			_ = os.Remove(targetFilePath)
-			nSize, nErr := s.dumpPostgreSQLNativeToFile(ctx, dbCfg, targetFilePath)
-			if nErr == nil {
-				return nSize, nil
-			}
-			return 0, fmt.Errorf("pg_dump failed: %s (native fallback failed: %v)", errStr, nErr)
+			return 0, fmt.Errorf("pg_dump failed; install a client compatible with the server version: %s", errStr)
 		}
 		return 0, fmt.Errorf("database dump failed: %s", errStr)
-	}
-
-	if err := gw.Close(); err != nil {
-		return 0, err
-	}
-	if err := outFile.Close(); err != nil {
-		return 0, err
-	}
-
-	fi, err := os.Stat(targetFilePath)
-	if err != nil {
-		return 0, err
-	}
-	return fi.Size(), nil
-}
-
-func (s *BackupService) dumpPostgreSQLNativeToFile(ctx context.Context, dbCfg *domain.BackupDbConfig, targetFilePath string) (int64, error) {
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		dbCfg.Username, dbCfg.Password, dbCfg.Host, dbCfg.Port, dbCfg.DatabaseName)
-	conn, err := pgx.Connect(ctx, connStr)
-	if err != nil {
-		return 0, fmt.Errorf("failed to connect via native PostgreSQL driver: %w", err)
-	}
-	defer conn.Close(ctx)
-
-	outFile, err := os.OpenFile(targetFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return 0, err
-	}
-	defer outFile.Close()
-
-	gw := gzip.NewWriter(outFile)
-	defer gw.Close()
-
-	header := fmt.Sprintf("-- Hephaestus PostgreSQL Native Backup Dump\n-- Database: %s\n-- Timestamp: %s\n\n", dbCfg.DatabaseName, time.Now().Format(time.RFC3339))
-	if _, err := io.WriteString(gw, header); err != nil {
-		return 0, err
-	}
-
-	rows, err := conn.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err == nil {
-			tables = append(tables, t)
-		}
-	}
-
-	for _, table := range tables {
-		if _, err := io.WriteString(gw, fmt.Sprintf("\n-- Data for Name: %s\n", table)); err != nil {
-			return 0, err
-		}
-		dataRows, err := conn.Query(ctx, fmt.Sprintf(`SELECT * FROM "%s"`, table))
-		if err != nil {
-			continue
-		}
-
-		fieldDescs := dataRows.FieldDescriptions()
-		colNames := make([]string, len(fieldDescs))
-		for i, fd := range fieldDescs {
-			colNames[i] = fmt.Sprintf(`"%s"`, string(fd.Name))
-		}
-		colList := strings.Join(colNames, ", ")
-
-		for dataRows.Next() {
-			vals, err := dataRows.Values()
-			if err != nil {
-				continue
-			}
-			valStrs := make([]string, len(vals))
-			for i, v := range vals {
-				if v == nil {
-					valStrs[i] = "NULL"
-				} else {
-					valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''"))
-				}
-			}
-			line := fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s);\n", table, colList, strings.Join(valStrs, ", "))
-			if _, err := io.WriteString(gw, line); err != nil {
-				dataRows.Close()
-				return 0, err
-			}
-		}
-		dataRows.Close()
 	}
 
 	if err := gw.Close(); err != nil {
@@ -418,6 +314,9 @@ func (s *BackupService) executeDumpSSHToFile(ctx context.Context, dbCfg *domain.
 		return 0, fmt.Errorf("unsupported DB type for SSH dump: %s", dbCfg.DBType)
 	}
 
+	// Propagate pg_dump/mysqldump failure through gzip instead of reporting a
+	// successful (but empty/partial) archive. Missing bash uses the tunnel fallback.
+	dumpCmd = "bash -o pipefail -c " + shellQuote("umask 077; "+dumpCmd)
 	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHostCfg, dumpCmd)
 	if err != nil || exitCode != 0 {
 		errDetail := strings.TrimSpace(stderr + "\n" + stdout)
@@ -437,7 +336,7 @@ func (s *BackupService) executeDumpSSHToFile(ctx context.Context, dbCfg *domain.
 	}
 	defer reader.Close()
 
-	localFile, err := os.OpenFile(targetFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	localFile, err := os.OpenFile(targetFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return 0, err
 	}
@@ -471,210 +370,6 @@ func (s *BackupService) executeDumpViaSSHTunnelToFile(ctx context.Context, dbCfg
 		return 0, fmt.Errorf("SSH tunnel dump failed: %w", err)
 	}
 	return size, nil
-}
-
-func (s *BackupService) executeDump(ctx context.Context, dbCfg *domain.BackupDbConfig, filename string) ([]byte, error) {
-	if dbCfg.SSHHost != nil && *dbCfg.SSHHost != "" {
-		return s.executeDumpSSH(ctx, dbCfg, filename)
-	}
-	return s.executeDumpDirect(ctx, dbCfg)
-}
-
-func (s *BackupService) executeDumpDirect(ctx context.Context, dbCfg *domain.BackupDbConfig) ([]byte, error) {
-	var cmd *exec.Cmd
-	switch dbCfg.DBType {
-	case "postgresql":
-		dumpBin := "pg_dump"
-		if p, err := exec.LookPath("pg_dump"); err == nil {
-			dumpBin = p
-		} else {
-			// pg_dump binary is not present in PATH, fallback to native PostgreSQL dump
-			return s.dumpPostgreSQLNative(ctx, dbCfg)
-		}
-		cmd = exec.CommandContext(ctx, dumpBin,
-			"-h", dbCfg.Host,
-			"-p", fmt.Sprintf("%d", dbCfg.Port),
-			"-U", dbCfg.Username,
-			"-d", dbCfg.DatabaseName,
-		)
-		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", dbCfg.Password))
-	case "mysql", "mariadb":
-		var args []string
-		args = append(args, "--protocol=tcp", "-h", dbCfg.Host, "-P", fmt.Sprintf("%d", dbCfg.Port), "-u", dbCfg.Username)
-		if dbCfg.Password != "" {
-			args = append(args, fmt.Sprintf("-p%s", dbCfg.Password))
-		}
-		args = append(args, "--single-transaction", "--quick", "--skip-lock-tables", dbCfg.DatabaseName)
-
-		dumpBin := "mysqldump"
-		if p, err := exec.LookPath("mariadb-dump"); err == nil {
-			dumpBin = p
-		} else if p, err := exec.LookPath("mysqldump"); err == nil {
-			dumpBin = p
-		}
-		cmd = exec.CommandContext(ctx, dumpBin, args...)
-	default:
-		return nil, fmt.Errorf("unsupported database type for direct dump: %s", dbCfg.DBType)
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errStr := strings.TrimSpace(stderr.String())
-		if errStr == "" {
-			errStr = err.Error()
-		}
-		if dbCfg.DBType == "postgresql" {
-			if strings.Contains(errStr, "Connection refused") ||
-				strings.Contains(errStr, "connection refused") ||
-				strings.Contains(errStr, "authentication failed") ||
-				strings.Contains(errStr, "does not exist") ||
-				strings.Contains(errStr, "could not translate host name") {
-				return nil, fmt.Errorf("pg_dump failed: %s", errStr)
-			}
-			data, nErr := s.dumpPostgreSQLNative(ctx, dbCfg)
-			if nErr == nil {
-				return data, nil
-			}
-			return nil, fmt.Errorf("pg_dump failed: %s (native fallback failed: %v)", errStr, nErr)
-		}
-		return nil, fmt.Errorf("database dump failed: %s", errStr)
-	}
-	return stdout.Bytes(), nil
-}
-
-func (s *BackupService) dumpPostgreSQLNative(ctx context.Context, dbCfg *domain.BackupDbConfig) ([]byte, error) {
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		dbCfg.Username, dbCfg.Password, dbCfg.Host, dbCfg.Port, dbCfg.DatabaseName)
-	conn, err := pgx.Connect(ctx, connStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect via native PostgreSQL driver: %w", err)
-	}
-	defer conn.Close(ctx)
-
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("-- Hephaestus PostgreSQL Native Backup Dump\n-- Database: %s\n-- Timestamp: %s\n\n", dbCfg.DatabaseName, time.Now().Format(time.RFC3339)))
-
-	rows, err := conn.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err == nil {
-			tables = append(tables, t)
-		}
-	}
-
-	for _, table := range tables {
-		buf.WriteString(fmt.Sprintf("\n-- Data for Name: %s\n", table))
-		dataRows, err := conn.Query(ctx, fmt.Sprintf(`SELECT * FROM "%s"`, table))
-		if err != nil {
-			continue
-		}
-
-		fieldDescs := dataRows.FieldDescriptions()
-		colNames := make([]string, len(fieldDescs))
-		for i, fd := range fieldDescs {
-			colNames[i] = fmt.Sprintf(`"%s"`, string(fd.Name))
-		}
-		colList := strings.Join(colNames, ", ")
-
-		for dataRows.Next() {
-			vals, err := dataRows.Values()
-			if err != nil {
-				continue
-			}
-			valStrs := make([]string, len(vals))
-			for i, v := range vals {
-				if v == nil {
-					valStrs[i] = "NULL"
-				} else {
-					valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''"))
-				}
-			}
-			buf.WriteString(fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s);\n", table, colList, strings.Join(valStrs, ", ")))
-		}
-		dataRows.Close()
-	}
-
-	return buf.Bytes(), nil
-}
-
-func (s *BackupService) executeDumpSSH(ctx context.Context, dbCfg *domain.BackupDbConfig, filename string) ([]byte, error) {
-	remoteHostCfg := &domain.RemoteHostConfig{
-		ID:       "temp-ssh",
-		Host:     *dbCfg.SSHHost,
-		Port:     22,
-		Username: "root",
-		AuthType: "password",
-	}
-	if dbCfg.SSHPort != nil {
-		remoteHostCfg.Port = *dbCfg.SSHPort
-	}
-	if dbCfg.SSHUser != nil {
-		remoteHostCfg.Username = *dbCfg.SSHUser
-	}
-	if dbCfg.SSHAuth != nil {
-		remoteHostCfg.AuthType = *dbCfg.SSHAuth
-	}
-	remoteHostCfg.Password = dbCfg.SSHPassword
-	remoteHostCfg.SSHKey = dbCfg.SSHKey
-
-	remotePath := fmt.Sprintf("/tmp/%s", filename)
-	var passFlag string
-	if dbCfg.Password != "" {
-		passFlag = fmt.Sprintf("-p'%s'", escapeShell(dbCfg.Password))
-	}
-
-	var dumpCmd string
-	switch dbCfg.DBType {
-	case "postgresql":
-		dumpCmd = fmt.Sprintf("export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; if command -v pg_dump >/dev/null 2>&1; then PGPASSWORD='%s' pg_dump -h '%s' -p %d -U '%s' -d '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
-			escapeShell(dbCfg.Password), escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
-	case "mysql", "mariadb":
-		dumpCmd = fmt.Sprintf("export PATH=$PATH:/usr/local/bin:/usr/local/mysql/bin:/opt/lampp/bin:/usr/bin:/bin; if command -v mariadb-dump >/dev/null 2>&1; then mariadb-dump -h '%s' -P %d -u '%s' %s '%s' > '%s'; elif command -v mysqldump >/dev/null 2>&1; then mysqldump -h '%s' -P %d -u '%s' %s '%s' > '%s'; else echo 'NO_DUMP_CLI'; exit 127; fi",
-			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath),
-			escapeShell(dbCfg.Host), dbCfg.Port, escapeShell(dbCfg.Username), passFlag, escapeShell(dbCfg.DatabaseName), escapeShell(remotePath))
-	default:
-		return nil, fmt.Errorf("unsupported DB type for SSH dump: %s", dbCfg.DBType)
-	}
-
-	stdout, stderr, exitCode, err := s.sshService.ExecuteCommand(remoteHostCfg, dumpCmd)
-	if err != nil || exitCode != 0 {
-		errDetail := strings.TrimSpace(stderr + "\n" + stdout)
-		// If remote host does not have mysqldump/mariadb-dump installed (exit code 127 or command not found):
-		// Automatically fallback to secure SSH tunnel dump using Hephaestus local engine!
-		if exitCode == 127 || strings.Contains(errDetail, "NO_DUMP_CLI") || strings.Contains(errDetail, "command not found") || strings.Contains(errDetail, "not found") {
-			return s.executeDumpViaSSHTunnel(ctx, dbCfg, filename)
-		}
-		if errDetail == "" && err != nil {
-			errDetail = err.Error()
-		}
-		return nil, fmt.Errorf("remote dump command failed (exit %d): %s", exitCode, errDetail)
-	}
-
-	// Download dump file via SFTP with config directly
-	reader, _, err := s.sshService.SftpDownloadWithConfig(remoteHostCfg, remotePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download remote dump: %w", err)
-	}
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Clean up remote file safely
-	_, _, _, _ = s.sshService.ExecuteCommand(remoteHostCfg, fmt.Sprintf("rm -f '%s'", escapeShell(remotePath)))
-
-	return data, nil
 }
 
 // withSSHTunnel creates a dynamic, secure SSH port forwarding tunnel to the database host
@@ -766,22 +461,6 @@ func (s *BackupService) withSSHTunnel(ctx context.Context, dbCfg *domain.BackupD
 	return fn(&tunneledCfg)
 }
 
-func (s *BackupService) executeDumpViaSSHTunnel(ctx context.Context, dbCfg *domain.BackupDbConfig, filename string) ([]byte, error) {
-	var dumpBytes []byte
-	err := s.withSSHTunnel(ctx, dbCfg, func(tunneledCfg *domain.BackupDbConfig) error {
-		res, err := s.executeDumpDirect(ctx, tunneledCfg)
-		if err != nil {
-			return err
-		}
-		dumpBytes = res
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("SSH tunnel dump failed: %w", err)
-	}
-	return dumpBytes, nil
-}
-
 func (s *BackupService) testDBConfigViaSSHTunnel(ctx context.Context, dbCfg *domain.BackupDbConfig) (string, error) {
 	var resultMsg string
 	err := s.withSSHTunnel(ctx, dbCfg, func(tunneledCfg *domain.BackupDbConfig) error {
@@ -800,47 +479,36 @@ func (s *BackupService) testDBConfigViaSSHTunnel(ctx context.Context, dbCfg *dom
 
 // ResolveLocalBackupPath resolves any user-specified path to the persistent backup volume on host
 func ResolveLocalBackupPath(rawPath string) string {
-	rawPath = strings.TrimSpace(rawPath)
-	if rawPath == "" || rawPath == "." {
-		return "/app/backups"
+	// Interpret the request inside a virtual POSIX root so ../ and Windows
+	// separators can never escape the persistent backup directory.
+	cleaned := path.Clean("/" + strings.ReplaceAll(strings.TrimSpace(rawPath), "\\", "/"))
+	for _, prefix := range []string{"/app/backups", "/opt/backups", "/backups", "/backup", "/opt/hephaestus"} {
+		if cleaned == prefix {
+			return "/app/backups"
+		}
+		if strings.HasPrefix(cleaned, prefix+"/") {
+			cleaned = strings.TrimPrefix(cleaned, prefix)
+			break
+		}
 	}
+	return path.Join("/app/backups", strings.TrimPrefix(cleaned, "/"))
+}
 
-	cleaned := filepath.Clean(filepath.ToSlash(rawPath))
-
-	// Direct persistent container mount targets
-	if cleaned == "/app/backups" || cleaned == "/opt/backups" || cleaned == "backups" {
-		return "/app/backups"
+func databaseArchiveFilename(name, timestamp string) string {
+	name = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.' {
+			return r
+		}
+		return '_'
+	}, name)
+	name = strings.Trim(name, "._-")
+	if name == "" {
+		name = "database"
 	}
-	if strings.HasPrefix(cleaned, "/app/backups/") {
-		return cleaned
+	if len(name) > 120 {
+		name = name[:120]
 	}
-	if strings.HasPrefix(cleaned, "/opt/backups/") {
-		return "/app/backups/" + strings.TrimPrefix(cleaned, "/opt/backups/")
-	}
-
-	// Normalizing /backup or /backups variants
-	if cleaned == "/backup" {
-		return "/app/backups"
-	}
-	if strings.HasPrefix(cleaned, "/backup/") {
-		return filepath.Join("/app/backups", strings.TrimPrefix(cleaned, "/backup/"))
-	}
-	if strings.HasPrefix(cleaned, "/backups/") {
-		return filepath.Join("/app/backups", strings.TrimPrefix(cleaned, "/backups/"))
-	}
-
-	// Relative paths (e.g. "database", "mysql/daily")
-	if !filepath.IsAbs(cleaned) {
-		return filepath.Join("/app/backups", cleaned)
-	}
-
-	// Arbitrary absolute paths like /database or /opt/hephaestus/database:
-	// Route safely to /app/backups to ensure persistence on host filesystem
-	trimmed := strings.TrimPrefix(cleaned, "/")
-	if strings.HasPrefix(trimmed, "opt/hephaestus/") {
-		trimmed = strings.TrimPrefix(trimmed, "opt/hephaestus/")
-	}
-	return filepath.Join("/app/backups", trimmed)
+	return fmt.Sprintf("%s_%s_%s.sql.gz", name, timestamp, uuid.New().String()[:8])
 }
 
 func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePath, filename string, dest *domain.BackupDestination) error {
@@ -873,7 +541,7 @@ func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePa
 		}
 		defer src.Close()
 
-		dst, err := os.OpenFile(targetFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		dst, err := os.OpenFile(targetFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}
@@ -902,7 +570,7 @@ func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePa
 				return err
 			}
 			defer src.Close()
-			dst, err := os.OpenFile(targetFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			dst, err := os.OpenFile(targetFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 			if err != nil {
 				return err
 			}
@@ -976,16 +644,8 @@ func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePa
 			}
 		}
 
-		customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			if endpoint != "" {
-				return aws.Endpoint{URL: endpoint, SigningRegion: "auto"}, nil
-			}
-			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-		})
-
 		cfg, err := awsConfig.LoadDefaultConfig(ctx,
 			awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-			awsConfig.WithEndpointResolverWithOptions(customResolver),
 			awsConfig.WithRegion("auto"),
 		)
 		if err != nil {
@@ -994,6 +654,9 @@ func (s *BackupService) uploadFileToDestination(ctx context.Context, localFilePa
 
 		s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 			o.UsePathStyle = true
+			if endpoint != "" {
+				o.BaseEndpoint = aws.String(endpoint)
+			}
 		})
 
 		src, err := os.Open(localFilePath)
@@ -1029,7 +692,7 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 			return fmt.Errorf("failed to create backup directory '%s': %w", targetDir, err)
 		}
 		targetFile := filepath.Join(targetDir, filename)
-		return os.WriteFile(targetFile, data, 0644)
+		return os.WriteFile(targetFile, data, 0600)
 
 	case "nas", "nfs", "nas_ssh":
 		host, _ := dest.Config["host"].(string)
@@ -1041,7 +704,7 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 				return fmt.Errorf("failed to create backup directory '%s': %w", targetDir, err)
 			}
 			targetFile := filepath.Join(targetDir, filename)
-			return os.WriteFile(targetFile, data, 0644)
+			return os.WriteFile(targetFile, data, 0600)
 		}
 
 		port := 22
@@ -1104,16 +767,8 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 			}
 		}
 
-		customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			if endpoint != "" {
-				return aws.Endpoint{URL: endpoint, SigningRegion: "auto"}, nil
-			}
-			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-		})
-
 		cfg, err := awsConfig.LoadDefaultConfig(ctx,
 			awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-			awsConfig.WithEndpointResolverWithOptions(customResolver),
 			awsConfig.WithRegion("auto"),
 		)
 		if err != nil {
@@ -1122,6 +777,9 @@ func (s *BackupService) uploadToDestination(ctx context.Context, data []byte, fi
 
 		s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 			o.UsePathStyle = true
+			if endpoint != "" {
+				o.BaseEndpoint = aws.String(endpoint)
+			}
 		})
 
 		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
@@ -1394,18 +1052,6 @@ func (s *BackupService) testDBConfigDirect(ctx context.Context, dbCfg *domain.Ba
 	default:
 		return "", fmt.Errorf("unsupported database type: %s", dbCfg.DBType)
 	}
-}
-
-func compressGzip(data []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	if _, err := gw.Write(data); err != nil {
-		return nil, err
-	}
-	if err := gw.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 func escapeShell(s string) string {

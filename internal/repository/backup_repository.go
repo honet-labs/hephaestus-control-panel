@@ -3,13 +3,40 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"go-hephaestus/internal/config"
 	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/database"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type BackupRepository struct{}
+
+var destinationSecretFields = []string{"secretAccessKey", "password", "sshKey"}
+
+// Preserve masked ciphertext verbatim. Re-encrypting it would silently double
+// encrypt credentials whenever an operator edits an unrelated destination field.
+func encryptDestinationSecrets(next, stored map[string]interface{}) error {
+	for _, field := range destinationSecretFields {
+		value, _ := next[field].(string)
+		if value == "" || value == "********" {
+			if old, exists := stored[field]; exists {
+				next[field] = old
+			} else {
+				delete(next, field)
+			}
+			continue
+		}
+		encrypted, err := config.EncryptText(value)
+		if err != nil {
+			return fmt.Errorf("encrypt destination %s: %w", field, err)
+		}
+		next[field] = encrypted
+	}
+	return nil
+}
 
 func NewBackupRepository() *BackupRepository {
 	return &BackupRepository{}
@@ -143,6 +170,9 @@ func (r *BackupRepository) ListDestinations(ctx context.Context) ([]domain.Backu
 		if _, ok := d.Config["password"]; ok {
 			d.Config["password"] = "********"
 		}
+		if _, ok := d.Config["sshKey"]; ok {
+			d.Config["sshKey"] = "********"
+		}
 		list = append(list, d)
 	}
 	return list, nil
@@ -162,15 +192,13 @@ func (r *BackupRepository) GetRawDestination(ctx context.Context, id string) (*d
 	}
 	_ = json.Unmarshal(cfgRaw, &d.Config)
 
-	// Decrypt sensitive fields
-	if sec, ok := d.Config["secretAccessKey"].(string); ok && sec != "" {
-		if dec, err := config.DecryptText(sec); err == nil {
-			d.Config["secretAccessKey"] = dec
-		}
-	}
-	if pwd, ok := d.Config["password"].(string); ok && pwd != "" {
-		if dec, err := config.DecryptText(pwd); err == nil {
-			d.Config["password"] = dec
+	for _, field := range destinationSecretFields {
+		if value, ok := d.Config[field].(string); ok && value != "" {
+			plain, err := config.DecryptText(value)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt destination %s: %w", field, err)
+			}
+			d.Config[field] = plain
 		}
 	}
 
@@ -188,49 +216,26 @@ func (r *BackupRepository) SaveDestination(ctx context.Context, d domain.BackupD
 		safeConfig[k] = v
 	}
 
-	// If updating an existing destination and password, secretAccessKey, or sshKey was left unchanged ("********" or empty), preserve existing encrypted secrets
+	var oldConfig map[string]interface{}
 	if d.ID != "" {
-		sec, secExists := safeConfig["secretAccessKey"].(string)
-		pwd, pwdExists := safeConfig["password"].(string)
-		key, keyExists := safeConfig["sshKey"].(string)
-		if (secExists && (sec == "********" || sec == "")) || (pwdExists && (pwd == "********" || pwd == "")) || (keyExists && (key == "********" || key == "")) {
-			existing, err := r.GetRawDestination(ctx, d.ID)
-			if err == nil && existing != nil && existing.Config != nil {
-				if secExists && (sec == "********" || sec == "") {
-					if oldSec, ok := existing.Config["secretAccessKey"].(string); ok && oldSec != "" {
-						if enc, err := config.EncryptText(oldSec); err == nil {
-							safeConfig["secretAccessKey"] = enc
-						}
-					}
-				}
-				if pwdExists && (pwd == "********" || pwd == "") {
-					if oldPwd, ok := existing.Config["password"].(string); ok && oldPwd != "" {
-						if enc, err := config.EncryptText(oldPwd); err == nil {
-							safeConfig["password"] = enc
-						}
-					}
-				}
-				if keyExists && (key == "********" || key == "") {
-					if oldKey, ok := existing.Config["sshKey"].(string); ok && oldKey != "" {
-						safeConfig["sshKey"] = oldKey
-					}
-				}
+		var raw []byte
+		err := pool.QueryRow(ctx, `SELECT config FROM backup_destinations WHERE id=$1`, d.ID).Scan(&raw)
+		if err == nil {
+			if err := json.Unmarshal(raw, &oldConfig); err != nil {
+				return err
 			}
+		} else if err != pgx.ErrNoRows {
+			return err
 		}
+	}
+	if err := encryptDestinationSecrets(safeConfig, oldConfig); err != nil {
+		return err
 	}
 
-	if sec, ok := safeConfig["secretAccessKey"].(string); ok && sec != "" && sec != "********" {
-		if enc, err := config.EncryptText(sec); err == nil {
-			safeConfig["secretAccessKey"] = enc
-		}
+	cfgJSON, err := json.Marshal(safeConfig)
+	if err != nil {
+		return err
 	}
-	if pwd, ok := safeConfig["password"].(string); ok && pwd != "" && pwd != "********" {
-		if enc, err := config.EncryptText(pwd); err == nil {
-			safeConfig["password"] = enc
-		}
-	}
-
-	cfgJSON, _ := json.Marshal(safeConfig)
 	query := `INSERT INTO backup_destinations (id, name, dest_type, config, is_active)
               VALUES ($1, $2, $3, $4, $5)
               ON CONFLICT (id) DO UPDATE SET

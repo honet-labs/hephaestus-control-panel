@@ -50,8 +50,9 @@ func NewStatusPageService(
 		promService:       promService,
 		sshService:        sshService,
 		httpClient: &http.Client{
-			Transport: tr,
-			Timeout:   4 * time.Second,
+			CheckRedirect: config.RejectIntegrationRedirect,
+			Transport:     tr,
+			Timeout:       4 * time.Second,
 		},
 	}
 }

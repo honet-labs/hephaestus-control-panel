@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"go-hephaestus/internal/core/domain"
 	"go-hephaestus/internal/logger"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ func RequestLoggerMiddleware() gin.HandlerFunc {
 		c.Set("requestId", reqID)
 
 		clientIP := c.ClientIP()
-		ctx := context.WithValue(c.Request.Context(), "client_ip", clientIP)
+		ctx := context.WithValue(c.Request.Context(), domain.ClientIPContextKey{}, clientIP)
 		c.Request = c.Request.WithContext(ctx)
 
 		start := time.Now()

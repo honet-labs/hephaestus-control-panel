@@ -609,7 +609,7 @@ func (s *ServerInventoryService) SyncFromRemoteHost(ctx context.Context, hostID 
 		if saveErr != nil {
 			return nil, fmt.Errorf("failed saving remote host to inventory: %w", saveErr)
 		}
-		return res, fmt.Errorf("Probe unreachable: %s (saved as offline)", errReason)
+		return res, fmt.Errorf("probe unreachable: %s (saved as offline)", errReason)
 	}
 
 	// Successful probe (Linux or Windows via PowerShell)
